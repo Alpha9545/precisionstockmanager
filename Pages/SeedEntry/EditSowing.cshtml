@@ -1,0 +1,535 @@
+﻿@page
+@model PlantStockManager.Pages.SeedEntry.EditSowingModel
+@using System.Globalization
+
+@functions {
+    private static string ToTitle(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        s = s.ToLowerInvariant();
+        return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s);
+    }
+}
+
+<link rel="stylesheet" href="~/css/sweetalert.css" />
+
+<style>
+    .modal-dialog {
+        margin: 1rem auto;
+    }
+
+    .modal-content {
+        max-height: 95vh;
+        display: flex;
+        flex-direction: column;
+        border-radius: 0.5rem;
+        font-size: 0.85rem;
+    }
+
+    .modal-header, .modal-footer {
+        padding: 0.5rem 1rem;
+        flex-shrink: 0;
+    }
+
+    .modal-body {
+        overflow-y: auto;
+        padding: 0.75rem 1rem;
+        flex-grow: 1;
+    }
+
+    .form-label, .form-control, .form-select, .btn {
+        font-size: 0.8rem;
+        padding: 0.4rem 0.6rem;
+    }
+
+    .row.g-3 > [class^='col-'] {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+
+    @@media (max-width: 768px) {
+        .modal-content {
+            max-height: 98vh;
+        }
+
+        .modal-body {
+            max-height: 100%;
+        }
+    }
+
+    .hidden-column {
+        display: none;
+    }
+    /* keep columns in DOM, but hidden */
+</style>
+
+<div class="p-2">
+    <h2 class="">Sowing Records</h2>
+
+    <!-- Filters -->
+    <form method="get" class="row g-3">
+        @Html.AntiForgeryToken()
+
+        <div class="col-md-2">
+            <label class="form-label">Polyhouse</label>
+            <select asp-for="SelectedPolyhouse" class="form-control" onchange="this.form.submit()">
+                <option value="">All</option>
+                @foreach (var polyhouse in Model.Polyhouses)
+                {
+                    <option value="@polyhouse.Id">@polyhouse.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="col-md-2">
+            <label class="form-label">Plant Type</label>
+            <select id="editPlantTypeDropdown" asp-for="SelectedPlantType" class="form-control" onchange="this.form.submit()">
+                <option value="">All</option>
+                @foreach (var plantType in Model.PlantTypes)
+                {
+                    <option value="@plantType.Id">@plantType.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="col-md-2">
+            <label class="form-label">Species</label>
+            <select id="editSpeciesDropdown" asp-for="SelectedSpecies" class="form-control" onchange="this.form.submit()">
+                <option value="">All</option>
+                @foreach (var species in Model.PlantSpecies)
+                {
+                    <option value="@species.Id">@species.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="col-md-2">
+            <label class="form-label">From Date</label>
+            <input type="date" asp-for="FromDate" class="form-control" onchange="this.form.submit()" />
+        </div>
+
+        <div class="col-md-2">
+            <label class="form-label">To Date</label>
+            <input type="date" asp-for="ToDate" class="form-control" onchange="this.form.submit()" />
+        </div>
+
+        <div class="col-md-2 d-flex align-items-end">
+            <button type="submit" class="btn btn-primary">Filter</button>
+        </div>
+    </form>
+
+    <!-- Table -->
+    <div class="table-responsive" style="max-height: 570px; overflow-y: auto; border: 1px solid #ddd;margin-top:10px;">
+        @if (Model.SeedEntries.Any())
+        {
+            <table class="table table-striped m-0">
+                <thead class="table-dark" style="position: sticky; top: 0; z-index: 10;">
+                    <tr>
+                        <th>Batch No</th>
+                        <th class="hidden-column">Seed Source Id</th>
+                        <th class="hidden-column">Other Source</th>
+                        <th>Source</th>
+                        <th class="hidden-column">Polyhouse Id</th>
+                        <th>Polyhouse</th>
+                        <th class="hidden-column">Plant ID</th>
+                        <th>Plant Type</th>
+                        <th class="hidden-column">Species ID</th>
+                        <th>Variety</th>
+                        <th>Seeds Planted</th>
+                        <th>In Trays</th>
+                        <th>Hardening</th>
+                        <th>In Stock</th>
+                        <th>Seeding Date</th>
+                        <th class="hidden-column">Trays Date</th>
+                        <th class="hidden-column">Hardening Date</th>
+                        <th class="hidden-column">Inventory Date</th>
+                        <th class="hidden-column">Location</th>
+                        <th>Location Description</th>
+                        <th>Supervisor</th>
+                        <th>Days Passed</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var record in Model.SeedEntries)
+                    {
+                        <tr>
+                            <td>@record.Id</td>
+                            <td class="hidden-column">@record.SeedSourceId</td>
+                            <td class="hidden-column">@record.OtherSeedSource</td>
+                            <td>@ToTitle((record.SeedSourceId == 0 ? record.OtherSeedSource : record.SeedSourceName))</td>
+                            <td class="hidden-column">@record.PolyhouseId</td>
+                            <td>@ToTitle(record.PolyhouseName)</td>
+                            <td class="hidden-column">@record.PlantId</td>
+                            <td>@ToTitle(record.PlantTypeName)</td>
+                            <td class="hidden-column">@record.SpeciesId</td>
+                            <td>@ToTitle(record.SpeciesName)</td>
+                            <td>@record.SeedsPlanted</td>
+                            <td>@(record.TraysAlive?.ToString() ?? "Balance")</td>
+                            <td>@(record.HardeningAlive?.ToString() ?? "Balance")</td>
+                            <td>@(record.AliveCount?.ToString() ?? "Balance")</td>
+                            <td>@record.SeedingDate.ToString("dd-MMMM-yyyy")</td>
+                            <td class="hidden-column">@(record.TraysDate?.ToString("dd-MMMM-yyyy") ?? "")</td>
+                            <td class="hidden-column">@(record.HardeningDate?.ToString("dd-MMMM-yyyy") ?? "")</td>
+                            <td class="hidden-column">@(record.InventoryDate?.ToString("dd-MMMM-yyyy") ?? "")</td>
+                            <td class="hidden-column">@record.Location</td>
+                            <td>@record.locationDesc</td>
+                            <td>@record.Supervisor</td>
+                            <td>@record.DaysPassed</td>
+                            <td>
+                                <button class="btn btn-primary btn-sm edit-sowing-btn" data-id="@record.Id">Edit</button>
+                                <button class="btn btn-danger btn-sm delete-sowing-btn" data-id="@record.Id">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+        else
+        {
+            <div class="alert alert-warning text-center mt-3">
+                No results found for the specified search.
+            </div>
+        }
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="sowingModal" tabindex="-1" aria-labelledby="sowingModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="background-color: #008080; color: white;">
+                <h5 class="modal-title" id="sowingModalLabel">Sowing ID - <span id="sowingId"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="sowingForm" method="post">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" asp-for="SeedEntry.CreatedBy" value="Lalit" />
+                    <input type="hidden" asp-for="SeedEntry.Id" id="hiddenSeedEntryId" />
+
+                    <div class="row g-3 align-items-end">
+                        <!-- Seed Source REMOVED -->
+
+                        <div class="col-md-4">
+                            <label class="fw-bold">Select Polyhouse</label>
+                            <select class="form-select" asp-for="SeedEntry.PolyhouseId" id="polyhouseDropdown" required>
+                                <option value="">-- Select --</option>
+                                @foreach (var polyhouse in Model.Polyhouses)
+                                {
+                                    <option value="@polyhouse.Id">@polyhouse.Name</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="fw-bold">Select Plant Type</label>
+                            <select id="plantTypeDropdown" class="form-select" asp-for="SeedEntry.PlantId" required>
+                                <option value="">-- Select --</option>
+                                @foreach (var type in Model.PlantTypes)
+                                {
+                                    <option value="@type.Id">@type.Name</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="fw-bold">Select Variety</label>
+                            <select id="speciesDropdown" class="form-select" asp-for="SeedEntry.SpeciesId" required>
+                                <option value="">-- Select a Plant Type First --</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="fw-bold">Seeding Date</label>
+                            <input type="date" id="EditSeedingDate" class="form-control" asp-for="SeedEntry.SeedingDate" required />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="fw-bold">Number of Seeds/Cutting Planted</label>
+                            <input type="text" class="form-control" id="sowingQuantityInput" required />
+                            <small class="text-muted d-block mt-1" id="sowingQuantityInWords"></small>
+                            <input type="hidden" asp-for="SeedEntry.SeedsPlanted" id="hiddenSowingQuantity" />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="fw-bold">Sowing Batch Supervisor</label>
+                            <select class="form-select" id="sowingByDropdown" asp-for="SeedEntry.Supervisor" required>
+                                <option value="">-- Select --</option>
+                                @foreach (var employee in Model.Employees)
+                                {
+                                    <option value="@employee.EmployeeID">@employee.Name</option>
+                                }
+                            </select>
+                        </div>
+
+                        <div class="col-md-6" id="traysAliveDiv">
+                            <label class="fw-bold">Trays Alive</label>
+                            <input type="text" class="form-control" id="traysAlive" asp-for="SeedEntry.TraysAlive" />
+                        </div>
+                        <div class="col-md-6" id="traysDateDiv">
+                            <label class="fw-bold">Trays Date</label>
+                            <input type="date" class="form-control" id="traysDate" asp-for="SeedEntry.TraysDate" />
+                        </div>
+                        <div class="col-md-6" id="hardeningAliveDiv">
+                            <label class="fw-bold">Hardening Alive</label>
+                            <input type="text" class="form-control" id="hardeningAlive" asp-for="SeedEntry.HardeningAlive" />
+                        </div>
+                        <div class="col-md-6" id="hardeningDateDiv">
+                            <label class="fw-bold">Hardening Date</label>
+                            <input type="date" class="form-control" id="hardeningDate" asp-for="SeedEntry.HardeningDate" />
+                        </div>
+                        <div class="col-md-6" id="aliveCountDiv">
+                            <label class="fw-bold">Inventory Count</label>
+                            <input type="text" class="form-control" id="aliveCount" asp-for="SeedEntry.AliveCount" />
+                        </div>
+                        <div class="col-md-6" id="inventoryDateDiv">
+                            <label class="fw-bold">Inventory Date</label>
+                            <input type="date" class="form-control" id="inventoryDate" asp-for="SeedEntry.InventoryDate" />
+                        </div>
+                        <div class="col-md-6" id="outsideLocationDiv">
+                            <label class="fw-bold">Outside Location Description</label>
+                            <input type="text" class="form-control" id="outsideLocationInput" asp-for="SeedEntry.locationDesc" />
+                        </div>
+                    </div>
+
+                    <div class="text-center mt-4">
+                        <button type="submit" class="btn btn-primary w-100 py-2">Update</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/sweetalert.js"></script>
+    <script>
+        (function () {
+            // ---- URLs generated by Razor ----
+            const speciesHandlerUrl = '@Url.Page("/SeedEntry/EditSowing", null, new { handler = "SpeciesByPlantType" })';
+            const postEditUrl       = '@Url.Page("/SeedEntry/EditSowing", "EditSowing")';
+            const postDeleteUrl     = '@Url.Page("/SeedEntry/EditSowing", "DeleteSowing")';
+
+            // ---- Utilities ----
+            function toYYYYMMDD(dstr) {
+                if (!dstr) return '';
+                const d = new Date(dstr);
+                if (isNaN(d.getTime())) return '';
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+            }
+
+            function numberToWords(num) {
+                if (num === "" || isNaN(num) || num < 1) return "";
+                const ones = ["","One","Two","Three","Four","Five","Six","Seven","Eight","Nine","Ten","Eleven","Twelve","Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen"];
+                const tens = ["","","Twenty","Thirty","Forty","Fifty","Sixty","Seventy","Eighty","Ninety"];
+                function conv(n){
+                    if (n < 20) return ones[n];
+                    if (n < 100) return tens[Math.floor(n/10)] + (n%10 ? " " + ones[n%10] : "");
+                    if (n < 1000) return ones[Math.floor(n/100)] + " Hundred" + (n%100 ? " " + conv(n%100) : "");
+                    if (n < 1000000) return conv(Math.floor(n/1000)) + " Thousand" + (n%1000 ? " " + conv(n%1000) : "");
+                    return n;
+                }
+                return conv(num);
+            }
+
+            function handleNumberInput(inputId, wordsId, hiddenInputId) {
+                const $input = $('#' + inputId);
+                $input.on('input', function () {
+                    let raw = $input.val().replace(/,/g, '');
+                    let n = parseInt(raw, 10);
+                    if (!isNaN(n)) {
+                        if (n < 1) n = 1;
+                        if (n > 999999) n = 999999;
+                        $input.val(n);
+                        $('#' + wordsId).text(numberToWords(n));
+                        $('#' + hiddenInputId).val(n);
+                    } else {
+                        $input.val('');
+                        $('#' + wordsId).text('');
+                        $('#' + hiddenInputId).val('');
+                    }
+                });
+            }
+
+            function toggleBlocks(val, selA, selB) {
+                if ((val || '').toString().toLowerCase() === "balance" || val === '') {
+                    $(selA + ',' + selB).hide();
+                    $(selA + ' input,' + selB + ' input').val('');
+                } else {
+                    $(selA + ',' + selB).show();
+                }
+            }
+
+            // ---- Species fetch ----
+            function fetchSpeciesByPlantType(plantTypeId, speciesDropdownId, selectedId = null) {
+                if (!plantTypeId) return;
+                const url = `${speciesHandlerUrl}&plantTypeId=${encodeURIComponent(plantTypeId)}`;
+                $.get(url, function (list) {
+                    const $ddl = $('#' + speciesDropdownId);
+                    $ddl.empty().append('<option value="">-- Select --</option>');
+                    $.each(list, function (_, s) {
+                        $ddl.append(`<option value="${s.id}">${s.name}</option>`);
+                    });
+                    if (selectedId) $ddl.val(selectedId);
+                }).fail(function () {
+                    alert("Error fetching species data.");
+                });
+            }
+
+            // ---- Open Edit Modal ----
+            $(document).on('click', '.edit-sowing-btn', function () {
+                openEditModal(this);
+            });
+
+            function openEditModal(button) {
+                const row = $(button).closest("tr");
+                const sowingId        = $(button).data("id");
+
+                // indices match your table (seed source cols still present but unused)
+                const polyhouseId     = row.find("td:eq(4)").text().trim();
+                const plantId         = row.find("td:eq(6)").text().trim();
+                const speciesId       = row.find("td:eq(8)").text().trim();
+                const seedsPlanted    = row.find("td:eq(10)").text().trim();
+                const traysAlive      = row.find("td:eq(11)").text().trim();
+                const hardeningAlive  = row.find("td:eq(12)").text().trim();
+                const aliveCount      = row.find("td:eq(13)").text().trim();
+                const seedingDateTxt  = row.find("td:eq(14)").text().trim();
+                const traysDateTxt    = row.find("td:eq(15)").text().trim();
+                const hardeningDateTxt= row.find("td:eq(16)").text().trim();
+                const inventoryDateTxt= row.find("td:eq(17)").text().trim();
+                const locationDesc    = row.find("td:eq(19)").text().trim();
+                const supervisorName  = row.find("td:eq(20)").text().trim();
+
+                $('#hiddenSeedEntryId').val(sowingId);
+                $('#sowingId').text(sowingId);
+
+                $('#polyhouseDropdown').val(polyhouseId);
+                $('#plantTypeDropdown').val(plantId);
+                fetchSpeciesByPlantType(plantId, 'speciesDropdown', speciesId);
+
+                $('#EditSeedingDate').val(toYYYYMMDD(seedingDateTxt));
+                $('#sowingQuantityInput').val(seedsPlanted);
+                $('#hiddenSowingQuantity').val(seedsPlanted);
+                $('#outsideLocationInput').val(locationDesc);
+
+                // set supervisor by text match
+                $('#sowingByDropdown option').each(function () {
+                    if ($(this).text().trim().toLowerCase() === supervisorName.trim().toLowerCase()) {
+                        $(this).prop('selected', true);
+                    }
+                });
+
+                $('#traysAlive').val(traysAlive);
+                $('#traysDate').val(toYYYYMMDD(traysDateTxt));
+                $('#hardeningAlive').val(hardeningAlive);
+                $('#hardeningDate').val(toYYYYMMDD(hardeningDateTxt));
+                $('#aliveCount').val(aliveCount);
+                $('#inventoryDate').val(toYYYYMMDD(inventoryDateTxt));
+
+                toggleBlocks(traysAlive, '#traysAliveDiv', '#traysDateDiv');
+                toggleBlocks(hardeningAlive, '#hardeningAliveDiv', '#hardeningDateDiv');
+
+                if ((aliveCount || '').toString().toLowerCase() === 'balance' || aliveCount === '') {
+                    $('#aliveCountDiv,#inventoryDateDiv,#outsideLocationDiv').hide();
+                    $('#aliveCount,#inventoryDate').val('');
+                } else {
+                    $('#aliveCountDiv,#inventoryDateDiv,#outsideLocationDiv').show();
+                }
+
+                $('#sowingModal').modal('show');
+            }
+
+            // ---- Header filter: PlantType -> Species ----
+            $('#editPlantTypeDropdown').on('change', function () {
+                let pt = $(this).val();
+                fetchSpeciesByPlantType(pt, 'editSpeciesDropdown');
+            });
+
+            // ---- Modal: PlantType -> Species ----
+            $('#plantTypeDropdown').on('change', function () {
+                let pt = $(this).val();
+                fetchSpeciesByPlantType(pt, 'speciesDropdown');
+            });
+
+            // ---- Numbers / words ----
+            handleNumberInput("sowingQuantityInput", "sowingQuantityInWords", "hiddenSowingQuantity");
+
+            // ---- Submit edit (AJAX) ----
+            $('#sowingForm').on('submit', function (e) {
+                e.preventDefault();
+
+                let seedsPlanted = parseInt($('#sowingQuantityInput').val().replace(/,/g, "") || "0", 10);
+                let traysAlive = parseInt($('#traysAlive').val().replace(/,/g, "") || "0", 10);
+                let hardeningAlive = parseInt($('#hardeningAlive').val().replace(/,/g, "") || "0", 10);
+                let inventoryCount = parseInt($('#aliveCount').val().replace(/,/g, "") || "0", 10);
+
+                if (traysAlive > seedsPlanted) { alert("Trays Alive cannot be greater than Seeds Planted."); return; }
+                if (hardeningAlive > traysAlive) { alert("Hardening Alive cannot be greater than Trays Alive."); return; }
+                if (inventoryCount > hardeningAlive) { alert("Inventory Count cannot be greater than Hardening Alive."); return; }
+
+                // sync hidden numeric
+                let raw = $('#sowingQuantityInput').val().replace(/,/g, "");
+                $('#hiddenSowingQuantity').val(parseInt(raw, 10) || "");
+
+                // include antiforgery token explicitly (even though it's in the form)
+                const token = $('input[name="__RequestVerificationToken"]').val() || '';
+                let formData = $(this).serialize();
+                if (!formData.includes('__RequestVerificationToken=')) {
+                    formData += '&__RequestVerificationToken=' + encodeURIComponent(token);
+                }
+
+                $.post(postEditUrl, formData, function (res) {
+                    if (res && res.success) {
+                        $('#sowingModal').modal('hide');
+                        showCustomAlert("Success", "Sowing Updated Successfully!", "success", () => location.reload());
+                    } else {
+                        $('#sowingModal').modal('hide');
+                        showCustomAlert("Error", (res && res.message) || "Something went wrong!", "error");
+                    }
+                }).fail(function () {
+                    $('#sowingModal').modal('hide');
+                    showCustomAlert("Error", "Server error. Please try again later.", "error");
+                });
+            });
+
+            // ---- Delete (AJAX) ----
+            document.querySelectorAll(".delete-sowing-btn").forEach(btn => {
+                btn.addEventListener("click", function () {
+                    const sowingId = btn.getAttribute("data-id");
+                    if (!sowingId) return;
+
+                    if (confirm("Are you sure you want to delete this sowing record?")) {
+                        const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+                        fetch(postDeleteUrl, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/x-www-form-urlencoded",
+                                "RequestVerificationToken": token
+                            },
+                            body: new URLSearchParams({
+                                Id: sowingId,
+                                "__RequestVerificationToken": token
+                            })
+                        })
+                        .then(r => r.json())
+                        .then(res => {
+                            if (res.success) {
+                                showCustomAlert("Success", "Sowing record deleted successfully.", "success", () => location.reload());
+                            } else {
+                                showCustomAlert("Error", res.message ?? "Something went wrong!", "error");
+                            }
+                        })
+                        .catch(() => {
+                            showCustomAlert("Error", "Server error. Please try again later.", "error");
+                        });
+                    }
+                });
+            });
+        })();
+    </script>
+}
+

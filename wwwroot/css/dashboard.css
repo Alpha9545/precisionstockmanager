@@ -1,0 +1,182 @@
+﻿body {
+}
+
+
+#ph-hero-dashboard {
+    max-width: 1140px;
+    margin: 48px auto 64px;
+    padding: 0 32px;
+    background: #ffffff;
+    border-radius: 26px;
+    box-shadow: 0 10px 35px rgba(49, 130, 206, 0.21);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-rows: auto auto min-content min-content;
+    gap: 32px 36px;
+}
+
+#ph-hero-title {
+    grid-column: 1 / -1;
+    font-size: 2.8rem;
+    font-weight: 900;
+    color: #2c5282;
+    letter-spacing: -0.03em;
+    user-select: none;
+}
+
+/* Quick Links */
+#ph-quick-links {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 28px;
+    justify-content: center;
+    flex-wrap: wrap;
+    user-select: none;
+}
+
+.ph-quick-link {
+    flex: 1 1 160px;
+    min-width: 140px;
+    background: linear-gradient(135deg, #3182ce 0%, #4299e1 100%);
+    color: white;
+    border-radius: 20px;
+    padding: 28px 22px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 1.05rem;
+    box-shadow: 0 7px 28px rgba(49, 130, 206, 0.25);
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.24s ease, box-shadow 0.24s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    user-select: none;
+}
+
+    .ph-quick-link:hover,
+    .ph-quick-link:focus-visible {
+        background: linear-gradient(135deg, #2c5282 0%, #2b6cb0 100%);
+        transform: scale(1.06);
+        outline: none;
+        box-shadow: 0 9px 35px rgba(43, 108, 176, 0.45);
+    }
+
+    .ph-quick-link:active {
+        transform: scale(0.96);
+    }
+
+    .ph-quick-link svg {
+        margin-bottom: 16px;
+        width: 40px;
+        height: 40px;
+        stroke: currentColor;
+        stroke-width: 2.25;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+/* Stock Cards container */
+#ph-stock-cards {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 36px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.ph-stock-card {
+    background: #f7fafc;
+    border-radius: 26px;
+    box-shadow: 0 10px 25px rgba(49, 130, 206, 0.15);
+    padding: 26px 36px;
+    flex: 1 1 240px;
+    min-width: 240px;
+    color: #2a4365;
+    text-align: center;
+    display: grid;
+    grid-template-rows: auto auto;
+    gap: 6px;
+}
+
+    .ph-stock-card h3 {
+        font-weight: 800;
+        font-size: 1.35rem;
+    }
+
+.ph-stock-figure {
+    font-weight: 900;
+    font-size: 3rem;
+    color: #3182ce;
+    letter-spacing: -0.04em;
+}
+
+.ph-stock-subtitle {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: #606f7b;
+}
+
+/* Chart container */
+#ph-chart-container {
+    grid-column: 1 / -1;
+    background: white;
+    padding: 28px 32px 36px;
+    border-radius: 26px;
+    box-shadow: 0 11px 30px rgba(66, 153, 225, 0.14);
+    max-width: 920px;
+    margin: 0 auto;
+    user-select: none;
+}
+
+#ph-chart-title {
+    font-weight: 700;
+    font-size: 1.45rem;
+    color: #2a4365;
+    margin-bottom: 20px;
+}
+
+/* Info Box (Alert/Info) */
+#ph-info-box {
+    grid-column: 1 / -1;
+    max-width: 720px;
+    margin: 0 auto;
+    background-color: #fff5f5;
+    border-left: 6px solid #f56565;
+    color: #9b2c2c;
+    padding: 22px 28px;
+    border-radius: 18px;
+    font-weight: 700;
+    font-size: 1rem;
+    line-height: 1.3;
+    user-select: none;
+}
+
+/* Responsive */
+@media (max-width: 960px) {
+    #ph-hero-dashboard {
+        margin: 32px 20px 56px;
+        padding: 28px 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 30px;
+    }
+
+    #ph-quick-links {
+        justify-content: center;
+    }
+
+    #ph-stock-cards {
+        justify-content: center;
+        gap: 24px;
+    }
+
+    #ph-info-box {
+        max-width: 100%;
+        padding: 20px 16px;
+    }
+
+    #ph-chart-container {
+        max-width: 100%;
+        padding: 24px 18px 32px;
+    }
+}.

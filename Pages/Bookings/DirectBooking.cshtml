@@ -1,0 +1,257 @@
+﻿@page
+@model PlantStockManager.Pages.Bookings.DirectBookingModel
+@{
+    ViewData["Title"] = "Direct Booking";
+
+}
+
+
+<link rel="stylesheet" href="~/css/sweetalert.css" />
+
+<div class="container mt-4">
+    <div class="card shadow-lg mx-auto p-3" style="max-width: 900px;">
+        <div class="card-header text-white text-center" style="background-color: #008080;">
+            <h2 class="mb-0">Direct Booking</h2>
+        </div>
+        <div class="card-body">
+            <form method="post" id="directBookingForm">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="fw-bold">Select Plant Type</label>
+                        <select id="plantTypeDropdown" class="form-select" asp-for="Booking.PlantId" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var type in Model.PlantTypes)
+                            {
+                                <option value="@type.Id">@type.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="fw-bold">Select Variety</label>
+                        <select id="speciesDropdown" class="form-select" asp-for="Booking.SpeciesId" required>
+                            <option value="">-- Select a Plant Type First --</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="fw-bold">Customer Name</label>
+                        <input type="text" class="form-control" asp-for="Booking.CustomerName" required />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="fw-bold">Customer Contact</label>
+                        <input type="number" class="form-control" asp-for="Booking.Contact" required />
+                    </div>
+
+                    <div class="col-md-12">
+                        <label class="fw-bold">Address</label>
+                        <input type="text" class="form-control" asp-for="Booking.Address" required />
+                    </div>
+
+                    <!-- State & District -->
+                    <div class="col-md-6">
+                        <label class="fw-bold">State</label>
+                        <select id="stateDropdown" class="form-select" asp-for="Booking.StateId" required>
+                            <option value="">-- Select State --</option>
+                            @foreach (var s in Model.States)
+                            {
+                                <option value="@s.StateId">@s.StateName</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="fw-bold">District</label>
+                        <select id="districtDropdown" class="form-select" asp-for="Booking.DistrictId" required disabled>
+                            <option value="">-- Select State First --</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="fw-bold">Quantity</label>
+                        <input type="text" class="form-control" id="quantityInput" required />
+                        <small class="text-muted" id="quantityInWords"></small>
+                        <input type="hidden" asp-for="Booking.Quantity" id="hiddenQuantity" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="fw-bold">Tentative Delivery Date</label>
+                        <input type="date" class="form-control" asp-for="Booking.DeliveryDate" required />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="fw-bold">Advance Taken</label>
+                        <select id="advanceTakenDropdown" class="form-select" asp-for="Booking.AdvanceTaken">
+                            <option value="false">No</option>
+                            <option value="true">Yes</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-6 advance-fields d-none">
+                        <label class="fw-bold">Advance Amount</label>
+                        <input type="text" class="form-control" id="advanceTakenAmount" />
+                        <small class="text-muted" id="advanceAmountInWords"></small>
+                        <input type="hidden" asp-for="Booking.AdvanceTakenAmount" id="hiddenAdvanceAmount" />
+                    </div>
+
+                    <div class="col-md-12 advance-fields d-none">
+                        <label class="fw-bold">Advance Transaction Details</label>
+                        <input type="text" class="form-control" id="advanceTakenDetails" asp-for="Booking.AdvanceTakenDetails" />
+                    </div>
+                </div>
+
+                <input type="hidden" asp-for="Booking.AddedBy" value="Auto" />
+
+                <div class="text-center mt-4">
+                    <button type="submit" class="btn btn-warning w-100 py-2">Direct Dispatch</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/sweetalert.js"></script>
+    <script>
+        $(function () {
+            // ---- Helpers ----
+            function formatNumberWithCommas(num) {
+                return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            }
+            function numberToWords(num) {
+                if (num === "" || isNaN(num) || num < 1) return "";
+                var ones = ["","One","Two","Three","Four","Five","Six","Seven","Eight","Nine","Ten","Eleven","Twelve","Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen"];
+                var tens = ["","","Twenty","Thirty","Forty","Fifty","Sixty","Seventy","Eighty","Ninety"];
+                function conv(n){
+                    if (n < 20) return ones[n];
+                    if (n < 100) return tens[Math.floor(n/10)] + (n%10 ? " " + ones[n%10] : "");
+                    if (n < 1000) return ones[Math.floor(n/100)] + " Hundred" + (n%100 ? " " + conv(n%100) : "");
+                    if (n < 1000000) return conv(Math.floor(n/1000)) + " Thousand" + (n%1000 ? " " + conv(n%1000) : "");
+                    return n;
+                }
+                return conv(num);
+            }
+            function handleNumberInput(inputId, wordsId, hiddenInputId) {
+                $(`#${inputId}`).on("input", function () {
+                    let raw = $(this).val().replace(/,/g, "");
+                    let n = parseInt(raw, 10);
+                    if (!isNaN(n)) {
+                        if (n < 1) n = 1;
+                        if (n > 999999) n = 999999;
+                        $(this).val(formatNumberWithCommas(n));
+                        $(`#${wordsId}`).text(numberToWords(n));
+                        $(`#${hiddenInputId}`).val(n);
+                    } else {
+                        $(this).val("");
+                        $(`#${wordsId}`).text("");
+                        $(`#${hiddenInputId}`).val("");
+                    }
+                });
+            }
+
+            // Quantity + Advance handling
+            handleNumberInput("quantityInput", "quantityInWords", "hiddenQuantity");
+            handleNumberInput("advanceTakenAmount", "advanceAmountInWords", "hiddenAdvanceAmount");
+
+            // Plant -> Species (unchanged)
+            $('#plantTypeDropdown').change(function () {
+                var plantTypeId = $(this).val();
+                if (plantTypeId) {
+                    $.get(window.basePath + 'Bookings/Book?handler=SpeciesByPlantType&plantTypeId=' + plantTypeId, function (data) {
+                        var speciesDropdown = $('#speciesDropdown');
+                        speciesDropdown.empty().append('<option value="">-- Select --</option>');
+                        $.each(data, function (i, species) {
+                            speciesDropdown.append('<option value="' + species.id + '">' + species.name + '</option>');
+                        });
+                    });
+                } else {
+                    $('#speciesDropdown').html('<option value="">-- Select a Plant Type First --</option>');
+                }
+            });
+
+            // ✅ State -> Districts (unchanged)
+            $('#stateDropdown').on('change', function () {
+                const stateId = $(this).val();
+                const district = $('#districtDropdown');
+                district.prop('disabled', true).empty();
+
+                if (!stateId) {
+                    district.append('<option value="">-- Select State First --</option>');
+                    return;
+                }
+
+                $.get(window.basePath + 'Bookings/Book?handler=DistrictsByState&stateId=' + stateId, function (data) {
+                    district.append('<option value="">-- Select District --</option>');
+                    $.each(data, function (_, d) {
+                        district.append('<option value="' + d.districtId + '">' + d.districtName + '</option>');
+                    });
+                    district.prop('disabled', false);
+                }).fail(function () {
+                    district.append('<option value="">-- Failed to load districts --</option>');
+                });
+            });
+
+            // ⛔️ REMOVED: BookedBy "Other" toggle code
+
+            // Advance Taken toggle (unchanged)
+            $('#advanceTakenDropdown').change(function () {
+                if ($(this).val() === "true") {
+                    $('.advance-fields').removeClass('d-none');
+                    $('#advanceTakenAmount').prop('required', true);
+                    $('#advanceTakenDetails').prop('required', true);
+                } else {
+                    $('.advance-fields').addClass('d-none');
+                    $('#advanceTakenAmount').prop('required', false).val('');
+                    $('#advanceAmountInWords').text('');
+                    $('#hiddenAdvanceAmount').val('');
+                    $('#advanceTakenDetails').prop('required', false).val('');
+                }
+            });
+
+            // Submit (AJAX)
+            $('#directBookingForm').submit(function (event) {
+                event.preventDefault();
+
+                // Require state & district (client-side)
+                if (!$('#stateDropdown').val()) {
+                    showCustomAlert("Error", "State is required.", "error");
+                    return;
+                }
+                if (!$('#districtDropdown').val()) {
+                    showCustomAlert("Error", "District is required.", "error");
+                    return;
+                }
+
+                const advanceTaken = $('#advanceTakenDropdown').val();
+                const advanceAmount = $('#hiddenAdvanceAmount').val();
+                const advanceDetails = $('#advanceTakenDetails').val();
+
+                if (advanceTaken === "true") {
+                    if (!advanceAmount || parseInt(advanceAmount, 10) <= 0) {
+                        showCustomAlert("Error", "Advance Amount must be greater than zero.", "error");
+                        return;
+                    }
+                    if (!advanceDetails || !advanceDetails.trim()) {
+                        showCustomAlert("Error", "Advance Details are required when Advance Taken is Yes.", "error");
+                        return;
+                    }
+                }
+
+                const formData = $(this).serialize();
+                $.post('@Url.Page("/Bookings/DirectBooking")', formData, function (response) {
+                    if (response.success) {
+                        // showCustomAlert("Success", response.message, "success", function () { location.reload(); });
+                      //  window.location.href = response.redirectUrl;
+                        window.location.href = '@Url.Page("/Bookings/FulfillBooking")' +
+            `?bookingId=${response.bookingId}&from=direct`;
+                    } else {
+                        showCustomAlert("Error", response.message ?? "Something went wrong!", "error");
+                    }
+                }).fail(function () {
+                    showCustomAlert("Error", "Server error. Please try again later.", "error");
+                });
+            });
+        });
+    </script>
+}

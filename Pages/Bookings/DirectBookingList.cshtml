@@ -1,0 +1,464 @@
+﻿@page
+@model PlantStockManager.Pages.Bookings.DirectBookingListModel
+
+@using System.Globalization
+@using PlantStockManager.Pages.Bookings
+
+@attribute [IgnoreAntiforgeryToken]
+@{
+    ViewData["Title"] = "Manage Bookings";
+}
+
+@functions {
+    private static string ToTitle(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        s = s.ToLowerInvariant();
+        return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s);
+    }
+}
+
+<!-- ====== PAGE STYLES (Mobile-first) ====== -->
+<style>
+    /* Layout tweaks */
+    .page-header {
+        gap: .75rem;
+        flex-wrap: wrap;
+    }
+
+    .filters-wrap {
+        display: grid;
+        gap: .5rem;
+    }
+    /* Toolbar becomes a two-row grid on small screens */
+    @@media (min-width: 576px) {
+        .filters-wrap {
+            grid-auto-flow: column;
+            grid-auto-columns: 1fr;
+            align-items: center;
+        }
+    }
+
+    /* Inputs */
+    .filters-wrap .form-control,
+    .filters-wrap .form-select {
+        min-width: 0; /* allow shrink */
+    }
+
+    /* Make search input comfortably wide on md+ but fluid on xs */
+    .search-min {
+        min-width: 240px;
+    }
+
+    @@media (min-width: 768px) {
+        .search-min {
+            min-width: 360px;
+        }
+    }
+
+    /* Badge pill compatibility (BS4/BS5) */
+    .badge-pill, .rounded-pill {
+        border-radius: 50rem;
+    }
+
+    /* Table header style fallback if not using .table-dark */
+    thead.thead-dark th {
+        background: #1f2937;
+        color: #fff;
+        border-color: #111827;
+    }
+
+    /* ========= Mobile Card Table =========
+           On <576px, hide thead and show each row as a card with label/value pairs
+        */
+    @@media (max-width: 575.98px) {
+
+        .table-responsive table thead {
+            display: none;
+        }
+
+        .table-responsive table tbody tr {
+            display: block;
+            margin-bottom: .75rem;
+            border: 1px solid rgba(0,0,0,.08);
+            border-radius: .75rem;
+            box-shadow: 0 1px 3px rgba(0,0,0,.06);
+            overflow: hidden;
+            background: #fff; /* ensure white card */
+        }
+            /* ✅ FIX STRETCHED WARNING:
+               Stop Bootstrap's .table-warning from tinting the whole card on mobile.
+               Use a left accent bar instead. */
+            .table-responsive table tbody tr.table-warning {
+                background-color: #fff !important;
+                position: relative;
+            }
+
+                .table-responsive table tbody tr.table-warning::before {
+                    content: "";
+                    position: absolute;
+                    left: 0;
+                    top: 0;
+                    bottom: 0;
+                    width: 4px;
+                    background: #f59e0b;
+                }
+
+        .table-responsive table tbody td {
+            display: grid;
+            grid-template-columns: 40% 1fr;
+            gap: .25rem .5rem;
+            padding: .65rem .75rem;
+            border-top: 1px solid rgba(0,0,0,.05);
+        }
+
+            .table-responsive table tbody td:first-child {
+                border-top: 0;
+            }
+
+            .table-responsive table tbody td::before {
+                content: attr(data-label);
+                font-weight: 600;
+                color: #374151;
+            }
+        /* Keep status badge tidy; never stretch full width */
+        td[data-label="Status"] .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: .35rem;
+            width: auto !important;
+            padding: .35rem .55rem;
+            font-size: .875rem;
+        }
+        /* MOBILE BUTTON POLISH: compact but tappable, good spacing, subtle shadow */
+        .row-actions {
+            display: flex;
+            gap: .5rem;
+            flex-wrap: wrap;
+            margin-top: .1rem;
+        }
+
+            .row-actions .btn {
+                padding: .55rem .85rem;
+                font-size: .95rem;
+                line-height: 1.25;
+                border-radius: .7rem;
+                min-height: 42px; /* touch target */
+                box-shadow: 0 1px 2px rgba(0,0,0,.08);
+            }
+
+                .row-actions .btn i {
+                    margin-right: .45rem;
+                }
+            /* Slight color refinements so they read well on mobile */
+            .row-actions .btn-success {
+                background-color: #16a34a;
+                border-color: #15803d;
+            }
+
+                .row-actions .btn-success:hover {
+                    background-color: #15803d;
+                    border-color: #166534;
+                }
+
+            .row-actions .btn-danger {
+                background-color: #dc2626;
+                border-color: #b91c1c;
+            }
+
+                .row-actions .btn-danger:hover {
+                    background-color: #b91c1c;
+                    border-color: #991b1b;
+                }
+    }
+
+    /* Sticky toolbar on very small screens for convenience */
+    @@media (max-width: 575.98px) {
+        .sticky-toolbar {
+            position: sticky;
+            top: -1px;
+            z-index: 10;
+            background: #fff;
+            padding-top: .5rem;
+            padding-bottom: .5rem;
+        }
+    }
+
+    /* Subtle hover on desktop rows */
+    @@media (min-width: 576px) {
+        #bookingTable tbody tr:hover {
+            box-shadow: inset 0 0 0 9999px rgba(0,0,0,.02);
+        }
+    }
+
+    /* Helper spacings */
+    .gap-2 {
+        gap: .5rem;
+    }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3 page-header">
+    <h2 class="mb-0">📅 Manage Bookings</h2>
+    <input name="__RequestVerificationToken" type="hidden" value="CfDJ8sfdasfassafsafsajl^(&(&(&(*&)ekjhkbfsdfhkjfs" />
+</div>
+
+<!-- ====== TOOLBAR / FILTERS (Responsive) ====== -->
+<div class="alert alert-info mb-3 d-flex justify-content-between align-items-center flex-wrap sticky-toolbar">
+    <div class="mb-2 mb-sm-0">
+        <i class="fas fa-info-circle"></i>
+        <span class="ms-1">Manage customer plant orders and track fulfillment status</span>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <a asp-page="/Bookings/Bookinglist"
+           asp-route-handler="GeneratePdf"
+           asp-route-StatusFilter="@Model.StatusFilter"
+           asp-route-SearchTerm="@Model.SearchTerm"
+           asp-route-FromDate="@(Model.FromDate?.ToString("yyyy-MM-dd"))"
+           asp-route-ToDate="@(Model.ToDate?.ToString("yyyy-MM-dd"))"
+           class="btn btn-secondary btn-sm" target="_blank">
+            <i class="fas fa-file-pdf me-1"></i> PDF
+        </a>
+    </div>
+</div>
+
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <div class="filters-wrap">
+            <!-- Status filter -->
+            <form method="get" class="w-100 w-sm-auto">
+                <label class="form-label mb-1 small text-muted">Status</label>
+                <select class="form-select form-control" name="StatusFilter" onchange="this.form.submit()">
+                    @if (string.IsNullOrEmpty(Model.StatusFilter))
+                    {
+                        <option value="" selected>All</option>
+                    }
+                    else
+                    {
+                        <option value="">All</option>
+                    }
+                    @if (Model.StatusFilter == "Pending")
+                    {
+                        <option value="Pending" selected>Pending</option>
+                    }
+                    else
+                    {
+                        <option value="Pending">Pending</option>
+                    }
+                    @if (Model.StatusFilter == "Completed")
+                    {
+                        <option value="Completed" selected>Completed</option>
+                    }
+                    else
+                    {
+                        <option value="Completed">Completed</option>
+                    }
+                    @if (Model.StatusFilter == "Cancelled")
+                    {
+                        <option value="Cancelled" selected>Cancelled</option>
+                    }
+                    else
+                    {
+                        <option value="Cancelled">Cancelled</option>
+                    }
+                </select>
+            </form>
+
+            <!-- Search -->
+            <form method="get" class="w-100 w-sm-auto">
+                <label class="form-label mb-1 small text-muted">Search</label>
+                <div class="input-group">
+                    <input type="text" class="form-control search-min" name="SearchTerm"
+                           placeholder="Customer name, address or contact"
+                           value="@(Model.SearchTerm ?? "")" />
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-search me-1"></i> Search
+                    </button>
+                </div>
+                <input type="hidden" name="StatusFilter" value="@(Model.StatusFilter ?? "")" />
+            </form>
+
+            <!-- Date range -->
+            <form method="get" class="w-100 w-sm-auto">
+                <label class="form-label mb-1 small text-muted">Date range</label>
+                <div class="input-group">
+                    <input type="date" class="form-control" name="FromDate" value="@(Model.FromDate?.ToString("yyyy-MM-dd") ?? "")" />
+                    <input type="date" class="form-control" name="ToDate" value="@(Model.ToDate?.ToString("yyyy-MM-dd") ?? "")" />
+                    <button type="submit" class="btn btn-outline-primary">Filter</button>
+                </div>
+                <input type="hidden" name="StatusFilter" value="@(Model.StatusFilter ?? "")" />
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ====== TABLE / MOBILE CARDS ====== -->
+<div class="table-responsive rounded-3 shadow-sm" id="bookingTableContainer">
+    <table class="table table-hover align-middle mb-0" id="bookingTable">
+        <thead class="thead-dark">
+            <tr>
+                <th class="d-none d-md-table-cell">Booking ID</th>
+                <th>Customer</th>
+                <th>Plant Type</th>
+                <th class="d-none d-sm-table-cell">Variety</th>
+                <th>Qty</th>
+                <th>Status</th>
+                <th class="d-none d-md-table-cell">Tentative Delivery</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var booking in Model.Bookings)
+            {
+                var isOverdue = booking.TentativeDeliveryDate < DateTime.Now && booking.Status != "Completed";
+                <tr class="@(isOverdue ? "table-warning" : "")">
+                    <td class="d-none d-md-table-cell" data-label="Booking ID">#@booking.Id</td>
+
+                    <td data-label="Customer">
+                        <div class="fw-bold">@ToTitle(booking.CustomerName)</div>
+                        <small class="text-muted d-block d-sm-none">@ToTitle(booking.Species)</small>
+                    </td>
+
+                    <td data-label="Plant Type">@ToTitle(booking.PlantType)</td>
+
+                    <td class="d-none d-sm-table-cell" data-label="Variety">@ToTitle(booking.Species)</td>
+
+                    <td data-label="Qty">@booking.Quantity</td>
+
+                    <td data-label="Status">
+                        <span class="badge @Model.GetStatusBadge(booking.Status) badge-pill rounded-pill">
+                            <i class="fas @Model.GetStatusIcon(booking.Status) me-1"></i>@booking.Status
+                        </span>
+                    </td>
+
+                    <td class="d-none d-md-table-cell" data-label="Tentative Delivery">
+                        <span data-bs-toggle="tooltip" data-toggle="tooltip"
+                              title="@(booking.ActualDeliveryDate != null
+                                                                  ? "Booking Fulfilled"
+                                                                  : ((booking.TentativeDeliveryDate - DateTime.Now).Days >= 0
+                                                                     ? $"Days Remained: {(booking.TentativeDeliveryDate - DateTime.Now).Days}"
+                                                                     : $"Days Passed: {Math.Abs((booking.TentativeDeliveryDate - DateTime.Now).Days)}"))">
+                        @booking.TentativeDeliveryDate.ToString("dd-MMM-yy")
+                    </span>
+                </td>
+
+                    <td data-label="Actions">
+                        <div class="d-flex gap-2 row-actions">
+                        @if (booking.Status == "Pending")
+                            {
+                                <a asp-page="/Bookings/FulfillBooking"
+                                   asp-route-BookingId="@booking.Id"
+                                   asp-route-from="direct"
+                                   class="btn btn-sm btn-success"
+                                   data-bs-toggle="tooltip" data-toggle="tooltip"
+                                   title="Mark as fulfilled">
+                                    <i class="fas fa-check"></i>
+                                    Fulfill
+                                </a>
+
+                                <button type="button" class="btn btn-sm btn-danger cancel-booking"
+                                        data-booking-id="@booking.Id"
+                                        data-customer-name="@booking.CustomerName"
+                                        data-bs-toggle="tooltip" data-toggle="tooltip"
+                                        title="Cancel this booking">
+                                    <i class="fas fa-times"></i>
+                                    Cancel
+                                </button>
+                            }
+                            else if (booking.Status == "Cancelled")
+                            {
+                                <span class="text-muted small">Cancelled</span>
+                            }
+                            else if (booking.Status == "Completed" || booking.Status == "Fulfilled")
+                            {
+                                <span class="text-muted small">Fulfilled</span>
+                            }
+                        </div>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@section Scripts {
+    <script>
+        // Initialize tooltips for both Bootstrap 4 (data-toggle) and Bootstrap 5 (data-bs-toggle)
+        (function initTooltips() {
+            const hasBs5 = typeof bootstrap !== "undefined" && bootstrap.Tooltip;
+            const selector = '[data-bs-toggle="tooltip"], [data-toggle="tooltip"]';
+            if (hasBs5) {
+                document.querySelectorAll(selector).forEach(el => {
+                    new bootstrap.Tooltip(el);
+                });
+            } else if (window.jQuery && typeof $().tooltip === "function") {
+                $(function () { $(selector).tooltip(); });
+            }
+        })();
+
+        // Cancel booking (progressive enhancement, fetch API)
+        document.addEventListener("DOMContentLoaded", function () {
+            document.querySelectorAll(".cancel-booking").forEach(button => {
+                button.addEventListener("click", function () {
+                    const bookingId = this.getAttribute("data-booking-id");
+                    const customerName = this.getAttribute("data-customer-name");
+                    const tokenEl = document.querySelector('input[name="__RequestVerificationToken"]');
+                    const token = tokenEl ? tokenEl.value : "";
+
+                    if (!bookingId) return;
+
+                    if (confirm(`Are you sure you want to cancel the booking for ${customerName}?`)) {
+                        fetch(window.location.pathname + "?handler=CancelBooking", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "RequestVerificationToken": token
+                            },
+                            body: JSON.stringify(parseInt(bookingId))
+                        })
+                        .then(res => res.ok ? res.json() : Promise.reject(res))
+                        .then(data => {
+                            if (data && data.success) {
+                                const row = document.querySelector(`button[data-booking-id='${bookingId}']`)?.closest("tr");
+                                if (!row) return;
+
+                                // Update badge
+                                const badge = row.querySelector("span.badge");
+                                if (badge) {
+                                    badge.classList.remove("bg-warning", "badge-warning");
+                                    badge.classList.add("bg-danger", "badge-danger");
+                                    badge.textContent = "Cancelled";
+                                }
+
+                                // Update the status icon inside the badge only
+                                const statusIcon = row.querySelector("span.badge i.fas");
+                                if (statusIcon) {
+                                    statusIcon.classList.remove("fa-clock", "fa-check", "fa-check-circle");
+                                    statusIcon.classList.add("fa-times-circle");
+                                }
+
+                                // Remove cancel button
+                                this.remove();
+
+                                // Remove fulfill button if exists
+                                const fulfillButton = row.querySelector("a.btn-success");
+                                if (fulfillButton) fulfillButton.remove();
+
+                                // Add a small status text if no actions left (for mobile cards)
+                                const actionsCell = row.querySelector('td[data-label="Actions"]');
+                                if (actionsCell && !actionsCell.querySelector(".btn")) {
+                                    const span = document.createElement("span");
+                                    span.className = "text-muted small";
+                                    span.textContent = "Cancelled";
+                                    actionsCell.appendChild(span);
+                                }
+                            } else {
+                                alert("Failed to cancel booking. Try again!");
+                            }
+                        })
+                        .catch(() => alert("Something went wrong. Please try again."));
+                    }
+                });
+            });
+        });
+    </script>
+}

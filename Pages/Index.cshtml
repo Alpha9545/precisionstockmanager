@@ -1,0 +1,97 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Home Page";
+}
+
+<div class="container py-4 with-footer-space">
+    <h2 class="mb-4">Plants Summary</h2>
+
+    @if (Model.Stats.Any())
+    {
+        <div class="row g-3">
+            @foreach (var stat in Model.Stats)
+            {
+                <div class="col-12 col-md-4">
+                    <div class="card shadow-sm h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">@stat.PlantType</h5>
+                            <ul class="list-group list-group-flush">
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <span>Active Sowing Batches</span>
+                                    <span class="fw-bold text-primary">@stat.ActiveBatches (@stat.ActiveBatchQuantity)</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <span>Ready Stock</span>
+                                    <span class="fw-bold text-success">@stat.ReadyStock</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between">
+                                    <span>Pending Bookings</span>
+                                    <span class="fw-bold text-danger">@stat.PendingBookings (@stat.PendingBookingQuantity)</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-warning">No data available.</div>
+    }
+</div>
+<footer class="footer">
+    <div class="footer-content">
+        &copy; 2025 - PlantStockManager - <a asp-area="" asp-page="/Privacy">Privacy</a>
+    </div>
+</footer>
+
+
+
+
+<style>
+    .with-footer-space {
+        margin-bottom:80px; /* slightly more than footer height for safety */
+    }
+
+    .footer {
+        
+        position: fixed;
+        bottom: 0;
+        width: 100%;
+        height: 50px;
+        background: #f8f9fa;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+        z-index: 999;
+    }
+
+    @@media (max-width: 768px) {
+        .card-title
+
+    {
+        font-size: 1rem;
+    }
+
+    .footer{
+        display: none;
+    }
+    .list-group-item {
+        font-size: 0.85rem;
+        padding: 0.5rem 1rem;
+    }
+
+    h2 {
+        font-size: 1.25rem;
+    }
+
+    }
+</style>
+
+
+
+

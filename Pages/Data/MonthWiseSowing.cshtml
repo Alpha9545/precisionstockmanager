@@ -1,0 +1,235 @@
+﻿@page
+@model PlantStockManager.Pages.Data.MonthWiseSowingModel
+@using System.Globalization
+@{
+    ViewData["Title"] = "Sowing Monthwise Report";
+}
+
+@functions {
+    private static string ToTitle(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        s = s.ToLowerInvariant();
+        return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s);
+    }
+}
+
+
+<div class="p-3">
+    <h2>Sowing Daywise Monthly Records</h2>
+    <form method="get" class="mb-3" id="filterForm">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label>Polyhouse</label>
+                <select name="polyhouseId" class="form-control">
+                    <option value="0" selected="@(Model.SelectedPolyhouseId == 0)">All</option>
+                    @foreach (var ph in Model.Polyhouses)
+                    {
+                        <option value="@ph.Id" selected="@(Model.SelectedPolyhouseId == ph.Id)">@ph.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label>Plant Type</label>
+                <select name="plantTypeId" class="form-control">
+                    @foreach (var pt in Model.PlantTypes)
+                    {
+                        <option value="@pt.Id" selected="@(Model.SelectedPlantTypeId == pt.Id)">@pt.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label>Month</label>
+                <select name="month" class="form-control">
+                    @for (int m = 1; m <= 12; m++)
+                    {
+                        <option value="@m" selected="@(Model.SelectedMonth == m)">
+                            @CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)
+                        </option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label>Year</label>
+                <select name="year" class="form-control">
+                    @for (int y = DateTime.Now.Year - 5; y <= DateTime.Now.Year; y++)
+                    {
+                        <option value="@y" selected="@(Model.SelectedYear == y)">@y</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-1">
+                <button type="submit" class="btn btn-primary w-100">Filter</button>
+            </div>
+            <div class="col-md-1 print-button">
+                <button type="button" onclick="printTable()" class="btn btn-secondary w-100">Print</button>
+            </div>
+        </div>
+    </form>
+
+    <div class="table-container">
+        <table class="custom-table" id="sowingTable">
+            <thead>
+                <tr>
+                    <th>Polyhouse</th>
+                    <th>Plant Type</th>
+                    <th>Species</th>
+                    @for (int day = 1; day <= Model.DaysInMonth; day++)
+                    {
+                        <th>@day</th>
+                    }
+                    <th>Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var record in Model.SowingData)
+                {
+                    <tr>
+                        <td>@ToTitle(record.PolyhouseName)</td>
+                        <td>@ToTitle(record.PlantTypeName)</td>
+                        <td>@ToTitle(record.SpeciesName)</td>
+                        @foreach (var count in record.DailyCounts)
+                        {
+                            <td>@count</td>
+                        }
+                        <td><strong>@record.MonthTotal</strong></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+
+    .table-container {
+        overflow: auto;
+        max-height: 570px;
+        border: 1px solid #ccc;
+        margin-top: 15px;
+    }
+
+    .custom-table {
+        border-collapse: collapse;
+        width: max-content;
+        min-width: 100%;
+        table-layout: fixed;
+    }
+
+    .custom-table th, .custom-table td {
+        border: 1px solid #ddd;
+        padding: 6px;
+        text-align: center;
+        white-space: nowrap;
+        font-size: 0.875rem;
+    }
+
+    .custom-table thead th {
+        background-color: #f8f9fa;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }
+
+    .custom-table tbody tr:nth-child(even) {
+        background-color: #f9f9f9;
+    }
+
+    .custom-table tbody tr:hover {
+        background-color: #f1f1f1;
+    }
+
+    @@media print {
+        @@page {
+            size: landscape;
+            margin: 0.5cm;
+        }
+
+        body {
+            font-size: 8px;
+            margin: 0;
+            padding: 0;
+        }
+
+        table {
+            width: 100% !important;
+            font-size: 8px;
+            table-layout: auto;
+        }
+
+        .custom-table th, .custom-table td {
+            border: 1px solid #000;
+            padding: 2px;
+        }
+
+        thead {
+            display: table-header-group;
+        }
+
+        .table-container {
+            overflow: visible !important;
+            height: auto !important;
+            width: 100% !important;
+        }
+
+       
+    }
+
+    @@media (max-width: 768px) {
+        .print-button {
+            display: none;
+        }
+    }
+</style>
+
+
+
+<script>
+    function printTable() {
+        const tableContent = document.querySelector('.table-container').innerHTML;
+        const form = document.getElementById("filterForm");
+
+        const polyhouse = form.polyhouseId?.selectedOptions[0]?.text || '';
+        const plantType = form.plantTypeId?.selectedOptions[0]?.text || '';
+        const month = form.month?.selectedOptions[0]?.text || '';
+        const year = form.year?.selectedOptions[0]?.text || '';
+
+        const filterSummary = `
+            <div style="margin-bottom: 10px; font-size: 10px;">
+                <strong>Filters : </strong>
+                Polyhouse: ${polyhouse} &nbsp;&nbsp; | 
+                Plant Type: ${plantType} &nbsp;&nbsp; | 
+                Month: ${month} &nbsp;&nbsp; | 
+                Year: ${year}
+            </div>
+        `;
+
+        const originalContent = document.body.innerHTML;
+
+        document.body.innerHTML = `
+            <style>
+                @@media print {
+                    @@page { size: landscape; margin: 0.5cm; }
+                    body { font-size: 8px; margin: 0; padding: 0; }
+                    table { width: 100%; font-size: 8px; border-collapse: collapse; }
+                    th, td {
+                        border: 1px solid #000;
+                        padding: 2px;
+                        word-wrap: break-word;
+                        text-align: center;
+                    }
+                    thead { display: table-header-group; }
+                }
+            </style>
+            <h2 style="margin-bottom: 5px;">Sowing Daywise Monthly Report</h2>
+            ${filterSummary}
+            ${tableContent}
+        `;
+
+        window.print();
+        document.body.innerHTML = originalContent;
+        window.location.reload();
+    }
+</script>
+
+

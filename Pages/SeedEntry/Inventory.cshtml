@@ -1,0 +1,218 @@
+﻿@page
+@model PlantStockManager.Pages.SeedEntry.InventoryModel
+@using System.Globalization
+
+@attribute [IgnoreAntiforgeryToken]
+@{
+    ViewData["Title"] = "Ready Stock";
+}
+
+@functions {
+    private static string ToTitle(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        s = s.ToLowerInvariant();
+        return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s);
+    }
+}
+
+<div class="p-3">
+    <h2 class="">Ready Stock</h2>
+
+    <!-- Filters -->
+    <form method="get" class="row g-2 align-items-end">
+        <div class="col-12 col-md-2">
+            <label class="form-label">Polyhouse</label>
+            <select asp-for="SelectedPolyhouse" class="form-control" onchange="this.form.submit()">
+                <option value="">All</option>
+                @foreach (var polyhouse in Model.Polyhouses)
+                {
+                    <option value="@polyhouse.Id">@polyhouse.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="col-12 col-md-2">
+            <label class="form-label">Plant Type</label>
+            <select asp-for="SelectedPlantType" class="form-control" onchange="this.form.submit()">
+                <option value="">All</option>
+                @foreach (var plantType in Model.PlantTypes)
+                {
+                    <option value="@plantType.Id">@plantType.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="col-12 col-md-2">
+            <label class="form-label">Species</label>
+            <select asp-for="SelectedSpecies" class="form-control" onchange="this.form.submit()">
+                <option value="">All</option>
+                @foreach (var species in Model.PlantSpecies)
+                {
+                    <option value="@species.Id">@species.Name</option>
+                }
+            </select>
+        </div>
+
+        <!-- Seeding Date From -->
+        <div class="col-12 col-md-2">
+            <label class="form-label">Seeding From</label>
+            <input asp-for="SeedingFrom" type="date" class="form-control" onchange="this.form.submit()" />
+        </div>
+
+        <!-- Seeding Date To -->
+        <div class="col-12 col-md-2">
+            <label class="form-label">Seeding To</label>
+            <input asp-for="SeedingTo" type="date" class="form-control" onchange="this.form.submit()" />
+        </div>
+
+        <!-- Actions -->
+        <div class="col-12 col-md-2 d-flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-primary">Filter</button>
+            <a asp-page="/SeedEntry/Inventory"
+               asp-route-handler="GeneratePdf"
+               asp-route-SelectedPolyhouse="@Model.SelectedPolyhouse"
+               asp-route-SelectedPlantType="@Model.SelectedPlantType"
+               asp-route-SelectedSpecies="@Model.SelectedSpecies"
+               asp-route-SeedingFrom="@(Model.SeedingFrom?.ToString("yyyy-MM-dd"))"
+               asp-route-SeedingTo="@(Model.SeedingTo?.ToString("yyyy-MM-dd"))"
+               class="btn btn-secondary btn-sm d-none" target="_blank" rel="noopener">
+                Generate PDF
+            </a>
+        </div>
+    </form>
+
+
+
+    <!-- Table -->
+    @if (Model.Inventory.Any())
+    {
+        <table class="table table-striped mt-4">
+            <thead class="table-dark">
+                <tr>
+                    <th>Batch No</th>
+                    <th>Polyhouse</th>
+                    <th>Plant Type</th>
+                    <th>Variety</th>
+                    <th>Supervisor</th>
+                    <th>Seeding Date</th>
+                    <th>Available Quantity</th>
+                    <th>Ready Date</th>
+                    <th>Location</th>
+                    <th></th>
+
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var record in Model.Inventory)
+                {
+                    <tr>
+                        <td>#@record.SeedEntryId</td>
+                        <td>@ToTitle(record.PolyhouseName)</td>
+                        <td>@ToTitle(record.PlantTypeName)</td>
+                        <td>@ToTitle(record.SpeciesName)</td>
+                          <td>@ToTitle(record.Supervisor)</td>
+                        <td>@record.SeedingDate.ToString("dd-MMMM-yyyy")</td>
+                        <td>@record.Quantity</td>
+                        <td>@record.LastUpdated.ToString("dd-MMMM-yyyy")</td>
+                        <td>@ToTitle(record.LocationDesc)</td>
+                        <td>
+                            <button class="btn btn-primary btn-sm"
+                                    onclick="openSortInput(@record.SeedEntryId, @record.Quantity, @record.Id)">
+                                Sort
+                            </button>
+
+                            <button id="revert-btn-@record.Id"
+                                    class="btn btn-warning btn-sm"
+                                    onclick="revertLastSorting(@record.Id)">
+                                Revert Last
+                            </button>
+
+                            <div id="sort-container-@record.SeedEntryId" class="d-none mt-2">
+                                <input type="number" class="form-control mb-2" id="sort-input-@record.Id"
+                                       placeholder="Enter quantity" min="0" max="@record.Quantity">
+                                <button class="btn btn-success btn-sm"
+                                        onclick="updateSortedQuantity(@record.Id, @record.Quantity)">
+                                    Update
+                                </button>
+                                <button class="btn btn-danger btn-sm"
+                                        onclick="cancelSort(@record.SeedEntryId, @record.Id)">
+                                    Cancel
+                                </button>
+                            </div>
+                        </td>
+
+
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <div class="alert alert-warning text-center mt-3">
+            No results found for the specified search.
+        </div>
+    }
+   
+</div>
+
+
+<script>
+      function openSortInput(seedEntryId, availableQuantity, inventoryId) {
+      document.getElementById(`sort-container-${seedEntryId}`).classList.remove("d-none");
+      const revertBtn = document.getElementById(`revert-btn-${inventoryId}`);
+      if (revertBtn) revertBtn.style.display = "none";   // hide
+    }
+
+    function cancelSort(seedEntryId, inventoryId) {
+      document.getElementById(`sort-container-${seedEntryId}`).classList.add("d-none");
+      const revertBtn = document.getElementById(`revert-btn-${inventoryId}`);
+      if (revertBtn) revertBtn.style.display = "";       // show again
+    }
+
+        function updateSortedQuantity(id, availableQuantity) {
+
+        let sortedQuantity = parseInt(document.getElementById(`sort-input-${id}`).value);
+
+        if (isNaN(sortedQuantity) || sortedQuantity < 0 || sortedQuantity > availableQuantity) {
+            alert("Invalid quantity. It must be between 0 and " + availableQuantity);
+            return;
+        }
+
+        const confirmMsg = `Are you sure you want to sort ${availableQuantity - sortedQuantity} out of ${availableQuantity}?\n` +
+            `The remaining stock will be ${sortedQuantity}.`;
+
+        if (!confirm(confirmMsg)) {
+            return; // User cancelled
+        }
+
+        fetch(window.basePath + `SeedEntry/Inventory?handler=UpdateSortedQuantity&id=${id}&quantity=${sortedQuantity}`, {
+            method: "POST"
+        }).then(response => response.json()).then(data => {
+            if (data.success) {
+                location.reload();
+                alert("Quantity Sorted!");
+            } else {
+                alert("Failed to update Sorted Quantity.");
+            }
+        });
+    }
+        function revertLastSorting(id) {
+        if (!confirm("Revert the last Sorting transaction for this batch?")) return;
+
+        fetch(window.basePath + `SeedEntry/Inventory?handler=RevertLastSorting&id=${id}`, {
+            method: "POST"
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert("Last Sorting reverted.");
+                location.reload();
+            } else {
+                alert(data.message || "Failed to revert.");
+            }
+        })
+        .catch(() => alert("Failed to revert."));
+    }
+</script>

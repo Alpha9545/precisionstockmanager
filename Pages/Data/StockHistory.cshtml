@@ -1,0 +1,184 @@
+﻿@page
+@model PlantStockManager.Pages.Data.StockHistoryModel
+@{
+    ViewData["Title"] = "Utilized Stock";
+}
+
+<div class="container-fluid py-3">
+    <!-- Heading and Filters in One Row -->
+    <div class="d-flex justify-content-between align-items-center flex-wrap mb-3">
+        <h2 class="mb-0 text-primary">Utilized Stock</h2>
+
+        <!-- Filters Section -->
+        <form method="get" class="d-flex flex-wrap align-items-center gap-3">
+            <div class="d-flex align-items-center gap-2">
+                <label class="form-label fw-bold mb-0">Date From:</label>
+                <input type="date" asp-for="DateFrom" class="form-control form-control-sm" style="width: 140px;">
+            </div>
+
+            <div class="d-flex align-items-center gap-2">
+                <label class="form-label fw-bold mb-0">Date To:</label>
+                <input type="date" asp-for="DateTo" class="form-control form-control-sm" style="width: 140px;">
+            </div>
+
+            <div>
+                <select asp-for="SelectedPolyhouse" class="form-select form-select-sm">
+                    <option value="">All Polyhouses</option>
+                    @foreach (var polyhouse in Model.Polyhouses)
+                    {
+                        <option value="@polyhouse.Id">@polyhouse.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div>
+                <select asp-for="SelectedPlantType" class="form-select form-select-sm">
+                    <option value="">All Plant Types</option>
+                    @foreach (var plantType in Model.PlantTypes)
+                    {
+                        <option value="@plantType.Id">@plantType.Name</option>
+                    }
+                </select>
+            </div>
+
+            <div>
+                <select asp-for="SelectedSpecies" class="form-select form-select-sm">
+                    <option value="">All Species</option>
+                    @foreach (var species in Model.PlantSpecies)
+                    {
+                        <option value="@species.Id">@species.Name</option>
+                    }
+                </select>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-sm">Apply Filters</button>
+            @* <a asp-page="/Data/StockHistory"
+               asp-route-handler="GeneratePdf"
+               asp-route-SelectedPolyhouse="@Model.SelectedPolyhouse"
+               asp-route-SelectedPlantType="@Model.SelectedPlantType"
+               asp-route-SelectedSpecies="@Model.SelectedSpecies"
+               class="btn btn-secondary btn-sm" target="_blank">
+                Generate PDF
+            </a> *@
+
+            <button type="button" class="btn btn-secondary btn-sm" id="generatePdfBtn">
+                Generate PDF
+            </button>
+        </form>
+    </div>
+
+    <!-- Table Section -->
+    <div class="card shadow-sm p-3">
+        <div class="table-responsive" style="max-height:75vh; overflow-y: auto;">
+            @if (Model.Inventory.Any()){
+                <table class="table table-hover table-striped">
+                    <thead class="table-dark position-sticky top-0">
+                        <tr>
+                            <th>Sowing Id</th>
+                            <th>Polyhouse</th>
+                            <th>Plant Type</th>
+                            <th>Variety</th>
+                            <th>Ready On</th>
+                            <th>Quantity</th>
+                            <th>Utilized Date</th>
+                            <th>Utilized</th>
+                            <th>Customer</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{
+                            int? previousInventoryId = null;
+                        }
+                        @foreach (var record in Model.Inventory)
+                        {
+                            // Insert a separator row when Inventory ID changes
+                            if (previousInventoryId != null && previousInventoryId != record.Id)
+                            {
+                                <tr class="table-divider">
+                                    <td colspan="9"></td>
+                                </tr>
+                            }
+
+                            previousInventoryId = record.Id;
+                            <tr>
+                                <td>@record.SeedEntryId</td>
+                                <td>@record.PolyhouseName</td>
+                                <td>@record.PlantTypeName</td>
+                                <td>@record.SpeciesName</td>
+                                <td>@record.LastUpdated.ToString("dd-MMMM-yyyy")</td>
+                                <td>@record.Quantity</td>
+                                <td>@record.InventoryTransactionDate.ToString("dd-MMM-yyyy hh:mm:ss tt")</td>
+                                <td>@record.UtilizedQuantity</td>
+                                <td>@record.CustomerName</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div class="alert alert-warning text-center mt-3">
+                    No results found for the specified search.
+                </div>
+            }
+
+        </div>
+    </div>
+</div>
+
+<style>
+    .table-divider td {
+        border-top: 3px solid #dc3545; /* Red separator for better contrast */
+        height: 8px;
+        padding: 0;
+        background-color: #f8f9fa;
+    }
+</style>
+
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        var plantTypeDropdown = document.getElementById("SelectedPlantType");
+        var speciesDropdown = document.getElementById("SelectedSpecies");
+
+        plantTypeDropdown.addEventListener("change", function () {
+            var plantTypeId = plantTypeDropdown.value;
+            speciesDropdown.innerHTML = '<option value="">All Species</option>';
+
+            if (plantTypeId) {
+                fetch(`/Data/StockHistory?handler=SpeciesByPlantType&plantTypeId=${plantTypeId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        data.forEach(species => {
+                            var option = document.createElement("option");
+                            option.value = species.id;
+                            option.textContent = species.name;
+                            speciesDropdown.appendChild(option);
+                        });
+                    })
+                    .catch(error => console.error("Error fetching species:", error));
+            }
+        });
+    });
+
+    document.getElementById('generatePdfBtn').addEventListener('click', function () {
+        const baseUrl = '/Data/StockHistory?handler=GeneratePdf';
+
+        const params = new URLSearchParams();
+
+        const dateFrom = document.querySelector('input[name="DateFrom"]').value;
+        const dateTo = document.querySelector('input[name="DateTo"]').value;
+        const polyhouse = document.querySelector('select[name="SelectedPolyhouse"]').value;
+        const plantType = document.querySelector('select[name="SelectedPlantType"]').value;
+        const species = document.querySelector('select[name="SelectedSpecies"]').value;
+
+        if (dateFrom) params.append('DateFrom', dateFrom);
+        if (dateTo) params.append('DateTo', dateTo);
+        if (polyhouse) params.append('SelectedPolyhouse', polyhouse);
+        if (plantType) params.append('SelectedPlantType', plantType);
+        if (species) params.append('SelectedSpecies', species);
+
+        const fullUrl = `${baseUrl}&${params.toString()}`;
+        window.open(fullUrl, '_blank');
+    });
+</script>

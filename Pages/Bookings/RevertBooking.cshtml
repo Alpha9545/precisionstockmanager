@@ -1,0 +1,69 @@
+﻿@page
+@model PlantStockManager.Pages.Bookings.RevertBookingModel
+@{
+    ViewData["Title"] = "Revert Booking";
+}
+
+<div class="container py-3">
+    <h2 class="h5 text-primary fw-bold mb-3">Revert Booking</h2>
+
+    <form method="get" class="row g-2 mb-4">
+        <div class="col-md-4">
+            <label class="form-label">Booking ID</label>
+            <input type="number" class="form-control" asp-for="BookingId" />
+        </div>
+        <div class="col-md-2 align-self-end">
+            <button type="submit" class="btn btn-primary w-100">Load</button>
+        </div>
+    </form>
+
+    @if (Model.Booking != null)
+    {
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Booking #@Model.Booking.Id - @Model.Booking.CustomerName</h5>
+                <p class="mb-1"><strong>Status:</strong> @Model.Booking.Status</p>
+                <p><strong>Quantity:</strong> @Model.Booking.Quantity</p>
+            </div>
+        </div>
+
+        @if (Model.Transactions.Any())
+        {
+            <div class="table-responsive">
+                <table class="table table-striped table-sm align-middle">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Inventory ID</th>
+                            <th>Plant</th>
+                            <th>Species</th>
+                            <th>Quantity Utilized</th>
+                            <th>Transaction Type</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var tx in Model.Transactions)
+                        {
+                            <tr>
+                                <td>@tx.InventoryId</td>
+                                <td>@tx.PlantTypeName</td>
+                                <td>@tx.SpeciesName</td>
+                                <td>@tx.QuantityUtilized</td>
+                                <td>@tx.TransactionType</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <form method="post" class="mt-3">
+                <input type="hidden" asp-for="BookingId" />
+                <button type="submit" class="btn btn-danger" onclick="return confirm('Are you sure you want to revert this booking?')">
+                    Revert Booking
+                </button>
+            </form>
+        }
+        else
+        {
+            <div class="alert alert-warning">No inventory transactions found for this booking.</div>
+        }
+    }
+</div>

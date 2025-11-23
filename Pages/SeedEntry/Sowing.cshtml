@@ -1,0 +1,225 @@
+﻿@page
+@model PlantStockManager.Pages.SeedEntry.SeedEntryModel
+@{
+    ViewData["Title"] = "Sowing Plants";
+}
+
+<link rel="stylesheet" href="~/css/sweetalert.css" />
+
+<div class="container mt-5">
+    <div class="card shadow-lg mx-auto" style="max-width: 900px;">
+        <div class="card-header bg-primary text-white">
+            <h2 class="mb-0 text-center">Sowing Plants</h2>
+        </div>
+        <div class="card-body">
+            <form method="post" id="sowingForm">
+                <!-- Seed Source REMOVED -->
+
+                <div class="mb-3 row">
+                    <label class="col-sm-4 col-form-label text-end fw-bold">Select Polyhouse</label>
+                    <div class="col-sm-8">
+                        <select class="form-select" asp-for="SeedEntries.PolyhouseId" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var polyhouse in Model.Polyhouses)
+                            {
+                                <option value="@polyhouse.Id">@polyhouse.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-3 row">
+                    <label class="col-sm-4 col-form-label text-end fw-bold">Select Plant Type</label>
+                    <div class="col-sm-8">
+                        <select id="plantTypeDropdown" class="form-select" asp-for="SeedEntries.PlantId" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var type in Model.PlantTypes)
+                            {
+                                <option value="@type.Id">@type.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-3 row">
+                    <label class="col-sm-4 col-form-label text-end fw-bold">Select Variety</label>
+                    <div class="col-sm-8">
+                        <select id="speciesDropdown" class="form-select" asp-for="SeedEntries.SpeciesId" required>
+                            <option value="">-- Select a Plant Type First --</option>
+                        </select>
+                        <small class="text-muted d-block mt-1">Available Seeds/Cuttings : <span id="availableQty">—</span></small>
+                    </div>
+                </div>
+
+                <div class="mb-3 row">
+                    <label class="col-sm-4 col-form-label text-end fw-bold">Seeding Date</label>
+                    <div class="col-sm-3">
+                        <input type="date" class="form-control" asp-for="SeedEntries.SeedingDate" required />
+                    </div>
+                </div>
+
+                <div class="mb-3 row">
+                    <label class="col-sm-4 col-form-label text-end fw-bold">Number of Seeds/Cutting Planted</label>
+                    <div class="col-sm-8">
+                        <input type="text" class="form-control" id="sowingQuantityInput" required />
+                        <small class="text-muted d-block mt-1" id="sowingQuantityInWords"></small>
+                        <input type="hidden" asp-for="SeedEntries.SeedsPlanted" id="hiddenSowingQuantity" />
+                    </div>
+                </div>
+
+                <div class="mb-3 row">
+                    <label class="col-sm-4 col-form-label text-end fw-bold">Sowing Batch Supervisor</label>
+                    <div class="col-sm-8">
+                        <select class="form-select" id="bookedByDropdown" asp-for="SeedEntries.Supervisor" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var employee in Model.Employees)
+                            {
+                                <option value="@employee.EmployeeID">@employee.Name</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <input type="hidden" asp-for="SeedEntries.CreatedBy" value="Lalit" />
+
+                <div class="text-center">
+                    <button type="submit" class="btn btn-success w-50 py-2">Submit</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/sweetalert.js"></script>
+    <script>
+        $(function () {
+            // Build URLs against this page
+            const pageUrl = '@Url.Page("/SeedEntry/SeedEntry")';
+
+            let currentAvailable = 0;
+
+            // Helpers
+            function formatNumberWithCommas(num) {
+                return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            }
+            function numberToWords(num) {
+                if (num === "" || isNaN(num) || num < 1) return "";
+                const ones=["","One","Two","Three","Four","Five","Six","Seven","Eight","Nine","Ten","Eleven","Twelve","Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen"];
+                const tens=["","","Twenty","Thirty","Forty","Fifty","Sixty","Seventy","Eighty","Ninety"];
+                function conv(n){
+                    if(n<20)return ones[n];
+                    if(n<100)return tens[Math.floor(n/10)]+(n%10?" "+ones[n%10]:"");
+                    if(n<1000)return ones[Math.floor(n/100)]+" Hundred"+(n%100?" "+conv(n%100):"");
+                    if(n<1000000)return conv(Math.floor(n/1000))+" Thousand"+(n%1000?" "+conv(n%1000):"");
+                    return n;
+                }
+                return conv(num);
+            }
+            function updateHiddenQtyAndWords(n) {
+                $("#hiddenSowingQuantity").val(n);
+                $("#sowingQuantityInWords").text(numberToWords(n));
+            }
+
+            // Dependent species
+            $('#plantTypeDropdown').on('change', function () {
+                const plantTypeId = $(this).val();
+                const speciesDropdown = $('#speciesDropdown');
+                speciesDropdown.empty();
+
+                if (!plantTypeId) {
+                    speciesDropdown.append('<option value="">-- Select a Plant Type First --</option>');
+                    refreshAvailable();
+                    return;
+                }
+
+                const url = `${pageUrl}?handler=SpeciesByPlantType&plantTypeId=${encodeURIComponent(plantTypeId)}`;
+                $.get(url, function (data) {
+                    speciesDropdown.append('<option value="">-- Select --</option>');
+                    $.each(data, function (_, species) {
+                        speciesDropdown.append('<option value="' + species.id + '">' + species.name + '</option>');
+                    });
+                    refreshAvailable();
+                }).fail(function () {
+                    speciesDropdown.append('<option value="">-- Failed to load species --</option>');
+                    refreshAvailable();
+                });
+            });
+
+            // Availability (sum across ALL sources)
+            async function refreshAvailable() {
+                const plantId = $('#plantTypeDropdown').val();
+                const speciesId = $('#speciesDropdown').val();
+
+                $('#availableQty').text('—');
+                currentAvailable = 0;
+
+                if (!plantId || !speciesId) return;
+
+                try {
+                    const url = `${pageUrl}?handler=Available&plantId=${encodeURIComponent(plantId)}&speciesId=${encodeURIComponent(speciesId)}`;
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error("Failed");
+                    const data = await res.json();
+                    currentAvailable = data.available || 0;
+                    $('#availableQty').text(currentAvailable.toLocaleString());
+                } catch {
+                    currentAvailable = 0;
+                    $('#availableQty').text('—');
+                }
+            }
+            $('#speciesDropdown').on('change', refreshAvailable);
+
+            // Quantity input
+            $("#sowingQuantityInput").on("input", function () {
+                let raw = $(this).val().replace(/,/g, "");
+                let n = parseInt(raw, 10);
+
+                if (!isNaN(n)) {
+                    if (n < 1) n = 1;
+                    if (n > 999999) n = 999999;
+                    if (currentAvailable > 0 && n > currentAvailable) {
+                        n = currentAvailable;
+                        showCustomAlert("Quantity limited", "You cannot exceed available quantity.", "warning");
+                    }
+                    $(this).val(formatNumberWithCommas(n));
+                    updateHiddenQtyAndWords(n);
+                } else {
+                    $(this).val("");
+                    $("#sowingQuantityInWords").text("");
+                    $("#hiddenSowingQuantity").val("");
+                }
+            });
+
+            // Submit via ajax (server will recheck availability)
+           $('#sowingForm').on('submit', function (event) {
+                event.preventDefault();
+
+                const qty = parseInt($("#hiddenSowingQuantity").val(), 10) || 0;
+                if (qty <= 0) {
+                    showCustomAlert("Invalid", "Please enter a valid quantity.", "error");
+                    return;
+                }
+                if (currentAvailable > 0 && qty > currentAvailable) {
+                    showCustomAlert("Too many", `Only ${currentAvailable} available.`, "error");
+                    return;
+                }
+
+                const formData = $(this).serialize();
+                $.post(pageUrl, formData, function (response) {
+                    if (response && response.success) {
+                        showCustomAlert("Success", response.message, "success", function () { location.reload(); });
+                    } else {
+                        const msg = response && response.message ? response.message : "Server error. Please try again.";
+                        showCustomAlert("Error", msg, "error");
+                    }
+                }).fail(function () {
+                    showCustomAlert("Error", "Server error. Please try again later.", "error");
+                });
+            });
+
+            // Initial
+            refreshAvailable();
+        });
+    </script>
+}

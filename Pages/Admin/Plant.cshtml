@@ -1,0 +1,166 @@
+﻿@page
+@model PlantStockManager.Pages.Admin.PlantModel
+@{
+    ViewData["Title"] = "Manage Plant Types & Species";
+}
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" />
+
+<div style="height: 80vh; overflow-y: auto;">
+    <div class="container mt-4">
+        <h2 class="mb-4">Plant Types & Species Management</h2>
+
+        <!-- Add New Plant Type -->
+        <div class="mb-4">
+            <h4>Add New Plant Type</h4>
+            <form method="post" asp-page-handler="AddPlantType">
+                <div class="input-group">
+                    <input type="text" asp-for="NewPlantTypeName" class="form-control" placeholder="Enter plant type name" required />
+                    <button type="submit" class="btn btn-primary">Add Plant Type</button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Accordion for Plant Types and Their Species -->
+        <div class="accordion" id="plantTypesAccordion">
+            @foreach (var item in Model.PlantTypeSpeciesList)
+            {
+                var type = item.PlantType;
+                var collapseId = $"collapse{type.Id}";
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="heading@type.Id">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#@collapseId" aria-expanded="false" aria-controls="@collapseId">
+                            @type.Name
+                        </button>
+                        <button class="btn btn-warning btn-sm ms-3" onclick="openEditTypeModal('@type.Id', '@type.Name')">Edit</button>
+                    </h2>
+                    <div id="@collapseId" class="accordion-collapse collapse" aria-labelledby="heading@type.Id" data-bs-parent="#plantTypesAccordion">
+                        <div class="accordion-body">
+                            <!-- Add New Species for this Plant Type -->
+                            <form method="post" asp-page-handler="AddSpecies" class="mb-3">
+                                <input type="hidden" name="NewSpeciesTypeId" value="@type.Id" />
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Species Name</label>
+                                        <input type="text" name="NewSpeciesName" class="form-control" placeholder="Species Name" required />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Scientific Name</label>
+                                        <input type="text" name="NewSpeciesScientificName" class="form-control" placeholder="Scientific Name" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <button type="submit" class="btn btn-success">Add Species</button>
+                                    </div>
+                                </div>
+                            </form>
+
+                            <!-- Species List -->
+                            <table class="table table-sm table-striped">
+                                <thead>
+                                    <tr>
+                                        @* <th>ID</th> *@
+                                        <th>Species Name</th>
+                                        <th>Scientific Name</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var species in item.Species)
+                                    {
+                                        <tr>
+                                            @* <td>@species.Id</td> *@
+                                            <td>@species.Name</td>
+                                            <td>@species.ScientificName</td>
+                                            <td>
+                                                <button class="btn btn-warning btn-sm" onclick="openEditSpeciesModal('@species.Id', '@species.Name', '@species.ScientificName')">
+                                                    Edit
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+
+
+<!-- Edit Plant Type Modal -->
+<div id="editTypeModal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Plant Type</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" asp-page-handler="EditPlantType">
+                <div class="modal-body">
+                    <input type="hidden" asp-for="EditTypeId" id="editTypeId" />
+                    <div class="mb-3">
+                        <label class="form-label">Plant Type Name</label>
+                        <input type="text" asp-for="EditTypeName" class="form-control" id="editTypeName" required />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Plant Species Modal -->
+<div id="editSpeciesModal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Plant Species</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="post" asp-page-handler="EditSpecies">
+                <div class="modal-body">
+                    <input type="hidden" asp-for="EditSpeciesId" id="editSpeciesId" />
+                    <div class="mb-3">
+                        <label class="form-label">Species Name</label>
+                        <input type="text" asp-for="EditSpeciesName" class="form-control" id="editSpeciesName" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Scientific Name</label>
+                        <input type="text" asp-for="EditSpeciesScientificName" class="form-control" id="editSpeciesScientificName" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- JavaScript -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Open modal to edit plant type
+    function openEditTypeModal(id, name) {
+        document.getElementById("editTypeId").value = id;
+        document.getElementById("editTypeName").value = name;
+        var modal = new bootstrap.Modal(document.getElementById('editTypeModal'));
+        modal.show();
+    }
+
+    // Open modal to edit plant species
+    function openEditSpeciesModal(id, name, scientificName) {
+        document.getElementById("editSpeciesId").value = id;
+        document.getElementById("editSpeciesName").value = name;
+        document.getElementById("editSpeciesScientificName").value = scientificName;
+        var modal = new bootstrap.Modal(document.getElementById('editSpeciesModal'));
+        modal.show();
+    }
+</script>

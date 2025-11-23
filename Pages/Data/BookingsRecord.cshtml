@@ -1,0 +1,163 @@
+﻿@page
+@model PlantStockManager.Pages.Data.BookingsRecordModel
+@using System.Globalization
+
+@{
+    ViewData["Title"] = "Booking Records";
+}
+
+@functions {
+    private static string ToTitle(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        s = s.ToLowerInvariant();
+        return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s);
+    }
+}
+
+<link rel="stylesheet" href="~/css/sweetalert.css" />
+
+<div class="p-2">
+    <h2 class="text-primary fw-bold fs-4 mb-3">Booking Records</h2>
+
+    <!-- Filters -->
+    <form method="get" class="row g-2 mb-3" id="filtersForm">
+        <div class="col-6 col-md-3">
+            <label class="form-label small fw-bold mb-1">Plant Type</label>
+            <select asp-for="SelectedPlantType" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">All</option>
+                @foreach (var plantType in Model.PlantTypes)
+                {
+                    <option value="@plantType.Id">@plantType.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="col-6 col-md-3">
+            <label class="form-label small fw-bold mb-1">Species</label>
+            <select asp-for="SelectedSpecies" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">All</option>
+                @foreach (var species in Model.PlantSpecies)
+                {
+                    <option value="@species.Id">@species.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="col-6 col-md-2">
+            <label class="form-label small fw-bold mb-1">Delivery Month</label>
+            <select asp-for="SelectedMonth" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="0" selected="@(Model.SelectedMonth == 0 ? "selected" : null)">All</option>
+                @for (int month = 1; month <= 12; month++)
+                {
+                    <option value="@month" selected="@(Model.SelectedMonth == month ? "selected" : null)">
+                        @System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(month)
+                    </option>
+                }
+            </select>
+        </div>
+
+        <div class="col-6 col-md-2">
+            <label class="form-label small fw-bold mb-1">Delivery Year</label>
+            <select asp-for="SelectedYear" class="form-select form-select-sm" onchange="this.form.submit()">
+                @for (int year = DateTime.Now.Year - 1; year <= DateTime.Now.Year + 1; year++)
+                {
+                    <option value="@year" selected="@(Model.SelectedYear == year ? "selected" : null)">@year</option>
+                }
+            </select>
+        </div>
+
+        <div class="col-6 col-md-2">
+            <label class="form-label small fw-bold mb-1">Delivery Status</label>
+            <select asp-for="SelectedStatus" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="Pending">Pending</option>
+                <option value="Completed">Completed</option>
+                <option value="Cancelled">Cancelled</option>
+            </select>
+        </div>
+        <!-- Actions -->
+        <div class="col-12 d-grid gap-2 d-md-flex justify-content-md-end mt-1">
+            <a asp-page="/Data/BookingsRecord"
+               asp-route-handler="GeneratePdf"
+               asp-route-SelectedPlantType="@Model.SelectedPlantType"
+               asp-route-SelectedSpecies="@Model.SelectedSpecies"
+               asp-route-SelectedMonth="@Model.SelectedMonth"
+               asp-route-SelectedYear="@Model.SelectedYear"
+               asp-route-SelectedStatus="@Model.SelectedStatus"
+               class="btn btn-secondary btn-sm"
+               target="_blank" rel="noopener" >
+                Generate PDF
+            </a>
+        </div>
+
+
+    </form>
+
+    <!-- Table -->
+    <div class="card shadow-sm p-2">
+        <div class="table-responsive" style="max-height: 570px; overflow-y: auto;">
+            <table class="table table-striped table-hover table-sm align-middle">
+                <thead class="table-dark position-sticky top-0 small">
+                    <tr>
+                        <th>Booking ID</th>
+                        <th>Customer Name</th>
+                        <th>Address</th>
+                        <th>Booking Date</th>
+                        <th>Delivery Status</th>
+                        <th>Delivery Date</th>
+                        <th>Plant Type</th>
+                        <th>Species</th>
+                        <th>Quantity</th>
+                        <th>Advance</th>
+                        <th>Added By</th>
+                    </tr>
+                </thead>
+                <tbody class="small">
+                    @foreach (var booking in Model.Bookings)
+                    {
+                        <tr>
+                            <td>@booking.Id</td>
+                            <td>@ToTitle(booking.CustomerName)</td>
+                            <td>@ToTitle(booking.Address)</td>
+                            <td>@booking.BookingDate.ToString("dd-MMMM-yyyy")</td>
+                            <td>@booking.Status</td>
+                            <td>@booking.DeliveryDate.ToString("dd-MMMM-yyyy")</td>
+                            <td>@ToTitle(booking.PlantTypeName)</td>
+                            <td>@ToTitle(booking.SpeciesName)</td>
+                            <td>@booking.Quantity</td>
+                            <td>@booking.AdvanceTakenAmount</td>
+                            <td>@ToTitle((booking.BookedById == 0 ? booking.BookedByOther : booking.BookedByName))</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    @@media (max-width: 576px) {
+        #filtersForm select, #filtersForm input
+
+    {
+        font-size: 0.85rem;
+    }
+
+    .btn-sm {
+        font-size: 0.8rem;
+        padding: 0.3rem 0.5rem;
+    }
+
+    h2 {
+        font-size: 1.25rem;
+    }
+
+    .table,
+    .table th,
+    .table td {
+        font-size: 0.75rem;
+        white-space: nowrap;
+    }
+
+    }
+</style>

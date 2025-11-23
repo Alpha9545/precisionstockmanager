@@ -1,0 +1,168 @@
+﻿@page
+@model PlantStockManager.Pages.Office.SeedBankViewModel
+@{
+    ViewData["Title"] = "Seed/Cuttings Bank - View Only";
+
+}
+
+
+
+<div class="container mt-4">
+    <h2 class="mb-3">Seed / Cuttings Bank (View Only)</h2>
+
+    <form method="get" class="card card-body mb-3">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label asp-for="PlantId" class="form-label">Plant</label>
+                <select asp-for="PlantId" asp-items="Model.PlantSelect" class="form-select" id="fPlant">
+                    <option value="">All Plants</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label asp-for="SpeciesId" class="form-label">Species</label>
+                <select asp-for="SpeciesId" asp-items="Model.SpeciesSelect" class="form-select" id="fSpecies">
+                    <option value="">All Species</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label asp-for="SourceId" class="form-label">Seed Source</label>
+                <select asp-for="SourceId" asp-items="Model.SourceSelect" class="form-select">
+                    <option value="">All Sources</option>
+                </select>
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">From (Received)</label>
+                <input type="date" class="form-control" name="DateFrom" value="@(Model.DateFrom?.ToString("yyyy-MM-dd") ?? "")" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">To (Received)</label>
+                <input type="date" class="form-control" name="DateTo" value="@(Model.DateTo?.ToString("yyyy-MM-dd") ?? "")" />
+            </div>
+
+            <div class="col-md-3">
+                <label class="form-label">Sort by</label>
+                <select name="SortBy" class="form-select">
+                    <option value="plant" selected="@(Model.SortBy == "plant")">Plant Name</option>
+                    <option value="species" selected="@(Model.SortBy == "species")">Species Name</option>
+                    <option value="source" selected="@(Model.SortBy == "source")">Seed Source</option>
+                    <option value="date" selected="@(Model.SortBy == "date")">Received Date</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Direction</label>
+                <select name="SortDir" class="form-select">
+                    <option value="asc" selected="@(Model.SortDir == "asc")">Ascending</option>
+                    <option value="desc" selected="@(Model.SortDir == "desc")">Descending</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">Page size</label>
+                <select name="PageSize" class="form-select">
+                    <option value="10" selected="@(Model.PageSize == 10)">10</option>
+                    <option value="20" selected="@(Model.PageSize == 20)">20</option>
+                    <option value="50" selected="@(Model.PageSize == 50)">50</option>
+                    <option value="100" selected="@(Model.PageSize == 100)">100</option>
+                </select>
+            </div>
+
+            <div class="col-md-12">
+                <button class="btn btn-primary mt-2" type="submit">Apply</button>
+                <a class="btn btn-outline-secondary mt-2" href="?">Reset</a>
+            </div>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-striped align-middle">
+            <thead>
+                <tr>
+                    <th>Plant</th>
+                    <th>Species</th>
+                    <th>Source</th>
+                    <th>Batch</th>
+                    <th>Unit</th>
+                    <th>Quantity</th>
+                    <th>Utilized</th>
+                    <th>Available</th>
+                    <th>Received (UTC)</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Rows.Any())
+                {
+                    <tr><td colspan="10" class="text-center text-muted py-4">No records found</td></tr>
+                }
+                else
+                {
+                    foreach (var r in Model.Rows)
+                    {
+                        <tr>
+                            <td>@r.PlantName</td>
+                            <td>@r.SpeciesName</td>
+                            <td>@(r.SourceName ?? "-")</td>
+                            <td>@(r.BatchNo ?? "-")</td>
+                            <td>@r.Unit</td>
+                            <td>@r.Quantity</td>
+                            <td>@r.UtilizedQuantity</td>
+                            <td>@r.Available</td>
+                            <td>@r.ReceivedOnUtc.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>@(r.Notes ?? "-")</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (Model.TotalPages > 1)
+    {
+        <nav aria-label="Page navigation">
+            <ul class="pagination">
+                <li class="page-item @(Model.PageIndex == 1 ? "disabled" : "")">
+                    <a class="page-link" href="@Model.BuildPageUrl(1)">First</a>
+                </li>
+                <li class="page-item @(Model.PageIndex == 1 ? "disabled" : "")">
+                    <a class="page-link" href="@Model.BuildPageUrl(Model.PageIndex - 1)">Prev</a>
+                </li>
+
+                @foreach (var p in Model.PageNumbersToShow())
+                {
+                    <li class="page-item @(p == Model.PageIndex ? "active" : "")">
+                        <a class="page-link" href="@Model.BuildPageUrl(p)">@p</a>
+                    </li>
+                }
+
+                <li class="page-item @(Model.PageIndex == Model.TotalPages ? "disabled" : "")">
+                    <a class="page-link" href="@Model.BuildPageUrl(Model.PageIndex + 1)">Next</a>
+                </li>
+                <li class="page-item @(Model.PageIndex == Model.TotalPages ? "disabled" : "")">
+                    <a class="page-link" href="@Model.BuildPageUrl(Model.TotalPages)">Last</a>
+                </li>
+            </ul>
+        </nav>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        // Optional: dynamically reload species options when plant changes (AJAX)
+        document.getElementById('fPlant')?.addEventListener('change', async function() {
+            const plantId = this.value;
+            const speciesSelect = document.getElementById('fSpecies');
+            speciesSelect.innerHTML = '<option value="">All Species</option>';
+            if (!plantId) return;
+            const res = await fetch(`?handler=Species&plantId=${plantId}`);
+            const data = await res.json();
+            data.forEach(sp => {
+                const opt = document.createElement('option');
+                opt.value = sp.speciesId;
+                opt.textContent = sp.speciesName;
+                speciesSelect.appendChild(opt);
+            });
+        });
+    </script>
+}

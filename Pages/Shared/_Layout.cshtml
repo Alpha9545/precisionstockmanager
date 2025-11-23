@@ -1,0 +1,370 @@
+﻿<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - PlantStockManager</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/PlantStockManager.styles.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/dashboard.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/flatpicker.min.css" />
+    @*     <link href='https://unpkg.com/boxicons@2.0.7/css/boxicons.min.css' rel='stylesheet'>
+ *@
+
+</head>
+<body>
+    @using System.Security.Claims
+    @{
+        var designationId = User.FindFirst("DesignationId")?.Value;
+        var designationName = User.FindFirst("DesignationName")?.Value;
+    }
+
+    <div class="overlay"></div>
+
+    <div class="sidebar close">
+        <div class="logo-details">
+
+            <img src="~/images/menu.svg" alt="Menu Icon" class="menu-icon">
+            <span class="logo_name"> </span>
+        </div>
+        <ul class="nav-links">
+            <li>
+                <a asp-page="/index">
+                    <img src="~/images/home.svg" alt="Home Icon" class="nav-icon">
+                    <span class="link_name">Home</span>
+                </a>
+                <ul class="sub-menu blank">
+                    <li><a class="link_name" asp-page="/index">Home</a></li>
+                </ul>
+            </li>
+
+            <li>
+                <div class="icon-link">
+                    <a href="#">
+                        <img src="~/images/compass.svg" alt="Office Icon" class="nav-icon">
+                        <span class="link_name">Office</span>
+                    </a>
+                    <img src="~/images/arrow.svg" alt="Expand" class="arrow">
+                </div>
+                <ul class="sub-menu">
+                    <li><a class="link_name" href="#">Office</a></li>
+                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "1" || designationId == "5")
+                    {
+                        <li><a asp-page="/Office/SeedBank">Add Seeds/Cuttings</a></li>
+
+                        @* <li><a asp-page="/SeedEntry/EditSowing">Assign Seeds/Cuttings</a></li> *@
+                    }
+                    <li><a asp-page="/Office/SeedBankView">View Seeds/Cuttings</a></li>
+                </ul>
+            </li>
+            <li>
+                <div class="icon-link">
+                    <a href="#">
+                        <img src="~/images/bulb.svg" alt="Solutions Icon" class="nav-icon">
+                        <span class="link_name">Sowing</span>
+                    </a>
+                    <img src="~/images/arrow.svg" alt="Expand" class="arrow">
+                </div>
+                <ul class="sub-menu">
+                    <li><a class="link_name" href="#">SeedEntry</a></li>
+                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "1" || designationId == "5")
+                    {
+                        <li><a asp-page="/SeedEntry/Sowing">Sowing</a></li>
+                        @* <li><a asp-page="/SeedEntry/temp">Add Plant Phase</a></li>  *@
+                        <li><a asp-page="/SeedEntry/EditSowing">Edit Sowing</a></li>
+
+                    }
+                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "2" || designationId == "5")
+                    {
+                        <li><a asp-page="/SeedEntry/temp">Add Plant Phase</a></li>
+                    }
+
+                    <li class="for-desktop-records"><a asp-page="/Data/Sowingplants">Sowing Records</a></li>
+                    <li class="for-mobile-records"><a asp-page="/Data/Sowingplants">Sowing Records</a></li>
+                    <li><a asp-page="/Data/MonthWiseSowing">Monthwise Records</a></li>
+
+
+                </ul>
+            </li>
+            <li>
+                <div class="icon-link">
+                    <a href="#">
+                        <img src="~/images/leaf.svg" alt="Booking Icon" class="nav-icon">
+                        <span class="link_name">Stock Info</span>
+                    </a>
+                    <img src="~/images/arrow.svg" alt="Expand" class="arrow">
+                </div>
+                <ul class="sub-menu">
+                    <li><a class="link_name" href="#">Stock Info</a></li>
+                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "2" || designationId == "5")
+                    {
+                        <li><a asp-page="/SeedEntry/Inventory">Sort Available Stock</a></li>
+                    }
+
+                    <li><a asp-page="/Data/ReadyStock">Ready Stock</a></li>
+                    <li><a asp-page="/Data/StockHistory">Utilized Stock</a></li>
+                    <li><a asp-page="/Data/WastedStock">Wasted Stock</a></li>
+
+                </ul>
+            </li>
+            <li>
+                <div class="icon-link">
+                    <a>
+                        <img src="~/images/cart.svg" alt="Booking Icon" class="nav-icon">
+                        <span class="link_name">Booking</span>
+                    </a>
+                    <img src="~/images/arrow.svg" alt="Expand" class="arrow">
+                </div>
+                <ul class="sub-menu">
+                    <li><a class="link_name">Booking</a></li>
+                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "3" || designationId == "5")
+                    {
+                        <li><a asp-page="/Bookings/Book">Add Booking</a></li>
+                        <li><a asp-page="/Bookings/EditBookingRecords">Edit Booking Records</a></li>
+                    }
+                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "2" || designationId == "5")
+                    {
+                        <li><a asp-page="/Bookings/DirectBooking">Add Direct Booking</a></li>
+                        <li><a asp-page="/Bookings/DirectBookingList">Direct Booking List</a></li>
+                    }
+                    <li><a asp-page="/Data/BookingsRecord">Pending Booking Records</a></li>
+
+                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "4" || designationId == "5")
+                    {
+                        <li><a asp-page="/Bookings/Bookinglist">Fullfill Bookings</a></li>
+                        <li><a asp-page="/Bookings/RevertBooking">Revert Booking</a></li>
+
+                    }
+
+                    <li><a asp-page="/Data/BookingHistory">Completed Booking</a></li>
+                </ul>
+            </li>
+            <li>
+                <div class="icon-link">
+                    <a href="#">
+                        <img src="~/images/find.svg" alt="Solutions Icon" class="nav-icon">
+                        <span class="link_name">Insights</span>
+                    </a>
+                    <img src="~/images/arrow.svg" alt="Expand" class="arrow">
+                </div>
+                <ul class="sub-menu">
+                    <li><a class="link_name" href="#">Insights</a></li>
+                    <li><a href="#">Sowing Plants</a></li>
+                    <li><a href="#">Inventory</a></li>
+                    <li><a href="#">Financial Burnout</a></li>
+                </ul>
+            </li>
+            <li>
+                <a href="#">
+                    <img src="~/images/credit-card.svg" alt="Home Icon" class="nav-icon">
+                    <span class="link_name">Pricing</span>
+                </a>
+                <ul class="sub-menu blank">
+                    <li><a class="link_name" href="#">Pricing</a></li>
+                </ul>
+            </li>
+            <li>
+                <a href="#">
+                    <img src="~/images/chart.svg" alt="Home Icon" class="nav-icon">
+                    <span class="link_name">Chart</span>
+                </a>
+                <ul class="sub-menu blank">
+                    <li><a class="link_name" href="#">Chart</a></li>
+                </ul>
+            </li>
+
+            @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "5")
+            {
+                <li>
+
+                    <div class="icon-link">
+                        <a href="#">
+                            <img src="~/images/cog.svg" alt="Home Icon" class="nav-icon">
+                            <span class="link_name">Setting</span>
+                        </a>
+                        <img src="~/images/arrow.svg" alt="Expand" class="arrow">
+                    </div>
+
+                    <ul class="sub-menu">
+                        <li><a class="link_name" href="#">Setting</a></li>
+                        <li><a asp-page="/Admin/Seedsource">Add/Edit Seed Source</a></li>
+                        <li><a asp-page="/Admin/Polyhouse">Add/Edit Polyhouse</a></li>
+                        <li><a asp-page="/Admin/Plant">Add/Edit Plants</a></li>
+                        @* <li><a asp-page="/Admin/Employee">Add/Edit Employees</a></li>
+                    <li><a asp-page="/Account/AddUser">Add/Edit Users</a></li> *@
+                        <li><a asp-page="/Admin/Users">Add/Edit Employees</a></li>
+
+                    </ul>
+
+
+                </li>
+            }
+            <li>
+                <div class="profile-details">
+                    @if (User.Identity != null && User.Identity.IsAuthenticated)
+                    {
+                        <div class="profile-content">
+                            <img src="~/images/user.png" class="profileImg" />
+                        </div>
+
+
+                        <div class="name-job me-2">
+                            <div class="profile_name">@User.Identity.Name</div>
+                        </div>
+
+                        <form asp-page="/Account/Logout" method="post" class="d-inline">
+                            <button type="submit" class="btn p-0 border-0 bg-transparent" title="Logout">
+                                <img src="~/images/log-out.svg" alt="Logout" class="log-out" style="height: 28px; width: 28px;" />
+                            </button>
+                        </form>
+                    }
+                </div>
+
+            </li>
+        </ul>
+    </div>
+    <header class="top-header">
+        <div class="mobile-menu-icon">
+
+            <img src="~/images/menu.svg" alt="Menu Icon" class="menu-icon " style="filter: invert(1);margin-right:10px;">
+        </div>
+        <div class="header-content">
+
+            <span class="header-title">Plant Manager</span>
+            @* <form asp-page="/Account/Logout" method="post" >
+                <button type="submit" class="btn btn-danger logout-btn">Logout</button>
+            </form> *@
+
+          @*   @if (User.Identity != null && User.Identity.IsAuthenticated)
+            {
+                <div class="d-flex align-items-center gap-3">
+                    <span class="text-dark fw-bold">Hello @User.Identity.Name ,</span><span style="color: red;">@designationName</span>
+
+
+                    <form asp-page="/Account/Logout" method="post" class="d-inline">
+                        <button type="submit" class="btn btn-danger logout-btn">Logout</button>
+                    </form>
+                </div>
+            } *@
+            @if (User.Identity != null && User.Identity.IsAuthenticated)
+            {
+                <div class="user-area d-flex align-items-center gap-3">
+                    <!-- Desktop / md+ view -->
+                    <div class="d-none d-md-flex align-items-center gap-2">
+                        <span class="greeting text-dark fw-bold">
+                            Hello <span class="user-name">@User.Identity.Name</span>,
+                        </span>
+                        <span class="designation badge bg-danger">@designationName</span>
+                        <form asp-page="/Account/Logout" method="post" class="d-inline ms-2">
+                            <button type="submit" class="btn btn-sm btn-danger logout-btn">Logout</button>
+                        </form>
+                    </div>
+
+                    <!-- Mobile view: compact dropdown -->
+                    <div class="d-flex d-md-none align-items-center">
+                        <div class="dropdown">
+                            @{
+                                var name = User.Identity?.Name ?? "";
+                                var firstWord = name.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
+                            }
+                            <button class="btn btn-outline-secondary btn-sm dropdown-toggle user-avatar-btn"
+                                    type="button" id="userMenuBtn" data-bs-toggle="dropdown" aria-expanded="false">
+                                <span class="avatar-name">@firstWord</span>
+                            </button>
+
+                            <ul class="dropdown-menu dropdown-menu-end p-2" aria-labelledby="userMenuBtn" style="min-width:180px;">
+                                <li class="px-2">
+                                    <div class="fw-semibold small user-mobile-name">@User.Identity.Name</div>
+                                    <div class="small text-danger user-mobile-designation">@designationName</div>
+                                </li>
+                                <li><hr class="dropdown-divider" /></li>
+                                <li>
+                                    <a class="dropdown-item small" asp-page="/Account/Profile">Profile</a>
+                                </li>
+                                <li>
+                                    <form asp-page="/Account/Logout" method="post" class="m-0 px-2">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger w-100">Logout</button>
+                                    </form>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="d-none d-md-block">
+                    <a class="btn btn-outline-primary" asp-page="/Account/Login">Login</a>
+                </div>
+                <div class="d-block d-md-none">
+                    <a class="btn btn-outline-primary btn-sm" asp-page="/Account/Login">Login</a>
+                </div>
+            }
+
+
+
+        </div>
+    </header>
+
+    <div class="main-content">
+
+        <main role="main" class="pb-3">
+
+            @RenderBody()
+        </main>
+    </div>
+
+
+    @*     <footer class="footer">
+        <div class="footer-content">
+            &copy; 2025 - PlantStockManager - <a asp-area="" asp-page="/Privacy">Privacy</a>
+        </div>
+    </footer> *@
+
+
+
+
+
+
+
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    <script src="~/js/flatpicker.min.js"></script>
+
+    <script>
+           document.addEventListener("DOMContentLoaded", function () {
+            flatpickr("#fromDatePicker", {
+                dateFormat: "d/m/Y",
+                allowInput: true
+            });
+            flatpickr("#toDatePicker", {
+                dateFormat: "d/m/Y",
+                allowInput: true
+            });
+        });
+            // Define the base path for AJAX requests
+            window.basePath = '@Url.Content("~/")';
+
+
+             // Force redirect on back after logout
+            if (window.history.replaceState) {
+                window.history.replaceState(null, null, window.location.href);
+            }
+
+            window.addEventListener('pageshow', function (event) {
+                if (event.persisted || (window.performance && window.performance.navigation.type === 2)) {
+                    window.location.reload();
+                }
+            });
+    </script>
+    @await RenderSectionAsync("Scripts", required: false)
+
+
+</body>
+</html>
+
+
+

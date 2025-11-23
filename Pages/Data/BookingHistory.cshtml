@@ -1,0 +1,206 @@
+﻿@page
+@model PlantStockManager.Pages.Data.BookingHistoryModel
+@using System.Globalization
+
+@{
+    ViewData["Title"] = "Booking Stock";
+}
+
+@functions {
+    private static string ToTitle(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return s;
+        s = s.ToLowerInvariant();
+        return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s);
+    }
+}
+
+<div class="container-fluid py-3">
+    <!-- Heading -->
+    <div class="row g-2 align-items-center mb-3">
+        <div class="col-12 col-md-auto">
+            <h2 class="mb-0 text-primary fw-bold fs-4">Bookings History</h2>
+        </div>
+
+        <!-- Filters Section -->
+        <div class="col-12 col-md">
+            <form method="get" class="row g-2 align-items-end" id="filtersForm">
+                <div class="col-6 col-sm-auto">
+                    <label class="form-label small fw-bold mb-1">From</label>
+                    <input type="date" asp-for="DateFrom" class="form-control form-control-sm">
+                </div>
+
+                <div class="col-6 col-sm-auto">
+                    <label class="form-label small fw-bold mb-1">To</label>
+                    <input type="date" asp-for="DateTo" class="form-control form-control-sm">
+                </div>
+
+                <div class="col-6 col-sm-auto">
+                    <select asp-for="SelectedPolyhouse" class="form-select form-select-sm">
+                        <option value="">Polyhouses</option>
+                        @foreach (var polyhouse in Model.Polyhouses)
+                        {
+                            <option value="@polyhouse.Id">@polyhouse.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-6 col-sm-auto">
+                    <select asp-for="SelectedPlantType" id="SelectedPlantType" class="form-select form-select-sm">
+                        <option value="">Plant Types</option>
+                        @foreach (var plantType in Model.PlantTypes)
+                        {
+                            <option value="@plantType.Id">@plantType.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-6 col-sm-auto">
+                    <select asp-for="SelectedSpecies" id="SelectedSpecies" class="form-select form-select-sm">
+                        <option value="">Species</option>
+                        @foreach (var species in Model.PlantSpecies)
+                        {
+                            <option value="@species.Id">@species.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="col-6 col-sm-auto d-flex gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <i class="bi bi-funnel"></i> Filter
+                    </button>
+                    <a asp-page="/Data/BookingHistory"
+                       asp-route-handler="GeneratePdf"
+                       asp-route-SelectedPolyhouse="@Model.SelectedPolyhouse"
+                       asp-route-SelectedPlantType="@Model.SelectedPlantType"
+                       asp-route-SelectedSpecies="@Model.SelectedSpecies"
+                       class="btn btn-outline-secondary btn-sm w-100" target="_blank">
+                        <i class="bi bi-file-earmark-pdf"></i> PDF
+                    </a>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Table Section -->
+    <div class="card shadow-sm p-2 p-md-3">
+        <div class="table-responsive" style="max-height:75vh; overflow-y: auto;">
+            @if (Model.Inventory.Any())
+            {
+                <table class="table table-hover table-striped align-middle">
+                    <thead class="table-dark position-sticky top-0 small">
+                        <tr>
+                            <th>Booking No</th>
+                            <th>Customer</th>
+                            <th>Booking Date</th>
+                            <th>Polyhouse</th>
+                            <th>Plant Type</th>
+                            <th>Variety</th>
+                            <th>Booked</th>
+                            <th>Issued</th>
+                            <th>Delivery Date</th>
+                        </tr>
+                    </thead>
+                    <tbody class="small">
+                        @{
+                            int? previousInventoryId = null;
+                        }
+                        @foreach (var record in Model.Inventory)
+                        {
+                            if (previousInventoryId != null && previousInventoryId != record.Id)
+                            {
+                                <tr class="table-divider">
+                                    <td colspan="9"></td>
+                                </tr>
+                            }
+
+                            previousInventoryId = record.Id;
+                            <tr>
+                                <td>@record.BookingId</td>
+                                <td>@ToTitle(record.CustomerName)</td>
+                                <td>@record.BookingDate.ToString("dd-MMMM-yyyy")</td>
+                                <td>@ToTitle(record.PolyhouseName)</td>
+                                <td>@ToTitle(record.PlantTypeName)</td>
+                                <td>@ToTitle(record.SpeciesName)</td>
+                                <td>@record.BookingQuantity</td>
+                                <td>@record.UtilizedQuantity</td>
+                                <td>@record.ActualDeliveryDate.ToString("dd-MMM-yyyy")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div class="alert alert-warning text-center mt-3 small">
+                    No results found for the specified search.
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<style>
+    .table-divider td {
+        border-top: 3px solid #dc3545;
+        height: 8px;
+        padding: 0;
+        background-color: #f8f9fa;
+    }
+
+    /* Mobile responsiveness */
+    @@media (max-width: 576px) {
+        #filtersForm select, #filtersForm input {
+            font-size: 0.85rem;
+        }
+
+        .btn-sm {
+            font-size: 0.8rem;
+            padding: 0.3rem 0.5rem;
+        }
+
+        h2 {
+            font-size: 1.2rem;
+        }
+
+        .table thead th,
+        .table tbody td {
+            font-size: 0.75rem;
+            white-space: nowrap;
+        }
+
+        .table {
+            font-size: 0.75rem;
+        }
+
+        .table-responsive {
+            overflow-x: auto;
+        }
+    }
+</style>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        const plantTypeDropdown = document.getElementById("SelectedPlantType");
+        const speciesDropdown = document.getElementById("SelectedSpecies");
+
+        plantTypeDropdown.addEventListener("change", function () {
+            const plantTypeId = plantTypeDropdown.value;
+            speciesDropdown.innerHTML = '<option value="">Species</option>';
+
+            if (plantTypeId) {
+                fetch(`/Data/BookingHistory?handler=SpeciesByPlantType&plantTypeId=${plantTypeId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        data.forEach(species => {
+                            const option = document.createElement("option");
+                            option.value = species.id;
+                            option.textContent = species.name;
+                            speciesDropdown.appendChild(option);
+                        });
+                    })
+                    .catch(error => console.error("Error fetching species:", error));
+            }
+        });
+    });
+</script>

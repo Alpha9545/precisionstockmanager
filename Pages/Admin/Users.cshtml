@@ -1,0 +1,513 @@
+﻿@* @page
+@model PlantStockManager.Pages.Admin.UsersModel
+@{
+    ViewData["Title"] = "Manage Users";
+}
+
+@if (!string.IsNullOrEmpty(Model.WarningMessage))
+{
+    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+        @Model.WarningMessage
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+
+<div class="container mt-4">
+    <h2 class="mb-3">User Management</h2>
+
+    <!-- Add User -->
+    <form method="post" asp-page-handler="Add" class="mb-4">
+        <div class="row g-2">
+            <div class="col-md-3">
+                <label class="form-label">Username</label>
+                <input name="NewUser.Username" class="form-control" required />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Name</label>
+                <input name="NewUser.Name" class="form-control" required />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Email</label>
+                <input name="NewUser.Email" type="email" class="form-control" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Designation</label>
+                <select name="NewUser.DesignationId" class="form-select" required>
+                    <option value="">-- Select Designation --</option>
+                    @foreach (var desig in Model.Designations)
+                    {
+                        <option value="@desig.DesignationId">@desig.DesignationName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Password</label>
+                <input name="NewPassword" type="password" class="form-control" required />
+            </div>
+            <div class="col-md-12">
+                <button type="submit" class="btn btn-primary mt-2">Add User</button>
+            </div>
+        </div>
+    </form>
+
+    <!-- Users List -->
+    <table class="table table-striped align-middle">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Username</th>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Designation</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var u in Model.Users)
+            {
+                <tr>
+                    <td>@u.Id</td>
+                    <td>@u.Username</td>
+                    <td>@u.Name</td>
+                    <td>@u.Email</td>
+                    <td>@u.DesignationName</td>
+                    <td>
+                        <button class="btn btn-warning btn-sm"
+                                onclick="openEditModal('@u.Id','@u.Username','@u.Name','@(u.Email ?? "")','@u.DesignationId')">
+                            Edit
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+<!-- Edit Modal -->
+<div id="editModal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" asp-page-handler="Edit">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit User</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="EditUser.Id" id="editId" />
+                    <div class="mb-3">
+                        <label class="form-label">Username</label>
+                        <input name="EditUser.Username" id="editUsername" class="form-control" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input name="EditUser.Name" id="editName" class="form-control" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input name="EditUser.Email" id="editEmail" type="email" class="form-control" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Designation</label>
+                        <select name="EditUser.DesignationId" id="editDesignation" class="form-select" required>
+                            <option value="">-- Select Designation --</option>
+                            @foreach (var desig in Model.Designations)
+                            {
+                                <option value="@desig.DesignationId">@desig.DesignationName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Reset Password (optional)</label>
+                        <input name="EditPassword" id="editPassword" type="password" class="form-control"
+                               placeholder="Leave blank to keep current" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    function openEditModal(id, username, name, email, designationId) {
+        document.getElementById("editId").value = id;
+        document.getElementById("editUsername").value = username;
+        document.getElementById("editName").value = name;
+        document.getElementById("editEmail").value = email;
+        const sel = document.getElementById("editDesignation");
+        sel.value = designationId || "";
+        new bootstrap.Modal(document.getElementById('editModal')).show();
+    }
+</script> *@
+
+
+
+
+@page
+@model PlantStockManager.Pages.Admin.UsersModel
+@{
+    ViewData["Title"] = "Manage Users";
+}
+
+<style>
+    /* Layout */
+    :root {
+        --card-bg: #ffffff;
+        --muted: #6c757d;
+        --accent: #0d6efd; /* bootstrap primary */
+        --surface: #f8f9fa;
+        --shadow: 0 6px 18px rgba(13,110,253,0.06);
+    }
+
+    body {
+        background: linear-gradient(180deg, #f6f9ff 0%, var(--surface) 100%);
+    }
+
+    .container.manage-users {
+        max-width: 1100px;
+        margin: 28px auto;
+    }
+
+    .card-panel {
+        background: var(--card-bg);
+        border-radius: 12px;
+        padding: 18px;
+        box-shadow: var(--shadow);
+        border: 1px solid rgba(13,110,253,0.06);
+    }
+
+    h2.mb-3 {
+        font-weight: 700;
+        letter-spacing: -0.2px;
+    }
+
+    /* Form grid */
+    .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+    }
+
+        .form-grid .full {
+            grid-column: 1 / -1;
+        }
+
+    @@media (min-width: 992px) {
+        .form-grid
+
+    {
+        grid-template-columns: repeat(4, 1fr);
+    }
+
+    }
+
+    .form-label {
+        font-size: 0.9rem;
+        color: var(--muted);
+        margin-bottom: 6px;
+    }
+
+    .input, input.form-control, select.form-select {
+        border-radius: 8px;
+        height: 44px;
+    }
+
+    .btn-primary {
+        border-radius: 10px;
+        padding: 10px 18px;
+        box-shadow: 0 6px 12px rgba(13,110,253,0.08);
+    }
+
+    /* Table styles */
+    .table-wrap {
+        overflow-x: auto;
+        border-radius: 10px;
+    }
+
+    .table {
+        min-width: 760px;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+
+        .table thead th {
+            background: #fff;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+
+        .table tbody tr {
+            transition: background 0.12s ease;
+        }
+
+            .table tbody tr:hover {
+                background: rgba(13,110,253,0.04);
+            }
+
+        .table td, .table th {
+            vertical-align: middle;
+        }
+
+    .small-muted {
+        color: var(--muted);
+        font-size: 0.85rem;
+    }
+
+    /* Action button */
+    .btn-action {
+        border-radius: 8px;
+        padding: 6px 10px;
+        min-width: 72px;
+    }
+
+    /* Modal tweaks */
+    .modal-content {
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    .modal .modal-body input, .modal .modal-body select {
+        height: 44px;
+        border-radius: 8px;
+    }
+
+    /* Responsive helpers */
+    .header-row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+    }
+
+    .header-left {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+    }
+
+    .logo-circle {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: linear-gradient(135deg,#e9f0ff,#d8e7ff);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        color: var(--accent);
+    }
+
+    .search-bar {
+        flex: 1;
+        min-width: 180px;
+        margin-left: 12px;
+    }
+
+    /* Mobile tweaks */
+    @@media (max-width: 575.98px) {
+        .container.manage-users
+
+    {
+        padding: 12px;
+        margin: 12px auto;
+    }
+
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .table {
+        min-width: 540px;
+    }
+
+    .btn-primary {
+        width: 100%;
+    }
+
+    }
+
+    /* Focus and accessibility */
+    input:focus, select:focus, button:focus {
+        outline: 3px solid rgba(13,110,253,0.12);
+        outline-offset: 2px;
+    }
+
+    /* Utility */
+    .form-actions {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        justify-content: flex-end;
+        margin-top: 8px;
+    }
+
+    .alert-warning {
+        border-radius: 8px;
+    }
+</style>
+
+@if (!string.IsNullOrEmpty(Model.WarningMessage))
+{
+    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+        @Model.WarningMessage
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+}
+
+<div class="container manage-users">
+    <div class="card-panel">
+        <div class="header-row mb-3">
+            <div class="header-left">
+                <div class="logo-circle">BB</div>
+                <div>
+                    <h2 class="mb-0">User Management</h2>
+                    <div class="small-muted">Create, edit and manage user access</div>
+                </div>
+            </div>
+            <div class="d-flex align-items-center">
+                <div class="small-muted me-3">@DateTime.Now.ToString("dd MMM yyyy")</div>
+                <div class="search-bar d-none d-md-block">
+                    <!-- placeholder for future search -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Add User -->
+        <form method="post" asp-page-handler="Add" class="mb-4">
+            <div class="form-grid">
+                <div>
+                    <label class="form-label">Username</label>
+                    <input name="NewUser.Username" class="form-control" required />
+                </div>
+                <div>
+                    <label class="form-label">Name</label>
+                    <input name="NewUser.Name" class="form-control" required />
+                </div>
+                <div>
+                    <label class="form-label">Email</label>
+                    <input name="NewUser.Email" type="email" class="form-control" />
+                </div>
+                <div>
+                    <label class="form-label">Designation</label>
+                    <select name="NewUser.DesignationId" class="form-select" required>
+                        <option value="">-- Select Designation --</option>
+                        @foreach (var desig in Model.Designations)
+                        {
+                            <option value="@desig.DesignationId">@desig.DesignationName</option>
+                        }
+                    </select>
+                </div>
+                <div>
+                    <label class="form-label">Password</label>
+                    <input name="NewPassword" type="password" class="form-control" required />
+                </div>
+
+                <div class="full form-actions">
+                    <button type="submit" class="btn btn-primary">Add User</button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Users List -->
+        <div class="table-wrap">
+            <table class="table table-striped align-middle">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Username</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Designation</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var u in Model.Users)
+                    {
+                        <tr>
+                            <td>@u.Id</td>
+                            <td>@u.Username</td>
+                            <td>@u.Name</td>
+                            <td>@u.Email</td>
+                            <td>@u.DesignationName</td>
+                            <td>
+                                <div class="d-flex gap-2">
+                                    <button class="btn btn-outline-secondary btn-sm btn-action"
+                                            onclick="openEditModal('@u.Id','@u.Username','@u.Name','@(u.Email ?? "")','@u.DesignationId')">
+                                        Edit
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div id="editModal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form method="post" asp-page-handler="Edit">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit User</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="EditUser.Id" id="editId" />
+                    <div class="mb-3">
+                        <label class="form-label">Username</label>
+                        <input name="EditUser.Username" id="editUsername" class="form-control" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input name="EditUser.Name" id="editName" class="form-control" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <input name="EditUser.Email" id="editEmail" type="email" class="form-control" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Designation</label>
+                        <select name="EditUser.DesignationId" id="editDesignation" class="form-select" required>
+                            <option value="">-- Select Designation --</option>
+                            @foreach (var desig in Model.Designations)
+                            {
+                                <option value="@desig.DesignationId">@desig.DesignationName</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Reset Password (optional)</label>
+                        <input name="EditPassword" id="editPassword" type="password" class="form-control"
+                               placeholder="Leave blank to keep current" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-success">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    function openEditModal(id, username, name, email, designationId) {
+        document.getElementById("editId").value = id;
+        document.getElementById("editUsername").value = username;
+        document.getElementById("editName").value = name;
+        document.getElementById("editEmail").value = email;
+        const sel = document.getElementById("editDesignation");
+        sel.value = designationId || "";
+        new bootstrap.Modal(document.getElementById('editModal')).show();
+    }
+</script>
