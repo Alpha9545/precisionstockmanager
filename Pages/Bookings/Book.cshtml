@@ -11,27 +11,15 @@
         <div class="card-header text-white text-center" style="background-color: #008080;">
             <h2 class="mb-0">Advance Booking</h2>
         </div>
+
         <div class="card-body">
             <form method="post" id="directBookingForm">
+                @Html.AntiForgeryToken()
+
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="fw-bold">Select Plant Type</label>
-                        <select id="plantTypeDropdown" class="form-select" asp-for="Booking.PlantId" required>
-                            <option value="">-- Select --</option>
-                            @foreach (var type in Model.PlantTypes)
-                            {
-                                <option value="@type.Id">@type.Name</option>
-                            }
-                        </select>
-                    </div>
+                  
 
-                    <div class="col-md-6">
-                        <label class="fw-bold">Select Variety</label>
-                        <select id="speciesDropdown" class="form-select" asp-for="Booking.SpeciesId" required>
-                            <option value="">-- Select a Plant Type First --</option>
-                        </select>
-                    </div>
-
+                    <!-- Shared fields -->
                     <div class="col-md-6">
                         <label class="fw-bold">Customer Name</label>
                         <input type="text" class="form-control" asp-for="Booking.CustomerName" required />
@@ -47,7 +35,21 @@
                         <input type="text" class="form-control" asp-for="Booking.Address" required />
                     </div>
 
-                    <!-- ✅ Employees (Booked By) -->
+                    <!-- Booking Items (dynamic) -->
+                    <div class="col-12">
+                        <label class="fw-bold">Booking Items</label>
+                        <div id="bookingItemsContainer"></div>
+
+                        <div class="mt-2">
+                            <button type="button" id="addBookingItemBtn" class="btn btn-outline-primary btn-sm" disabled>
+                                + Add another species
+                            </button>
+                        </div>
+                        <small class="text-muted d-block mt-1">
+                            Add multiple plant type / species lines. Shared info (customer, address, booked by, state, district, advance) will apply to all.
+                        </small>
+                    </div>
+
                     <div class="col-md-6">
                         <label class="fw-bold">Booked By Whom</label>
                         <select class="form-select" id="bookedByDropdown" asp-for="Booking.BookedById" required>
@@ -59,7 +61,6 @@
                         </select>
                     </div>
 
-                    <!-- State & District -->
                     <div class="col-md-6">
                         <label class="fw-bold">State</label>
                         <select id="stateDropdown" class="form-select" asp-for="Booking.StateId" required>
@@ -78,18 +79,7 @@
                         </select>
                     </div>
 
-                    <div class="col-md-6">
-                        <label class="fw-bold">Quantity</label>
-                        <input type="text" class="form-control" id="quantityInput" required />
-                        <small class="text-muted" id="quantityInWords"></small>
-                        <input type="hidden" asp-for="Booking.Quantity" id="hiddenQuantity" />
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="fw-bold">Tentative Delivery Date</label>
-                        <input type="date" class="form-control" asp-for="Booking.DeliveryDate" required />
-                    </div>
-
+                    <!-- Advance Taken -->
                     <div class="col-md-6">
                         <label class="fw-bold">Advance Taken</label>
                         <select id="advanceTakenDropdown" class="form-select" asp-for="Booking.AdvanceTaken">
@@ -102,16 +92,16 @@
                         <label class="fw-bold">Advance Amount</label>
                         <input type="text" class="form-control" id="advanceTakenAmount" />
                         <small class="text-muted" id="advanceAmountInWords"></small>
-                        <input type="hidden" asp-for="Booking.AdvanceTakenAmount" id="hiddenAdvanceAmount" />
+                        <input type="hidden" id="hiddenAdvanceAmountGlobal" />
                     </div>
 
                     <div class="col-md-12 advance-fields d-none">
                         <label class="fw-bold">Advance Transaction Details</label>
                         <input type="text" class="form-control" id="advanceTakenDetails" asp-for="Booking.AdvanceTakenDetails" />
                     </div>
-                </div>
 
-                <input type="hidden" asp-for="Booking.AddedBy" value="Auto" />
+                    <input type="hidden" asp-for="Booking.AddedBy" value="Auto" />
+                </div>
 
                 <div class="text-center mt-4">
                     <button type="submit" class="btn btn-success w-100 py-2">Submit</button>
@@ -121,8 +111,48 @@
     </div>
 </div>
 
+<!-- Booking item template (hidden). Cloned by JS. -->
+<div id="bookingItemTemplate" class="d-none">
+    <div class="booking-item row g-2 align-items-end mb-2 p-2 border rounded">
+        <div class="col-md-4">
+            <label class="fw-bold">Plant Type</label>
+            <select class="form-select plant-type-select" required>
+                <option value="">-- Select --</option>
+                @foreach (var type in Model.PlantTypes)
+                {
+                    <option value="@type.Id">@type.Name</option>
+                }
+            </select>
+        </div>
+
+        <div class="col-md-4">
+            <label class="fw-bold">Species / Variety</label>
+            <select class="form-select species-select" required>
+                <option value="">-- Select a Plant Type First --</option>
+            </select>
+        </div>
+
+        <div class="col-md-2">
+            <label class="fw-bold">Quantity</label>
+            <input type="text" class="form-control quantity-input" required />
+            <small class="text-muted quantity-words"></small>
+            <input type="hidden" class="line-hidden-quantity" />
+        </div>
+
+        <div class="col-md-2">
+            <label class="fw-bold">Tentative Delivery</label>
+            <input type="date" class="form-control delivery-input" required />
+        </div>
+
+        <div class="col-12 text-end mt-2">
+            <button type="button" class="btn btn-danger btn-sm removeBookingItemBtn">Remove</button>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <script src="~/js/sweetalert.js"></script>
+
     <script>
         $(function () {
             // ---- Helpers ----
@@ -142,45 +172,137 @@
                 }
                 return conv(num);
             }
-            function handleNumberInput(inputId, wordsId, hiddenInputId) {
-                $(`#${inputId}`).on("input", function () {
+            function showCustomAlert(title, text, icon, cb) {
+                if (typeof swal === 'function') {
+                    swal({ title: title, text: text, icon: icon }).then(function(){ if(cb) cb(); });
+                } else { alert(title + ": " + text); if(cb) cb(); }
+            }
+
+            // ---------- Setup dynamic booking items ----------
+            const container = $('#bookingItemsContainer');
+            const template = $('#bookingItemTemplate .booking-item').clone();
+            $('#bookingItemTemplate').remove();
+            const addBtn = $('#addBookingItemBtn');
+
+            function isLineComplete(line) {
+                // checks: plantType, species, quantity (numeric >=1), deliveryDate
+                const plant = line.find('.plant-type-select').val();
+                const species = line.find('.species-select').val();
+                const qty = parseInt(line.find('.line-hidden-quantity').val() || '', 10);
+                const delivery = line.find('.delivery-input').val();
+                return plant && species && !isNaN(qty) && qty >= 1 && delivery;
+            }
+
+            function updateAddButtonState() {
+                // enable add only when the last booking-item is complete
+                const last = container.find('.booking-item').last();
+                if (last.length === 0) {
+                    // if no lines, allow adding a first line
+                    addBtn.prop('disabled', false);
+                    return;
+                }
+                addBtn.prop('disabled', !isLineComplete(last));
+            }
+
+            function initLineHandlers(line) {
+                // Plant -> species for this line
+                line.find('.plant-type-select').on('change', function () {
+                    const plantTypeId = $(this).val();
+                    const speciesSelect = line.find('.species-select');
+                    speciesSelect.empty();
+                    if (!plantTypeId) {
+                        speciesSelect.append('<option value="">-- Select a Plant Type First --</option>');
+                        updateAddButtonState();
+                        return;
+                    }
+                    $.get(window.basePath + 'Bookings/Book?handler=SpeciesByPlantType&plantTypeId=' + plantTypeId, function (data) {
+                        speciesSelect.append('<option value="">-- Select --</option>');
+                        $.each(data, function (i, s) {
+                            speciesSelect.append('<option value="' + s.id + '">' + s.name + '</option>');
+                        });
+                        updateAddButtonState();
+                    }).fail(function () {
+                        speciesSelect.append('<option value="">-- Failed to load species --</option>');
+                        updateAddButtonState();
+                    });
+                });
+
+                // species change -> update add button
+                line.find('.species-select').on('change', function () {
+                    updateAddButtonState();
+                });
+
+                // Quantity input handler for this line
+                line.find('.quantity-input').on('input', function () {
                     let raw = $(this).val().replace(/,/g, "");
                     let n = parseInt(raw, 10);
+                    const wordsEl = line.find('.quantity-words');
+                    const hiddenEl = line.find('.line-hidden-quantity');
                     if (!isNaN(n)) {
                         if (n < 1) n = 1;
                         if (n > 999999) n = 999999;
                         $(this).val(formatNumberWithCommas(n));
-                        $(`#${wordsId}`).text(numberToWords(n));
-                        $(`#${hiddenInputId}`).val(n);
+                        wordsEl.text(numberToWords(n));
+                        hiddenEl.val(n);
                     } else {
-                        $(this).val("");
-                        $(`#${wordsId}`).text("");
-                        $(`#${hiddenInputId}`).val("");
+                        $(this).val('');
+                        wordsEl.text('');
+                        hiddenEl.val('');
                     }
+                    updateAddButtonState();
+                });
+
+                // delivery date change -> update add button
+                line.find('.delivery-input').on('change input', function () {
+                    updateAddButtonState();
+                });
+
+                // Remove button
+                line.find('.removeBookingItemBtn').on('click', function () {
+                    line.remove();
+                    // After removal, ensure at least one line exists
+                    if (container.find('.booking-item').length === 0) {
+                        addBookingItem(); // create a fresh empty line
+                    }
+                    updateAddButtonState();
+                });
+
+                // also update add button if user focuses/leaves inputs (safety)
+                line.find('input, select').on('blur', function () {
+                    setTimeout(updateAddButtonState, 50);
                 });
             }
 
-            // Quantity + Advance handling
-            handleNumberInput("quantityInput", "quantityInWords", "hiddenQuantity");
-            handleNumberInput("advanceTakenAmount", "advanceAmountInWords", "hiddenAdvanceAmount");
-
-            // Plant -> Species
-            $('#plantTypeDropdown').change(function () {
-                var plantTypeId = $(this).val();
-                if (plantTypeId) {
-                    $.get(window.basePath + 'Bookings/Book?handler=SpeciesByPlantType&plantTypeId=' + plantTypeId, function (data) {
-                        var speciesDropdown = $('#speciesDropdown');
-                        speciesDropdown.empty().append('<option value="">-- Select --</option>');
-                        $.each(data, function (i, species) {
-                            speciesDropdown.append('<option value="' + species.id + '">' + species.name + '</option>');
-                        });
-                    });
-                } else {
-                    $('#speciesDropdown').html('<option value="">-- Select a Plant Type First --</option>');
+            function addBookingItem(prefill) {
+                const newLine = template.clone();
+                if (prefill) {
+                    if (prefill.plantTypeId) newLine.find('.plant-type-select').val(prefill.plantTypeId).trigger('change');
+                    if (prefill.speciesId) {
+                        // deferred set in case species dropdown needs ajax fill
+                        setTimeout(function () {
+                            newLine.find('.species-select').val(prefill.speciesId);
+                            updateAddButtonState();
+                        }, 300);
+                    }
+                    if (prefill.quantity) { newLine.find('.quantity-input').val(formatNumberWithCommas(prefill.quantity)).trigger('input'); }
+                    if (prefill.deliveryDate) newLine.find('.delivery-input').val(prefill.deliveryDate);
                 }
+                container.append(newLine);
+                initLineHandlers(newLine);
+                // when user creates a new line, disable add button until this new line is complete
+                updateAddButtonState();
+            }
+
+            // start with one booking line
+            addBookingItem();
+
+            // Add button click — guard against race or manual click when disabled
+            addBtn.on('click', function () {
+                if (addBtn.prop('disabled')) return;
+                addBookingItem();
             });
 
-            // State -> Districts
+            // ---------- State -> Districts (shared) ----------
             $('#stateDropdown').on('change', function () {
                 const stateId = $(this).val();
                 const district = $('#districtDropdown');
@@ -202,7 +324,7 @@
                 });
             });
 
-            // Advance Taken toggle
+            // ---------- Advance Taken toggle (shared) ----------
             $('#advanceTakenDropdown').change(function () {
                 if ($(this).val() === "true") {
                     $('.advance-fields').removeClass('d-none');
@@ -212,16 +334,33 @@
                     $('.advance-fields').addClass('d-none');
                     $('#advanceTakenAmount').prop('required', false).val('');
                     $('#advanceAmountInWords').text('');
-                    $('#hiddenAdvanceAmount').val('');
+                    $('#hiddenAdvanceAmountGlobal').val('');
                     $('#advanceTakenDetails').prop('required', false).val('');
                 }
             });
 
-            // Submit (AJAX) — ONLY this form
+            // shared advance amount input -> update hidden global
+            $('#advanceTakenAmount').on('input', function () {
+                let raw = $(this).val().replace(/,/g, "");
+                let n = parseInt(raw, 10);
+                if (!isNaN(n)) {
+                    if (n < 1) n = 1;
+                    if (n > 999999) n = 999999;
+                    $(this).val(formatNumberWithCommas(n));
+                    $('#advanceAmountInWords').text(numberToWords(n));
+                    $('#hiddenAdvanceAmountGlobal').val(n);
+                } else {
+                    $(this).val('');
+                    $('#advanceAmountInWords').text('');
+                    $('#hiddenAdvanceAmountGlobal').val('');
+                }
+            });
+
+            // ---------- Submit multiple requests (one per booking item) ----------
             $('#directBookingForm').on('submit', function (event) {
                 event.preventDefault();
 
-                // Require state & district (client-side)
+                // Validate shared fields
                 if (!$('#stateDropdown').val()) {
                     showCustomAlert("Error", "State is required.", "error");
                     return;
@@ -230,16 +369,15 @@
                     showCustomAlert("Error", "District is required.", "error");
                     return;
                 }
-                // ✅ Require BookedBy (client-side)
                 if (!$('#bookedByDropdown').val()) {
                     showCustomAlert("Error", "Please select who booked this.", "error");
                     return;
                 }
 
+                // Advance validation (shared)
                 const advanceTaken = $('#advanceTakenDropdown').val();
-                const advanceAmount = $('#hiddenAdvanceAmount').val();
+                const advanceAmount = $('#hiddenAdvanceAmountGlobal').val();
                 const advanceDetails = $('#advanceTakenDetails').val();
-
                 if (advanceTaken === "true") {
                     if (!advanceAmount || parseInt(advanceAmount, 10) <= 0) {
                         showCustomAlert("Error", "Advance Amount must be greater than zero.", "error");
@@ -251,16 +389,87 @@
                     }
                 }
 
-                const formData = $(this).serialize();
-                $.post('@Url.Page("/Bookings/Book")', formData, function (response) {
-                    if (response.success) {
-                        showCustomAlert("Success", response.message, "success", function () { location.reload(); });
-                    } else {
-                        showCustomAlert("Error", response.message ?? "Something went wrong!", "error");
-                    }
-                }).fail(function () {
-                    showCustomAlert("Error", "Server error. Please try again later.", "error");
+                // Collect line items
+                const lines = [];
+                container.find('.booking-item').each(function () {
+                    const line = $(this);
+                    const plantTypeId = line.find('.plant-type-select').val();
+                    const speciesId = line.find('.species-select').val();
+                    const quantity = line.find('.line-hidden-quantity').val();
+                    const deliveryDate = line.find('.delivery-input').val();
+
+                    lines.push({ plantTypeId, speciesId, quantity, deliveryDate });
                 });
+
+                if (lines.length === 0) {
+                    showCustomAlert("Error", "Please add at least one booking item.", "error");
+                    return;
+                }
+
+                // Validate each line
+                for (let i = 0; i < lines.length; i++) {
+                    const L = lines[i];
+                    if (!L.plantTypeId) { showCustomAlert("Error", "Plant Type is required for each item.", "error"); return; }
+                    if (!L.speciesId) { showCustomAlert("Error", "Species is required for each item.", "error"); return; }
+                    if (!L.quantity || parseInt(L.quantity, 10) < 1) { showCustomAlert("Error", "Quantity must be at least 1 for each item.", "error"); return; }
+                    if (!L.deliveryDate) { showCustomAlert("Error", "Delivery date is required for each item.", "error"); return; }
+                }
+
+                // Get antiforgery token
+                const antiToken = $('input[name="__RequestVerificationToken"]').val();
+
+                // Build shared form fields
+                const shared = {
+                    CustomerName: $('input[name="Booking.CustomerName"]').val(),
+                    Contact: $('input[name="Booking.Contact"]').val(),
+                    Address: $('input[name="Booking.Address"]').val(),
+                    BookedById: $('#bookedByDropdown').val(),
+                    StateId: $('#stateDropdown').val(),
+                    DistrictId: $('#districtDropdown').val(),
+                    AdvanceTaken: $('#advanceTakenDropdown').val(),
+                    AdvanceTakenAmount: $('#hiddenAdvanceAmountGlobal').val(),
+                    AdvanceTakenDetails: $('#advanceTakenDetails').val(),
+                    AddedBy: $('input[name="Booking.AddedBy"]').val()
+                };
+
+                // Prepare and send one POST per line.
+                // IMPORTANT: apply advance only to first booking (index 0). For others send AdvanceTaken=false and AdvanceTakenAmount=0 and empty details.
+                const promises = lines.map(function (L, idx) {
+                    // for first booking include advance, else zero it out
+                    const advanceForThisLine = (idx === 0 && shared.AdvanceTaken === "true");
+                    const payload = {
+                        "__RequestVerificationToken": antiToken,
+                        "Booking.PlantId": L.plantTypeId,
+                        "Booking.SpeciesId": L.speciesId,
+                        "Booking.Quantity": L.quantity,
+                        "Booking.DeliveryDate": L.deliveryDate,
+                        "Booking.CustomerName": shared.CustomerName,
+                        "Booking.Contact": shared.Contact,
+                        "Booking.Address": shared.Address,
+                        "Booking.BookedById": shared.BookedById,
+                        "Booking.StateId": shared.StateId,
+                        "Booking.DistrictId": shared.DistrictId,
+                        // advance fields: only first line carries the advance if advanceTaken true
+                        "Booking.AdvanceTaken": advanceForThisLine ? "true" : "false",
+                        "Booking.AdvanceTakenAmount": advanceForThisLine ? shared.AdvanceTakenAmount : 0,
+                        "Booking.AdvanceTakenDetails": advanceForThisLine ? shared.AdvanceTakenDetails : "",
+                        "Booking.AddedBy": shared.AddedBy
+                    };
+
+                    return $.post('@Url.Page("/Bookings/Book")', payload);
+                });
+
+                // Show a loading message
+                showCustomAlert("Please wait", "Submitting bookings...", "info");
+
+                // Wait for all to finish
+                $.when.apply($, promises)
+                    .done(function () {
+                        showCustomAlert("Success", "All bookings submitted successfully.", "success", function () { location.reload(); });
+                    })
+                    .fail(function () {
+                        showCustomAlert("Error", "One or more bookings failed. Please check and retry.", "error");
+                    });
             });
         });
     </script>
