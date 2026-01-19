@@ -1,0 +1,112 @@
+﻿@page
+@model PlantStockManager.Pages.Fertilizer.UnitMasterModel
+
+<div class="container mt-4">
+
+    <!-- PAGE HEADER -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">Unit Master</h3>
+    </div>
+
+    <!-- FORM CARD -->
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-primary text-white">
+            <strong>
+                @(Model.Unit != null && Model.Unit.UnitId > 0
+                                ? "Edit Unit"
+                                : "Add New Unit")
+            </strong>
+        </div>
+
+        <div class="card-body">
+            <form method="post" class="row g-3">
+
+                <input type="hidden" asp-for="Unit.UnitId" />
+
+                <!-- Unit Name -->
+                <div class="col-md-6">
+                    <label class="form-label">Unit Name</label>
+                    <input asp-for="Unit.UnitName"
+                           class="form-control"
+                           placeholder="e.g. Kilogram, Liter"
+                           required />
+                </div>
+
+                <!-- Unit Symbol -->
+                <div class="col-md-6">
+                    <label class="form-label">Unit Symbol</label>
+                    <input asp-for="Unit.UnitSymbol"
+                           class="form-control"
+                           placeholder="e.g. kg, l, gm" />
+                </div>
+
+                <!-- ACTION BUTTONS -->
+                <div class="col-12">
+                    <button type="submit"
+                            asp-page-handler="Save"
+                            class="btn btn-success me-2">
+                        @(Model.Unit != null && Model.Unit.UnitId > 0
+                                                ? "Update Unit"
+                                                : "Add Unit")
+                    </button>
+
+                    @if (Model.Unit != null && Model.Unit.UnitId > 0)
+                    {
+                        <a asp-page="./UnitMaster"
+                           class="btn btn-secondary">
+                            Cancel
+                        </a>
+                    }
+                </div>
+
+            </form>
+        </div>
+    </div>
+
+    <!-- UNIT LIST -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white">
+            <strong>Unit List</strong>
+        </div>
+
+        <div class="card-body table-responsive">
+            <table class="table table-bordered table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Unit Name</th>
+                        <th>Symbol</th>
+                        <th style="width:130px;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var u in Model.Units)
+                    {
+                        <tr>
+                            <td class="fw-semibold">@u.UnitName</td>
+                            <td>@u.UnitSymbol</td>
+                            <td>
+                                <form method="post" class="d-inline">
+                                    <button asp-page-handler="Edit"
+                                            asp-route-id="@u.UnitId"
+                                            class="btn btn-sm btn-outline-primary">
+                                        Edit
+                                    </button>
+                                </form>
+
+                                <form method="post" class="d-inline">
+                                    <button asp-page-handler="Delete"
+                                            asp-route-id="@u.UnitId"
+                                            class="btn btn-sm btn-outline-danger"
+                                            onclick="return confirm('Delete this unit?')">
+                                        Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>

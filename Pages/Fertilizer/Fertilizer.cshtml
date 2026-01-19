@@ -1,0 +1,122 @@
+﻿@page
+@model PlantStockManager.Pages.Fertilizer.FertilizerModel
+
+<div class="container mt-4">
+
+    <!-- PAGE HEADER -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">Fertilizer Master</h3>
+    </div>
+
+    <!-- FORM CARD -->
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-primary text-white">
+            <strong>
+                @(Model.Fertilizer != null && Model.Fertilizer.FertilizerId > 0
+                                ? "Edit Fertilizer"
+                                : "Add New Fertilizer")
+            </strong>
+        </div>
+
+        <div class="card-body">
+            <form method="post" class="row g-3">
+
+                <input type="hidden" asp-for="Fertilizer.FertilizerId" />
+
+                <!-- Fertilizer Name -->
+                <div class="col-md-6">
+                    <label class="form-label">Fertilizer Name</label>
+                    <input asp-for="Fertilizer.FertilizerName"
+                           class="form-control"
+                           placeholder="Enter fertilizer name"
+                           required />
+                </div>
+
+                <!-- Fertilizer Type -->
+                <div class="col-md-6">
+                    <label class="form-label">Fertilizer Type</label>
+                    <select asp-for="Fertilizer.FertilizerTypeId"
+                            class="form-select"
+                            required>
+                        <option value="">-- Select Type --</option>
+                        @foreach (var t in Model.Types)
+                        {
+                            <option value="@t.FertilizerTypeId">
+                                @t.TypeName
+                            </option>
+                        }
+                    </select>
+                </div>
+
+                <!-- ACTION BUTTONS -->
+                <div class="col-12">
+                    <button type="submit"
+                            asp-page-handler="Save"
+                            class="btn btn-success me-2">
+                        @(Model.Fertilizer != null && Model.Fertilizer.FertilizerId > 0
+                                                ? "Update Fertilizer"
+                                                : "Add Fertilizer")
+                    </button>
+
+                    @if (Model.Fertilizer != null && Model.Fertilizer.FertilizerId > 0)
+                    {
+                        <a asp-page="./Fertilizer"
+                           class="btn btn-secondary">
+                            Cancel
+                        </a>
+                    }
+                </div>
+
+            </form>
+        </div>
+    </div>
+
+    <!-- LIST CARD -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white">
+            <strong>Fertilizer List</strong>
+        </div>
+
+        <div class="card-body table-responsive">
+            <table class="table table-bordered table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Fertilizer Name</th>
+                        <th>Type</th>
+                        <th style="width:130px;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var f in Model.Fertilizers)
+                    {
+                        <tr>
+                            <td class="fw-semibold">@f.FertilizerName</td>
+                            <td>
+                                @Model.Types.FirstOrDefault(t => t.FertilizerTypeId == f.FertilizerTypeId)?.TypeName
+                            </td>
+                            <td>
+                                <form method="post" class="d-inline">
+                                    <button asp-page-handler="Edit"
+                                            asp-route-id="@f.FertilizerId"
+                                            class="btn btn-sm btn-outline-primary">
+                                        Edit
+                                    </button>
+                                </form>
+
+                                <form method="post" class="d-inline">
+                                    <button asp-page-handler="Delete"
+                                            asp-route-id="@f.FertilizerId"
+                                            class="btn btn-sm btn-outline-danger"
+                                            onclick="return confirm('Delete this fertilizer?')">
+                                        Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>

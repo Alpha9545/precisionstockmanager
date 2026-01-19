@@ -1,0 +1,1051 @@
+﻿@page
+@model PlantStockManager.Pages.Data.SowingBookingSyncModel
+@{
+    ViewData["Title"] = "Marigold Sowing-Booking Synchronization Dashboard";
+}
+
+<style>
+    :root {
+        --primary: #1e7b3a;
+        --primary-light: #2ecc71;
+        --secondary: #3498db;
+        --warning: #ff9f43;
+        --danger: #e74c3c;
+        --success: #27ae60;
+        --info: #9b59b6;
+        --light-bg: #f8fafc;
+        --card-bg: #ffffff;
+        --text: #2d3748;
+        --text-light: #718096;
+        --border: #e2e8f0;
+    }
+
+    html, body {
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .sync-dashboard-container {
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 20px;
+        height: 85vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .sync-main-table-container {
+        background-color: var(--card-bg);
+        border-radius: 14px;
+        padding: 25px;
+        margin-bottom: 0;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.05);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+    }
+
+    .sync-table-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 25px;
+        flex-wrap: wrap;
+        gap: 20px;
+        flex-shrink: 0;
+    }
+
+    .sync-section-title {
+        font-size: 1.5rem;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .sync-table-legend {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+    }
+
+    .sync-legend-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.9rem;
+    }
+
+    .sync-legend-color {
+        width: 16px;
+        height: 16px;
+        border-radius: 4px;
+        flex-shrink: 0;
+    }
+
+    .sync-data-table-wrapper {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: auto;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+    }
+
+    .sync-data-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }
+
+        .sync-data-table thead {
+            background-color: #f1f8e9;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .sync-data-table th {
+            padding: 12px 8px;
+            text-align: center;
+            font-weight: 600;
+            color: var(--primary);
+            border-bottom: 2px solid var(--primary);
+            white-space: normal;
+            position: sticky;
+            top: 0;
+            background-color: #f1f8e9;
+            vertical-align: middle;
+            font-size: 0.85rem;
+            word-break: break-word;
+        }
+
+            .sync-data-table th.sticky-col {
+                position: sticky;
+                left: 0;
+                z-index: 20;
+                background-color: #f1f8e9;
+                text-align: left;
+                width: 80px;
+                min-width: 80px;
+            }
+
+        .sync-data-table td {
+            padding: 12px 6px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+            text-align: center;
+            font-size: 0.9rem;
+            word-break: break-word;
+        }
+
+        .sync-data-table tbody tr:hover {
+            background-color: #f8fdf9;
+        }
+
+        .sync-data-table tbody tr.highlight-week {
+            background-color: #e8f5e9;
+            border-left: 4px solid var(--primary);
+        }
+
+    .sync-week-cell {
+        font-weight: 700;
+        color: var(--primary);
+        position: sticky;
+        left: 0;
+        background-color: white;
+        z-index: 5;
+        text-align: left;
+        padding-left: 12px;
+        width: 80px;
+        min-width: 80px;
+    }
+
+    .sync-data-table tbody tr.highlight-week .sync-week-cell {
+        background-color: #e8f5e9;
+    }
+
+    .sync-date-cell {
+        color: var(--text-light);
+        font-size: 0.85rem;
+        white-space: normal;
+        text-align: center;
+        padding: 12px 6px;
+    }
+
+    .sync-data-cell {
+        text-align: center;
+        font-weight: 500;
+        padding: 12px 6px;
+    }
+
+    .sync-action-cell {
+        text-align: center;
+        padding: 8px 6px;
+    }
+
+    .sync-view-btn {
+        padding: 6px 12px;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        background-color: var(--info);
+        color: white;
+        min-width: 60px;
+    }
+
+        .sync-view-btn:hover:not(:disabled) {
+            background-color: #8e44ad;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .sync-view-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background-color: #bdc3c7;
+        }
+
+    .sync-data-table-wrapper::-webkit-scrollbar {
+        width: 6px;
+        height: 8px;
+    }
+
+    .sync-data-table-wrapper::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 10px;
+    }
+
+    .sync-data-table-wrapper::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 10px;
+    }
+
+        .sync-data-table-wrapper::-webkit-scrollbar-thumb:hover {
+            background: #a1a1a1;
+        }
+
+    /* Modal Styles */
+    .sync-modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.5);
+        overflow: auto;
+    }
+
+    .sync-modal-content {
+        background-color: var(--card-bg);
+        margin: 5% auto;
+        padding: 0;
+        border-radius: 12px;
+        width: 90%;
+        max-width: 800px;
+        max-height: 80vh;
+        overflow: hidden;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        display: flex;
+        flex-direction: column;
+    }
+
+    .sync-modal-header {
+        background-color: var(--primary);
+        color: white;
+        padding: 20px 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-radius: 12px 12px 0 0;
+    }
+
+    .sync-modal-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    .sync-modal-close {
+        color: white;
+        font-size: 28px;
+        font-weight: bold;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0 8px;
+    }
+
+        .sync-modal-close:hover {
+            opacity: 0.8;
+        }
+
+    .sync-modal-body {
+        padding: 0;
+        flex: 1;
+        overflow: hidden;
+    }
+
+    .sync-modal-tabs {
+        display: flex;
+        background-color: #f1f8e9;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .sync-modal-tab {
+        padding: 14px 24px;
+        background: none;
+        border: none;
+        font-size: 1rem;
+        font-weight: 500;
+        color: var(--text-light);
+        cursor: pointer;
+        position: relative;
+        transition: all 0.3s;
+        flex: 1;
+        text-align: center;
+    }
+
+        .sync-modal-tab:hover {
+            background-color: rgba(0,0,0,0.05);
+        }
+
+        .sync-modal-tab.active {
+            color: var(--primary);
+            background-color: white;
+        }
+
+            .sync-modal-tab.active::after {
+                content: '';
+                position: absolute;
+                bottom: -1px;
+                left: 0;
+                right: 0;
+                height: 3px;
+                background-color: var(--primary);
+            }
+
+    .sync-modal-tab-content {
+        display: none;
+        padding: 24px;
+        height: calc(80vh - 140px);
+        overflow-y: auto;
+    }
+
+        .sync-modal-tab-content.active {
+            display: block;
+        }
+
+    .sync-details-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16px;
+    }
+
+        .sync-details-table thead {
+            background-color: #f1f8e9;
+        }
+
+        .sync-details-table th {
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--primary);
+            border-bottom: 2px solid var(--primary);
+        }
+
+        .sync-details-table td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+
+        .sync-details-table tbody tr:hover {
+            background-color: #f8fdf9;
+        }
+
+    .sync-empty-state {
+        text-align: center;
+        padding: 40px 20px;
+        color: var(--text-light);
+    }
+
+    .sync-empty-icon {
+        font-size: 48px;
+        margin-bottom: 16px;
+        opacity: 0.5;
+    }
+
+    .sync-modal-footer {
+        padding: 16px 24px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+    }
+
+    .sync-btn-close {
+        background-color: #718096;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background-color 0.2s;
+    }
+
+        .sync-btn-close:hover {
+            background-color: #4a5568;
+        }
+
+    .sync-loading {
+        text-align: center;
+        padding: 40px 20px;
+    }
+
+    .sync-loading-spinner {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid var(--primary);
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 20px;
+    }
+
+    @@keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+
+    @@media (max-width: 1200px) {
+        .sync-dashboard-container {
+            padding: 10px;
+        }
+
+        .sync-data-table th,
+        .sync-data-table td {
+            padding: 10px 4px;
+            font-size: 0.8rem;
+        }
+
+        .sync-section-title {
+            font-size: 1.2rem;
+        }
+
+        .sync-view-btn {
+            min-width: 70px;
+            padding: 5px 8px;
+            font-size: 0.75rem;
+        }
+    }
+
+    @@media (max-width: 768px) {
+        .sync-main-table-container {
+            padding: 15px;
+        }
+
+        .sync-data-table th,
+        .sync-data-table td {
+            padding: 8px 3px;
+            font-size: 0.75rem;
+        }
+
+        .sync-modal-content {
+            width: 95%;
+            margin: 2% auto;
+            max-height: 90vh;
+        }
+
+        .sync-modal-header {
+            padding: 16px;
+        }
+
+        .sync-modal-title {
+            font-size: 1.2rem;
+        }
+
+        .sync-modal-tab {
+            padding: 12px 16px;
+            font-size: 0.9rem;
+        }
+
+        .sync-modal-tab-content {
+            padding: 16px;
+            height: calc(90vh - 140px);
+        }
+    }
+    /* Additional styles for better modal organization */
+    .sync-details-section {
+        margin-bottom: 24px;
+    }
+
+    .sync-details-section-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--primary);
+        margin-bottom: 12px;
+        padding-bottom: 8px;
+        border-bottom: 2px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .sync-details-section-content {
+        margin-left: 8px;
+    }
+
+    .sync-type-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        margin-left: 8px;
+    }
+
+    .sync-type-ready {
+        background-color: #d4edda;
+        color: #155724;
+    }
+
+    .sync-type-planted {
+        background-color: #cce5ff;
+        color: #004085;
+    }
+
+    .sync-type-booking {
+        background-color: #e8f5e9;
+        color: #1e7b3a;
+    }
+
+    .sync-type-confirmed {
+        background-color: #d1ecf1;
+        color: #0c5460;
+    }
+</style>
+
+<div class="sync-dashboard-container">
+    <!-- TOP BAR -->
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+
+        <!-- Back Button -->
+        <a href="/Data/TotalStockSync"
+           class="btn btn-sm btn-outline-secondary">
+            ← Back
+        </a>
+
+        <!-- Plant & Species Info -->
+        <div class="text-end">
+            <div class="fw-bold" style="font-size: 1.1rem; color: var(--primary);">
+                🌿 @Model.PlantName
+            </div>
+            <div class="text-muted small">
+                Species: @Model.SpeciesName
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Main Table -->
+    <div class="sync-main-table-container">
+        <div class="sync-table-header">
+            <div class="sync-section-title">
+                📊 Sowing-Booking Summary (monday-sunday)
+            </div>
+            <div class="sync-table-legend">
+                <div class="sync-legend-item">
+                    <div class="sync-legend-color" style="background-color: #2ecc71;"></div>
+                    <span>Good Sync (≥85%)</span>
+                </div>
+                <div class="sync-legend-item">
+                    <div class="sync-legend-color" style="background-color: #ff9f43;"></div>
+                    <span>Warning (70-84%)</span>
+                </div>
+                <div class="sync-legend-item">
+                    <div class="sync-legend-color" style="background-color: #e74c3c;"></div>
+                    <span>Critical (<70%)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="sync-data-table-wrapper">
+            <table class="sync-data-table" id="weeklyDataTable">
+                <thead>
+                    <tr>
+                        <th class="sticky-col">Week</th>
+                        <th>Date</th>
+                        <th>Bookings</th>
+                        <th>Projected Stock</th>
+                        <th>Capacity</th>
+                        <th>Excess</th>
+                        <th>Short</th>
+                        <th>Gap</th>
+                        <th>View Details</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    @foreach (var week in Model.WeeklyData)
+                    {
+                        <tr class="@(week.WeekNumber == Model.Summary?.CurrentWeek ? "highlight-week" : "")">
+                            <td class="sync-week-cell sticky-col">@week.WeekNumber</td>
+                            <td class="sync-date-cell">
+                                @week.WeekStart.ToString("dd-MMM-yy") to @week.WeekEnd.ToString("dd-MMM-yy")
+                            </td>
+                            <td class="sync-data-cell">@week.TotalBookingQuantity.ToString("N0")</td>
+                            <td class="sync-data-cell">@week.PossibleInventoryReadyThisWeek.ToString("N0")</td>
+                            <td class="sync-data-cell">@week.CapacityUsed%</td>
+                            <td class="sync-data-cell">@week.ExcessUnits.ToString("N0")</td>
+                            <td class="sync-data-cell">@week.ShortageUnits.ToString("N0")</td>
+                            <td class="sync-data-cell">@week.SyncGap.ToString("N0")</td>
+                            <td class="sync-action-cell">
+                                <button class="sync-view-btn"
+                                        onclick="showWeekDetails(
+                @week.WeekNumber,
+                '@week.WeekStart.ToString("yyyy-MM-dd")',
+                '@week.WeekEnd.ToString("yyyy-MM-dd")'
+            )"
+                                        disabled="@(week.PossibleInventoryReadyThisWeek == 0 && week.TotalBookingQuantity == 0)">
+                                    View
+                                </button>
+
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Week Details Modal -->
+<div id="weekDetailsModal" class="sync-modal">
+    <div class="sync-modal-content">
+        <div class="sync-modal-header">
+            <h2 class="sync-modal-title" id="modalTitle">Week Details</h2>
+            <span class="sync-modal-close" onclick="closeModal()">&times;</span>
+        </div>
+        <div class="sync-modal-body">
+            <div class="sync-modal-tabs">
+                <button class="sync-modal-tab active" onclick="switchTab('sowing')">Sowing Details</button>
+                <button class="sync-modal-tab" onclick="switchTab('booking')">Booking Details</button>
+            </div>
+
+            <div id="sowingTab" class="sync-modal-tab-content active">
+                <div id="sowingLoading" class="sync-loading">
+                    <div class="sync-loading-spinner"></div>
+                    <p>Loading sowing details...</p>
+                </div>
+                <div id="sowingContent" style="display: none;">
+                    <!-- Sowing details will be loaded here -->
+                </div>
+            </div>
+
+            <div id="bookingTab" class="sync-modal-tab-content">
+                <div id="bookingLoading" class="sync-loading">
+                    <div class="sync-loading-spinner"></div>
+                    <p>Loading booking details...</p>
+                </div>
+                <div id="bookingContent" style="display: none;">
+                    <!-- Booking details will be loaded here -->
+                </div>
+            </div>
+        </div>
+        <div class="sync-modal-footer">
+            <button class="sync-btn-close" onclick="closeModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const plantId = @Model.PlantId;
+    const speciesId = @Model.SpeciesId;
+        // Show week details modal
+    async function showWeekDetails(weekNumber, weekStart, weekEnd) {
+        // Update modal title
+        document.getElementById('modalTitle').textContent = `Week ${weekNumber} Details`;
+
+        // Show modal
+        document.getElementById('weekDetailsModal').style.display = 'block';
+
+        // Show loading states
+        document.getElementById('sowingLoading').style.display = 'block';
+        document.getElementById('bookingLoading').style.display = 'block';
+        document.getElementById('sowingContent').style.display = 'none';
+        document.getElementById('bookingContent').style.display = 'none';
+
+        // Reset to sowing tab
+        switchTab('sowing');
+
+        // Load both sets of data
+        try {
+            await Promise.all([
+                loadSowingDetails(weekNumber, weekStart, weekEnd),
+                loadBookingDetails(weekNumber, weekStart, weekEnd)
+            ]);
+        } catch (error) {
+            console.error('Error loading data:', error);
+        }
+    }
+
+    // Load sowing details via AJAX - UPDATED URL
+    async function loadSowingDetails(weekNumber, weekStart, weekEnd) {
+        try {
+            // Remove "Async" from the handler name
+            // const response = await fetch(`?handler=SowingDetails&weekNumber=${weekNumber}&weekStart=${weekStart}&weekEnd=${weekEnd}`);
+
+                const response = await fetch(
+        `?handler=SowingDetails`
+        + `&plantId=${plantId}`
+        + `&speciesId=${speciesId}`
+        + `&weekStart=${weekStart}`
+        + `&weekEnd=${weekEnd}`
+    );
+
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+            }
+
+            const sowingData = await response.json();
+            displaySowingDetails(sowingData);
+
+        } catch (error) {
+            console.error('Error loading sowing details:', error);
+            document.getElementById('sowingLoading').style.display = 'none';
+            document.getElementById('sowingContent').innerHTML = `
+                <div class="sync-empty-state">
+                    <div class="sync-empty-icon">⚠️</div>
+                    <h3>Error Loading Data</h3>
+                    <p>${error.message || 'Failed to load sowing details. Please try again.'}</p>
+                </div>
+            `;
+            document.getElementById('sowingContent').style.display = 'block';
+        }
+    }
+
+
+    // Display sowing details
+    function displaySowingDetails(sowingData) {
+        const sowingContent = document.getElementById('sowingContent');
+
+        if (!sowingData || sowingData.length === 0) {
+            sowingContent.innerHTML = `
+                <div class="sync-empty-state">
+                    <div class="sync-empty-icon">🌱</div>
+                    <h3>No Sowing Data</h3>
+                    <p>There are no sowings scheduled for this week.</p>
+                </div>
+            `;
+        } else {
+            // Group by sowing type
+            const readyThisWeek = sowingData.filter(item => item.sowingType === 'Ready This Week');
+            const plantedThisWeek = sowingData.filter(item => item.sowingType === 'Planted This Week');
+
+            let html = '';
+
+            // Ready This Week section
+            if (readyThisWeek.length > 0) {
+                html += `
+                    <div class="sync-details-section">
+                        <div class="sync-details-section-title">
+                            📅 Ready for Harvest This Week
+                            <span class="sync-type-badge sync-type-ready">${readyThisWeek.length} batches</span>
+                        </div>
+                        <div class="sync-details-section-content">
+                            <table class="sync-details-table">
+                                <thead>
+                                    <tr>
+                                        <th>Sowing ID</th>
+                                        <th>Sowing Date</th>
+                                        <th>Seeds Planted</th>
+                                        <th>Ready Date</th>
+                                        <th>Plant</th>
+                                        <th>Species</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>`;
+
+                readyThisWeek.forEach(item => {
+                    html += `
+                        <tr>
+                            <td>${item.id}</td>
+                            <td>${formatDate(item.seedingDate)}</td>
+                            <td>${item.seedsPlanted.toLocaleString()}</td>
+                            <td>${formatDate(item.readyDate)}</td>
+                            <td>${item.plantName}</td>
+                            <td>${item.speciesName}</td>
+                            <td>${item.notes || ''}</td>
+                        </tr>`;
+                });
+
+                html += `</tbody></table></div></div>`;
+            }
+
+            // Planted This Week section
+            if (plantedThisWeek.length > 0) {
+                html += `
+                    <div class="sync-details-section">
+                        <div class="sync-details-section-title">
+                            🌱 Planted This Week
+                            <span class="sync-type-badge sync-type-planted">${plantedThisWeek.length} batches</span>
+                        </div>
+                        <div class="sync-details-section-content">
+                            <table class="sync-details-table">
+                                <thead>
+                                    <tr>
+                                        <th>Sowing ID</th>
+                                        <th>Sowing Date</th>
+                                        <th>Seeds Planted</th>
+                                        <th>Ready Date</th>
+                                        <th>Plant</th>
+                                        <th>Species</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>`;
+
+                plantedThisWeek.forEach(item => {
+                    html += `
+                        <tr>
+                            <td>${item.id}</td>
+                            <td>${formatDate(item.seedingDate)}</td>
+                            <td>${item.seedsPlanted.toLocaleString()}</td>
+                            <td>${formatDate(item.readyDate)}</td>
+                            <td>${item.plantName}</td>
+                            <td>${item.speciesName}</td>
+                            <td>${item.notes || ''}</td>
+                        </tr>`;
+                });
+
+                html += `</tbody></table></div></div>`;
+            }
+
+            sowingContent.innerHTML = html;
+        }
+
+        // Hide loading, show content
+        document.getElementById('sowingLoading').style.display = 'none';
+        sowingContent.style.display = 'block';
+    }
+
+    // Load booking details via AJAX - UPDATED URL
+    async function loadBookingDetails(weekNumber, weekStart, weekEnd) {
+        try {
+            // Remove "Async" from the handler name
+          //  const response = await fetch(`?handler=BookingDetails&weekNumber=${weekNumber}&weekStart=${weekStart}&weekEnd=${weekEnd}`);
+              const response = await fetch(
+        `?handler=BookingDetails`
+        + `&plantId=${plantId}`
+        + `&speciesId=${speciesId}`
+        + `&weekStart=${weekStart}`
+        + `&weekEnd=${weekEnd}`
+    );
+
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+            }
+
+            const bookingData = await response.json();
+            displayBookingDetails(bookingData);
+
+        } catch (error) {
+            console.error('Error loading booking details:', error);
+            document.getElementById('bookingLoading').style.display = 'none';
+            document.getElementById('bookingContent').innerHTML = `
+                <div class="sync-empty-state">
+                    <div class="sync-empty-icon">⚠️</div>
+                    <h3>Error Loading Data</h3>
+                    <p>${error.message || 'Failed to load booking details. Please try again.'}</p>
+                </div>
+            `;
+            document.getElementById('bookingContent').style.display = 'block';
+        }
+    }
+
+    // Display booking details
+    function displayBookingDetails(bookingData) {
+        const bookingContent = document.getElementById('bookingContent');
+
+        if (!bookingData || bookingData.length === 0) {
+            bookingContent.innerHTML = `
+                <div class="sync-empty-state">
+                    <div class="sync-empty-icon">📋</div>
+                    <h3>No Booking Data</h3>
+                    <p>There are no bookings scheduled for this week.</p>
+                </div>
+            `;
+        } else {
+            // Group by booking type
+            const pendingBookings = bookingData.filter(item => item.bookingType === 'Current Week');
+            const confirmedBookings = bookingData.filter(item => item.bookingType === 'Confirmed');
+
+            let html = '';
+
+            // Pending Bookings section
+            if (pendingBookings.length > 0) {
+                html += `
+                    <div class="sync-details-section">
+                        <div class="sync-details-section-title">
+                            📋 Pending Bookings
+                            <span class="sync-type-badge sync-type-booking">${pendingBookings.length} orders</span>
+                        </div>
+                        <div class="sync-details-section-content">
+                            <table class="sync-details-table">
+                                <thead>
+                                    <tr>
+                                        <th>Booking ID</th>
+                                        <th>Customer</th>
+                                        <th>Quantity</th>
+                                       
+                                        <th>Delivery Date</th>
+                                        <th>Status</th>
+                                        <th>Plant</th>
+                                        <th>Species</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>`;
+
+                pendingBookings.forEach(item => {
+                    html += `
+                        <tr>
+                            <td>${item.id}</td>
+                            <td>${item.customerName}</td>
+                            <td>${item.quantity.toLocaleString()}</td>
+                          
+                            <td>${formatDate(item.deliveryDate)}</td>
+                            <td>${item.status}</td>
+                            <td>${item.plantName}</td>
+                            <td>${item.speciesName}</td>
+                            <td>${item.notes || ''}</td>
+                        </tr>`;
+                });
+
+                html += `</tbody></table></div></div>`;
+            }
+
+            // Confirmed Bookings section (for context)
+            if (confirmedBookings.length > 0) {
+                html += `
+                    <div class="sync-details-section">
+                        <div class="sync-details-section-title">
+                            ✅ Confirmed Bookings
+                            <span class="sync-type-badge sync-type-confirmed">${confirmedBookings.length} orders</span>
+                        </div>
+                        <div class="sync-details-section-content">
+                            <table class="sync-details-table">
+                                <thead>
+                                    <tr>
+                                        <th>Booking ID</th>
+                                        <th>Customer</th>
+                                        <th>Quantity</th>
+                                        <th>Order Date</th>
+                                        <th>Delivery Date</th>
+                                        <th>Status</th>
+                                        <th>Plant</th>
+                                        <th>Species</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>`;
+
+                confirmedBookings.forEach(item => {
+                    html += `
+                        <tr>
+                            <td>${item.id}</td>
+                            <td>${item.customerName}</td>
+                            <td>${item.quantity.toLocaleString()}</td>
+                            <td>${formatDate(item.orderDate)}</td>
+                            <td>${formatDate(item.deliveryDate)}</td>
+                            <td>${item.status}</td>
+                            <td>${item.plantName}</td>
+                            <td>${item.speciesName}</td>
+                            <td>${item.notes || ''}</td>
+                        </tr>`;
+                });
+
+                html += `</tbody></table></div></div>`;
+            }
+
+            bookingContent.innerHTML = html;
+        }
+
+        // Hide loading, show content
+        document.getElementById('bookingLoading').style.display = 'none';
+        bookingContent.style.display = 'block';
+    }
+
+    // Switch between tabs
+    function switchTab(tabName) {
+        // Hide all tab contents
+        document.querySelectorAll('.sync-modal-tab-content').forEach(tab => {
+            tab.classList.remove('active');
+        });
+
+        // Remove active class from all tabs
+        document.querySelectorAll('.sync-modal-tab').forEach(tab => {
+            tab.classList.remove('active');
+        });
+
+        // Show selected tab content
+        document.getElementById(tabName + 'Tab').classList.add('active');
+
+        // Activate selected tab button
+        document.querySelectorAll('.sync-modal-tab').forEach(tab => {
+            if (tab.textContent.includes(tabName.charAt(0).toUpperCase() + tabName.slice(1))) {
+                tab.classList.add('active');
+            }
+        });
+    }
+
+    // Close modal
+    function closeModal() {
+        document.getElementById('weekDetailsModal').style.display = 'none';
+    }
+
+    // Format date for display
+    function formatDate(dateString) {
+        try {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('en-US', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric'
+            });
+        } catch (error) {
+            return dateString;
+        }
+    }
+
+    // Close modal when clicking outside
+    window.onclick = function(event) {
+        const modal = document.getElementById('weekDetailsModal');
+        if (event.target === modal) {
+            closeModal();
+        }
+    }
+
+    // Close modal with Escape key
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+            closeModal();
+        }
+    });
+</script>

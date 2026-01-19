@@ -540,7 +540,8 @@ ORDER BY i.Id ";
              ISNULL(se.TraysAlive - se.HardeningAlive, 0) + 
              ISNULL(se.HardeningAlive - se.AliveCount, 0)) + i.WastedQuantity AS TotalWasted,
             i.LastUpdated,
-            se.locationDesc
+            se.locationDesc,
+            e.Name
         FROM Inventory i
         INNER JOIN SeedEntries se ON i.SeedEntryId = se.Id
         INNER JOIN Polyhouses p ON i.PolyhouseId = p.Id
@@ -575,7 +576,7 @@ ORDER BY i.Id ";
                     WastedInSorting = Convert.ToInt32(reader["SortingWasted"]),
                     TotalWasted = Convert.ToInt32(reader["TotalWasted"]),
                     SeedingDate = Convert.ToDateTime(reader["SeedingDate"]),
-                    Supervisor = reader["Supervisor"].ToString()
+                    Supervisor = reader["Name"].ToString()
                 });
             }
 

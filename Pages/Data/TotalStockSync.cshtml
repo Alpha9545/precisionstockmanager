@@ -1,0 +1,200 @@
+﻿@page
+@model PlantStockManager.Pages.Data.TotalStockSyncModel
+
+@{
+    ViewData["Title"] = "Total Stock Sync";
+}
+
+<style>
+    /* Compact stat cards */
+    .summary-card {
+        min-height: 10px;
+    }
+
+    /* Scrollable table area considering ~12vh header */
+    .table-scroll-container {
+        max-height: calc(100vh - 40vh);
+        overflow-y: auto;
+    }
+
+    /* Sticky table header */
+    .sync-sticky-header th {
+        position: sticky;
+        top: 0;
+        background: #212529;
+        color: #fff;
+        z-index: 1;
+    }
+
+    .badge-surplus {
+        background-color: #198754;
+    }
+
+    .badge-shortage {
+        background-color: #dc3545;
+    }
+
+    .badge-balanced {
+        background-color: #6c757d;
+    }
+</style>
+
+<div class="container-fluid mt-3">
+
+    <!-- PAGE TITLE -->
+    <div class="row mb-3">
+        <div class="col">
+            <h4 class="fw-bold mb-0">Plant Stock vs Booking Sync</h4>
+            <small class="text-muted">
+                Sowing + Inventory compared against bookings
+            </small>
+        </div>
+    </div>
+
+    <!-- SUMMARY CARDS -->
+    <div class="row g-3 mb-4">
+        @foreach (var p in Model.PlantSummary
+                .Where(x => x.TotalSowingNotInInventory > 0 || x.PendingBookings > 0))
+        {
+            var totalAvailable = p.TotalSowingNotInInventory + p.InventoryRemaining;
+            var diff = totalAvailable - p.PendingBookings;
+
+            <div class="col-xl-3 col-lg-4 col-md-6">
+                <div class="card shadow-sm summary-card h-100">
+                    <div class="card-body text-center py-3">
+                        <h6 class="fw-bold mb-2">@p.PlantName</h6>
+
+                        <div class="small text-primary">
+                            🌱 Sowing Pending:
+                            <span class="fw-bold">@p.TotalSowingNotInInventory</span>
+                        </div>
+
+                        <div class="small text-success">
+                            📦 Inventory:
+                            <span class="fw-bold">@p.InventoryRemaining</span>
+                        </div>
+
+                        <div class="small text-danger">
+                            📑 Bookings:
+                            <span class="fw-bold">@p.PendingBookings</span>
+                        </div>
+
+                        <hr class="my-2" />
+
+                        @if (diff > 0)
+                        {
+                            <span class="badge badge-surplus">
+                                Surplus: +@diff
+                            </span>
+                        }
+                        else if (diff < 0)
+                        {
+                            <span class="badge badge-shortage">
+                                Shortage: @diff
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge badge-balanced">
+                                Balanced
+                            </span>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- DETAILED TABLE -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white py-2">
+            <strong>Detailed Plant-wise Action View</strong>
+        </div>
+
+        <div class="card-body p-0">
+            <div class="table-responsive table-scroll-container">
+                <table class="table table-bordered table-hover align-middle mb-0">
+                    <thead class="sync-sticky-header">
+                        <tr>
+                            <th>Plant</th>
+                            <th>Species</th>
+                            <th>Sowing</th>
+                            <th>Inventory</th>
+                            <th>Bookings</th>
+                            <th>Total Available</th>
+                            <th>Difference</th>
+                            <th>Action Needed</th>
+                            <th style="width:90px;">View</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in Model.StockSummary)
+                        {
+                            var totalAvailable =
+                            row.TotalSowingNotInInventory + row.InventoryRemaining;
+
+                            var diff = totalAvailable - row.PendingBookings;
+
+                            <tr>
+                                <td class="fw-semibold">@row.PlantName</td>
+                                <td>@row.SpeciesName</td>
+
+                                <td class="text-primary fw-bold">
+                                    @row.TotalSowingNotInInventory
+                                </td>
+
+                                <td class="text-success fw-bold">
+                                    @row.InventoryRemaining
+                                </td>
+
+                                <td class="text-danger fw-bold">
+                                    @row.PendingBookings
+                                </td>
+
+                                <td class="fw-bold">
+                                    @totalAvailable
+                                </td>
+
+                                <td class="fw-bold
+                                        @(diff < 0 ? "text-danger" :
+                                                                          diff > 0 ? "text-success" :
+                                                                          "text-secondary")">
+                                @diff
+                            </td>
+
+                                <td>
+                                @if (diff < 0)
+                                    {
+                                        <span class="badge badge-shortage">
+                                            Plant @(Math.Abs(diff)) more
+                                        </span>
+                                    }
+                                    else if (diff > 0)
+                                    {
+                                        <span class="badge badge-surplus">
+                                            Can book @diff more
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge badge-balanced">
+                                            No action
+                                        </span>
+                                    }
+                                </td>
+
+                                <td class="text-center">
+                                    <a class="btn btn-sm btn-outline-primary"
+                                       href="/Data/SowingBookingSync?plantId=@row.PlantId&speciesId=@row.SpeciesId">
+                                        View
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</div>

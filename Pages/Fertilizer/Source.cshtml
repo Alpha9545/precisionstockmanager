@@ -1,0 +1,133 @@
+﻿@page
+@model PlantStockManager.Pages.Fertilizer.SourceModel
+
+<div class="container mt-4">
+
+    <!-- PAGE HEADER -->
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">Fertilizer Source (Vendor)</h3>
+    </div>
+
+    <!-- SOURCE FORM -->
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-primary text-white">
+            <strong>
+                @(Model.Source != null && Model.Source.SourceId > 0
+                                ? "Edit Vendor"
+                                : "Add New Vendor")
+            </strong>
+        </div>
+
+        <div class="card-body">
+            <form method="post" class="row g-3">
+
+                <input type="hidden" asp-for="Source.SourceId" />
+
+                <!-- Vendor Name -->
+                <div class="col-md-6">
+                    <label class="form-label">Vendor Name</label>
+                    <input asp-for="Source.SourceName"
+                           class="form-control"
+                           placeholder="Enter vendor name"
+                           required />
+                </div>
+
+                <!-- Contact Person -->
+                <div class="col-md-6">
+                    <label class="form-label">Contact Person</label>
+                    <input asp-for="Source.ContactPerson"
+                           class="form-control"
+                           placeholder="Enter contact person" />
+                </div>
+
+                <!-- Phone -->
+                <div class="col-md-6">
+                    <label class="form-label">Phone Number</label>
+                    <input asp-for="Source.Phone"
+                           class="form-control"
+                           placeholder="Enter phone number" />
+                </div>
+
+                <!-- Address -->
+                <div class="col-md-6">
+                    <label class="form-label">Address</label>
+                    <textarea asp-for="Source.Address"
+                              class="form-control"
+                              rows="2"
+                              placeholder="Enter address"></textarea>
+                </div>
+
+                <!-- ACTION BUTTONS -->
+                <div class="col-12">
+                    <button type="submit"
+                            asp-page-handler="Save"
+                            class="btn btn-success me-2">
+                        @(Model.Source != null && Model.Source.SourceId > 0
+                                                ? "Update Vendor"
+                                                : "Add Vendor")
+                    </button>
+
+                    @if (Model.Source != null && Model.Source.SourceId > 0)
+                    {
+                        <a asp-page="./Source"
+                           class="btn btn-secondary">
+                            Cancel
+                        </a>
+                    }
+                </div>
+
+            </form>
+        </div>
+    </div>
+
+    <!-- SOURCE LIST -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white">
+            <strong>Vendor List</strong>
+        </div>
+
+        <div class="card-body table-responsive">
+            <table class="table table-bordered table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Vendor Name</th>
+                        <th>Contact Person</th>
+                        <th>Phone</th>
+                        <th>Address</th>
+                        <th style="width:130px;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in Model.Sources)
+                    {
+                        <tr>
+                            <td class="fw-semibold">@s.SourceName</td>
+                            <td>@s.ContactPerson</td>
+                            <td>@s.Phone</td>
+                            <td>@s.Address</td>
+                            <td>
+                                <form method="post" class="d-inline">
+                                    <button asp-page-handler="Edit"
+                                            asp-route-id="@s.SourceId"
+                                            class="btn btn-sm btn-outline-primary">
+                                        Edit
+                                    </button>
+                                </form>
+
+                                <form method="post" class="d-inline">
+                                    <button asp-page-handler="Delete"
+                                            asp-route-id="@s.SourceId"
+                                            class="btn btn-sm btn-outline-danger"
+                                            onclick="return confirm('Delete this vendor?')">
+                                        Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>

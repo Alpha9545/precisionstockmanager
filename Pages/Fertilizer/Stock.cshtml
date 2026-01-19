@@ -1,0 +1,220 @@
+﻿@page
+@model PlantStockManager.Pages.Fertilizer.StockModel
+
+@{
+    ViewData["Title"] = "Fertilizer Stock";
+}
+<style>
+    /* Fix sticky table header overlapping sidebar */
+    .stock-sticky-header th {
+        position: sticky;
+        top: 0;
+        background: #f8f9fa;
+        z-index: 1; /* LOWER than sidebar */
+    }
+</style>
+
+<div class="container-fluid mt-3">
+
+    <!-- PAGE HEADER -->
+    <div class="row mb-3">
+        <div class="col">
+            <h4 class="fw-bold">Fertilizer Stock (Purchase Entry)</h4>
+        </div>
+    </div>
+
+    <!-- STOCK ENTRY FORM -->
+    <div class="card mb-3 shadow-sm">
+        <div class="card-header bg-primary text-white py-2">
+            <strong class="small">
+                @(Model.Stock != null && Model.Stock.StockId > 0
+                                ? "Edit Stock"
+                                : "Add New Stock")
+            </strong>
+        </div>
+
+        <div class="card-body py-2">
+            <form method="post" class="row g-2 align-items-end">
+
+                <input type="hidden" asp-for="Stock.StockId" />
+
+                <!-- Fertilizer -->
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">Fertilizer</label>
+                    <select asp-for="Stock.FertilizerId"
+                            class="form-select form-select-sm"
+                            required>
+                        <option value="">Select</option>
+                        @foreach (var f in Model.Fertilizers)
+                        {
+                            <option value="@f.Id">@f.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <!-- Quantity -->
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">Qty</label>
+                    <input asp-for="Stock.Quantity"
+                           type="number"
+                           step="0.001"
+                           class="form-control form-control-sm"
+                           required />
+                </div>
+
+                <!-- Unit -->
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">Unit</label>
+                    <select asp-for="Stock.UnitId"
+                            class="form-select form-select-sm"
+                            required>
+                        <option value="">Unit</option>
+                        @foreach (var u in Model.Units)
+                        {
+                            <option value="@u.Id">@u.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <!-- Purchase Date -->
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">Purchase</label>
+                    <input asp-for="Stock.PurchaseDate"
+                           type="date"
+                           class="form-control form-control-sm"
+                           required />
+                </div>
+
+                <!-- Expiry Date -->
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">Expiry</label>
+                    <input asp-for="Stock.ExpiryDate"
+                           type="date"
+                           class="form-control form-control-sm" />
+                </div>
+
+                <!-- Batch -->
+                <div class="col-md-2">
+                    <label class="form-label small mb-1">Batch</label>
+                    <input asp-for="Stock.BatchNumber"
+                           class="form-control form-control-sm" />
+                </div>
+
+                <!-- Source -->
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">Source</label>
+                    <select asp-for="Stock.SourceId"
+                            class="form-select form-select-sm"
+                            required>
+                        <option value="">Select</option>
+                        @foreach (var s in Model.Sources)
+                        {
+                            <option value="@s.Id">@s.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <!-- Buttons -->
+                <div class="col-md-3 d-flex gap-2">
+                    <button type="submit"
+                            asp-page-handler="Save"
+                            class="btn btn-success btn-sm">
+                        @(Model.Stock != null && Model.Stock.StockId > 0
+                                                ? "Update"
+                                                : "Add")
+                    </button>
+
+                    @if (Model.Stock != null && Model.Stock.StockId > 0)
+                    {
+                        <a asp-page="./Stock"
+                           class="btn btn-secondary btn-sm">
+                            Cancel
+                        </a>
+                    }
+                </div>
+
+            </form>
+        </div>
+    </div>
+
+    <!-- STOCK LIST -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white">
+            <strong>Stock List</strong>
+        </div>
+
+        <!-- SCROLLABLE TABLE -->
+        <div class="card-body p-0">
+            <div class="table-responsive"
+                 style="max-height: 420px; overflow-y: auto;">
+
+                <table class="table table-bordered table-hover align-middle mb-0">
+                    <thead class="table-light stock-sticky-header">
+                        <tr>
+                            <th>Fertilizer</th>
+                            <th>Purchased Qty</th>
+                            <th>Available Qty</th>
+                            <th>Unit</th>
+                            <th>Purchase Date</th>
+                            <th>Expiry Date</th>
+                            <th>Source</th>
+                            <th>Batch</th>
+                            <th style="width:120px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var s in Model.Stocks)
+                        {
+                            <tr>
+                                <td>@s.FertilizerName</td>
+
+                                <td class="fw-bold">@s.Quantity</td>
+
+                                <td class="fw-bold
+                                        @(s.LatestAvailableQuantity == 0
+                                                                            ? "text-danger"
+                                                                            : "text-success")">
+                                @s.LatestAvailableQuantity
+                            </td>
+
+                                <td>@s.UnitName</td>
+                                <td>@s.PurchaseDate.ToShortDateString()</td>
+                                <td>@(s.ExpiryDate?.ToShortDateString() ?? "-")</td>
+                                <td>@s.SourceName</td>
+                                <td>@s.BatchNumber</td>
+
+                                <td>
+                                @if (s.Quantity == s.LatestAvailableQuantity)
+                                    {
+                                        <form method="post" class="d-inline">
+                                            <button asp-page-handler="Edit"
+                                                    asp-route-id="@s.StockId"
+                                                    class="btn btn-sm btn-outline-primary">
+                                                Edit
+                                            </button>
+                                        </form>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary">In Use</span>
+                                    }
+
+                                    <form method="post" class="d-inline">
+                                        <button asp-page-handler="Delete"
+                                                asp-route-id="@s.StockId"
+                                                class="btn btn-sm btn-outline-danger"
+                                                onclick="return confirm('Delete this stock entry?')">
+                                            Delete
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+            </div>
+        </div>
+    </div>
+
+</div>

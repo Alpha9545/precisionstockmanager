@@ -1,0 +1,90 @@
+﻿@page
+@model PlantStockManager.Pages.Fertilizer.ViewModel
+@{
+}
+
+
+
+<div class="container mt-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3>Fertilizer Stock</h3>
+
+        <form method="get" class="d-flex">
+            <select name="Filter"
+                    class="form-select me-2"
+                    onchange="this.form.submit()">
+                <option value="all" selected="@("all" == Model.Filter)">All</option>
+                <option value="available" selected="@("available" == Model.Filter)">
+                    Available
+                </option>
+                <option value="utilized" selected="@("utilized" == Model.Filter)">
+                    Utilized
+                </option>
+            </select>
+        </form>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-hover align-middle">
+            <thead class="table-dark">
+                <tr>
+                    <th>Fertilizer</th>
+                    <th>Type</th>
+                    <th>Batch</th>
+                    <th>Purchased</th>
+                    <th>Available</th>
+                    <th>Unit</th>
+                    <th>Purchase</th>
+                    <th>Expiry</th>
+                    <th>Source</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                @foreach (var s in Model.Stocks)
+                {
+                    bool isExpired = s.ExpiryDate.HasValue &&
+                    s.ExpiryDate.Value < DateTime.Today;
+
+                    <tr class="@(s.IsUtilized ? "table-secondary" : "")">
+                        <td class="fw-semibold">@s.FertilizerName</td>
+                        <td>@s.FertilizerType</td>
+                        <td>@s.BatchNumber</td>
+                        <td>@s.PurchasedQuantity</td>
+                        <td>
+                            <span class="fw-bold @(s.AvailableQuantity > 0 ? "text-success" : "text-danger")">
+                                @s.AvailableQuantity
+                            </span>
+                        </td>
+                        <td>@s.UnitName</td>
+                        <td>@s.PurchaseDate.ToShortDateString()</td>
+                        <td>
+                            @if (isExpired)
+                            {
+                                <span class="badge bg-danger">Expired</span>
+                            }
+                            else
+                            {
+                                @(s.ExpiryDate?.ToShortDateString() ?? "-")
+                            }
+                        </td>
+                        <td>@s.SourceName</td>
+                        <td>
+                            @if (s.IsUtilized)
+                            {
+                                <span class="badge bg-secondary">Utilized</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">Available</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+</div>

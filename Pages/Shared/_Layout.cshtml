@@ -130,6 +130,15 @@
                     }
                     <li><a asp-page="/Data/BookingsRecord">Pending Booking Records</a></li>
 
+
+
+                    @* <li><a asp-page="/Data/SowingBookingSummary">Sowing Booking Summary</a></li>
+                    <li><a asp-page="/Data/test201225">Sowing Booking Summary test</a></li>
+                    <li><a asp-page="/Data/SowingBookingSync">Sowing Booking Summary test 2</a></li> *@
+                    <li><a asp-page="/Data/TotalStockSync">Sowing Booking Sync</a></li>
+
+                    
+
                     @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "4" || designationId == "5")
                     {
                         <li><a asp-page="/Bookings/Bookinglist">Fullfill Bookings</a></li>
@@ -165,12 +174,22 @@
                 </ul>
             </li>
             <li>
-                <a href="#">
+                  <div class="icon-link">
+                <a>
                     <img src="~/images/chart.svg" alt="Home Icon" class="nav-icon">
-                    <span class="link_name">Chart</span>
+                    <span class="link_name">Fertilizer</span>
                 </a>
-                <ul class="sub-menu blank">
-                    <li><a class="link_name" href="#">Chart</a></li>
+                 <img src="~/images/arrow.svg" alt="Expand" class="arrow">
+                  </div>
+                <ul class="sub-menu">
+                    <li><a class="link_name" href="#">Fertilizer</a></li>
+                    <li><a asp-page="/Fertilizer/UnitMaster">Fertilizer Unit</a></li>
+                    <li><a asp-page="/Fertilizer/Type">Fertilizer Type</a></li>
+                    <li><a asp-page="/Fertilizer/Fertilizer">Fertilizer Name</a></li>
+                    <li><a asp-page="/Fertilizer/Source">Fertilizer Source</a></li>
+                    <li><a asp-page="/Fertilizer/Stock">Fertilizer Stock</a></li>
+                    <li><a asp-page="/Fertilizer/Usage">Fertilizer Usage Mark</a></li>
+                    <li><a asp-page="/Fertilizer/View">Fertilizer Data</a></li>
                 </ul>
             </li>
 
