@@ -96,15 +96,37 @@ ORDER BY p.Name, sp.Name;";
             using var con = _db.GetConnection();
 
             string sql = @"
-SELECT p.Id,p.Name,
-       ISNULL(SUM(CAST(se.SeedsPlanted AS BIGINT)), 0),
-ISNULL(SUM(CAST(inv.RemainingQuantity AS BIGINT)), 0),
-ISNULL(SUM(CAST(b.Quantity AS BIGINT)), 0)
+SELECT 
+    p.Id,
+    p.Name,
+
+    ISNULL(se.TotalSowed, 0) AS TotalSowing,
+    ISNULL(inv.TotalInventory, 0) AS InventoryRemaining,
+    ISNULL(b.TotalBookings, 0) AS PendingBookings
+
 FROM PlantTypes p
-LEFT JOIN SeedEntries se ON se.PlantId=p.Id AND se.ReadyForInventory=0
-LEFT JOIN Inventory inv ON inv.PlantId=p.Id
-LEFT JOIN Bookings b ON b.PlantId=p.Id AND b.Status='Pending'
-GROUP BY p.Id,p.Name ORDER BY p.Name";
+
+LEFT JOIN (
+    SELECT PlantId, SUM(CAST(SeedsPlanted AS BIGINT)) AS TotalSowed
+    FROM SeedEntries
+    WHERE ReadyForInventory = 0
+    GROUP BY PlantId
+) se ON se.PlantId = p.Id
+
+LEFT JOIN (
+    SELECT PlantId, SUM(CAST(RemainingQuantity AS BIGINT)) AS TotalInventory
+    FROM Inventory
+    GROUP BY PlantId
+) inv ON inv.PlantId = p.Id
+
+LEFT JOIN (
+    SELECT PlantId, SUM(CAST(Quantity AS BIGINT)) AS TotalBookings
+    FROM Bookings
+    WHERE Status = 'Pending'
+    GROUP BY PlantId
+) b ON b.PlantId = p.Id
+
+ORDER BY p.Name;";
 
             await con.OpenAsync();
             using var cmd = new SqlCommand(sql, con);

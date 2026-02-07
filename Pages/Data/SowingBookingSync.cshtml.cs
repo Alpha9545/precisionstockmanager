@@ -431,6 +431,19 @@ SowingReadyByWeek AS (
     GROUP BY wd.WeekNumber
 ),
 
+InventoryByWeek AS (
+    SELECT
+        wd.WeekNumber,
+        SUM(inv.RemainingQuantity) AS InventoryQuantity
+    FROM WeeklyDates wd
+    LEFT JOIN Inventory inv
+        ON inv.PlantId = @PlantId
+       AND inv.SpeciesId = @SpeciesId
+       AND CAST(inv.LastUpdated AS DATE)
+           BETWEEN wd.WeekStart AND wd.WeekEnd
+    GROUP BY wd.WeekNumber
+),
+
 -- Bookings aggregated by delivery week
 BookingByWeek AS (
     SELECT
@@ -456,6 +469,11 @@ SELECT
     s.BatchCount,
     ISNULL(s.TotalSowed, 0) AS TotalSowed,
     ISNULL(r.ReadyQuantity, 0) AS PossibleInventoryReadyThisWeek,
+    ISNULL(i.InventoryQuantity, 0) AS InventoryQuantity,
+      (
+        ISNULL(r.ReadyQuantity, 0)
+      + ISNULL(i.InventoryQuantity, 0)
+    ) AS PossibleInventoryThisWeek,
     ISNULL(b.TotalBookingQuantity, 0) AS TotalBookingQuantity,
     ISNULL(b.BookingCount, 0) AS BookingCount,
     CASE
@@ -466,6 +484,7 @@ SELECT
 FROM WeeklyDates w
 LEFT JOIN SowingByPlantingWeek s ON s.WeekNumber = w.WeekNumber
 LEFT JOIN SowingReadyByWeek r ON r.WeekNumber = w.WeekNumber
+LEFT JOIN InventoryByWeek i ON i.WeekNumber = w.WeekNumber
 LEFT JOIN BookingByWeek b ON b.WeekNumber = w.WeekNumber
 ORDER BY w.WeekNumber;";
 
@@ -489,6 +508,8 @@ ORDER BY w.WeekNumber;";
                                 TotalSowed = reader.IsDBNull(reader.GetOrdinal("TotalSowed"))
                                     ? 0
                                     : reader.GetInt32(reader.GetOrdinal("TotalSowed")),
+                                InventoryQuantity = reader.IsDBNull(reader.GetOrdinal("InventoryQuantity")) ? 0 : reader.GetInt32(reader.GetOrdinal("InventoryQuantity")),
+                                PossibleInventoryThisWeek = reader.IsDBNull(reader.GetOrdinal("PossibleInventoryThisWeek")) ? 0 : reader.GetInt32(reader.GetOrdinal("PossibleInventoryThisWeek")),
                                 PossibleInventoryReadyThisWeek = reader.IsDBNull(reader.GetOrdinal("PossibleInventoryReadyThisWeek"))
                                     ? 0
                                     : reader.GetInt32(reader.GetOrdinal("PossibleInventoryReadyThisWeek")),
@@ -563,10 +584,15 @@ ORDER BY w.WeekNumber;";
         public DateTime? FirstBatchSowDate { get; set; }
         public int BatchCount { get; set; }
         public int TotalSowed { get; set; }
+        public int InventoryQuantity { get; set; }
+         public int PossibleInventoryThisWeek { get; set; }
         public int PossibleInventoryReadyThisWeek { get; set; }
         public int TotalBookingQuantity { get; set; }
         public int BookingCount { get; set; }
         public string StockStatus { get; set; }
+
+        public string SyncClass { get; private set; }
+
 
         // Calculated properties
         public int CapacityUsed { get; private set; }
@@ -577,6 +603,9 @@ ORDER BY w.WeekNumber;";
         public string Status { get; private set; }
         public string OptimizationAction { get; private set; }
         public int HarvestReady => PossibleInventoryReadyThisWeek;
+
+        public int AvailableInventory => PossibleInventoryReadyThisWeek + InventoryQuantity;
+
         public int Bookings => TotalBookingQuantity;
         public bool HasSowing => TotalSowed > 0;
         public bool HasBookings => TotalBookingQuantity > 0;
@@ -584,35 +613,51 @@ ORDER BY w.WeekNumber;";
 
         public void CalculateDerivedFields()
         {
+
+                int available = AvailableInventory;
             // Calculate sync percentage (how well harvest matches bookings)
-            SyncPercentage = HarvestReady > 0
-                ? (int)Math.Round((Math.Min(Bookings, HarvestReady) / (double)HarvestReady) * 100)
-                : 0;
+          if (Bookings > 0)
+{
+    SyncPercentage = (int)Math.Round(
+        Math.Min(available / (double)Bookings, 1.0) * 100
+    );
+}
+else
+{
+    // No bookings → perfect sync by definition
+    SyncPercentage = 0;
+}
+
 
             // Calculate capacity used
             CapacityUsed = SyncPercentage;
 
-            // Calculate sync gap
-            SyncGap = Math.Abs(Bookings - HarvestReady);
+           
 
             // Calculate excess and shortage
-            ExcessUnits = Math.Max(0, HarvestReady - Bookings);
-            ShortageUnits = Math.Max(0, Bookings - HarvestReady);
+            ExcessUnits = Math.Max(0, available - Bookings);
+            ShortageUnits = Math.Max(0, Bookings - available);
+
+             // Calculate sync gap
+              SyncGap = ExcessUnits + ShortageUnits;
 
             // Determine status
             if (SyncPercentage >= 85)
             {
                 Status = "good";
+                        SyncClass = "sync-good";     // 🟢
                 OptimizationAction = "Maintain";
             }
             else if (SyncPercentage >= 70)
             {
                 Status = "warning";
+                        SyncClass = "sync-warning";  // 🟠
                 OptimizationAction = "Optimize";
             }
             else
             {
                 Status = "danger";
+                        SyncClass = "sync-critical"; // 🔴
                 OptimizationAction = "Critical";
             }
         }

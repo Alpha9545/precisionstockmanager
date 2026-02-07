@@ -535,6 +535,23 @@
         background-color: #d1ecf1;
         color: #0c5460;
     }
+    .sync-good {
+    background-color: rgba(46, 204, 113, 0.12); /* #2ecc71 */
+}
+
+.sync-warning {
+    background-color: rgba(255, 159, 67, 0.15); /* #ff9f43 */
+}
+
+.sync-critical {
+    background-color: rgba(231, 76, 60, 0.15); /* #e74c3c */
+}
+
+/* Optional emphasis */
+.sync-critical td {
+    font-weight: 600;
+}
+
 </style>
 
 <div class="sync-dashboard-container">
@@ -585,31 +602,37 @@
             <table class="sync-data-table" id="weeklyDataTable">
                 <thead>
                     <tr>
-                        <th class="sticky-col">Week</th>
+                        <th class="sticky-col ">Week</th>
                         <th>Date</th>
                         <th>Bookings</th>
-                        <th>Projected Stock</th>
-                        <th>Capacity</th>
+                        <th>Projected Inventory</th>
+                        <th>actual Inventory</th>
+                        <th>Total Projected Inventory</th>
+                        <th>SyncPercent</th>
                         <th>Excess</th>
                         <th>Short</th>
-                        <th>Gap</th>
+                      
                         <th>View Details</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
                     @foreach (var week in Model.WeeklyData)
-                    {
-                        <tr class="@(week.WeekNumber == Model.Summary?.CurrentWeek ? "highlight-week" : "")">
+                    { 
+                        <tr class="@week.SyncClass @(week.WeekNumber == Model.Summary?.CurrentWeek ? "highlight-week" : "")">
                             <td class="sync-week-cell sticky-col">@week.WeekNumber</td>
                             <td class="sync-date-cell">
                                 @week.WeekStart.ToString("dd-MMM-yy") to @week.WeekEnd.ToString("dd-MMM-yy")
                             </td>
                             <td class="sync-data-cell">@week.TotalBookingQuantity.ToString("N0")</td>
                             <td class="sync-data-cell">@week.PossibleInventoryReadyThisWeek.ToString("N0")</td>
+                                                        <td class="sync-data-cell">@week.InventoryQuantity.ToString("N0")</td>
+                                                                                    <td class="sync-data-cell">@week.PossibleInventoryThisWeek.ToString("N0")</td>
+
+
                             <td class="sync-data-cell">@week.CapacityUsed%</td>
                             <td class="sync-data-cell">@week.ExcessUnits.ToString("N0")</td>
                             <td class="sync-data-cell">@week.ShortageUnits.ToString("N0")</td>
-                            <td class="sync-data-cell">@week.SyncGap.ToString("N0")</td>
+                           
                             <td class="sync-action-cell">
                                 <button class="sync-view-btn"
                                         onclick="showWeekDetails(
