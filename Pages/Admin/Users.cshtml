@@ -424,6 +424,7 @@
                         <th>Name</th>
                         <th>Email</th>
                         <th>Designation</th>
+                        
                         <th></th>
                     </tr>
                 </thead>
@@ -438,10 +439,25 @@
                             <td>@u.DesignationName</td>
                             <td>
                                 <div class="d-flex gap-2">
-                                    <button class="btn btn-outline-secondary btn-sm btn-action"
+                                    @* <button class="btn btn-outline-secondary btn-sm btn-action"
                                             onclick="openEditModal('@u.Id','@u.Username','@u.Name','@(u.Email ?? "")','@u.DesignationId')">
                                         Edit
-                                    </button>
+                                    </button> *@
+                                    <div class="d-flex gap-2">
+    <button class="btn btn-outline-secondary btn-sm btn-action"
+            onclick="openEditModal('@u.Id','@u.Username','@u.Name','@(u.Email ?? "")','@u.DesignationId')">
+        Edit
+    </button>
+
+    <form method="post" asp-page-handler="Deactivate"
+          asp-route-id="@u.Id"
+          onsubmit="return confirm('Are you sure you want to deactivate this user?');">
+        <button type="submit" class="btn btn-outline-danger btn-sm btn-action">
+            Inactive
+        </button>
+    </form>
+</div>
+
                                 </div>
                             </td>
                         </tr>

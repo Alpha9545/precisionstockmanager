@@ -44,7 +44,7 @@ SELECT u.Id,
        d.DesignationName
 FROM dbo.IMSUsers u
 LEFT JOIN dbo.Designation d ON d.DesignationID = u.DesignationID
-WHERE u.Username = @u;";
+WHERE u.Username = @u and u.IsActive = 1;";
 
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@u", Username);

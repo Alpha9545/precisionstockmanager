@@ -50,6 +50,7 @@ namespace PlantStockManager.Pages.Admin
 SELECT u.Id, u.Username, u.Name, u.Email, u.DesignationID, d.DesignationName
 FROM dbo.IMSUsers u
 LEFT JOIN dbo.Designation d ON d.DesignationID = u.DesignationID
+WHERE u.IsActive = 1    
 ORDER BY u.Id DESC;";
             using var cmd = new SqlCommand(sql, conn);
             using var r = await cmd.ExecuteReaderAsync();
@@ -101,8 +102,8 @@ WHERE Username = @Username OR (Email IS NOT NULL AND Email = @Email);", conn);
             }
 
             var insertSql = @"
-INSERT INTO dbo.IMSUsers (Username, Password, Name, Email, DesignationID)
-VALUES (@Username, @Password, @Name, @Email, @DesignationId);";
+INSERT INTO dbo.IMSUsers (Username, Password, Name, Email, DesignationID, IsActive)
+VALUES (@Username, @Password, @Name, @Email, @DesignationId, 1);";
             using var cmd = new SqlCommand(insertSql, conn);
             cmd.Parameters.AddWithValue("@Username", newUser.Username);
             cmd.Parameters.AddWithValue("@Password", passwordHash);
@@ -188,6 +189,23 @@ WHERE Id = @Id;";
             return RedirectToPage();
         }
 
+        public async Task<IActionResult> OnPostDeactivateAsync(int id)
+{
+    using var conn = _db.GetConnection();
+    await conn.OpenAsync();
+
+    var cmd = new SqlCommand(@"
+UPDATE dbo.IMSUsers
+SET IsActive = 0
+WHERE Id = @Id;", conn);
+
+    cmd.Parameters.AddWithValue("@Id", id);
+    await cmd.ExecuteNonQueryAsync();
+
+    return RedirectToPage();
+}
+
+
         // ----- DTOs / VMs -----
         public class UserRow
         {
@@ -197,6 +215,7 @@ WHERE Id = @Id;";
             public string? Email { get; set; }
             public int? DesignationId { get; set; }
             public string? DesignationName { get; set; }
+                public bool IsActive { get; set; }   // ✅ ADD
         }
 
         public class NewUserVM

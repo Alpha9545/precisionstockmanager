@@ -15,6 +15,8 @@
     }
 }
 
+
+
 <div class="container-fluid py-3">
     <!-- Heading -->
     <div class="row g-2 align-items-center mb-3">
@@ -65,6 +67,8 @@
                     </select>
                 </div>
 
+               
+
                 <div class="col-6 col-sm-auto d-flex gap-2">
                     <button type="submit" class="btn btn-primary btn-sm w-100">
                         <i class="bi bi-funnel"></i> Filter
@@ -92,6 +96,7 @@
                         <tr>
                             <th>Booking No</th>
                             <th>Customer</th>
+                            <th>District</th>
                             <th>Booking Date</th>
                             <th>Polyhouse</th>
                             <th>Plant Type</th>
@@ -101,7 +106,8 @@
                             <th>Delivery Date</th>
                         </tr>
                     </thead>
-                    <tbody class="small">
+                    <tbody class="small">                                @* <td>@record.TentativeDeliveryDate.ToString("dd-MMM-yyyy")</td> *@
+
                         @{
                             int? previousInventoryId = null;
                         }
@@ -118,6 +124,7 @@
                             <tr>
                                 <td>@record.BookingId</td>
                                 <td>@ToTitle(record.CustomerName)</td>
+                                <td>@record.District</td>
                                 <td>@record.BookingDate.ToString("dd-MMMM-yyyy")</td>
                                 <td>@ToTitle(record.PolyhouseName)</td>
                                 <td>@ToTitle(record.PlantTypeName)</td>

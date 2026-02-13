@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
 using System.Data;
+using System.Text;
+
 using static System.Runtime.InteropServices.JavaScript.JSType;
 
 
@@ -190,13 +192,16 @@ ORDER BY s.SeedingDate";
             it.TransactionDate,
 	        it.QuantityUtilized,
              b.CustomerName,
-             i.SeedEntryId
+             i.SeedEntryId,
+             se.SeedingDate,
+             b.DeliveryDate
         FROM Inventory i
            INNER JOIN Polyhouses p ON i.PolyhouseId = p.Id
            INNER JOIN PlantSpecies ps ON i.SpeciesId = ps.Id
 INNER JOIN PlantTypes pt ON i.PlantId = pt.Id
 INNER JOIN InventoryTransactions it ON i.Id = it.InventoryId
 INNER JOIN Bookings b ON b.id = it.BookingId
+INNER JOIN SeedEntries se ON i.SeedEntryId = se.Id
 WHERE 
    it.TransactionType = 'Allocation' 
    AND (@PolyhouseId IS NULL OR i.PolyhouseId = @PolyhouseId)
@@ -233,7 +238,9 @@ ORDER BY i.Id ";
                                 InventoryTransactionDate = reader.GetDateTime(10),
                                 UtilizedQuantity = reader.GetInt32(11),
                                 CustomerName = reader.IsDBNull(12) ? null : reader.GetString(12),
-                                SeedEntryId = reader.IsDBNull(13) ? 0 : reader.GetInt32(13)
+                                SeedEntryId = reader.IsDBNull(13) ? 0 : reader.GetInt32(13),
+                                SeedingDate = reader.GetDateTime(14),
+                                TentativeDeliveryDate = reader.GetDateTime(15)
                             });
                         }
                     }
@@ -244,7 +251,7 @@ ORDER BY i.Id ";
         }
 
 
-        public async Task<List<Inventory>> GetAllocatedBookings(int? polyhouseId, int? plantTypeId, int? speciesId, DateTime? dateFrom, DateTime? dateTo)
+        public async Task<List<Inventory>> GetAllocatedBookings(int? polyhouseId, int? plantTypeId, int? speciesId, DateTime? dateFrom, DateTime? dateTo, string? searchCustomer = null)
         {
             var utilizedInventory = new List<Inventory>();
 
@@ -268,19 +275,22 @@ ORDER BY i.Id ";
              b.CustomerName,
              b.BookingDate,
              b.Quantity, 
-             b.ActualDeliveryDate
+             b.ActualDeliveryDate,
+             d.DistrictName
         FROM Inventory i
            INNER JOIN Polyhouses p ON i.PolyhouseId = p.Id
            INNER JOIN PlantSpecies ps ON i.SpeciesId = ps.Id
 INNER JOIN PlantTypes pt ON i.PlantId = pt.Id
 INNER JOIN InventoryTransactions it ON i.Id = it.InventoryId
 INNER JOIN Bookings b ON b.id = it.BookingId
+INNER JOIN Districts d ON b.DistrictId = d.DistrictId
 WHERE it.TransactionType = 'Allocation' AND
 (@PolyhouseId IS NULL OR i.PolyhouseId = @PolyhouseId)
 AND (@PlantTypeId IS NULL OR i.PlantId = @PlantTypeId)
 AND (@SpeciesId IS NULL OR i.SpeciesId = @SpeciesId)
 AND (@DateFrom IS NULL OR b.ActualDeliveryDate >= @DateFrom)
 AND (@DateTo IS NULL OR b.ActualDeliveryDate <= @DateTo)
+AND (@SearchCustomer IS NULL OR b.CustomerName LIKE '%' + @SearchCustomer + '%')
 ORDER BY i.Id ";
 
                 using (var cmd = new SqlCommand(query, conn))
@@ -290,6 +300,7 @@ ORDER BY i.Id ";
                     cmd.Parameters.AddWithValue("@SpeciesId", (object)speciesId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@DateFrom", (object)dateFrom ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@DateTo", (object)dateTo ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@SearchCustomer", (object)searchCustomer ?? DBNull.Value);
 
                     using (var reader = await cmd.ExecuteReaderAsync())
                     {
@@ -312,7 +323,8 @@ ORDER BY i.Id ";
                                 CustomerName = reader.GetString(12),
                                 BookingDate = reader.GetDateTime(13),
                                 BookingQuantity = reader.GetInt32(14),
-                                ActualDeliveryDate = reader.GetDateTime(15)
+                                ActualDeliveryDate = reader.GetDateTime(15),
+                                District = reader.IsDBNull(16) ? null : reader.GetString(16)
                                 
                             });
                         }
@@ -322,6 +334,101 @@ ORDER BY i.Id ";
 
             return utilizedInventory;
         }
+
+
+        public async Task<List<Inventory>> SearchBookingsByCustomer(string customerName)
+{
+    var result = new List<Inventory>();
+
+    if (string.IsNullOrWhiteSpace(customerName))
+        return result;
+
+    // Normalize input: trim + single spaces
+    customerName = System.Text.RegularExpressions.Regex
+        .Replace(customerName.Trim(), @"\s+", " ");
+
+    var words = customerName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+    using (var conn = _dbHelper.GetConnection())
+    {
+        await conn.OpenAsync();
+
+        var sql = new StringBuilder(@"
+SELECT 
+    b.Id AS BookingId,
+    i.PolyhouseId,
+    p.Name AS PolyhouseName,
+    i.PlantId,
+    pt.Name AS PlantTypeName,
+    i.SpeciesId,
+    ps.Name AS SpeciesName,
+    i.LastUpdated,
+    i.Quantity,
+    it.Id AS InventoryTransactionId,
+    it.TransactionDate AS InventoryTransactionDate,
+    it.QuantityUtilized,
+    b.CustomerName,
+    b.BookingDate,
+    b.Quantity AS BookingQuantity,
+    b.ActualDeliveryDate,
+    d.DistrictName
+FROM Inventory i
+INNER JOIN Polyhouses p ON i.PolyhouseId = p.Id
+INNER JOIN PlantTypes pt ON i.PlantId = pt.Id
+INNER JOIN PlantSpecies ps ON i.SpeciesId = ps.Id
+INNER JOIN InventoryTransactions it ON i.Id = it.InventoryId
+INNER JOIN Bookings b ON b.Id = it.BookingId
+INNER JOIN Districts d ON b.DistrictId = d.DistrictId
+WHERE it.TransactionType = 'Allocation'
+");
+
+        // Add dynamic LIKE clauses
+        for (int i = 0; i < words.Length; i++)
+        {
+            sql.Append($" AND b.CustomerName LIKE @word{i}");
+        }
+
+        sql.Append(" ORDER BY b.BookingDate DESC;");
+
+        using (var cmd = new SqlCommand(sql.ToString(), conn))
+        {
+            for (int i = 0; i < words.Length; i++)
+            {
+                cmd.Parameters.AddWithValue($"@word{i}", $"%{words[i]}%");
+            }
+
+            using (var reader = await cmd.ExecuteReaderAsync())
+            {
+                while (await reader.ReadAsync())
+                {
+                    result.Add(new Inventory
+                    {
+                        BookingId = reader.GetInt32(0),
+                        PolyhouseId = reader.GetInt32(1),
+                        PolyhouseName = reader.GetString(2),
+                        PlantId = reader.GetInt32(3),
+                        PlantTypeName = reader.GetString(4),
+                        SpeciesId = reader.GetInt32(5),
+                        SpeciesName = reader.GetString(6),
+                        LastUpdated = reader.GetDateTime(7),
+                        Quantity = reader.GetInt32(8),
+                        InventoryTransactionId = reader.GetInt32(9),
+                        InventoryTransactionDate = reader.GetDateTime(10),
+                        UtilizedQuantity = reader.GetInt32(11),
+                        CustomerName = reader.GetString(12),
+                        BookingDate = reader.GetDateTime(13),
+                        BookingQuantity = reader.GetInt32(14),
+                        ActualDeliveryDate = reader.GetDateTime(15),
+                        District = reader.IsDBNull(16) ? null : reader.GetString(16)
+                    });
+                }
+            }
+        }
+    }
+
+    return result;
+}
+
 
         public async Task<(bool Success, string Message, int NewQuantity)> UpdateSorting(int id, int quantity)
         {

@@ -29,6 +29,8 @@
 
         public DateTime BookingDate { get; set; }
 
+        public DateTime TentativeDeliveryDate { get; set; }
+
         public DateTime ActualDeliveryDate { get; set; }
 
         public int BookingId { get; set; }
@@ -48,6 +50,9 @@
         public int TotalWasted  { get; set; } 
 
         public string SeedsPlanted { get; set; }
+
+        public string? State {get; set; }
+        public string? District { get; set; }
 
     }
 }

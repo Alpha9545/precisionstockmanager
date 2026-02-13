@@ -35,6 +35,11 @@ namespace PlantStockManager.Pages.Data
         [BindProperty(SupportsGet = true)]
         public DateTime? DateTo { get; set; }
 
+[BindProperty(SupportsGet = true)]
+public string? SearchCustomer { get; set; }
+
+
+
         public BookingHistoryModel(
             InventoryRepository inventoryRepository,
             PolyhouseRepository polyhouseRepository,
@@ -68,13 +73,13 @@ namespace PlantStockManager.Pages.Data
                 PlantSpecies = await _plantSpeciesRepository.GetSpeciesByPlantType(SelectedPlantType.Value);
             }
 
-            Inventory = await _inventoryRepository.GetAllocatedBookings(SelectedPolyhouse, SelectedPlantType, SelectedSpecies, DateFrom, DateTo);
+            Inventory = await _inventoryRepository.GetAllocatedBookings(SelectedPolyhouse, SelectedPlantType, SelectedSpecies, DateFrom, DateTo, SearchCustomer);
         }
 
         public async Task<IActionResult> OnGetGeneratePdfAsync()
         {
             // Load the filtered inventory data.
-            Inventory = await _inventoryRepository.GetAllocatedBookings(SelectedPolyhouse, SelectedPlantType, SelectedSpecies, DateFrom, DateTo);
+            Inventory = await _inventoryRepository.GetAllocatedBookings(SelectedPolyhouse, SelectedPlantType, SelectedSpecies, DateFrom, DateTo, SearchCustomer);
 
             using (MemoryStream ms = new MemoryStream())
             {

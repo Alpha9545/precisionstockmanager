@@ -78,8 +78,10 @@
                             <th>Polyhouse</th>
                             <th>Plant Type</th>
                             <th>Variety</th>
+                             <th>Seeding Date</th>
                             <th>Ready On</th>
                             <th>Quantity</th>
+                             @* <th>Delivery Date</th> *@
                             <th>Utilized Date</th>
                             <th>Utilized</th>
                             <th>Customer</th>
@@ -105,8 +107,10 @@
                                 <td>@record.PolyhouseName</td>
                                 <td>@record.PlantTypeName</td>
                                 <td>@record.SpeciesName</td>
+                                <td>@record.SeedingDate.ToString("dd-MMM-yyyy")</td>
                                 <td>@record.LastUpdated.ToString("dd-MMMM-yyyy")</td>
                                 <td>@record.Quantity</td>
+                                @* <td>@record.TentativeDeliveryDate.ToString("dd-MMM-yyyy")</td> *@
                                 <td>@record.InventoryTransactionDate.ToString("dd-MMM-yyyy hh:mm:ss tt")</td>
                                 <td>@record.UtilizedQuantity</td>
                                 <td>@record.CustomerName</td>
