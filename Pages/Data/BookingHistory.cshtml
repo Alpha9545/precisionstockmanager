@@ -27,19 +27,27 @@
         <!-- Filters Section -->
         <div class="col-12 col-md">
             <form method="get" class="row g-2 align-items-end" id="filtersForm">
-                <div class="col-6 col-sm-auto">
+
+                <!-- Date From -->
+                <div class="col-6 col-md-auto">
                     <label class="form-label small fw-bold mb-1">From</label>
-                    <input type="date" asp-for="DateFrom" class="form-control form-control-sm">
+                    <input type="date" asp-for="DateFrom"
+                           class="form-control form-control-sm" />
                 </div>
 
-                <div class="col-6 col-sm-auto">
+                <!-- Date To -->
+                <div class="col-6 col-md-auto">
                     <label class="form-label small fw-bold mb-1">To</label>
-                    <input type="date" asp-for="DateTo" class="form-control form-control-sm">
+                    <input type="date" asp-for="DateTo"
+                           class="form-control form-control-sm" />
                 </div>
 
-                <div class="col-6 col-sm-auto">
-                    <select asp-for="SelectedPolyhouse" class="form-select form-select-sm">
-                        <option value="">Polyhouses</option>
+                <!-- Polyhouse -->
+                <div class="col-6 col-md-auto">
+                    <label class="form-label small fw-bold mb-1">Polyhouse</label>
+                    <select asp-for="SelectedPolyhouse"
+                            class="form-select form-select-sm">
+                        <option value="">All Polyhouses</option>
                         @foreach (var polyhouse in Model.Polyhouses)
                         {
                             <option value="@polyhouse.Id">@polyhouse.Name</option>
@@ -47,9 +55,13 @@
                     </select>
                 </div>
 
-                <div class="col-6 col-sm-auto">
-                    <select asp-for="SelectedPlantType" id="SelectedPlantType" class="form-select form-select-sm">
-                        <option value="">Plant Types</option>
+                <!-- Plant Type -->
+                <div class="col-6 col-md-auto">
+                    <label class="form-label small fw-bold mb-1">Plant Type</label>
+                    <select asp-for="SelectedPlantType"
+                            id="SelectedPlantType"
+                            class="form-select form-select-sm">
+                        <option value="">All Plant Types</option>
                         @foreach (var plantType in Model.PlantTypes)
                         {
                             <option value="@plantType.Id">@plantType.Name</option>
@@ -57,9 +69,13 @@
                     </select>
                 </div>
 
-                <div class="col-6 col-sm-auto">
-                    <select asp-for="SelectedSpecies" id="SelectedSpecies" class="form-select form-select-sm">
-                        <option value="">Species</option>
+                <!-- Species -->
+                <div class="col-6 col-md-auto">
+                    <label class="form-label small fw-bold mb-1">Species</label>
+                    <select asp-for="SelectedSpecies"
+                            id="SelectedSpecies"
+                            class="form-select form-select-sm">
+                        <option value="">All Species</option>
                         @foreach (var species in Model.PlantSpecies)
                         {
                             <option value="@species.Id">@species.Name</option>
@@ -67,22 +83,40 @@
                     </select>
                 </div>
 
-               
+                <!-- Customer Search -->
+                <div class="col-6 col-md-auto">
+                    <label class="form-label small fw-bold mb-1">Customer</label>
+                    <input type="text"
+                           asp-for="SearchCustomer"
+                           placeholder="Customer name"
+                           class="form-control form-control-sm" />
+                </div>
 
-                <div class="col-6 col-sm-auto d-flex gap-2">
-                    <button type="submit" class="btn btn-primary btn-sm w-100">
-                        <i class="bi bi-funnel"></i> Filter
+                <!-- Buttons -->
+                <div class="col-12 col-md-auto d-flex gap-2">
+
+                    <!-- Filter/Search -->
+                    <button type="submit"
+                            class="btn btn-primary btn-sm">
+                        🔍 Filter / Search
                     </button>
+
+                    <!-- PDF -->
                     <a asp-page="/Data/BookingHistory"
                        asp-route-handler="GeneratePdf"
+                       asp-route-DateFrom="@Model.DateFrom?.ToString("yyyy-MM-dd")"
+                       asp-route-DateTo="@Model.DateTo?.ToString("yyyy-MM-dd")"
                        asp-route-SelectedPolyhouse="@Model.SelectedPolyhouse"
                        asp-route-SelectedPlantType="@Model.SelectedPlantType"
                        asp-route-SelectedSpecies="@Model.SelectedSpecies"
-                       class="btn btn-outline-secondary btn-sm w-100" target="_blank">
-                        <i class="bi bi-file-earmark-pdf"></i> PDF
+                       asp-route-SearchCustomer="@Model.SearchCustomer"
+                       class="btn btn-danger btn-sm"
+                       target="_blank">
+                        📄 PDF
                     </a>
                 </div>
             </form>
+
         </div>
     </div>
 

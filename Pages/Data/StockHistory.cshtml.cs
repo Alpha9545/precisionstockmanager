@@ -1,4 +1,4 @@
-using iTextSharp.text.pdf;
+﻿using iTextSharp.text.pdf;
 using iTextSharp.text;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -73,73 +73,77 @@ namespace PlantStockManager.Pages.Data
 
         public async Task<IActionResult> OnGetGeneratePdfAsync()
         {
-            // Load the filtered inventory data.
-            Inventory = await _inventoryRepository.GetUtilizedInventory(SelectedPolyhouse, SelectedPlantType, SelectedSpecies, DateFrom, DateTo);
+            Inventory = await _inventoryRepository.GetUtilizedInventory(
+                SelectedPolyhouse, SelectedPlantType, SelectedSpecies, DateFrom, DateTo);
 
             using (MemoryStream ms = new MemoryStream())
             {
-                // Create the PDF document.
                 Document document = new Document(PageSize.A4, 10, 10, 10, 10);
                 PdfWriter writer = PdfWriter.GetInstance(document, ms);
                 document.Open();
 
-                // Define fonts.
                 Font titleFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 14);
                 Font headerFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 10, BaseColor.WHITE);
                 Font cellFont = FontFactory.GetFont(FontFactory.HELVETICA, 9, BaseColor.BLACK);
 
-                // Add report title.
                 Paragraph title = new Paragraph("Utilized Stock Report", titleFont)
                 {
                     Alignment = Element.ALIGN_CENTER
                 };
                 document.Add(title);
-                document.Add(new Paragraph("Generated on " + DateTime.Now.ToString("dd-MMM-yyyy HH:mm"), FontFactory.GetFont(FontFactory.HELVETICA, 10)));
-                document.Add(new Paragraph(" ")); // empty line
+                document.Add(new Paragraph("Generated on " +
+                    DateTime.Now.ToString("dd-MMM-yyyy HH:mm"),
+                    FontFactory.GetFont(FontFactory.HELVETICA, 10)));
 
-                // Create a table. Adjust the column count as per your Inventory properties.
-                PdfPTable table = new PdfPTable(8)
+                document.Add(new Paragraph(" "));
+
+                // 🔹 Changed from 8 → 9 columns
+                PdfPTable table = new PdfPTable(9)
                 {
                     WidthPercentage = 100
                 };
-                // Set column widths (adjust these ratios as needed)
-                table.SetWidths(new float[] { 1, 1, 1, 1, 1, 1, 1, 1 });
 
-                // Define header background color.
-                BaseColor headerBgColor = new BaseColor(0, 102, 204); // blue shade
+                table.SetWidths(new float[] { 1, 1, 1, 1, 1, 1, 1, 1, 1 });
 
-                // Add table header.
+                BaseColor headerBgColor = new BaseColor(0, 102, 204);
+
+                // 🔹 Header Row
                 AddCellToHeader(table, "Sowing ID", headerFont, headerBgColor);
                 AddCellToHeader(table, "Polyhouse", headerFont, headerBgColor);
                 AddCellToHeader(table, "Plant Type", headerFont, headerBgColor);
                 AddCellToHeader(table, "Species", headerFont, headerBgColor);
+
+                AddCellToHeader(table, "Seeding Date", headerFont, headerBgColor);  // ✅ NEW COLUMN
+
                 AddCellToHeader(table, "Ready On", headerFont, headerBgColor);
                 AddCellToHeader(table, "Used", headerFont, headerBgColor);
                 AddCellToHeader(table, "Used On", headerFont, headerBgColor);
                 AddCellToHeader(table, "Customer Name", headerFont, headerBgColor);
 
-
-                // Add table rows.
                 foreach (var record in Inventory)
                 {
                     AddCellToBody(table, "#" + record.SeedEntryId, cellFont);
-                    // Adjust these property names to match your Inventory model.
                     AddCellToBody(table, record.PolyhouseName, cellFont);
                     AddCellToBody(table, record.PlantTypeName, cellFont);
                     AddCellToBody(table, record.SpeciesName, cellFont);
+
+                    // ✅ NEW VALUE
+                    AddCellToBody(table,
+                        record.SeedingDate.ToString("dd-MMMM-yyyy") ?? "-",
+                        cellFont);
+
                     AddCellToBody(table, record.LastUpdated.ToString("dd-MMMM-yyyy"), cellFont);
                     AddCellToBody(table, record.Quantity.ToString(), cellFont);
-                    AddCellToBody(table, record.InventoryTransactionDate.ToString("dd-MMMM-yyyy") , cellFont);
-                    AddCellToBody(table, record.CustomerName.ToString(), cellFont);
-
+                    AddCellToBody(table, record.InventoryTransactionDate.ToString("dd-MMMM-yyyy"), cellFont);
+                    AddCellToBody(table, record.CustomerName ?? "-", cellFont);
                 }
+
                 document.Add(table);
                 document.Close();
 
                 byte[] pdfBytes = ms.ToArray();
                 Response.Headers.Add("Content-Disposition", "inline; filename=InventoryReport.pdf");
 
-                // Return the PDF without specifying a download name
                 return File(pdfBytes, "application/pdf");
             }
         }

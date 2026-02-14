@@ -65,7 +65,7 @@ namespace PlantStockManager.Pages.Bookings
                 PlantSpecies = await _plantSpeciesRepository.GetSpeciesByPlantType(SelectedPlantType.Value);
             }
 
-            Inventory = await _inventoryRepository.GetAllocatedBookings(SelectedPolyhouse, SelectedPlantType, SelectedSpecies, DateFrom, DateTo);
+            Inventory = await _inventoryRepository.GetAllocatedBookingsInventory(SelectedPolyhouse, SelectedPlantType, SelectedSpecies, DateFrom, DateTo);
         }
     }
 }

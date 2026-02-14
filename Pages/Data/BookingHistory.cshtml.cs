@@ -1,15 +1,15 @@
-using iTextSharp.text.pdf;
 using iTextSharp.text;
+using iTextSharp.text.pdf;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using System.Text;
 
 namespace PlantStockManager.Pages.Data
 {
     public class BookingHistoryModel : PageModel
     {
-
         private readonly InventoryRepository _inventoryRepository;
         private readonly PolyhouseRepository _polyhouseRepository;
         private readonly PlantTypeRepository _plantTypeRepository;
@@ -35,10 +35,8 @@ namespace PlantStockManager.Pages.Data
         [BindProperty(SupportsGet = true)]
         public DateTime? DateTo { get; set; }
 
-[BindProperty(SupportsGet = true)]
-public string? SearchCustomer { get; set; }
-
-
+        [BindProperty(SupportsGet = true)]
+        public string? SearchCustomer { get; set; }
 
         public BookingHistoryModel(
             InventoryRepository inventoryRepository,
@@ -52,15 +50,7 @@ public string? SearchCustomer { get; set; }
             _plantSpeciesRepository = plantSpeciesRepository;
         }
 
-
-        public async Task<JsonResult> OnGetSpeciesByPlantTypeAsync(int plantTypeId)
-        {
-            var speciesList = await _plantSpeciesRepository.GetSpeciesByPlantType(plantTypeId);
-            return new JsonResult(speciesList);
-        }
-
-
-        public async Task OnGetAsync()
+        private async Task LoadDataAsync()
         {
             DateFrom ??= DateTime.Today.AddDays(-7);
             DateTo ??= DateTime.Today;
@@ -70,108 +60,104 @@ public string? SearchCustomer { get; set; }
 
             if (SelectedPlantType.HasValue)
             {
-                PlantSpecies = await _plantSpeciesRepository.GetSpeciesByPlantType(SelectedPlantType.Value);
+                PlantSpecies = await _plantSpeciesRepository
+                    .GetSpeciesByPlantType(SelectedPlantType.Value);
             }
 
-            Inventory = await _inventoryRepository.GetAllocatedBookings(SelectedPolyhouse, SelectedPlantType, SelectedSpecies, DateFrom, DateTo, SearchCustomer);
+            Inventory = await _inventoryRepository.GetAllocatedBookings(
+                SelectedPolyhouse,
+                SelectedPlantType,
+                SelectedSpecies,
+                DateFrom,
+                DateTo,
+                SearchCustomer);
+        }
+
+        public async Task OnGetAsync()
+        {
+            await LoadDataAsync();
         }
 
         public async Task<IActionResult> OnGetGeneratePdfAsync()
         {
-            // Load the filtered inventory data.
-            Inventory = await _inventoryRepository.GetAllocatedBookings(SelectedPolyhouse, SelectedPlantType, SelectedSpecies, DateFrom, DateTo, SearchCustomer);
+            await LoadDataAsync();
 
-            using (MemoryStream ms = new MemoryStream())
+            using MemoryStream ms = new();
+            Document document = new(PageSize.A4.Rotate(), 10, 10, 10, 10);
+            PdfWriter.GetInstance(document, ms);
+            document.Open();
+
+            Font titleFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 14);
+            Font headerFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 9, BaseColor.WHITE);
+            Font cellFont = FontFactory.GetFont(FontFactory.HELVETICA, 8);
+
+            document.Add(new Paragraph("Booking History Report", titleFont)
             {
-                // Create the PDF document.
-                Document document = new Document(PageSize.A4, 10, 10, 10, 10);
-                PdfWriter writer = PdfWriter.GetInstance(document, ms);
-                document.Open();
+                Alignment = Element.ALIGN_CENTER
+            });
 
-                // Define fonts.
-                Font titleFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 14);
-                Font headerFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 10, BaseColor.WHITE);
-                Font cellFont = FontFactory.GetFont(FontFactory.HELVETICA, 9, BaseColor.BLACK);
+            document.Add(new Paragraph(
+                $"Generated: {DateTime.Now:dd-MMM-yyyy HH:mm}",
+                FontFactory.GetFont(FontFactory.HELVETICA, 9)));
 
-                // Add report title.
-                Paragraph title = new Paragraph("Utilized Stock Report", titleFont)
-                {
-                    Alignment = Element.ALIGN_CENTER
-                };
-                document.Add(title);
-                document.Add(new Paragraph("Generated on " + DateTime.Now.ToString("dd-MMM-yyyy HH:mm"), FontFactory.GetFont(FontFactory.HELVETICA, 10)));
-                document.Add(new Paragraph(" ")); // empty line
+            document.Add(new Paragraph(
+                $"Filters: From {DateFrom:dd-MMM-yyyy} To {DateTo:dd-MMM-yyyy} | Customer: {SearchCustomer ?? "All"}",
+                FontFactory.GetFont(FontFactory.HELVETICA, 9)));
 
-                // Create a table. Adjust the column count as per your Inventory properties.
-                PdfPTable table = new PdfPTable(9)
-                {
-                    WidthPercentage = 100
-                };
-                // Set column widths (adjust these ratios as needed)
-                table.SetWidths(new float[] { 1, 1, 1, 1, 1, 1, 1, 1,1 });
+            document.Add(new Paragraph(" "));
 
-                // Define header background color.
-                BaseColor headerBgColor = new BaseColor(0, 102, 204); // blue shade
+            PdfPTable table = new(10) { WidthPercentage = 100 };
+            table.SetWidths(new float[] { 1, 2, 2, 2, 2, 2, 2, 1, 1, 2 });
 
-                // Add table header.
-                AddCellToHeader(table, "Booking ID", headerFont, headerBgColor);
-                AddCellToHeader(table, "Polyhouse", headerFont, headerBgColor);
-                AddCellToHeader(table, "Plant Type", headerFont, headerBgColor);
-                AddCellToHeader(table, "Species", headerFont, headerBgColor);
-                AddCellToHeader(table, "Booked On", headerFont, headerBgColor);
-                AddCellToHeader(table, "Booked", headerFont, headerBgColor);
-                AddCellToHeader(table, "Issued", headerFont, headerBgColor);
-                AddCellToHeader(table, "Issued On", headerFont, headerBgColor);
-                AddCellToHeader(table, "Customer Name", headerFont, headerBgColor);
+            BaseColor headerBg = new(0, 102, 204);
 
+            string[] headers = {
+                "Booking No", "Customer", "District", "Booking Date",
+                "Polyhouse", "Plant Type", "Variety",
+                "Booked", "Issued", "Delivery Date"
+            };
 
-                // Add table rows.
-                foreach (var record in Inventory)
-                {
-                    AddCellToBody(table, "#" + record.BookingId, cellFont);
-                    // Adjust these property names to match your Inventory model.
-                    AddCellToBody(table, record.PolyhouseName, cellFont);
-                    AddCellToBody(table, record.PlantTypeName, cellFont);
-                    AddCellToBody(table, record.SpeciesName, cellFont);
-                    AddCellToBody(table, record.BookingDate.ToString("dd-MMMM-yyyy"), cellFont);
-                    AddCellToBody(table, record.BookingQuantity.ToString(), cellFont);
-                    AddCellToBody(table, record.UtilizedQuantity.ToString(), cellFont);
-                    AddCellToBody(table, record.InventoryTransactionDate.ToString("dd-MMMM-yyyy"), cellFont);
-                    AddCellToBody(table, record.CustomerName.ToString(), cellFont);
+            foreach (var h in headers)
+                AddHeaderCell(table, h, headerFont, headerBg);
 
-                }
-                document.Add(table);
-                document.Close();
-
-                byte[] pdfBytes = ms.ToArray();
-                Response.Headers.Add("Content-Disposition", "inline; filename=InventoryReport.pdf");
-
-                // Return the PDF without specifying a download name
-                return File(pdfBytes, "application/pdf");
+            foreach (var record in Inventory)
+            {
+                AddBodyCell(table, record.BookingId.ToString(), cellFont);
+                AddBodyCell(table, record.CustomerName, cellFont);
+                AddBodyCell(table, record.District ?? "", cellFont);
+                AddBodyCell(table, record.BookingDate.ToString("dd-MMM-yyyy"), cellFont);
+                AddBodyCell(table, record.PolyhouseName, cellFont);
+                AddBodyCell(table, record.PlantTypeName, cellFont);
+                AddBodyCell(table, record.SpeciesName, cellFont);
+                AddBodyCell(table, record.BookingQuantity.ToString(), cellFont);
+                AddBodyCell(table, record.UtilizedQuantity.ToString(), cellFont);
+                AddBodyCell(table, record.ActualDeliveryDate.ToString("dd-MMM-yyyy"), cellFont);
             }
+
+            document.Add(table);
+            document.Close();
+
+            //return File(ms.ToArray(), "application/pdf", "BookingHistory.pdf");
+            return File(ms.ToArray(), "application/pdf");
+
         }
 
-        // Helper method to add a cell to the table header.
-        private void AddCellToHeader(PdfPTable table, string text, Font font, BaseColor backgroundColor)
+        private void AddHeaderCell(PdfPTable table, string text, Font font, BaseColor bg)
         {
-            PdfPCell cell = new PdfPCell(new Phrase(text, font))
+            table.AddCell(new PdfPCell(new Phrase(text, font))
             {
-                BackgroundColor = backgroundColor,
+                BackgroundColor = bg,
                 HorizontalAlignment = Element.ALIGN_CENTER,
-                Padding = 5
-            };
-            table.AddCell(cell);
+                Padding = 4
+            });
         }
 
-        // Helper method to add a cell to the table body.
-        private void AddCellToBody(PdfPTable table, string text, Font font)
+        private void AddBodyCell(PdfPTable table, string text, Font font)
         {
-            PdfPCell cell = new PdfPCell(new Phrase(text, font))
+            table.AddCell(new PdfPCell(new Phrase(text ?? "", font))
             {
-                HorizontalAlignment = Element.ALIGN_LEFT,
-                Padding = 5
-            };
-            table.AddCell(cell);
+                Padding = 4
+            });
         }
     }
 }

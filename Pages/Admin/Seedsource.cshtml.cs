@@ -2,8 +2,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace PlantStockManager.Pages.Admin
 {
@@ -38,6 +36,7 @@ namespace PlantStockManager.Pages.Admin
             {
                 await _seedSourcesRepository.AddSeedSource(NewSeedSourceName);
             }
+
             return RedirectToPage();
         }
 
@@ -47,6 +46,17 @@ namespace PlantStockManager.Pages.Admin
             {
                 await _seedSourcesRepository.UpdateSeedSource(EditId, EditSeedSourceName);
             }
+
+            return RedirectToPage();
+        }
+
+        public async Task<IActionResult> OnPostDeactivateAsync(int id)
+        {
+            if (id > 0)
+            {
+                await _seedSourcesRepository.DeactivateSeedSource(id);
+            }
+
             return RedirectToPage();
         }
     }

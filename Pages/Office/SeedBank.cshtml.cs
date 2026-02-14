@@ -51,7 +51,7 @@ namespace PlantStockManager.Pages.Office
             }
 
             // Sources
-            using (var cmd = new SqlCommand("SELECT Id, Name FROM dbo.SeedSources ORDER BY Name", conn))
+            using (var cmd = new SqlCommand("SELECT Id, Name FROM dbo.SeedSources WHERE IsActive = 1 ORDER BY Name", conn))
             using (var r = await cmd.ExecuteReaderAsync())
             {
                 while (await r.ReadAsync())

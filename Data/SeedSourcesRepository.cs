@@ -20,7 +20,7 @@ namespace PlantStockManager.Data
             using (var conn = _dbHelper.GetConnection())
             {
                 await conn.OpenAsync();
-                var cmd = new SqlCommand("SELECT * FROM SeedSources", conn);
+                var cmd = new SqlCommand("SELECT * FROM SeedSources WHERE IsActive = 1", conn);
                 using (var reader = await cmd.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
@@ -56,6 +56,25 @@ namespace PlantStockManager.Data
                 cmd.Parameters.AddWithValue("@Name", name);
                 cmd.Parameters.AddWithValue("@Id", id);
                 await cmd.ExecuteNonQueryAsync();
+            }
+        }
+
+
+        public async Task DeactivateSeedSource(int id)
+        {
+            using (var connection = _dbHelper.GetConnection())
+            {
+                string query = @"UPDATE SeedSources 
+                                 SET IsActive = 0 
+                                 WHERE Id = @Id";
+
+                using (var command = new SqlCommand(query, connection))
+                {
+                    command.Parameters.AddWithValue("@Id", id);
+
+                    await connection.OpenAsync();
+                    await command.ExecuteNonQueryAsync();
+                }
             }
         }
     }

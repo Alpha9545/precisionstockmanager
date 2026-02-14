@@ -103,5 +103,32 @@ namespace PlantStockManager.Pages.Admin
             }
             return RedirectToPage();
         }
+
+
+
+        public async Task<IActionResult> OnPostDeletePlantTypeAsync(int id)
+        {
+            bool deleted = await _plantTypeRepo.DeletePlantType(id);
+
+            if (!deleted)
+            {
+                TempData["Error"] = "Cannot delete. Plant Type is used in Seed Entries.";
+            }
+
+            return RedirectToPage();
+        }
+
+        public async Task<IActionResult> OnPostDeleteSpeciesAsync(int id)
+        {
+            bool deleted = await _plantSpeciesRepo.DeletePlantSpecies(id);
+
+            if (!deleted)
+            {
+                TempData["Error"] = "Cannot delete. Species is used in Seed Entries.";
+            }
+
+            return RedirectToPage();
+        }
+
     }
 }
