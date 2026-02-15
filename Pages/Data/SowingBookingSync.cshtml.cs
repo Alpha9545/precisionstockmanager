@@ -369,27 +369,64 @@ ORDER BY b.DeliveryDate";
             {
                 await connection.OpenAsync();
 
-                string sqlQuery = @"
-DECLARE @StartDate DATE = (
-    SELECT ISNULL(
-        MIN(CAST(se.SeedingDate AS DATE)),
-        CAST(GETDATE() AS DATE)
-    )
-    FROM SeedEntries se
-    WHERE se.ReadyForInventory = 0
-      AND se.PlantId = @PlantId
-      AND se.SpeciesId = @SpeciesId
-);
+                string sqlQuery = @"/* ============================================
+   WEEKLY PLANNING QUERY – FINAL SAFE VERSION
+   (Column names preserved)
+   ============================================ */
 
--- Align start date to Monday
+DECLARE @StartDate DATE;
+
+------------------------------------------------
+-- 1️⃣ Earliest date from all relevant data
+------------------------------------------------
+SELECT @StartDate = MIN(StartDate)
+FROM
+(
+    SELECT MIN(CAST(se.SeedingDate AS DATE)) AS StartDate
+    FROM SeedEntries se
+    WHERE se.PlantId = @PlantId
+      AND se.SpeciesId = @SpeciesId
+      AND se.ReadyForInventory = 0
+
+    UNION ALL
+
+    SELECT MIN(CAST(inv.LastUpdated AS DATE))
+    FROM Inventory inv
+    WHERE inv.PlantId = @PlantId
+      AND inv.SpeciesId = @SpeciesId
+      AND inv.IsUtilized = 'N'
+
+    UNION ALL
+
+    SELECT MIN(CAST(b.DeliveryDate AS DATE))
+    FROM Bookings b
+    WHERE b.Status = 'Pending'
+      AND b.PlantId = @PlantId
+      AND b.SpeciesId = @SpeciesId
+) AS AllDates;
+
+SET @StartDate = ISNULL(@StartDate, CAST(GETDATE() AS DATE));
+
+------------------------------------------------
+-- 2️⃣ Align to Monday
+------------------------------------------------
+SET DATEFIRST 1;
 SET @StartDate = DATEADD(DAY, 1 - DATEPART(WEEKDAY, @StartDate), @StartDate);
 
-WITH WeekCalendar AS (
+------------------------------------------------
+-- 3️⃣ Generate 52 weeks
+------------------------------------------------
+WITH WeekCalendar AS
+(
     SELECT 0 AS WeekNum
     UNION ALL
-    SELECT WeekNum + 1 FROM WeekCalendar WHERE WeekNum < 51
+    SELECT WeekNum + 1
+    FROM WeekCalendar
+    WHERE WeekNum < 51
 ),
-WeeklyDates AS (
+
+WeeklyDates AS
+(
     SELECT
         WeekNum + 1 AS WeekNumber,
         DATEADD(WEEK, WeekNum, @StartDate) AS WeekStart,
@@ -397,12 +434,13 @@ WeeklyDates AS (
     FROM WeekCalendar
 ),
 
---  Sowing aggregated by planting week
-SowingByPlantingWeek AS (
+------------------------------------------------
+-- 4️⃣ Sowing
+------------------------------------------------
+SowingByPlantingWeek AS
+(
     SELECT
         wd.WeekNumber,
-        wd.WeekStart,
-        wd.WeekEnd,
         COUNT(DISTINCT se.Id) AS BatchCount,
         MIN(se.SeedingDate) AS FirstBatchSowDate,
         SUM(se.SeedsPlanted) AS TotalSowed
@@ -413,11 +451,14 @@ SowingByPlantingWeek AS (
        AND se.SpeciesId = @SpeciesId
        AND CAST(se.SeedingDate AS DATE)
            BETWEEN wd.WeekStart AND wd.WeekEnd
-    GROUP BY wd.WeekNumber, wd.WeekStart, wd.WeekEnd
+    GROUP BY wd.WeekNumber
 ),
 
---  Sowing aggregated by READY week (CRITICAL FIX)
-SowingReadyByWeek AS (
+------------------------------------------------
+-- 5️⃣ Ready This Week
+------------------------------------------------
+SowingReadyByWeek AS
+(
     SELECT
         wd.WeekNumber,
         SUM(se.SeedsPlanted) AS ReadyQuantity
@@ -431,21 +472,29 @@ SowingReadyByWeek AS (
     GROUP BY wd.WeekNumber
 ),
 
-InventoryByWeek AS (
+------------------------------------------------
+-- 6️⃣ Inventory (Not Utilized Only)
+------------------------------------------------
+InventoryByWeek AS
+(
     SELECT
         wd.WeekNumber,
         SUM(inv.RemainingQuantity) AS InventoryQuantity
     FROM WeeklyDates wd
     LEFT JOIN Inventory inv
-        ON inv.PlantId = @PlantId
+        ON inv.IsUtilized = 'N'
+       AND inv.PlantId = @PlantId
        AND inv.SpeciesId = @SpeciesId
        AND CAST(inv.LastUpdated AS DATE)
            BETWEEN wd.WeekStart AND wd.WeekEnd
     GROUP BY wd.WeekNumber
 ),
 
--- Bookings aggregated by delivery week
-BookingByWeek AS (
+------------------------------------------------
+-- 7️⃣ Pending Bookings
+------------------------------------------------
+BookingByWeek AS
+(
     SELECT
         wd.WeekNumber,
         SUM(b.Quantity) AS TotalBookingQuantity,
@@ -460,33 +509,47 @@ BookingByWeek AS (
     GROUP BY wd.WeekNumber
 )
 
---  Final weekly planning output
+------------------------------------------------
+-- 8️⃣ FINAL OUTPUT (Original Column Names)
+------------------------------------------------
 SELECT
     w.WeekNumber,
     w.WeekStart,
     w.WeekEnd,
+
     s.FirstBatchSowDate,
-    s.BatchCount,
+    ISNULL(s.BatchCount, 0) AS BatchCount,
     ISNULL(s.TotalSowed, 0) AS TotalSowed,
+
     ISNULL(r.ReadyQuantity, 0) AS PossibleInventoryReadyThisWeek,
     ISNULL(i.InventoryQuantity, 0) AS InventoryQuantity,
-      (
+
+    (
         ISNULL(r.ReadyQuantity, 0)
-      + ISNULL(i.InventoryQuantity, 0)
-    ) AS PossibleInventoryThisWeek,
+        + ISNULL(i.InventoryQuantity, 0)
+    ) AS PossibleInventoryThisWeek,   -- 🔥 THIS FIXES YOUR ERROR
+
     ISNULL(b.TotalBookingQuantity, 0) AS TotalBookingQuantity,
     ISNULL(b.BookingCount, 0) AS BookingCount,
+
     CASE
-        WHEN ISNULL(r.ReadyQuantity, 0) >= ISNULL(b.TotalBookingQuantity, 0) THEN 'OK'
-        WHEN ISNULL(b.TotalBookingQuantity, 0) > 0 THEN 'CRITICAL'
+        WHEN (ISNULL(r.ReadyQuantity, 0) + ISNULL(i.InventoryQuantity, 0))
+             >= ISNULL(b.TotalBookingQuantity, 0)
+        THEN 'OK'
+        WHEN ISNULL(b.TotalBookingQuantity, 0) > 0
+        THEN 'CRITICAL'
         ELSE 'OK'
     END AS StockStatus
+
 FROM WeeklyDates w
 LEFT JOIN SowingByPlantingWeek s ON s.WeekNumber = w.WeekNumber
 LEFT JOIN SowingReadyByWeek r ON r.WeekNumber = w.WeekNumber
 LEFT JOIN InventoryByWeek i ON i.WeekNumber = w.WeekNumber
 LEFT JOIN BookingByWeek b ON b.WeekNumber = w.WeekNumber
-ORDER BY w.WeekNumber;";
+
+ORDER BY w.WeekNumber
+OPTION (MAXRECURSION 1000);
+";
 
                 using (SqlCommand command = new SqlCommand(sqlQuery, connection))
                 {
