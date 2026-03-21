@@ -1,11 +1,17 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using PlantStockManager.Services;
+using Microsoft.AspNetCore.HttpOverrides;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo("/var/aspnet-keys"))
+    .SetApplicationName("PlantStockManager");
 
 
 
@@ -67,14 +73,20 @@ builder.Services.AddRazorPages(options =>
 var app = builder.Build();
 
 
-app.Use(async (context, next) =>
-{
-    context.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
-    context.Response.Headers["Pragma"] = "no-cache";
-    context.Response.Headers["Expires"] = "0";
-    await next();
-});
+//app.Use(async (context, next) =>
+//{
+//    context.Response.Headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+//    context.Response.Headers["Pragma"] = "no-cache";
+//    context.Response.Headers["Expires"] = "0";
+//    await next();
+//});
 
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedProto
+});
 
 
 // Configure the HTTP request pipeline.
@@ -85,7 +97,15 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["X-XSS-Protection"] = "1; mode=block";
+    await next();
+});
+
+//app.UseHttpsRedirection();
 app.UseStaticFiles();
 
 app.UseRouting();

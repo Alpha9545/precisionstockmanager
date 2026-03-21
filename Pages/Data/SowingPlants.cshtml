@@ -70,6 +70,8 @@
                asp-route-SelectedPolyhouse="@Model.SelectedPolyhouse"
                asp-route-SelectedPlantType="@Model.SelectedPlantType"
                asp-route-SelectedSpecies="@Model.SelectedSpecies"
+               asp-route-FromDate="@Model.FromDate?.ToString("yyyy-MM-dd")"
+               asp-route-ToDate="@Model.ToDate?.ToString("yyyy-MM-dd")"
                class="btn btn-sm btn-secondary w-100 w-md-auto"
                target="_blank">
                 PDF
