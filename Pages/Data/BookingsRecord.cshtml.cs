@@ -1,9 +1,9 @@
+using iTextSharp.text;
+using iTextSharp.text.pdf;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
-using iTextSharp.text;
-using iTextSharp.text.pdf;
 
 
 namespace PlantStockManager.Pages.Data
@@ -57,6 +57,13 @@ namespace PlantStockManager.Pages.Data
         }
         public async Task OnGetAsync()
         {
+            var userIdClaim = User.FindFirst("UserId")?.Value;
+            int? userId = null;
+            if (!string.IsNullOrEmpty(userIdClaim) && int.TryParse(userIdClaim, out var parsedUserId))
+            {
+                userId = parsedUserId;
+            }
+
             PlantTypes = await _plantTypeRepository.GetAllPlantTypes();
             Employees = await _employeeRepo.GetAllEmployees(); // Fetch employees for dropdown
 
@@ -66,14 +73,20 @@ namespace PlantStockManager.Pages.Data
                 PlantSpecies = await _plantSpeciesRepository.GetSpeciesByPlantType(SelectedPlantType.Value);
             }
 
-            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus);
+            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId);
         }
 
         public async Task<IActionResult> OnGetGeneratePdfAsync()
         {
+            var userIdClaim = User.FindFirst("UserId")?.Value;
+            int? userId = null;
+            if (!string.IsNullOrEmpty(userIdClaim) && int.TryParse(userIdClaim, out var parsedUserId))
+            {
+                userId = parsedUserId;
+            }
             // Load filtered data with the same parameters used by the page
             Bookings = await _bookingRepository.GetBookingRecords(
-                SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus);
+                SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId);
 
             using (var ms = new MemoryStream())
             {

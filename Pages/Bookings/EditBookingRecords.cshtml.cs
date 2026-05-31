@@ -55,6 +55,14 @@ namespace PlantStockManager.Pages.Bookings
 
         public async Task OnGetAsync()
         {
+            // extract UserId claim
+            var userIdClaim = User.FindFirst("UserId")?.Value;
+            int? userId = null;
+            if (!string.IsNullOrEmpty(userIdClaim) && int.TryParse(userIdClaim, out var parsedUserId))
+            {
+                userId = parsedUserId;
+            }
+
             PlantTypes = await _plantTypeRepository.GetAllPlantTypes();
             States = await _bookingRepository.GetAllStatesAsync();
             Employees = await _employeeRepo.GetAllEmployees(); // used for display and edit dropdown
@@ -62,7 +70,7 @@ namespace PlantStockManager.Pages.Bookings
             if (SelectedPlantType.HasValue)
                 PlantSpecies = await _plantSpeciesRepository.GetSpeciesByPlantType(SelectedPlantType.Value);
 
-            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus);
+            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId);
 
             var uid = User.FindFirstValue(ClaimTypes.NameIdentifier);
             ViewData["CurrentUserId"] = uid ?? "0";

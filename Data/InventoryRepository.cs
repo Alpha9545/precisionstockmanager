@@ -128,9 +128,10 @@ WHERE (@PolyhouseId IS NULL OR i.PolyhouseId = @PolyhouseId)
   -- Date filters on SeedingDate (inclusive From, inclusive To)
   AND (@SeedingFrom IS NULL OR CONVERT(date, s.SeedingDate) >= @SeedingFrom)
   AND (@SeedingTo   IS NULL OR CONVERT(date, s.SeedingDate) < DATEADD(day, 1, @SeedingTo))
- And s.SupervisorId = @userId
+ And (@userId = 5 OR s.SupervisorId = @userId) 
+And i.RemainingQuantity != 0
 ORDER BY s.SeedingDate";
-
+                //added this because sys administratior can see everything (@userId = 5 OR s.SupervisorId = @userId) 
                 using (var cmd = new SqlCommand(query, conn))
                 {
                     cmd.Parameters.AddWithValue("@PolyhouseId", (object)polyhouseId ?? DBNull.Value);

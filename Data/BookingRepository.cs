@@ -1,4 +1,5 @@
-﻿using Microsoft.Data.SqlClient;
+﻿using DocumentFormat.OpenXml.Spreadsheet;
+using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
 
 namespace PlantStockManager.Data
@@ -202,7 +203,7 @@ VALUES (@BookingId, @TransactionType, @Quantity, GETDATE(), @UpdatedBy, GETDATE(
         //        return bookings;
         //    }
 
-        public async Task<List<Booking>> GetBookingRecords(int? plantTypeId, int? speciesId, int month, int year, string status)
+        public async Task<List<Booking>> GetBookingRecords(int? plantTypeId, int? speciesId, int month, int year, string status, int? userId)
         {
             var bookings = new List<Booking>();
 
@@ -248,6 +249,11 @@ WHERE YEAR(b.DeliveryDate) = @Year
                 if (speciesId.HasValue) sql += "  AND b.SpeciesId = @SpeciesId";
                 if (month > 0) sql += "  AND MONTH(b.DeliveryDate) = @Month";
 
+                // Special user-based filter: if the logged-in user is 14 or 15, restrict to that booking id
+                if (userId.HasValue && (userId.Value == 14 || userId.Value == 15))
+                {
+                    sql += "  AND b.BookedById = @BookingIdForUser";
+                }
                 sql += " ORDER BY b.DeliveryDate;";
 
                 using var cmd = new SqlCommand(sql, conn);
@@ -256,7 +262,7 @@ WHERE YEAR(b.DeliveryDate) = @Year
                 if (plantTypeId.HasValue) cmd.Parameters.AddWithValue("@PlantTypeId", plantTypeId.Value);
                 if (speciesId.HasValue) cmd.Parameters.AddWithValue("@SpeciesId", speciesId.Value);
                 if (month > 0) cmd.Parameters.AddWithValue("@Month", month);
-
+                if (userId.HasValue && (userId.Value == 14 || userId.Value == 15)) cmd.Parameters.AddWithValue("@BookingIdForUser", userId);
                 using var r = await cmd.ExecuteReaderAsync();
 
                 // Resolve ordinals once

@@ -63,7 +63,7 @@ namespace PlantStockManager.Pages.SeedEntry
             JOIN PlantSpecies ps ON s.SpeciesId = ps.Id
             JOIN PlantTypes pt ON ps.PlantTypeId = pt.Id
             JOIN IMSUsers e ON s.SupervisorId = e.Id
-            WHERE s.ReadyForInventory = 0 AND s.SupervisorId = @userId
+            WHERE s.ReadyForInventory = 0 AND (@userId = 5 OR s.SupervisorId = @userId) 
             ORDER BY s.SeedingDate;";
 
                 using (var cmd = new SqlCommand(sql, conn))
