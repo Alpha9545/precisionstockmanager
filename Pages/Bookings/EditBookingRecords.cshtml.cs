@@ -23,7 +23,7 @@ namespace PlantStockManager.Pages.Bookings
 
         [BindProperty(SupportsGet = true)] public int? SelectedPlantType { get; set; }
         [BindProperty(SupportsGet = true)] public int? SelectedSpecies { get; set; }
-        [BindProperty(SupportsGet = true)] public int SelectedMonth { get; set; } = 0;
+        [BindProperty(SupportsGet = true)] public int SelectedMonth { get; set; } = DateTime.Now.Month;
         [BindProperty(SupportsGet = true)] public int SelectedYear { get; set; } = DateTime.Now.Year;
         [BindProperty(SupportsGet = true)] public string SelectedStatus { get; set; } = "Pending";
 
@@ -55,6 +55,10 @@ namespace PlantStockManager.Pages.Bookings
 
         public async Task OnGetAsync()
         {
+            if (SelectedMonth == 0)
+            {
+                SelectedMonth = DateTime.Now.Month;
+            }
             // extract UserId claim
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = null;
@@ -65,7 +69,7 @@ namespace PlantStockManager.Pages.Bookings
 
             PlantTypes = await _plantTypeRepository.GetAllPlantTypes();
             States = await _bookingRepository.GetAllStatesAsync();
-            Employees = await _employeeRepo.GetAllEmployees(); // used for display and edit dropdown
+            Employees = await _employeeRepo.GetAllEmployeesBooking(); // used for display and edit dropdown
 
             if (SelectedPlantType.HasValue)
                 PlantSpecies = await _plantSpeciesRepository.GetSpeciesByPlantType(SelectedPlantType.Value);

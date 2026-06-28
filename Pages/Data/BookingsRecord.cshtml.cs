@@ -57,6 +57,10 @@ namespace PlantStockManager.Pages.Data
         }
         public async Task OnGetAsync()
         {
+            if (SelectedMonth == 0)
+            {
+                SelectedMonth = DateTime.Now.Month;
+            }
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = null;
             if (!string.IsNullOrEmpty(userIdClaim) && int.TryParse(userIdClaim, out var parsedUserId))

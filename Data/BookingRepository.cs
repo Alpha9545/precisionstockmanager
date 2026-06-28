@@ -238,7 +238,7 @@ SELECT
 FROM Bookings b
 INNER JOIN PlantTypes   pt ON b.PlantId   = pt.Id
 INNER JOIN PlantSpecies ps ON b.SpeciesId = ps.Id
-LEFT  JOIN IMSUsers     u  ON b.BookedById = u.Id
+LEFT  JOIN IMSUsers     u  ON b.BookedById = u.Id 
 LEFT  JOIN States       s  ON b.StateId    = s.StateId
 LEFT  JOIN Districts    d  ON b.DistrictId = d.DistrictId
 WHERE YEAR(b.DeliveryDate) = @Year
@@ -250,7 +250,7 @@ WHERE YEAR(b.DeliveryDate) = @Year
                 if (month > 0) sql += "  AND MONTH(b.DeliveryDate) = @Month";
 
                 // Special user-based filter: if the logged-in user is 14 or 15, restrict to that booking id
-                if (userId.HasValue && (userId.Value == 14 || userId.Value == 15))
+                if (userId.HasValue && (userId.Value != 1))
                 {
                     sql += "  AND b.BookedById = @BookingIdForUser";
                 }
@@ -262,7 +262,7 @@ WHERE YEAR(b.DeliveryDate) = @Year
                 if (plantTypeId.HasValue) cmd.Parameters.AddWithValue("@PlantTypeId", plantTypeId.Value);
                 if (speciesId.HasValue) cmd.Parameters.AddWithValue("@SpeciesId", speciesId.Value);
                 if (month > 0) cmd.Parameters.AddWithValue("@Month", month);
-                if (userId.HasValue && (userId.Value == 14 || userId.Value == 15)) cmd.Parameters.AddWithValue("@BookingIdForUser", userId);
+                if (userId.HasValue && (userId.Value != 1)) cmd.Parameters.AddWithValue("@BookingIdForUser", userId);
                 using var r = await cmd.ExecuteReaderAsync();
 
                 // Resolve ordinals once
