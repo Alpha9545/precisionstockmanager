@@ -111,8 +111,8 @@ namespace PlantStockManager.Pages.Data
                 document.Add(new Paragraph(" ")); // spacer
 
                 // Table with 6 columns
-                var table = new PdfPTable(7) { WidthPercentage = 100 };
-                table.SetWidths(new float[] { 1.0f, 2.8f, 1.8f, 2.0f, 1.1f, 1.4f, 1.7f }); // tweak as you like
+                var table = new PdfPTable(8) { WidthPercentage = 100 };
+                table.SetWidths(new float[] { 1.0f, 2.8f, 1.8f, 2.0f, 1.1f, 1.4f, 1.7f, 1.5f }); // tweak as you like
 
                 var headerBg = new BaseColor(0, 102, 204);
 
@@ -123,6 +123,8 @@ namespace PlantStockManager.Pages.Data
                 AddCellToHeader(table, "Quantity", headerFont, headerBg);
                 AddCellToHeader(table, "Advance", headerFont, headerBg);
                 AddCellToHeader(table, "Delivery Date", headerFont, headerBg);
+                AddCellToHeader(table, "Mob No", headerFont, headerBg);
+
 
                 foreach (var b in Bookings)
                 {
@@ -133,6 +135,8 @@ namespace PlantStockManager.Pages.Data
                     AddCellToBody(table, b.Quantity.ToString(), cellFont);
                     AddCellToBody(table, (b.AdvanceTakenAmount ?? 0).ToString("0.##"), cellFont);
                     AddCellToBody(table, b.DeliveryDate.ToString("dd-MMM-yyyy"), cellFont);
+                    AddCellToBody(table, b.Contact.ToString(), cellFont);
+
 
                 }
 

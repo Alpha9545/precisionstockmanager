@@ -106,15 +106,15 @@ namespace PlantStockManager.Pages.Data
 
             document.Add(new Paragraph(" "));
 
-            PdfPTable table = new(10) { WidthPercentage = 100 };
-            table.SetWidths(new float[] { 1, 2, 2, 2, 2, 2, 2, 1, 1, 2 });
+            PdfPTable table = new(11) { WidthPercentage = 100 };
+            table.SetWidths(new float[] { 1, 2, 2, 2, 2, 2, 2, 1, 1, 2, 1});
 
             BaseColor headerBg = new(0, 102, 204);
 
             string[] headers = {
                 "Booking No", "Customer", "District", "Booking Date",
                 "Polyhouse", "Plant Type", "Variety",
-                "Booked", "Issued", "Delivery Date"
+                "Booked", "Issued", "Delivery Date", "Contact"
             };
 
             foreach (var h in headers)
@@ -132,6 +132,8 @@ namespace PlantStockManager.Pages.Data
                 AddBodyCell(table, record.BookingQuantity.ToString(), cellFont);
                 AddBodyCell(table, record.UtilizedQuantity.ToString(), cellFont);
                 AddBodyCell(table, record.ActualDeliveryDate.ToString("dd-MMM-yyyy"), cellFont);
+                AddBodyCell(table, record.Contact ?? string.Empty, cellFont);
+
             }
 
             document.Add(table);

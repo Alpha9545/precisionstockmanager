@@ -360,7 +360,8 @@ ORDER BY i.Id ";
         b.Quantity,
         it.QuantityUtilized,
         b.ActualDeliveryDate,
-        d.DistrictName
+        d.DistrictName,
+        b.Contact
     FROM InventoryTransactions it
     INNER JOIN Inventory i ON i.Id = it.InventoryId
     INNER JOIN Polyhouses p ON i.PolyhouseId = p.Id
@@ -428,7 +429,8 @@ ORDER BY i.Id ";
                     BookingQuantity = reader.GetInt32(6),
                     UtilizedQuantity = reader.GetInt32(7),
                     ActualDeliveryDate = reader.GetDateTime(8),
-                    District = reader.GetString(9)
+                    District = reader.GetString(9),
+                    Contact = reader.GetString(10)
                 });
             }
 

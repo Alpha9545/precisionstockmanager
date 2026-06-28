@@ -110,6 +110,7 @@
                         <th>Quantity</th>
                         <th>Advance</th>
                         <th>Added By</th>
+                        <th>Mob</th>
                     </tr>
                 </thead>
                 <tbody class="small">
@@ -127,6 +128,7 @@
                             <td>@booking.Quantity</td>
                             <td>@booking.AdvanceTakenAmount</td>
                             <td>@ToTitle((booking.BookedById == 0 ? booking.BookedByOther : booking.BookedByName))</td>
+                            <td>@booking.Contact</td>
                         </tr>
                     }
                 </tbody>

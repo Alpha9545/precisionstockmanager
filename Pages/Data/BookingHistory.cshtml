@@ -138,6 +138,7 @@
                             <th>Booked</th>
                             <th>Issued</th>
                             <th>Delivery Date</th>
+                            <th>Contact</th>
                         </tr>
                     </thead>
                     <tbody class="small">                                @* <td>@record.TentativeDeliveryDate.ToString("dd-MMM-yyyy")</td> *@
@@ -166,6 +167,8 @@
                                 <td>@record.BookingQuantity</td>
                                 <td>@record.UtilizedQuantity</td>
                                 <td>@record.ActualDeliveryDate.ToString("dd-MMM-yyyy")</td>
+                                <td>@record.Contact</td>
+
                             </tr>
                         }
                     </tbody>
