@@ -1,0 +1,82 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.CuttingStock.TransplantModel
+@{
+    ViewData["Title"] = "Transplant Cutting";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 650px;">
+        <div class="card-header">
+            <h4 class="mb-0">Transplant Cutting &mdash; @Model.Transfer!.TransferCode</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <dl class="row">
+                <dt class="col-sm-4">Source Area</dt>
+                <dd class="col-sm-8">@Model.Transfer.SourceAreaName</dd>
+                <dt class="col-sm-4">Variety</dt>
+                <dd class="col-sm-8">@Model.Transfer.SpeciesName</dd>
+                <dt class="col-sm-4">Confirmed Quantity</dt>
+                <dd class="col-sm-8 fw-bold">@Model.Transfer.ConfirmedQuantity?.ToString("N2")</dd>
+                @if (Model.Transfer.ConfirmedQuantity != Model.Transfer.Quantity)
+                {
+                    <dt class="col-sm-4">Discrepancy</dt>
+                    <dd class="col-sm-8 text-danger">
+                        Sent @Model.Transfer.Quantity.ToString("N2"), difference @((Model.Transfer.Quantity - (Model.Transfer.ConfirmedQuantity ?? 0)).ToString("N2"))
+                        &mdash; @Model.Transfer.DiscrepancyReason
+                    </dd>
+                }
+            </dl>
+
+            <form method="post">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Destination Polyhouse</label>
+                    <select asp-for="DestinationPolyhouseAreaId" class="form-select" required>
+                        <option value="">-- Select Destination Polyhouse --</option>
+                        @foreach (var a in Model.DestinationAreas)
+                        {
+                            <option value="@a.Id">@a.Name (@a.AreaType)@(a.PolyhouseName != null ? $" — {a.PolyhouseName}" : "")</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Destination Polyhouse Supervisor</label>
+                    <select asp-for="DestinationSupervisorId" class="form-select" required>
+                        <option value="">-- Select Supervisor --</option>
+                        @foreach (var s in Model.Supervisors)
+                        {
+                            <option value="@s.EmployeeID">@s.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Transplant Date</label>
+                    <input type="date" asp-for="TransplantDate" class="form-control" required />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Remarks</label>
+                    <textarea asp-for="Remarks" class="form-control" rows="2"></textarea>
+                </div>
+
+                <div class="text-center mt-4">
+                    <button type="submit" class="btn btn-success">Confirm Transplant</button>
+                </div>
+                <p class="text-muted text-center mt-2 mb-0"><small>Leaving this page without confirming keeps this transfer in Pending Transplants &mdash; nothing is lost.</small></p>
+            </form>
+        </div>
+    </div>
+</div>

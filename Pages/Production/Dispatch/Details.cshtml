@@ -1,0 +1,37 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.Dispatch.DetailsModel
+@{
+    ViewData["Title"] = "Dispatch Details";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header">
+            <h4 class="mb-0">@Model.Dispatch!.DispatchCode</h4>
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-5">Booking</dt><dd class="col-sm-7">@Model.Dispatch.BookingCode</dd>
+                <dt class="col-sm-5">Customer</dt><dd class="col-sm-7">@Model.Dispatch.CustomerName</dd>
+                <dt class="col-sm-5">Species</dt><dd class="col-sm-7">@Model.Dispatch.SpeciesName (@Model.Dispatch.PlantTypeName)</dd>
+                <dt class="col-sm-5">Pot Size</dt><dd class="col-sm-7">@Model.Dispatch.PotSize</dd>
+                <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@(Model.Dispatch.AreaName ?? "Unassigned")</dd>
+                <dt class="col-sm-5">Quantity Dispatched</dt><dd class="col-sm-7">@Model.Dispatch.Quantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.Dispatch.Status</dd>
+                <dt class="col-sm-5">Dispatch Date</dt><dd class="col-sm-7">@Model.Dispatch.DispatchDate.ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-5">Responsible Person</dt><dd class="col-sm-7">@(Model.Dispatch.ResponsiblePersonName ?? "-")</dd>
+                <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@(Model.Dispatch.SupervisorName ?? "-")</dd>
+                <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.Dispatch.Remarks</dd>
+                <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.Dispatch.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.Dispatch.CreatedBy</dd>
+                @if (Model.Dispatch.ModifiedDate.HasValue)
+                {
+                    <dt class="col-sm-5">Last Modified</dt><dd class="col-sm-7">@Model.Dispatch.ModifiedDate.Value.ToString("dd/MM/yyyy HH:mm") by @Model.Dispatch.ModifiedBy</dd>
+                }
+            </dl>
+        </div>
+        <div class="card-footer text-center">
+            <a asp-page="/Production/Dispatch/Edit" asp-route-id="@Model.Dispatch.Id" class="btn btn-outline-warning">Edit</a>
+            <a asp-page="/Production/Dispatch/Index" class="btn btn-secondary">Back to List</a>
+        </div>
+    </div>
+</div>

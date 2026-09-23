@@ -1,0 +1,103 @@
+@page
+@model PlantStockManager.Pages.Admin.VendorModel
+@{
+    ViewData["Title"] = "Vendors";
+}
+
+<div class="container-fluid mt-4">
+    <h2 class="mb-3">Vendors</h2>
+
+    @if (!ModelState.IsValid)
+    {
+        <div class="alert alert-danger">
+            <ul class="mb-0">
+                @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                {
+                    <li>@err.ErrorMessage</li>
+                }
+            </ul>
+        </div>
+    }
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header">Add Vendor</div>
+        <div class="card-body">
+            <form method="post" asp-page-handler="Add">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Name</label>
+                        <input type="text" asp-for="NewVendor.Name" class="form-control" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Contact Person</label>
+                        <input type="text" asp-for="NewVendor.ContactPerson" class="form-control" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Phone</label>
+                        <input type="text" asp-for="NewVendor.Phone" class="form-control" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Email</label>
+                        <input type="email" asp-for="NewVendor.Email" class="form-control" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">GSTIN</label>
+                        <input type="text" asp-for="NewVendor.GSTIN" class="form-control" />
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Address</label>
+                        <input type="text" asp-for="NewVendor.Address" class="form-control" />
+                    </div>
+                </div>
+                <div class="text-end mt-3">
+                    <button type="submit" class="btn btn-primary">Add Vendor</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Contact Person</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Active</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var v in Model.Vendors)
+                {
+                    <tr>
+                        <form method="post" asp-page-handler="Edit">
+                            <td>
+                                <input type="hidden" name="EditVendor.Id" value="@v.Id" />
+                                <input type="text" name="EditVendor.Name" value="@v.Name" class="form-control form-control-sm" required />
+                            </td>
+                            <td><input type="text" name="EditVendor.ContactPerson" value="@v.ContactPerson" class="form-control form-control-sm" /></td>
+                            <td><input type="text" name="EditVendor.Phone" value="@v.Phone" class="form-control form-control-sm" /></td>
+                            <td><input type="email" name="EditVendor.Email" value="@v.Email" class="form-control form-control-sm" /></td>
+                            <td>
+                                <input type="hidden" name="EditVendor.Address" value="@v.Address" />
+                                <input type="hidden" name="EditVendor.GSTIN" value="@v.GSTIN" />
+                                <div class="form-check">
+                                    <input type="checkbox" name="EditVendor.IsActive" value="true" class="form-check-input" checked="@v.IsActive" />
+                                </div>
+                            </td>
+                            <td>
+                                <button type="submit" class="btn btn-sm btn-outline-warning">Save</button>
+                            </td>
+                        </form>
+                    </tr>
+                }
+                @if (!Model.Vendors.Any())
+                {
+                    <tr><td colspan="6" class="text-center text-muted">No Vendors found.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

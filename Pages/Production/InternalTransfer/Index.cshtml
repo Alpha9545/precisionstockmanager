@@ -1,0 +1,76 @@
+@page
+@model PlantStockManager.Pages.Production.InternalTransfer.IndexModel
+@{
+    ViewData["Title"] = "Internal Transfer";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Internal Transfer</h2>
+        <a asp-page="/Production/InternalTransfer/Create" class="btn btn-primary">+ Record Internal Transfer</a>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Stock Type</th>
+                    <th>Item</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Quantity</th>
+                    <th>Date</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in Model.InternalTransfers)
+                {
+                    <tr>
+                        <td>@t.TransferCode</td>
+                        <td>@(t.StockType == "EmptyPot" ? "Empty Pot" : "Potted Plant")</td>
+                        <td>
+                            @if (t.StockType == "PottedPlant")
+                            {
+                                @($"{t.SpeciesName} ({t.PlantTypeName}) — {t.PotSize}")
+                            }
+                            else
+                            {
+                                @t.PotSize
+                            }
+                        </td>
+                        <td>@t.SourceAreaName</td>
+                        <td>@t.DestinationAreaName</td>
+                        <td>@t.Quantity.ToString("N2")</td>
+                        <td>@t.CreatedDate.ToString("dd/MM/yyyy")</td>
+                        <td>
+                            @if (t.Status == "Cancelled")
+                            {
+                                <span class="badge bg-secondary">Cancelled</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">Completed</span>
+                            }
+                        </td>
+                        <td>
+                            <a asp-page="/Production/InternalTransfer/Details" asp-route-id="@t.Id" class="btn btn-sm btn-outline-secondary">View</a>
+                            <a asp-page="/Production/InternalTransfer/Edit" asp-route-id="@t.Id" class="btn btn-sm btn-outline-warning">Edit</a>
+                        </td>
+                    </tr>
+                }
+                @if (!Model.InternalTransfers.Any())
+                {
+                    <tr><td colspan="9" class="text-center text-muted">No Internal Transfer records found.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

@@ -1,0 +1,214 @@
+@page
+@model PlantStockManager.Pages.Production.Dashboard.IndexModel
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<div class="container-fluid mt-4">
+    <h2 class="mb-4">Production Dashboard</h2>
+
+    <h5>Stock Overview</h5>
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Empty Pot Stock (Physical)</div>
+                    <div class="fs-4 fw-bold">@Model.EmptyPotPhysicalTotal.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Potted Plant Physical</div>
+                    <div class="fs-4 fw-bold">@Model.PottedPhysicalTotal.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Potted Plant Reserved</div>
+                    <div class="fs-4 fw-bold">@Model.PottedReservedTotal.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm border-success">
+                <div class="card-body">
+                    <div class="text-muted small">Potted Plant Available</div>
+                    <div class="fs-4 fw-bold text-success">@Model.PottedAvailableTotal.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h5>Production Pipeline</h5>
+    <div class="row g-3 mb-4">
+        <div class="col-md-2">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Active Mother Plants</div>
+                    <div class="fs-5 fw-bold">@Model.MotherPlantActiveCount</div>
+                    <div class="small text-muted">Qty @Model.MotherPlantTotalQuantity.ToString("N0")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Cutting Plans</div>
+                    @foreach (var kv in Model.CuttingPlanByStatus)
+                    {
+                        <div class="small">@kv.Key: <strong>@kv.Value</strong></div>
+                    }
+                    @if (!Model.CuttingPlanByStatus.Any())
+                    {
+                        <div class="small text-muted">None</div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Actual Cuttings</div>
+                    <div class="fs-5 fw-bold">@Model.ActualCuttingCount</div>
+                    <div class="small text-muted">Good Qty @Model.ActualCuttingGoodQuantityTotal.ToString("N0")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Cutting Deliveries</div>
+                    @foreach (var kv in Model.CuttingDeliveryByStatus)
+                    {
+                        <div class="small">@kv.Key: <strong>@kv.Value</strong></div>
+                    }
+                    @if (!Model.CuttingDeliveryByStatus.Any())
+                    {
+                        <div class="small text-muted">None</div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Propagation Batches</div>
+                    @foreach (var kv in Model.PropagationBatchByStatus)
+                    {
+                        <div class="small">@kv.Key: <strong>@kv.Value</strong></div>
+                    }
+                    @if (!Model.PropagationBatchByStatus.Any())
+                    {
+                        <div class="small text-muted">None</div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Pot Production</div>
+                    @foreach (var kv in Model.PotProductionByStatus)
+                    {
+                        <div class="small">@kv.Key: <strong>@kv.Value</strong></div>
+                    }
+                    @if (!Model.PotProductionByStatus.Any())
+                    {
+                        <div class="small text-muted">None</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h5>Booking &amp; Dispatch</h5>
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Bookings</div>
+                    @foreach (var kv in Model.BookingByStatus)
+                    {
+                        <div class="small">@kv.Key: <strong>@kv.Value</strong></div>
+                    }
+                    @if (!Model.BookingByStatus.Any())
+                    {
+                        <div class="small text-muted">None</div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Total Reserved (Pending Bookings)</div>
+                    <div class="fs-5 fw-bold">@Model.BookingReservedTotal.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Completed Dispatches</div>
+                    <div class="fs-5 fw-bold">@Model.DispatchCompletedCount</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Total Dispatched Quantity</div>
+                    <div class="fs-5 fw-bold">@Model.DispatchQuantityTotal.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h5>Purchasing, Lab &amp; Labour</h5>
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Purchase Orders</div>
+                    @foreach (var kv in Model.PurchaseOrderByStatus)
+                    {
+                        <div class="small">@kv.Key: <strong>@kv.Value</strong></div>
+                    }
+                    @if (!Model.PurchaseOrderByStatus.Any())
+                    {
+                        <div class="small text-muted">None</div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Lab Requests Outstanding</div>
+                    <div class="fs-5 fw-bold">@Model.LabRequestOutstandingCount</div>
+                    <div class="small text-muted">Sample Qty @Model.LabRequestOutstandingQuantity.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Total Labour Wage (Recorded)</div>
+                    <div class="fs-5 fw-bold">@Model.LabourWageTotal.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="alert alert-info small">
+        This dashboard aggregates live figures from every module -- it does not store anything of its own,
+        and existing reports/Excel/PDF exports are unaffected. For a single record's full backward
+        traceability (Dispatch &rarr; Booking &rarr; Potted Plant Stock &rarr; Pot Production &rarr;
+        Propagation Batch &rarr; Cutting Delivery &rarr; Actual Cutting &rarr; Cutting Plan &rarr; Mother
+        Plant), open that record's own Details page in each module.
+    </div>
+</div>

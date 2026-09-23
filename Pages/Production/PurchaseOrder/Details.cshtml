@@ -1,0 +1,97 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.PurchaseOrder.DetailsModel
+@{
+    ViewData["Title"] = "Purchase Order Details";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 1000px;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0">@Model.Order!.PurchaseOrderCode</h4>
+            <span class="badge bg-secondary">@Model.Order.Status</span>
+        </div>
+        <div class="card-body">
+            @if (TempData["Error"] != null)
+            {
+                <div class="alert alert-danger">@TempData["Error"]</div>
+            }
+
+            <dl class="row">
+                <dt class="col-sm-3">Vendor</dt><dd class="col-sm-9">@Model.Order.VendorName</dd>
+                <dt class="col-sm-3">Order Date</dt><dd class="col-sm-9">@Model.Order.OrderDate.ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-3">Expected Delivery</dt><dd class="col-sm-9">@(Model.Order.ExpectedDeliveryDate?.ToString("dd/MM/yyyy") ?? "-")</dd>
+                <dt class="col-sm-3">Remarks</dt><dd class="col-sm-9">@Model.Order.Remarks</dd>
+                <dt class="col-sm-3">Created</dt><dd class="col-sm-9">@Model.Order.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.Order.CreatedBy</dd>
+            </dl>
+
+            <h5>Line Items</h5>
+            <div class="table-responsive mb-4">
+                <table class="table table-sm table-bordered">
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th>Item</th>
+                            <th>Ordered</th>
+                            <th>Received</th>
+                            <th>Pending</th>
+                            <th>Unit Price</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in Model.Order.Items)
+                        {
+                            <tr>
+                                <td>@item.ItemCategory</td>
+                                <td>@item.DisplayName</td>
+                                <td>@item.OrderedQuantity.ToString("N2")</td>
+                                <td>@item.ReceivedQuantity.ToString("N2")</td>
+                                <td>@item.PendingQuantity.ToString("N2")</td>
+                                <td>@(item.UnitPrice?.ToString("N2") ?? "-")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <h5>Receipt History</h5>
+            @if (!Model.Receipts.Any())
+            {
+                <p class="text-muted">No receipts recorded yet.</p>
+            }
+            else
+            {
+                @foreach (var r in Model.Receipts)
+                {
+                    <div class="card mb-2">
+                        <div class="card-body py-2">
+                            <div class="small text-muted">
+                                @r.ReceiptDate.ToString("dd/MM/yyyy HH:mm") &mdash; Received By: @(r.ReceivedByName ?? "-")
+                                @if (!string.IsNullOrWhiteSpace(r.Remarks)) { <span> &mdash; @r.Remarks</span> }
+                            </div>
+                            <ul class="mb-0">
+                                @foreach (var line in r.Items)
+                                {
+                                    <li>@line.ItemDisplayName: @line.ReceivedQuantity.ToString("N2")</li>
+                                }
+                            </ul>
+                        </div>
+                    </div>
+                }
+            }
+
+            <div class="text-center mt-4">
+                @if (Model.Order.Status == "Pending" || Model.Order.Status == "PartiallyReceived")
+                {
+                    <a asp-page="/Production/PurchaseOrder/Receive" asp-route-id="@Model.Order.Id" class="btn btn-success me-2">Receive Stock</a>
+                }
+                @if (Model.Order.Status == "Pending")
+                {
+                    <form method="post" asp-page-handler="Cancel" asp-route-id="@Model.Order.Id" class="d-inline" onsubmit="return confirm('Cancel this Purchase Order? This cannot be undone.');">
+                        <button type="submit" class="btn btn-outline-danger me-2">Cancel Order</button>
+                    </form>
+                }
+                <a asp-page="/Production/PurchaseOrder/Index" class="btn btn-secondary">Back to List</a>
+            </div>
+        </div>
+    </div>
+</div>

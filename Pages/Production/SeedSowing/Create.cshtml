@@ -1,0 +1,131 @@
+@page
+@model PlantStockManager.Pages.Production.SeedSowing.CreateModel
+@{
+    ViewData["Title"] = "Sow Seed";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Sow Seed</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (!Model.StockPools.Any())
+            {
+                <div class="alert alert-warning">
+                    No available Seed Stock found at a Polyhouse/Growing Area you can access.
+                    <a asp-page="/Production/SeedIssue/PendingReceipts">Confirm a pending Seed Issue</a> first.
+                </div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Seed Stock (Species / Area / Lot)</label>
+                        <select asp-for="SeedSowing.SourceSeedStockId" id="stockSelect" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var s in Model.StockPools)
+                            {
+                                <option value="@s.Id" data-available="@s.AvailableQuantity.ToString("0.####")">
+                                    @s.SpeciesName @(string.IsNullOrEmpty(s.BatchNo) ? "" : $"(Lot {s.BatchNo})") &mdash; @s.AreaName (available: @s.AvailableQuantity.ToString("N2") @s.Unit)
+                                </option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Available</label>
+                        <input type="text" id="availablePreview" class="form-control" readonly placeholder="Select Seed Stock" />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Quantity Sown</label>
+                        <input type="number" step="0.01" min="0.01" asp-for="SeedSowing.QuantitySown" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Cavity / Tray Type</label>
+                        <select asp-for="SeedSowing.CavityType" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var ct in Model.CavityTypes)
+                            {
+                                <option value="@ct">@ct</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Number of Trays (optional)</label>
+                        <input type="number" step="1" min="1" asp-for="SeedSowing.NumberOfTrays" class="form-control" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Sowing Date</label>
+                        <input type="date" asp-for="SeedSowing.SowingDate" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Expected Ready Date (optional estimate)</label>
+                        <input type="date" asp-for="SeedSowing.ExpectedReadyDate" class="form-control" />
+                        <div class="form-text">If the selected variety has a Ready Stock Days value configured (Admin &rarr; Plant Types &amp; Species), Expected Ready Date is computed automatically as Sowing Date + Ready Stock Days and this entry is overridden. Otherwise, this manual date is used as-is.</div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Labour / Responsible Person</label>
+                        <select asp-for="SeedSowing.ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="SeedSowing.SupervisorId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="SeedSowing.Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/SeedSowing/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Save Sowing</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            $('#stockSelect').on('change', function () {
+                const available = $(this).find('option:selected').data('available');
+                $('#availablePreview').val(available !== undefined ? available : '');
+            }).trigger('change');
+        });
+    </script>
+}

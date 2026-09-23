@@ -1,0 +1,129 @@
+@page
+@model PlantStockManager.Pages.Production.PotProduction.CreateModel
+@{
+    ViewData["Title"] = "Record Pot Production";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Record Pot Production</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (!Model.OpenPropagationBatches.Any())
+            {
+                <div class="alert alert-warning">
+                    No Propagation Batch is Ready For Potting / Completed with remaining Survived capacity.
+                    <a asp-page="/Production/PropagationBatch/Index">Assess a Propagation Batch</a> first.
+                </div>
+            }
+            @if (!Model.ActivePotSizes.Any())
+            {
+                <div class="alert alert-warning">
+                    No active Pot Sizes defined. <a asp-page="/Production/EmptyPotInventory/Create">Add a Pot Size</a> first.
+                </div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Propagation Batch</label>
+                        <select asp-for="PotProduction.PropagationBatchId" id="pbSelect" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var pb in Model.OpenPropagationBatches)
+                            {
+                                var remaining = pb.SurvivedQuantity - pb.PottedQuantityRecorded;
+                                <option value="@pb.Id" data-remaining="@remaining.ToString("0.####")">
+                                    @pb.BatchCode &mdash; @pb.MotherPlantCode / @pb.SpeciesName (Survived @pb.SurvivedQuantity.ToString("N2"), Remaining @remaining.ToString("N2"))
+                                </option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Remaining Available</label>
+                        <input type="text" id="remainingPreview" class="form-control" readonly placeholder="Select a Propagation Batch" />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Production Date</label>
+                        <input type="date" asp-for="PotProduction.ProductionDate" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Pot Size / Area</label>
+                        <select asp-for="PotProduction.EmptyPotInventoryId" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var p in Model.ActivePotSizes)
+                            {
+                                <option value="@p.Id">@p.PotSize @(string.IsNullOrEmpty(p.AreaName) ? "(Unassigned)" : $"({p.AreaName})") (stock: @p.PhysicalQuantity.ToString("N2"))</option>
+                            }
+                        </select>
+                        <small class="text-muted">Empty pots are consumed from this pool, and the resulting Potted Plant Stock is produced into the same Area.</small>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Quantity</label>
+                        <input type="number" step="0.01" min="0.01" asp-for="PotProduction.Quantity" class="form-control" required />
+                        <small class="text-muted">Number of empty pots consumed = number of potted plants produced.</small>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Labour / Responsible Person</label>
+                        <select asp-for="PotProduction.ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="PotProduction.SupervisorId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="PotProduction.Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PotProduction/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Save Pot Production</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            $('#pbSelect').on('change', function () {
+                const remaining = $(this).find('option:selected').data('remaining');
+                $('#remainingPreview').val(remaining !== undefined ? remaining : '');
+            }).trigger('change');
+        });
+    </script>
+}

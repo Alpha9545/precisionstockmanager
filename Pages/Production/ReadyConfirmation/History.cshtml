@@ -1,0 +1,90 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.ReadyConfirmation.HistoryModel
+@{
+    ViewData["Title"] = "Ready Confirmation History";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Ready Confirmation History &mdash; @Model.SeedSowing.SowingCode</h2>
+        <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-outline-secondary">Back to Ready Confirmation</a>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <div class="alert alert-secondary">
+        <div class="row">
+            <div class="col-md-6"><strong>Variety:</strong> @Model.SeedSowing.SpeciesName (@Model.SeedSowing.PlantTypeName)</div>
+            <div class="col-md-6"><strong>Area:</strong> @Model.SeedSowing.AreaName / @(Model.SeedSowing.PolyhouseName ?? "-")</div>
+            <div class="col-md-4"><strong>Sown Quantity:</strong> @Model.SeedSowing.QuantitySown.ToString("N2")</div>
+            <div class="col-md-4"><strong>Confirmed Ready:</strong> @Model.SeedSowing.ConfirmedReadyQuantity.ToString("N2")</div>
+            <div class="col-md-4"><strong>Remaining:</strong> @Model.SeedSowing.RemainingReadyQuantity.ToString("N2")</div>
+        </div>
+        @if (Model.SeedSowing.RemainingReadyQuantity > 0 && Model.SeedSowing.Status == "Sown")
+        {
+            <div class="mt-2">
+                <a asp-page="/Production/ReadyConfirmation/Confirm" asp-route-id="@Model.SeedSowing.Id" class="btn btn-sm btn-success">Confirm remaining @Model.SeedSowing.RemainingReadyQuantity.ToString("N2")</a>
+            </div>
+        }
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-light">
+                <tr>
+                    <th>Confirmation Code</th>
+                    <th>Confirmation Date</th>
+                    <th>Quantity</th>
+                    <th>Status</th>
+                    <th>Responsible</th>
+                    <th>Supervisor</th>
+                    <th>Remarks</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var rc in Model.Confirmations)
+                {
+                    <tr>
+                        <td>@rc.ConfirmationCode</td>
+                        <td>@rc.ConfirmationDate.ToString("dd/MM/yyyy HH:mm")</td>
+                        <td>@rc.ConfirmedQuantity.ToString("N2")</td>
+                        <td>
+                            @if (rc.Status == "Cancelled")
+                            {
+                                <span class="badge bg-secondary">Cancelled</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">Confirmed</span>
+                            }
+                        </td>
+                        <td>@(rc.ResponsiblePersonName ?? "-")</td>
+                        <td>@(rc.SupervisorName ?? "-")</td>
+                        <td>@(rc.Remarks ?? "-")</td>
+                        <td>
+                            @if (rc.Status == "Confirmed")
+                            {
+                                <form method="post" asp-page-handler="Cancel" asp-route-confirmationId="@rc.Id" asp-route-seedSowingId="@Model.SeedSowing.Id"
+                                      onsubmit="return confirm('Cancel this Ready Confirmation? This removes its quantity from Ready Stock and restores the Sowing\'s remaining un-confirmed quantity. This cannot be undone.');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Cancel</button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Confirmations.Any())
+                {
+                    <tr><td colspan="8" class="text-center text-muted">No Ready Confirmations recorded yet for this Sowing.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

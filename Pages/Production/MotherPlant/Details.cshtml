@@ -1,0 +1,39 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.MotherPlant.DetailsModel
+@{
+    ViewData["Title"] = "Mother Plant Batch Details";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0">@Model.MotherPlant!.MotherPlantCode</h4>
+            <span class="badge bg-secondary">@Model.MotherPlant.Status</span>
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-5">Polyhouse</dt><dd class="col-sm-7">@Model.MotherPlant.PolyhouseName</dd>
+                <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@Model.MotherPlant.AreaName</dd>
+                <dt class="col-sm-5">Variety</dt><dd class="col-sm-7">@Model.MotherPlant.SpeciesName (@Model.MotherPlant.PlantTypeName)</dd>
+                <dt class="col-sm-5">Responsible Person</dt><dd class="col-sm-7">@Model.MotherPlant.ResponsiblePersonName</dd>
+                <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.MotherPlant.SupervisorName</dd>
+                <dt class="col-sm-5">Planting Date</dt><dd class="col-sm-7">@Model.MotherPlant.PlantingDate.ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-5">Mother Plant Quantity</dt><dd class="col-sm-7">@Model.MotherPlant.MotherPlantQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Cutting Period (days)</dt><dd class="col-sm-7">@Model.MotherPlant.CuttingPeriodDays</dd>
+                <dt class="col-sm-5">Cutting Rate</dt><dd class="col-sm-7">@Model.MotherPlant.CuttingRate.ToString("N4")</dd>
+                <dt class="col-sm-5">Expected Cutting Quantity</dt><dd class="col-sm-7">@Model.MotherPlant.ExpectedCuttingQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Expected Monthly Cutting</dt><dd class="col-sm-7">@Model.MotherPlant.ExpectedMonthlyCuttingQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.MotherPlant.Remarks</dd>
+                <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.MotherPlant.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.MotherPlant.CreatedBy</dd>
+                @if (Model.MotherPlant.ModifiedDate.HasValue)
+                {
+                    <dt class="col-sm-5">Last Modified</dt><dd class="col-sm-7">@Model.MotherPlant.ModifiedDate.Value.ToString("dd/MM/yyyy HH:mm") by @Model.MotherPlant.ModifiedBy</dd>
+                }
+            </dl>
+        </div>
+        <div class="card-footer text-end">
+            <a asp-page="/Production/MotherPlant/Index" class="btn btn-secondary">Back</a>
+            <a asp-page="/Production/MotherPlant/Edit" asp-route-id="@Model.MotherPlant.Id" class="btn btn-warning">Edit</a>
+        </div>
+    </div>
+</div>

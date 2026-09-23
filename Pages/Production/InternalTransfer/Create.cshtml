@@ -1,0 +1,141 @@
+@page
+@model PlantStockManager.Pages.Production.InternalTransfer.CreateModel
+@{
+    ViewData["Title"] = "Record Internal Transfer";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Record Internal Transfer</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (!Model.Areas.Any())
+            {
+                <div class="alert alert-warning">No Areas defined yet. Set up Areas under Polyhouses first.</div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Stock Type</label>
+                        <select asp-for="InternalTransfer.StockType" id="stockTypeSelect" class="form-select" required>
+                            <option value="EmptyPot">Empty Pot Stock</option>
+                            <option value="PottedPlant">Potted Plant Stock</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-8" id="emptyPotSourceRow">
+                        <label class="form-label fw-bold">Source Pot Size / Area</label>
+                        <select asp-for="InternalTransfer.SourceEmptyPotInventoryId" class="form-select">
+                            <option value="">-- Select --</option>
+                            @foreach (var p in Model.EmptyPotPools)
+                            {
+                                <option value="@p.Id">@p.PotSize (@p.AreaName) &mdash; stock: @p.PhysicalQuantity.ToString("N2")</option>
+                            }
+                        </select>
+                        @if (!Model.EmptyPotPools.Any())
+                        {
+                            <small class="text-muted">No Area-assigned Empty Pot stock with quantity available to transfer.</small>
+                        }
+                    </div>
+
+                    <div class="col-md-8" id="pottedPlantSourceRow" style="display:none;">
+                        <label class="form-label fw-bold">Source Species / Pot Size / Area</label>
+                        <select asp-for="InternalTransfer.SourcePottedPlantStockId" class="form-select">
+                            <option value="">-- Select --</option>
+                            @foreach (var p in Model.PottedPlantPools)
+                            {
+                                <option value="@p.Id">@p.SpeciesName (@p.PlantTypeName) &mdash; @p.PotSize (@p.AreaName) &mdash; stock: @p.PhysicalQuantity.ToString("N2") (Available: @p.AvailableQuantity.ToString("N2"))</option>
+                            }
+                        </select>
+                        @if (!Model.PottedPlantPools.Any())
+                        {
+                            <small class="text-muted">No Area-assigned Potted Plant stock with quantity available to transfer.</small>
+                        }
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Destination Area</label>
+                        <select asp-for="InternalTransfer.DestinationAreaId" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var a in Model.Areas)
+                            {
+                                <option value="@a.Id">@a.Name</option>
+                            }
+                        </select>
+                        <small class="text-muted">Must be different from the source pool's Area.</small>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Quantity</label>
+                        <input type="number" step="0.01" min="0.01" asp-for="InternalTransfer.Quantity" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Labour / Responsible Person</label>
+                        <select asp-for="InternalTransfer.ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="InternalTransfer.SupervisorId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="InternalTransfer.Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/InternalTransfer/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Save Transfer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            function toggleSourceRows() {
+                const type = $('#stockTypeSelect').val();
+                if (type === 'EmptyPot') {
+                    $('#emptyPotSourceRow').show();
+                    $('#pottedPlantSourceRow').hide();
+                } else {
+                    $('#emptyPotSourceRow').hide();
+                    $('#pottedPlantSourceRow').show();
+                }
+            }
+            $('#stockTypeSelect').on('change', toggleSourceRows);
+            toggleSourceRows();
+        });
+    </script>
+}

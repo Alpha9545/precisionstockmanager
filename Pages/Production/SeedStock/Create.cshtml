@@ -1,0 +1,106 @@
+@page
+@model PlantStockManager.Pages.Production.SeedStock.CreateModel
+@{
+    ViewData["Title"] = "New Seed Stock Pool";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header"><h4 class="mb-0">New Seed Stock Pool</h4></div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <form method="post">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Plant Type</label>
+                    <select id="plantTypeSelect" class="form-select">
+                        <option value="">-- Select Plant Type --</option>
+                        @foreach (var pt in Model.PlantTypes)
+                        {
+                            <option value="@pt.Id">@pt.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Species/Variety</label>
+                    <select asp-for="SeedStock.SpeciesId" id="speciesSelect" class="form-select">
+                        <option value="">-- Select Plant Type first --</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Area</label>
+                    <select asp-for="SeedStock.AreaId" class="form-select">
+                        <option value="">-- Select Area --</option>
+                        @foreach (var a in Model.Areas)
+                        {
+                            <option value="@a.Id">@a.Name @(a.AreaType != null ? $"({a.AreaType})" : "")</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Lot/Batch No. (optional)</label>
+                    <input asp-for="SeedStock.BatchNo" class="form-control" placeholder="Leave blank if not tracking lots" />
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Source/Supplier (optional)</label>
+                    <select asp-for="SeedStock.SeedSourceId" class="form-select">
+                        <option value="">-- None --</option>
+                        @foreach (var s in Model.SeedSources)
+                        {
+                            <option value="@s.Id">@s.Name</option>
+                        }
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Unit</label>
+                    <input asp-for="SeedStock.Unit" class="form-control" value="pcs" />
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/SeedStock/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Create Pool</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.getElementById('plantTypeSelect').addEventListener('change', function () {
+            var plantTypeId = this.value;
+            var speciesSelect = document.getElementById('speciesSelect');
+            speciesSelect.innerHTML = '<option value="">-- Loading... --</option>';
+            if (!plantTypeId) {
+                speciesSelect.innerHTML = '<option value="">-- Select Plant Type first --</option>';
+                return;
+            }
+            fetch('?handler=Species&plantTypeId=' + plantTypeId)
+                .then(r => r.json())
+                .then(data => {
+                    speciesSelect.innerHTML = '<option value="">-- Select Species --</option>';
+                    data.forEach(function (s) {
+                        var opt = document.createElement('option');
+                        opt.value = s.id;
+                        opt.text = s.name;
+                        speciesSelect.appendChild(opt);
+                    });
+                });
+        });
+    </script>
+}

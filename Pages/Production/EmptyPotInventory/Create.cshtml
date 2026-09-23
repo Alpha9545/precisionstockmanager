@@ -1,0 +1,56 @@
+@page
+@model PlantStockManager.Pages.Production.EmptyPotInventory.CreateModel
+@{
+    ViewData["Title"] = "Add Pot Size";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 600px;">
+        <div class="card-header">
+            <h4 class="mb-0">Add Pot Size</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <form method="post">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Pot Size</label>
+                    <input type="text" asp-for="EmptyPotInventory.PotSize" class="form-control" placeholder="e.g. 4 inch, 6 inch, Grow Bag Large, 104-cell Tray" required />
+                    <small class="text-muted">Trays are entered the same way as pots -- just name the size/cell-count here (e.g. "104-cell Tray") and it flows through Pot Production exactly like any other Pot Size.</small>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Area</label>
+                    <select asp-for="EmptyPotInventory.AreaId" class="form-select">
+                        <option value="">-- Unassigned (legacy/no location) --</option>
+                        @foreach (var a in Model.Areas)
+                        {
+                            <option value="@a.Id">@a.Name</option>
+                        }
+                    </select>
+                    <small class="text-muted">A specific Area is required if this stock will ever need to be moved via Internal Transfer.</small>
+                </div>
+
+                <div class="form-check mb-3">
+                    <input type="checkbox" asp-for="EmptyPotInventory.IsActive" class="form-check-input" checked />
+                    <label class="form-check-label" asp-for="EmptyPotInventory.IsActive">Active</label>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/EmptyPotInventory/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

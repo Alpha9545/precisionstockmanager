@@ -36,6 +36,13 @@ namespace PlantStockManager.Pages.Admin
         public string NewSpeciesName { get; set; }
         [BindProperty]
         public string NewSpeciesScientificName { get; set; }
+        // Phase 24 (Phase J): the variety-specific "days from Sowing to
+        // expected readiness" master value that SeedSowingRepository
+        // now reuses to compute ExpectedReadyDate. Optional -- a species
+        // left blank here simply falls back to Phase I's original
+        // manual-entry behavior on the Sow Seed page.
+        [BindProperty]
+        public int? NewSpeciesReadyStockDays { get; set; }
 
         [BindProperty]
         public int EditSpeciesId { get; set; }
@@ -43,6 +50,8 @@ namespace PlantStockManager.Pages.Admin
         public string EditSpeciesName { get; set; }
         [BindProperty]
         public string EditSpeciesScientificName { get; set; }
+        [BindProperty]
+        public int? EditSpeciesReadyStockDays { get; set; }
 
         public async Task OnGetAsync()
         {
@@ -89,7 +98,15 @@ namespace PlantStockManager.Pages.Admin
         {
             if (NewSpeciesTypeId > 0 && !string.IsNullOrWhiteSpace(NewSpeciesName))
             {
-                await _plantSpeciesRepo.AddPlantSpecies(NewSpeciesTypeId, NewSpeciesName, NewSpeciesScientificName);
+                // Phase 24: reject a nonsensical (<= 0) Ready Days value
+                // at the same layer every other closed/validated field in
+                // this app is checked -- never persisted to the master.
+                if (NewSpeciesReadyStockDays.HasValue && NewSpeciesReadyStockDays.Value <= 0)
+                {
+                    TempData["Error"] = "Ready Stock Days must be greater than zero when provided.";
+                    return RedirectToPage();
+                }
+                await _plantSpeciesRepo.AddPlantSpecies(NewSpeciesTypeId, NewSpeciesName, NewSpeciesScientificName, NewSpeciesReadyStockDays);
             }
             return RedirectToPage();
         }
@@ -99,7 +116,18 @@ namespace PlantStockManager.Pages.Admin
         {
             if (EditSpeciesId > 0 && !string.IsNullOrWhiteSpace(EditSpeciesName))
             {
-                await _plantSpeciesRepo.UpdatePlantSpecies(EditSpeciesId, EditSpeciesName, EditSpeciesScientificName);
+                if (EditSpeciesReadyStockDays.HasValue && EditSpeciesReadyStockDays.Value <= 0)
+                {
+                    TempData["Error"] = "Ready Stock Days must be greater than zero when provided.";
+                    return RedirectToPage();
+                }
+                // Note (Phase J's own "historical date" requirement):
+                // changing this value here only ever affects FUTURE
+                // Sowings. SeedSowingRepository.InsertAsync copies the
+                // ReadyStockDays value it read at the moment of sowing
+                // onto the SeedSowings row itself, so no past Sowing's
+                // ExpectedReadyDate/ReadyStockDays is touched by this edit.
+                await _plantSpeciesRepo.UpdatePlantSpecies(EditSpeciesId, EditSpeciesName, EditSpeciesScientificName, EditSpeciesReadyStockDays);
             }
             return RedirectToPage();
         }

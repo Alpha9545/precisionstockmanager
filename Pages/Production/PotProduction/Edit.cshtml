@@ -1,0 +1,115 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.PotProduction.EditModel
+@{
+    ViewData["Title"] = "Edit Pot Production";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 850px;">
+        <div class="card-header">
+            <h4 class="mb-0">Edit Pot Production &mdash; @Model.PotProduction.ProductionCode</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (TempData["Error"] != null)
+            {
+                <div class="alert alert-danger">@TempData["Error"]</div>
+            }
+
+            <div class="alert alert-secondary">
+                @if (Model.PotProduction.IsCuttingSourced)
+                {
+                    <text>Source <strong>Cutting Stock</strong> (@(Model.PotProduction.GrowingPartnerName ?? "Internal")) &mdash;
+                    Cuttings Consumed <strong>@Model.PotProduction.CuttingQuantityConsumed?.ToString("N2")</strong> &mdash;</text>
+                }
+                else
+                {
+                    <text>Propagation Batch <strong>@Model.PotProduction.PropagationBatchCode</strong> &mdash;
+                    Mother Plant <strong>@Model.PotProduction.MotherPlantCode</strong> &mdash;</text>
+                }
+                <strong>@Model.PotProduction.SpeciesName</strong> &mdash;
+                Pot Size <strong>@Model.PotProduction.PotSize</strong> &mdash;
+                Area <strong>@(Model.PotProduction.AreaName ?? "Unassigned")</strong> &mdash;
+                Quantity (Potted Plants Produced) <strong>@Model.PotProduction.Quantity.ToString("N2")</strong>
+                @if (Model.PotProduction.IsCuttingSourced && Model.PotProduction.Loss.HasValue)
+                {
+                    <text>&mdash; Loss <strong>@Model.PotProduction.Loss.Value.ToString("N2")</strong></text>
+                }
+                <div class="small text-muted">
+                    These fields cannot be changed once production is recorded -- they already moved real stock
+                    (empty pots consumed, potted plant stock produced@(Model.PotProduction.IsCuttingSourced ? ", cutting stock consumed" : "")).
+                    Use "Cancel Production" below to reverse the stock effect entirely if this record was a mistake.
+                </div>
+            </div>
+
+            @if (Model.PotProduction.Status == "Cancelled")
+            {
+                <div class="alert alert-warning">This record is Cancelled. Stock effects have already been reversed.</div>
+            }
+
+            <form method="post">
+                <input type="hidden" asp-for="PotProduction.Id" />
+                <input type="hidden" asp-for="PotProduction.ProductionCode" />
+                <input type="hidden" asp-for="PotProduction.CreatedBy" />
+                <input type="hidden" asp-for="PotProduction.CreatedDate" />
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Labour / Responsible Person</label>
+                        <select asp-for="PotProduction.ResponsiblePersonId" class="form-select" disabled="@(Model.PotProduction.Status == "Cancelled")">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="PotProduction.SupervisorId" class="form-select" disabled="@(Model.PotProduction.Status == "Cancelled")">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="PotProduction.Remarks" class="form-control" rows="2" disabled="@(Model.PotProduction.Status == "Cancelled")"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PotProduction/Index" class="btn btn-secondary me-2">Cancel</a>
+                    @if (Model.PotProduction.Status != "Cancelled")
+                    {
+                        <button type="submit" class="btn btn-success">Save Changes</button>
+                    }
+                </div>
+            </form>
+
+            @if (Model.PotProduction.Status != "Cancelled")
+            {
+                <hr />
+                <form method="post" asp-page-handler="Cancel" asp-route-id="@Model.PotProduction.Id" onsubmit="return confirm('Cancel this Pot Production? This returns the consumed empty pots and removes the produced potted stock. This cannot be undone.');">
+                    <div class="text-center">
+                        <button type="submit" class="btn btn-outline-danger">Cancel Production (reverse stock)</button>
+                    </div>
+                </form>
+            }
+        </div>
+    </div>
+</div>

@@ -1,0 +1,41 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.InternalTransfer.DetailsModel
+@{
+    ViewData["Title"] = "Internal Transfer Details";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header">
+            <h4 class="mb-0">@Model.InternalTransfer!.TransferCode</h4>
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-5">Stock Type</dt>
+                <dd class="col-sm-7">@(Model.InternalTransfer.StockType == "EmptyPot" ? "Empty Pot" : "Potted Plant")</dd>
+
+                @if (Model.InternalTransfer.StockType == "PottedPlant")
+                {
+                    <dt class="col-sm-5">Species</dt><dd class="col-sm-7">@Model.InternalTransfer.SpeciesName (@Model.InternalTransfer.PlantTypeName)</dd>
+                }
+                <dt class="col-sm-5">Pot Size</dt><dd class="col-sm-7">@Model.InternalTransfer.PotSize</dd>
+                <dt class="col-sm-5">Source Area</dt><dd class="col-sm-7">@Model.InternalTransfer.SourceAreaName</dd>
+                <dt class="col-sm-5">Destination Area</dt><dd class="col-sm-7">@Model.InternalTransfer.DestinationAreaName</dd>
+                <dt class="col-sm-5">Quantity</dt><dd class="col-sm-7">@Model.InternalTransfer.Quantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.InternalTransfer.Status</dd>
+                <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.InternalTransfer.ResponsiblePersonName</dd>
+                <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.InternalTransfer.SupervisorName</dd>
+                <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.InternalTransfer.Remarks</dd>
+                <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.InternalTransfer.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.InternalTransfer.CreatedBy</dd>
+                @if (Model.InternalTransfer.ModifiedDate.HasValue)
+                {
+                    <dt class="col-sm-5">Last Modified</dt><dd class="col-sm-7">@Model.InternalTransfer.ModifiedDate.Value.ToString("dd/MM/yyyy HH:mm") by @Model.InternalTransfer.ModifiedBy</dd>
+                }
+            </dl>
+        </div>
+        <div class="card-footer text-center">
+            <a asp-page="/Production/InternalTransfer/Edit" asp-route-id="@Model.InternalTransfer.Id" class="btn btn-outline-warning">Edit</a>
+            <a asp-page="/Production/InternalTransfer/Index" class="btn btn-secondary">Back to List</a>
+        </div>
+    </div>
+</div>

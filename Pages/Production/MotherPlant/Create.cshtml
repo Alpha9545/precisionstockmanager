@@ -1,0 +1,202 @@
+@page
+@model PlantStockManager.Pages.Production.MotherPlant.CreateModel
+@{
+    ViewData["Title"] = "Add Mother Plant Batch";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 800px;">
+        <div class="card-header">
+            <h4 class="mb-0">Add Mother Plant Batch</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Polyhouse</label>
+                        <select asp-for="MotherPlant.PolyhouseId" id="polyhouseSelect" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var p in Model.Polyhouses)
+                            {
+                                <option value="@p.Id">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Area (optional)</label>
+                        <select asp-for="MotherPlant.AreaId" id="areaSelect" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var a in Model.Areas)
+                            {
+                                <option value="@a.Id">@a.Name</option>
+                            }
+                        </select>
+                        <small class="text-muted">Select a Polyhouse first; Areas are scoped to it.</small>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Plant Type</label>
+                        <select id="plantTypeSelect" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var t in Model.PlantTypes)
+                            {
+                                <option value="@t.Id">@t.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Variety (Species)</label>
+                        <select asp-for="MotherPlant.SpeciesId" id="speciesSelect" class="form-select" required>
+                            <option value="">-- Select a Plant Type First --</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Responsible Person</label>
+                        <select asp-for="MotherPlant.ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="MotherPlant.SupervisorId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Planting Date</label>
+                        <input type="date" asp-for="MotherPlant.PlantingDate" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Mother Plant Quantity</label>
+                        <input type="number" step="0.01" min="0.01" asp-for="MotherPlant.MotherPlantQuantity" id="qtyInput" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Cutting Rate (per plant)</label>
+                        <input type="number" step="0.0001" min="0" asp-for="MotherPlant.CuttingRate" id="rateInput" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Cutting Period (days)</label>
+                        <input type="number" step="1" min="1" asp-for="MotherPlant.CuttingPeriodDays" id="periodInput" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Expected Cutting Quantity</label>
+                        <input type="text" id="expectedCuttingPreview" class="form-control" value="@Model.PreviewExpectedCuttingQuantity.ToString("N2")" readonly />
+                        <small class="text-muted">Calculated: Quantity &times; Cutting Rate. Saved automatically.</small>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Expected Monthly Cutting Quantity</label>
+                        <input type="text" id="expectedMonthlyPreview" class="form-control" value="@Model.PreviewExpectedMonthlyCuttingQuantity.ToString("N2")" readonly />
+                        <small class="text-muted">Calculated: Expected Cutting &times; 30 / Cutting Period. Saved automatically.</small>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Status</label>
+                        <select asp-for="MotherPlant.Status" class="form-select">
+                            <option value="Active">Active</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Removed">Removed</option>
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="MotherPlant.Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/MotherPlant/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Save Mother Plant Batch</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            // Plant Type -> Variety cascading dropdown (same pattern as Booking/SeedEntry).
+            $('#plantTypeSelect').on('change', function () {
+                const plantTypeId = $(this).val();
+                const speciesSelect = $('#speciesSelect');
+                speciesSelect.empty();
+                if (!plantTypeId) {
+                    speciesSelect.append('<option value="">-- Select a Plant Type First --</option>');
+                    return;
+                }
+                $.get(window.basePath + 'Production/MotherPlant/Create?handler=SpeciesByPlantType&plantTypeId=' + plantTypeId, function (data) {
+                    speciesSelect.append('<option value="">-- Select --</option>');
+                    $.each(data, function (i, s) {
+                        speciesSelect.append('<option value="' + s.id + '">' + s.name + '</option>');
+                    });
+                }).fail(function () {
+                    speciesSelect.append('<option value="">-- Failed to load varieties --</option>');
+                });
+            });
+
+            // Polyhouse -> Area cascading dropdown. An Area belongs to
+            // exactly one Polyhouse, so the Area list is re-fetched every
+            // time the Polyhouse changes and never shows areas outside it.
+            $('#polyhouseSelect').on('change', function () {
+                const polyhouseId = $(this).val();
+                const areaSelect = $('#areaSelect');
+                areaSelect.empty();
+                areaSelect.append('<option value="">-- None --</option>');
+                if (!polyhouseId) {
+                    return;
+                }
+                $.get(window.basePath + 'Production/MotherPlant/Create?handler=AreasByPolyhouseId&polyhouseId=' + polyhouseId, function (data) {
+                    $.each(data, function (i, a) {
+                        areaSelect.append('<option value="' + a.id + '">' + a.name + '</option>');
+                    });
+                }).fail(function () {
+                    areaSelect.append('<option value="">-- Failed to load areas --</option>');
+                });
+            });
+
+            // Live client-side preview only; the server recalculates on save regardless.
+            function recalcPreview() {
+                const qty = parseFloat($('#qtyInput').val()) || 0;
+                const rate = parseFloat($('#rateInput').val()) || 0;
+                const period = parseFloat($('#periodInput').val()) || 0;
+                const expectedCutting = qty * rate;
+                const expectedMonthly = period > 0 ? (expectedCutting * 30 / period) : 0;
+                $('#expectedCuttingPreview').val(expectedCutting.toFixed(2));
+                $('#expectedMonthlyPreview').val(expectedMonthly.toFixed(2));
+            }
+
+            $('#qtyInput, #rateInput, #periodInput').on('input', recalcPreview);
+        });
+    </script>
+}

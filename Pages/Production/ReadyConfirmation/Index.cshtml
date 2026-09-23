@@ -1,0 +1,84 @@
+@page
+@model PlantStockManager.Pages.Production.ReadyConfirmation.IndexModel
+@using PlantStockManager.Data
+@{
+    ViewData["Title"] = "Ready Confirmation";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Ready Confirmation</h2>
+        <div>
+            <a asp-page="/Production/ReadyAlerts/Index" class="btn btn-outline-secondary me-2">Ready Alerts</a>
+            <a asp-page="/Production/SeedSowing/Index" class="btn btn-outline-secondary">Back to Seed Sowing</a>
+        </div>
+    </div>
+
+    <div class="alert alert-info">
+        A batch only enters Ready Stock once you explicitly confirm it here -- reaching its Expected Ready Date never
+        does this automatically. You may confirm the full remaining quantity, or a partial quantity if only part of a
+        batch is physically ready; confirming again later completes the rest.
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-light">
+                <tr>
+                    <th>Sowing Code</th>
+                    <th>Variety</th>
+                    <th>Area</th>
+                    <th>Polyhouse</th>
+                    <th>Cavity</th>
+                    <th>Sowing Date</th>
+                    <th>Expected Ready Date</th>
+                    <th>Alert</th>
+                    <th>Sown Qty</th>
+                    <th>Confirmed Qty</th>
+                    <th>Remaining Qty</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var sw in Model.EligibleSowings)
+                {
+                    var category = SeedSowingRepository.ClassifyReadyAlert(sw.Status, sw.ExpectedReadyDate, DateTime.Today, SeedSowingRepository.DefaultReadySoonWindowDays);
+                    var badgeClass = category switch
+                    {
+                        "Overdue" => "bg-danger",
+                        "ReadyToday" => "bg-warning text-dark",
+                        "ReadySoon" => "bg-info text-dark",
+                        _ => "bg-secondary"
+                    };
+                    var badgeText = category switch
+                    {
+                        "Overdue" => "Overdue",
+                        "ReadyToday" => "Ready Today",
+                        "ReadySoon" => "Ready Soon",
+                        _ => "Not yet due"
+                    };
+                    <tr>
+                        <td>@sw.SowingCode</td>
+                        <td>@sw.SpeciesName <span class="text-muted">(@sw.PlantTypeName)</span></td>
+                        <td>@sw.AreaName</td>
+                        <td>@(sw.PolyhouseName ?? "-")</td>
+                        <td>@sw.CavityType</td>
+                        <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
+                        <td>@(sw.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</td>
+                        <td><span class="badge @badgeClass">@badgeText</span></td>
+                        <td>@sw.QuantitySown.ToString("N2")</td>
+                        <td>@sw.ConfirmedReadyQuantity.ToString("N2")</td>
+                        <td><strong>@sw.RemainingReadyQuantity.ToString("N2")</strong></td>
+                        <td>
+                            <a asp-page="/Production/ReadyConfirmation/Confirm" asp-route-id="@sw.Id" class="btn btn-sm btn-success">Confirm Ready</a>
+                            <a asp-page="/Production/ReadyConfirmation/History" asp-route-id="@sw.Id" class="btn btn-sm btn-outline-secondary">History</a>
+                        </td>
+                    </tr>
+                }
+                @if (!Model.EligibleSowings.Any())
+                {
+                    <tr><td colspan="12" class="text-center text-muted">No Sown batches currently have a remaining un-confirmed quantity.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

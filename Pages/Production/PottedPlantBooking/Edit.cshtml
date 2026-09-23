@@ -1,0 +1,191 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.PottedPlantBooking.EditModel
+@{
+    ViewData["Title"] = "Edit Booking";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Edit Booking &mdash; @Model.Booking.BookingCode</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (TempData["Error"] != null)
+            {
+                <div class="alert alert-danger">@TempData["Error"]</div>
+            }
+
+            <div class="alert alert-secondary">
+                <strong>@Model.Booking.SpeciesName (@Model.Booking.PlantTypeName)</strong> &mdash;
+                Pot Size <strong>@Model.Booking.PotSize</strong> &mdash;
+                Area <strong>@(Model.Booking.AreaName ?? "Unassigned")</strong> &mdash;
+                Quantity Booked <strong>@Model.Booking.Quantity.ToString("N2")</strong> &mdash;
+                Dispatched <strong>@Model.Booking.DispatchedQuantity.ToString("N2")</strong> &mdash;
+                Remaining (Reserved) <strong>@Model.Booking.RemainingQuantity.ToString("N2")</strong>
+                <div class="small text-muted">
+                    These fields cannot be changed once the booking is recorded -- they already reserved real stock.
+                    Use "Cancel Booking" below to release whatever is still reserved if this record was a mistake.
+                </div>
+            </div>
+
+            @if (Model.Booking.Status == "Cancelled")
+            {
+                <div class="alert alert-warning">This Booking is Cancelled. The reservation has already been released.</div>
+            }
+            @if (Model.Booking.Status == "Dispatched")
+            {
+                <div class="alert alert-success">This Booking has been fully Dispatched. Nothing remains reserved.</div>
+            }
+            @if (Model.Booking.Status == "PartiallyDispatched")
+            {
+                <div class="alert alert-info">This Booking has been partially Dispatched. @Model.Booking.RemainingQuantity.ToString("N2") still remains reserved and can be dispatched or cancelled.</div>
+            }
+
+            <form method="post">
+                <input type="hidden" asp-for="Booking.Id" />
+                <input type="hidden" asp-for="Booking.BookingCode" />
+                <input type="hidden" asp-for="Booking.PottedPlantStockId" />
+                <input type="hidden" asp-for="Booking.SpeciesId" />
+                <input type="hidden" asp-for="Booking.PotSize" />
+                <input type="hidden" asp-for="Booking.Quantity" />
+                <input type="hidden" asp-for="Booking.CreatedBy" />
+                <input type="hidden" asp-for="Booking.CreatedDate" />
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Customer Name</label>
+                        <input type="text" asp-for="Booking.CustomerName" class="form-control" disabled="@(Model.Booking.Status == "Cancelled")" required />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Contact</label>
+                        <input type="text" asp-for="Booking.Contact" class="form-control" disabled="@(Model.Booking.Status == "Cancelled")" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Address</label>
+                        <input type="text" asp-for="Booking.Address" class="form-control" disabled="@(Model.Booking.Status == "Cancelled")" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">State</label>
+                        <select id="stateDropdown" asp-for="Booking.StateId" class="form-select" disabled="@(Model.Booking.Status == "Cancelled")">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.States)
+                            {
+                                <option value="@s.StateId">@s.StateName</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">District</label>
+                        <select id="districtDropdown" asp-for="Booking.DistrictId" class="form-select" disabled="@(Model.Booking.Status == "Cancelled")">
+                            <option value="">-- None --</option>
+                            @foreach (var d in Model.Districts)
+                            {
+                                <option value="@d.DistrictId">@d.DistrictName</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Delivery Date (tentative)</label>
+                        <input type="date" asp-for="Booking.DeliveryDate" class="form-control" disabled="@(Model.Booking.Status == "Cancelled")" />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Booked By</label>
+                        <select asp-for="Booking.BookedById" class="form-select" disabled="@(Model.Booking.Status == "Cancelled")">
+                            <option value="">-- None --</option>
+                            @foreach (var e in Model.BookedByOptions)
+                            {
+                                <option value="@e.EmployeeID">@e.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Booked By (Other)</label>
+                        <input type="text" asp-for="Booking.BookedByOther" class="form-control" disabled="@(Model.Booking.Status == "Cancelled")" />
+                    </div>
+
+                    <div class="col-md-4 d-flex align-items-end">
+                        <div class="form-check">
+                            <input type="checkbox" asp-for="Booking.AdvanceTaken" class="form-check-input" disabled="@(Model.Booking.Status == "Cancelled")" />
+                            <label class="form-check-label" asp-for="Booking.AdvanceTaken">Advance Taken</label>
+                        </div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Advance Amount</label>
+                        <input type="number" step="0.01" min="0" asp-for="Booking.AdvanceTakenAmount" class="form-control" disabled="@(Model.Booking.Status == "Cancelled")" />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Advance Details</label>
+                        <input type="text" asp-for="Booking.AdvanceTakenDetails" class="form-control" disabled="@(Model.Booking.Status == "Cancelled")" />
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="Booking.Remarks" class="form-control" rows="2" disabled="@(Model.Booking.Status == "Cancelled")"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PottedPlantBooking/Index" class="btn btn-secondary me-2">Cancel</a>
+                    @if (Model.Booking.Status != "Cancelled")
+                    {
+                        <button type="submit" class="btn btn-success">Save Changes</button>
+                    }
+                </div>
+            </form>
+
+            @if (Model.Booking.Status == "Pending" || Model.Booking.Status == "PartiallyDispatched")
+            {
+                <hr />
+                <form method="post" asp-page-handler="Cancel" asp-route-id="@Model.Booking.Id" onsubmit="return confirm('Cancel this Booking? This releases whatever is still reserved (@Model.Booking.RemainingQuantity.ToString("N2")) back to Available. This cannot be undone.');">
+                    <div class="text-center">
+                        <button type="submit" class="btn btn-outline-danger">Cancel Booking (release remaining reservation)</button>
+                    </div>
+                </form>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            $('#stateDropdown').on('change', function () {
+                const stateId = $(this).val();
+                const $district = $('#districtDropdown');
+                $district.html('<option value="">-- Loading... --</option>');
+                if (!stateId) {
+                    $district.html('<option value="">-- None --</option>');
+                    return;
+                }
+                $.get(window.location.pathname + '?handler=DistrictsByState&stateId=' + stateId, function (data) {
+                    $district.html('<option value="">-- None --</option>');
+                    data.forEach(function (d) {
+                        $district.append($('<option>').val(d.districtId).text(d.districtName));
+                    });
+                }).fail(function () {
+                    $district.html('<option value="">-- Unable to load --</option>');
+                });
+            });
+        });
+    </script>
+}

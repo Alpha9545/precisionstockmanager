@@ -1,0 +1,112 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.PropagationBatch.EditModel
+@{
+    ViewData["Title"] = "Edit Propagation Batch";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Edit Propagation Batch &mdash; @Model.PropagationBatch.BatchCode</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <div class="alert alert-secondary">
+                Cutting Delivery <strong>@Model.PropagationBatch.CuttingDeliveryCode</strong> &mdash;
+                Mother Plant <strong>@Model.PropagationBatch.MotherPlantCode</strong> &mdash;
+                <strong>@Model.PropagationBatch.SpeciesName</strong> &mdash;
+                Quantity planted <strong>@Model.PropagationBatch.Quantity.ToString("N2")</strong>
+                <div class="small text-muted">The Cutting Delivery / Mother Plant / Species linkage and the planted Quantity cannot be changed once a batch exists -- it preserves traceability.</div>
+            </div>
+
+            <form method="post">
+                <input type="hidden" asp-for="PropagationBatch.Id" />
+                <input type="hidden" asp-for="PropagationBatch.BatchCode" />
+                <input type="hidden" asp-for="PropagationBatch.CreatedBy" />
+                <input type="hidden" asp-for="PropagationBatch.CreatedDate" />
+
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Propagation Date</label>
+                        <input type="date" asp-for="PropagationBatch.PropagationDate" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Propagation Area</label>
+                        <select asp-for="PropagationBatch.AreaId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var area in Model.Areas)
+                            {
+                                <option value="@area.Id">@area.Name (@area.PolyhouseName)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Status</label>
+                        <select asp-for="PropagationBatch.Status" class="form-select">
+                            <option value="Propagating">Propagating</option>
+                            <option value="ReadyForPotting">Ready For Potting</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Cancelled">Cancelled</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Survived Quantity</label>
+                        <input type="number" step="0.01" min="0" asp-for="PropagationBatch.SurvivedQuantity" class="form-control" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Loss Quantity</label>
+                        <input type="number" step="0.01" min="0" asp-for="PropagationBatch.LossQuantity" class="form-control" />
+                        <small class="text-muted">Survived + Loss must equal @Model.PropagationBatch.Quantity.ToString("N2") before moving to Ready For Potting / Completed.</small>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Labour / Responsible Person</label>
+                        <select asp-for="PropagationBatch.ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="PropagationBatch.SupervisorId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="PropagationBatch.Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PropagationBatch/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

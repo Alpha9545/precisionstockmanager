@@ -1,0 +1,43 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.SeedStock.AddStockModel
+@{
+    ViewData["Title"] = "Add Seed Stock";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 600px;">
+        <div class="card-header">
+            <h4 class="mb-0">Add Stock &mdash; @Model.SeedStock?.SpeciesName @@ @Model.SeedStock?.AreaName</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <p>Current Physical Quantity: <strong>@Model.SeedStock?.PhysicalQuantity.ToString("N2")</strong> @Model.SeedStock?.Unit</p>
+
+            <form method="post">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Quantity to Add</label>
+                    <input asp-for="Quantity" type="number" step="0.01" min="0.01" class="form-control" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Remarks</label>
+                    <textarea asp-for="Remarks" class="form-control" rows="2"></textarea>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/SeedStock/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Add Stock</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

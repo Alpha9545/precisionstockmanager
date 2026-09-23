@@ -1,0 +1,75 @@
+@page
+@model PlantStockManager.Pages.Production.SeedStock.IndexModel
+@{
+    ViewData["Title"] = "Seed Stock";
+}
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="mb-0">Seed Stock</h4>
+        <div>
+            <a asp-page="/Production/SeedStock/Create" class="btn btn-outline-primary btn-sm">New Species/Area/Lot Pool</a>
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <table class="table table-striped table-bordered">
+        <thead>
+            <tr>
+                <th>Species</th>
+                <th>Plant Type</th>
+                <th>Area</th>
+                <th>Area Type</th>
+                <th>Lot/Batch</th>
+                <th>Source</th>
+                <th>Unit</th>
+                <th>Physical</th>
+                <th>In Transit</th>
+                <th>Available</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var s in Model.SeedStocks)
+            {
+                <tr>
+                    <td>@s.SpeciesName</td>
+                    <td>@s.PlantTypeName</td>
+                    <td>@s.AreaName</td>
+                    <td>@(s.AreaType ?? "-")</td>
+                    <td>@(string.IsNullOrEmpty(s.BatchNo) ? "-" : s.BatchNo)</td>
+                    <td>@(s.SeedSourceName ?? "-")</td>
+                    <td>@s.Unit</td>
+                    <td>@s.PhysicalQuantity.ToString("N2")</td>
+                    <td>@s.InTransitQuantity.ToString("N2")</td>
+                    <td>@s.AvailableQuantity.ToString("N2")</td>
+                    <td>
+                        <a asp-page="/Production/SeedStock/Details" asp-route-id="@s.Id" class="btn btn-sm btn-outline-secondary">Details</a>
+                        <a asp-page="/Production/SeedStock/AddStock" asp-route-id="@s.Id" class="btn btn-sm btn-outline-success">Add Stock</a>
+                    </td>
+                </tr>
+            }
+            @if (!Model.SeedStocks.Any())
+            {
+                <tr><td colspan="11" class="text-center text-muted">No Seed Stock pools yet.</td></tr>
+            }
+        </tbody>
+        <tfoot>
+            <tr class="fw-bold">
+                <td colspan="7" class="text-end">Totals</td>
+                <td>@Model.TotalPhysical.ToString("N2")</td>
+                <td></td>
+                <td>@Model.TotalAvailable.ToString("N2")</td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+</div>

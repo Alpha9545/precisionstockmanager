@@ -1,0 +1,105 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.InternalTransfer.EditModel
+@{
+    ViewData["Title"] = "Edit Internal Transfer";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 850px;">
+        <div class="card-header">
+            <h4 class="mb-0">Edit Internal Transfer &mdash; @Model.InternalTransfer.TransferCode</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (TempData["Error"] != null)
+            {
+                <div class="alert alert-danger">@TempData["Error"]</div>
+            }
+
+            <div class="alert alert-secondary">
+                @(Model.InternalTransfer.StockType == "EmptyPot" ? "Empty Pot" : "Potted Plant") stock &mdash;
+                @if (Model.InternalTransfer.StockType == "PottedPlant")
+                {
+                    <strong>@Model.InternalTransfer.SpeciesName (@Model.InternalTransfer.PlantTypeName)</strong>
+                    <text>&mdash;</text>
+                }
+                Pot Size <strong>@Model.InternalTransfer.PotSize</strong> &mdash;
+                From <strong>@Model.InternalTransfer.SourceAreaName</strong> to <strong>@Model.InternalTransfer.DestinationAreaName</strong> &mdash;
+                Quantity <strong>@Model.InternalTransfer.Quantity.ToString("N2")</strong>
+                <div class="small text-muted">
+                    These fields cannot be changed once the transfer is recorded -- they already moved real stock.
+                    Use "Cancel Transfer" below to reverse the stock effect entirely if this record was a mistake.
+                </div>
+            </div>
+
+            @if (Model.InternalTransfer.Status == "Cancelled")
+            {
+                <div class="alert alert-warning">This record is Cancelled. Stock effects have already been reversed.</div>
+            }
+
+            <form method="post">
+                <input type="hidden" asp-for="InternalTransfer.Id" />
+                <input type="hidden" asp-for="InternalTransfer.TransferCode" />
+                <input type="hidden" asp-for="InternalTransfer.CreatedBy" />
+                <input type="hidden" asp-for="InternalTransfer.CreatedDate" />
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Labour / Responsible Person</label>
+                        <select asp-for="InternalTransfer.ResponsiblePersonId" class="form-select" disabled="@(Model.InternalTransfer.Status == "Cancelled")">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="InternalTransfer.SupervisorId" class="form-select" disabled="@(Model.InternalTransfer.Status == "Cancelled")">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="InternalTransfer.Remarks" class="form-control" rows="2" disabled="@(Model.InternalTransfer.Status == "Cancelled")"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/InternalTransfer/Index" class="btn btn-secondary me-2">Cancel</a>
+                    @if (Model.InternalTransfer.Status != "Cancelled")
+                    {
+                        <button type="submit" class="btn btn-success">Save Changes</button>
+                    }
+                </div>
+            </form>
+
+            @if (Model.InternalTransfer.Status != "Cancelled")
+            {
+                <hr />
+                <form method="post" asp-page-handler="Cancel" asp-route-id="@Model.InternalTransfer.Id" onsubmit="return confirm('Cancel this Internal Transfer? This moves the stock back from the Destination Area to the Source Area. This cannot be undone.');">
+                    <div class="text-center">
+                        <button type="submit" class="btn btn-outline-danger">Cancel Transfer (reverse stock)</button>
+                    </div>
+                </form>
+            }
+        </div>
+    </div>
+</div>

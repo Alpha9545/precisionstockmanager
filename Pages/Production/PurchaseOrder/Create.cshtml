@@ -1,0 +1,277 @@
+@page
+@model PlantStockManager.Pages.Production.PurchaseOrder.CreateModel
+@{
+    ViewData["Title"] = "New Purchase Order";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 1000px;">
+        <div class="card-header">
+            <h4 class="mb-0">New Purchase Order</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <form method="post" id="poForm">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Vendor</label>
+                        <select asp-for="Order.VendorId" class="form-select" required>
+                            <option value="">-- Select Vendor --</option>
+                            @foreach (var v in Model.Vendors)
+                            {
+                                <option value="@v.Id">@v.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Order Date</label>
+                        <input type="date" asp-for="Order.OrderDate" class="form-control" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Expected Delivery Date</label>
+                        <input type="date" asp-for="Order.ExpectedDeliveryDate" class="form-control" />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="Order.Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <hr />
+                <h5>Line Items</h5>
+
+                <div class="card bg-light mb-3">
+                    <div class="card-body">
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-2">
+                                <label class="form-label small fw-bold">Category</label>
+                                <select id="itemCategory" class="form-select form-select-sm">
+                                    <option value="Fertilizer">Fertilizer</option>
+                                    <option value="EmptyPot">Empty Pot</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+
+                            <div class="col-md-2 cat-Fertilizer">
+                                <label class="form-label small fw-bold">Fertilizer</label>
+                                <select id="itemFertilizer" class="form-select form-select-sm">
+                                    <option value="">--</option>
+                                    @foreach (var f in Model.Fertilizers)
+                                    {
+                                        <option value="@f.Id">@f.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-2 cat-Fertilizer">
+                                <label class="form-label small fw-bold">Source</label>
+                                <select id="itemFertilizerSource" class="form-select form-select-sm">
+                                    <option value="">--</option>
+                                    @foreach (var s in Model.FertilizerSources)
+                                    {
+                                        <option value="@s.Id">@s.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-2 cat-Fertilizer">
+                                <label class="form-label small fw-bold">Unit</label>
+                                <select id="itemFertilizerUnit" class="form-select form-select-sm">
+                                    <option value="">--</option>
+                                    @foreach (var u in Model.Units)
+                                    {
+                                        <option value="@u.Id">@u.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-2 cat-Fertilizer">
+                                <label class="form-label small fw-bold">Expiry Date</label>
+                                <input type="date" id="itemExpiryDate" class="form-control form-control-sm" />
+                            </div>
+
+                            <div class="col-md-3 cat-EmptyPot" style="display:none;">
+                                <label class="form-label small fw-bold">Pot Size</label>
+                                <input type="text" id="itemPotSize" class="form-control form-control-sm" placeholder="e.g. 6 inch" />
+                            </div>
+                            <div class="col-md-3 cat-EmptyPot" style="display:none;">
+                                <label class="form-label small fw-bold">Destination Area</label>
+                                <select id="itemAreaId" class="form-select form-select-sm">
+                                    <option value="">-- Unassigned --</option>
+                                    @foreach (var a in Model.Areas)
+                                    {
+                                        <option value="@a.Id">@a.Name</option>
+                                    }
+                                </select>
+                            </div>
+
+                            <div class="col-md-4 cat-Other" style="display:none;">
+                                <label class="form-label small fw-bold">Item Name</label>
+                                <input type="text" id="itemName" class="form-control form-control-sm" />
+                            </div>
+
+                            <div class="col-md-2">
+                                <label class="form-label small fw-bold">Ordered Qty</label>
+                                <input type="number" step="0.01" min="0.01" id="itemOrderedQuantity" class="form-control form-control-sm" />
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label small fw-bold">Unit Price</label>
+                                <input type="number" step="0.01" min="0" id="itemUnitPrice" class="form-control form-control-sm" />
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label small fw-bold">Line Remarks</label>
+                                <input type="text" id="itemRemarks" class="form-control form-control-sm" />
+                            </div>
+                            <div class="col-md-2">
+                                <button type="button" id="addItemBtn" class="btn btn-sm btn-primary w-100">+ Add Line</button>
+                            </div>
+                        </div>
+                        <div id="itemError" class="text-danger small mt-2" style="display:none;"></div>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered" id="itemsTable">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th>Item</th>
+                                <th>Details</th>
+                                <th>Ordered Qty</th>
+                                <th>Unit Price</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="itemsTableBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div id="itemsHiddenInputs"></div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PurchaseOrder/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Create Purchase Order</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            let itemIndex = 0;
+
+            function refreshCategoryFields() {
+                const cat = $('#itemCategory').val();
+                $('.cat-Fertilizer, .cat-EmptyPot, .cat-Other').hide();
+                $('.cat-' + cat).show();
+            }
+            $('#itemCategory').on('change', refreshCategoryFields);
+            refreshCategoryFields();
+
+            $('#addItemBtn').on('click', function () {
+                const cat = $('#itemCategory').val();
+                const orderedQty = parseFloat($('#itemOrderedQuantity').val());
+                const unitPrice = $('#itemUnitPrice').val();
+                const remarks = $('#itemRemarks').val() || '';
+                $('#itemError').hide();
+
+                if (!orderedQty || orderedQty <= 0) {
+                    $('#itemError').text('Ordered Quantity must be greater than zero.').show();
+                    return;
+                }
+
+                let fields = {};
+                let detailsText = '';
+                let itemLabel = '';
+
+                if (cat === 'Fertilizer') {
+                    const fertId = $('#itemFertilizer').val();
+                    const fertText = $('#itemFertilizer option:selected').text();
+                    const sourceId = $('#itemFertilizerSource').val();
+                    const sourceText = $('#itemFertilizerSource option:selected').text();
+                    const unitId = $('#itemFertilizerUnit').val();
+                    const unitText = $('#itemFertilizerUnit option:selected').text();
+                    const expiry = $('#itemExpiryDate').val();
+                    if (!fertId || !sourceId || !unitId) {
+                        $('#itemError').text('Fertilizer, Source and Unit are all required for a Fertilizer line.').show();
+                        return;
+                    }
+                    fields = { FertilizerId: fertId, FertilizerSourceId: sourceId, FertilizerUnitId: unitId, ExpiryDate: expiry };
+                    itemLabel = fertText;
+                    detailsText = 'Source: ' + sourceText + ', Unit: ' + unitText + (expiry ? (', Exp: ' + expiry) : '');
+                } else if (cat === 'EmptyPot') {
+                    const potSize = $('#itemPotSize').val();
+                    const areaId = $('#itemAreaId').val();
+                    const areaText = $('#itemAreaId option:selected').text();
+                    if (!potSize) {
+                        $('#itemError').text('Pot Size is required for an Empty Pot line.').show();
+                        return;
+                    }
+                    fields = { PotSize: potSize, AreaId: areaId };
+                    itemLabel = 'Empty Pot - ' + potSize;
+                    detailsText = 'Area: ' + areaText;
+                } else {
+                    const itemName = $('#itemName').val();
+                    if (!itemName) {
+                        $('#itemError').text('Item Name is required for an Other line.').show();
+                        return;
+                    }
+                    fields = { ItemName: itemName };
+                    itemLabel = itemName;
+                    detailsText = '-';
+                }
+
+                const idx = itemIndex++;
+                const prefix = 'Order.Items[' + idx + ']';
+                let hidden = '';
+                hidden += '<input type="hidden" name="' + prefix + '.ItemCategory" value="' + cat + '" />';
+                for (const key in fields) {
+                    if (fields[key]) {
+                        hidden += '<input type="hidden" name="' + prefix + '.' + key + '" value="' + $('<div>').text(fields[key]).html() + '" />';
+                    }
+                }
+                hidden += '<input type="hidden" name="' + prefix + '.OrderedQuantity" value="' + orderedQty + '" />';
+                if (unitPrice) hidden += '<input type="hidden" name="' + prefix + '.UnitPrice" value="' + unitPrice + '" />';
+                if (remarks) hidden += '<input type="hidden" name="' + prefix + '.Remarks" value="' + $('<div>').text(remarks).html() + '" />';
+                $('#itemsHiddenInputs').append(hidden);
+
+                const row = $('<tr>');
+                row.append($('<td>').text(cat));
+                row.append($('<td>').text(itemLabel));
+                row.append($('<td>').text(detailsText));
+                row.append($('<td>').text(orderedQty.toFixed(2)));
+                row.append($('<td>').text(unitPrice ? parseFloat(unitPrice).toFixed(2) : '-'));
+                const removeTd = $('<td>');
+                const removeBtn = $('<button type="button" class="btn btn-sm btn-outline-danger">Remove</button>');
+                removeBtn.on('click', function () {
+                    row.remove();
+                    $('[name^="' + prefix + '."]').remove();
+                });
+                removeTd.append(removeBtn);
+                row.append(removeTd);
+                $('#itemsTableBody').append(row);
+
+                // Reset the mini-form for the next line.
+                $('#itemFertilizer, #itemFertilizerSource, #itemFertilizerUnit, #itemAreaId').val('');
+                $('#itemExpiryDate, #itemPotSize, #itemName, #itemOrderedQuantity, #itemUnitPrice, #itemRemarks').val('');
+            });
+
+            $('#poForm').on('submit', function (e) {
+                if ($('#itemsTableBody tr').length === 0) {
+                    e.preventDefault();
+                    $('#itemError').text('Add at least one line item before submitting.').show();
+                }
+            });
+        });
+    </script>
+}

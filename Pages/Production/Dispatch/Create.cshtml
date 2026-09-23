@@ -1,0 +1,133 @@
+@page
+@model PlantStockManager.Pages.Production.Dispatch.CreateModel
+@{
+    ViewData["Title"] = "Record Dispatch";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 800px;">
+        <div class="card-header">
+            <h4 class="mb-0">Record Dispatch</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (!Model.DispatchableBookings.Any())
+            {
+                <div class="alert alert-warning">
+                    There are no Pending Bookings available to dispatch right now.
+                </div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Booking</label>
+                        <select id="bookingSelect" asp-for="Dispatch.PottedPlantBookingId" class="form-select" required>
+                            <option value="">-- Select a Pending / Partially Dispatched Booking --</option>
+                            @foreach (var b in Model.DispatchableBookings)
+                            {
+                                <option value="@b.Id"
+                                        data-species="@b.SpeciesName (@b.PlantTypeName)"
+                                        data-potsize="@b.PotSize"
+                                        data-area="@(b.AreaName ?? "Unassigned")"
+                                        data-remaining="@b.RemainingQuantity.ToString("0.####")">
+                                    @b.BookingCode &mdash; @b.CustomerName &mdash; @b.SpeciesName / @b.PotSize (Remaining @b.RemainingQuantity.ToString("N2") of @b.Quantity.ToString("N2"))
+                                </option>
+                            }
+                        </select>
+                        <div class="form-text">
+                            Species / Pot Size / Area are taken directly from the selected Booking and cannot be
+                            changed here. Quantity may be a partial amount -- up to what remains reserved on the
+                            Booking; a second Dispatch can complete the remainder later.
+                        </div>
+                    </div>
+
+                    <div class="col-12" id="bookingPreview" style="display:none;">
+                        <div class="alert alert-secondary mb-0">
+                            <strong>Species:</strong> <span id="prevSpecies"></span> &mdash;
+                            <strong>Pot Size:</strong> <span id="prevPotSize"></span> &mdash;
+                            <strong>Area:</strong> <span id="prevArea"></span> &mdash;
+                            <strong>Remaining:</strong> <span id="prevRemaining"></span>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Quantity to Dispatch Now</label>
+                        <input type="number" step="0.01" min="0.01" asp-for="Dispatch.Quantity" id="quantityInput" class="form-control" required />
+                        <div class="form-text">Defaults to the full remaining quantity. Reduce it for a partial dispatch.</div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Dispatch Date</label>
+                        <input type="date" asp-for="Dispatch.DispatchDate" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Responsible Person</label>
+                        <select asp-for="Dispatch.ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var e in Model.PersonOptions)
+                            {
+                                <option value="@e.EmployeeID">@e.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="Dispatch.SupervisorId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var e in Model.PersonOptions)
+                            {
+                                <option value="@e.EmployeeID">@e.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="Dispatch.Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/Dispatch/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Record Dispatch</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            $('#bookingSelect').on('change', function () {
+                const opt = $(this).find('option:selected');
+                if (!opt.val()) {
+                    $('#bookingPreview').hide();
+                    return;
+                }
+                $('#prevSpecies').text(opt.data('species'));
+                $('#prevPotSize').text(opt.data('potsize'));
+                $('#prevArea').text(opt.data('area'));
+                const remaining = opt.data('remaining');
+                $('#prevRemaining').text(remaining);
+                $('#quantityInput').attr('max', remaining);
+                $('#quantityInput').val(remaining);
+                $('#bookingPreview').show();
+            });
+        });
+    </script>
+}

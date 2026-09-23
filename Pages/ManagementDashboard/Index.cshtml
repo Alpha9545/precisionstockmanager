@@ -1,0 +1,526 @@
+@page
+@model PlantStockManager.Pages.ManagementDashboard.IndexModel
+@using PlantStockManager.Models
+@{
+    ViewData["Title"] = "Management Dashboard";
+}
+
+@functions {
+    // ------------------------------------------------------------
+    // Lightweight inline-SVG chart helpers. No new JS charting
+    // library is introduced (Step 7's "use existing Bootstrap/custom
+    // styling -- do not introduce a large new frontend framework"),
+    // and every chart below only renders data ManagementDashboardRepository
+    // actually computed from a genuinely date-stamped source table --
+    // see that repository's own comments for which charts were
+    // deliberately NOT added (a fabricated "stock level over time"
+    // trend has no supporting historical-snapshot table anywhere in
+    // this app). Categorical colors below are slots 1 (blue) and 2
+    // (orange) from the project's validated data-viz palette, applied
+    // in fixed order (never cycled) per that skill's non-negotiables.
+    // ------------------------------------------------------------
+    private const string Series1Color = "#2a78d6"; // blue
+    private const string Series2Color = "#eb6834"; // orange
+    private const string MutedInk = "#898781";
+    private const string GridColor = "#e1e0d9";
+    private const string BaselineColor = "#c3c2b7";
+
+    private static string EmptyChartState(string message)
+    {
+        return $"<div class='text-muted small py-4 text-center border rounded bg-light'>{System.Net.WebUtility.HtmlEncode(message)}</div>";
+    }
+
+    // Two-series grouped bar chart, one date bucket per group. Used
+    // only for Sowing vs. Ready (Section B/Charts) -- a genuine,
+    // date-stamped comparison of two movement quantities.
+    private static string RenderGroupedBarChart(List<TrendPoint> points, string series1Name, string series2Name)
+    {
+        if (points == null || points.Count == 0)
+            return EmptyChartState("No Sowing or Ready Confirmation activity in the selected date range.");
+
+        var dates = points.Select(p => p.BucketDate.Date).Distinct().OrderBy(d => d).ToList();
+        if (dates.Count == 0)
+            return EmptyChartState("No Sowing or Ready Confirmation activity in the selected date range.");
+
+        var max = points.Select(p => p.Value).DefaultIfEmpty(0).Max();
+        if (max <= 0) max = 1;
+
+        const int width = 900, height = 220, leftPad = 40, bottomPad = 26, topPad = 10;
+        var plotWidth = width - leftPad - 10;
+        var plotHeight = height - bottomPad - topPad;
+        var groupWidth = dates.Count > 0 ? (double)plotWidth / dates.Count : plotWidth;
+        var barWidth = Math.Max(3, Math.Min(18, groupWidth / 2.0 - 4));
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"<svg viewBox='0 0 {width} {height}' width='100%' height='{height}' role='img' aria-label='Sowing versus Confirmed Ready, by day'>");
+        // gridlines (3 horizontal guides)
+        for (int i = 1; i <= 3; i++)
+        {
+            var y = topPad + plotHeight - (plotHeight * i / 4.0);
+            sb.Append($"<line x1='{leftPad}' y1='{y:F1}' x2='{width - 10}' y2='{y:F1}' stroke='{GridColor}' stroke-width='1' />");
+        }
+        sb.Append($"<line x1='{leftPad}' y1='{topPad + plotHeight}' x2='{width - 10}' y2='{topPad + plotHeight}' stroke='{BaselineColor}' stroke-width='1' />");
+
+        var byDate = points.GroupBy(p => p.BucketDate.Date).ToDictionary(g => g.Key, g => g.ToList());
+        for (int i = 0; i < dates.Count; i++)
+        {
+            var d = dates[i];
+            var groupX = leftPad + i * groupWidth;
+            var sown = byDate[d].FirstOrDefault(p => p.Series == series1Name)?.Value ?? 0;
+            var ready = byDate[d].FirstOrDefault(p => p.Series == series2Name)?.Value ?? 0;
+
+            var sownH = (double)(sown / max) * plotHeight;
+            var readyH = (double)(ready / max) * plotHeight;
+            var x1 = groupX + groupWidth / 2.0 - barWidth - 2;
+            var x2 = groupX + groupWidth / 2.0 + 2;
+
+            sb.Append($"<rect x='{x1:F1}' y='{(topPad + plotHeight - sownH):F1}' width='{barWidth:F1}' height='{sownH:F1}' rx='2' fill='{Series1Color}'><title>{d:dd MMM}: {series1Name} {sown:N0}</title></rect>");
+            sb.Append($"<rect x='{x2:F1}' y='{(topPad + plotHeight - readyH):F1}' width='{barWidth:F1}' height='{readyH:F1}' rx='2' fill='{Series2Color}'><title>{d:dd MMM}: {series2Name} {ready:N0}</title></rect>");
+
+            if (dates.Count <= 20 || i % Math.Max(1, dates.Count / 12) == 0)
+            {
+                sb.Append($"<text x='{(groupX + groupWidth / 2.0):F1}' y='{height - 6}' font-size='10' fill='{MutedInk}' text-anchor='middle'>{d:dd/MM}</text>");
+            }
+        }
+        sb.Append("</svg>");
+
+        sb.Append("<div class='small mt-1'>")
+          .Append($"<span style='display:inline-block;width:10px;height:10px;background:{Series1Color};border-radius:2px;margin-right:4px;'></span>{System.Net.WebUtility.HtmlEncode(series1Name)}")
+          .Append("&nbsp;&nbsp;")
+          .Append($"<span style='display:inline-block;width:10px;height:10px;background:{Series2Color};border-radius:2px;margin-right:4px;'></span>{System.Net.WebUtility.HtmlEncode(series2Name)}")
+          .Append("</div>");
+
+        return sb.ToString();
+    }
+
+    // Single-series bar chart over time. Used for Outlet Dispatch trend.
+    private static string RenderSingleSeriesBarChart(List<TrendPoint> points, string unitLabel)
+    {
+        if (points == null || points.Count == 0)
+            return EmptyChartState("No Dispatch activity in the selected date range.");
+
+        var max = points.Select(p => p.Value).DefaultIfEmpty(0).Max();
+        if (max <= 0) max = 1;
+
+        const int width = 900, height = 180, leftPad = 40, bottomPad = 26, topPad = 10;
+        var plotWidth = width - leftPad - 10;
+        var plotHeight = height - bottomPad - topPad;
+        var barWidth = Math.Max(3, Math.Min(22, (double)plotWidth / points.Count - 4));
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"<svg viewBox='0 0 {width} {height}' width='100%' height='{height}' role='img' aria-label='Dispatched quantity by day, in {unitLabel}'>");
+        for (int i = 1; i <= 3; i++)
+        {
+            var y = topPad + plotHeight - (plotHeight * i / 4.0);
+            sb.Append($"<line x1='{leftPad}' y1='{y:F1}' x2='{width - 10}' y2='{y:F1}' stroke='{GridColor}' stroke-width='1' />");
+        }
+        sb.Append($"<line x1='{leftPad}' y1='{topPad + plotHeight}' x2='{width - 10}' y2='{topPad + plotHeight}' stroke='{BaselineColor}' stroke-width='1' />");
+
+        var step = (double)plotWidth / points.Count;
+        for (int i = 0; i < points.Count; i++)
+        {
+            var p = points[i];
+            var h = (double)(p.Value / max) * plotHeight;
+            var x = leftPad + i * step + (step - barWidth) / 2.0;
+            sb.Append($"<rect x='{x:F1}' y='{(topPad + plotHeight - h):F1}' width='{barWidth:F1}' height='{h:F1}' rx='2' fill='{Series1Color}'><title>{p.BucketDate:dd MMM}: {p.Value:N0} {unitLabel}</title></rect>");
+            if (points.Count <= 20 || i % Math.Max(1, points.Count / 12) == 0)
+                sb.Append($"<text x='{(x + barWidth / 2.0):F1}' y='{height - 6}' font-size='10' fill='{MutedInk}' text-anchor='middle'>{p.BucketDate:dd/MM}</text>");
+        }
+        sb.Append("</svg>");
+        return sb.ToString();
+    }
+
+    // Horizontal bar chart, one bar per category -- used for Growing
+    // Partner production (a magnitude comparison across a small,
+    // bounded set of partners/areas, not a time series).
+    private static string RenderHorizontalBarChart(List<CategoryValue> categories, string unitLabel)
+    {
+        if (categories == null || categories.Count == 0)
+            return EmptyChartState("No completed Pot/Tray Production recorded for any Growing Partner in the selected date range.");
+
+        var max = categories.Select(c => c.Value).DefaultIfEmpty(0).Max();
+        if (max <= 0) max = 1;
+
+        const int width = 900, rowHeight = 26, leftPad = 190, rightPad = 60;
+        var height = categories.Count * rowHeight + 10;
+        var plotWidth = width - leftPad - rightPad;
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"<svg viewBox='0 0 {width} {height}' width='100%' height='{height}' role='img' aria-label='Pot/Tray production by Growing Partner, in {unitLabel}'>");
+        for (int i = 0; i < categories.Count; i++)
+        {
+            var c = categories[i];
+            var y = i * rowHeight + 4;
+            var barW = (double)(c.Value / max) * plotWidth;
+            var label = c.Label.Length > 26 ? c.Label.Substring(0, 24) + "…" : c.Label;
+            sb.Append($"<text x='{leftPad - 8}' y='{y + 14}' font-size='11' fill='#0b0b0b' text-anchor='end'>{System.Net.WebUtility.HtmlEncode(label)}</text>");
+            sb.Append($"<rect x='{leftPad}' y='{y}' width='{barW:F1}' height='{rowHeight - 8}' rx='3' fill='{Series1Color}'><title>{System.Net.WebUtility.HtmlEncode(c.Label)}: {c.Value:N0} {unitLabel}</title></rect>");
+            sb.Append($"<text x='{leftPad + barW + 6:F1}' y='{y + 14}' font-size='11' fill='{MutedInk}'>{c.Value:N0}</text>");
+        }
+        sb.Append("</svg>");
+        return sb.ToString();
+    }
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Management Dashboard</h2>
+        <span class="badge bg-dark">Administrator only</span>
+    </div>
+
+    <div class="alert alert-info small">
+        Read-only reporting layer. Every figure below is read live from the existing operational tables/ledgers &mdash;
+        nothing here is a duplicate stock table, and viewing this page never writes anything. Cards marked
+        <span class="badge bg-secondary">Balance</span> are current, point-in-time totals (the date filter does not apply);
+        cards marked <span class="badge bg-primary">Movement</span> are sums over events whose own date falls inside the
+        selected range below.
+    </div>
+
+    <form method="get" class="row g-2 align-items-end mb-4 p-3 border rounded bg-light">
+        <div class="col-auto">
+            <label class="form-label small mb-0">From</label>
+            <input type="date" name="FromDate" value="@(Model.FromDate?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-0">To</label>
+            <input type="date" name="ToDate" value="@(Model.ToDate?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-0">Area</label>
+            <select name="AreaId" class="form-select form-select-sm">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.Dashboard.Areas)
+                {
+                    <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name @(a.AreaType != null ? $"({a.AreaType})" : "")</option>
+                }
+            </select>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-0">Growing Partner</label>
+            <select name="GrowingPartnerId" class="form-select form-select-sm">
+                <option value="">All Growing Partners</option>
+                @foreach (var g in Model.Dashboard.GrowingPartnerOptions)
+                {
+                    <option value="@g.Id" selected="@(Model.GrowingPartnerId == g.Id)">@g.Name</option>
+                }
+            </select>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-0">Plant / Variety</label>
+            <select name="SpeciesId" class="form-select form-select-sm">
+                <option value="">All Varieties</option>
+                @foreach (var s in Model.Dashboard.SpeciesOptions)
+                {
+                    <option value="@s.Id" selected="@(Model.SpeciesId == s.Id)">@s.Name</option>
+                }
+            </select>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small mb-0">Pot Size</label>
+            <select name="PotSize" class="form-select form-select-sm">
+                <option value="">All Pot Sizes</option>
+                @foreach (var p in Model.Dashboard.PotSizeOptions)
+                {
+                    <option value="@p" selected="@(Model.PotSize == p)">@p</option>
+                }
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-primary">Refresh</button>
+            <a href="/ManagementDashboard/Index" class="btn btn-sm btn-outline-secondary">Reset</a>
+        </div>
+    </form>
+
+    <!-- Section A: Overall Production Summary -->
+    <h5>Overall Production Summary <span class="badge bg-secondary">Balance</span></h5>
+    <div class="row g-3 mb-4">
+        <div class="col-md-2">
+            <div class="card h-100"><div class="card-body">
+                <div class="text-muted small">Mother Plants</div>
+                <div class="fs-4">@Model.Dashboard.Production.MotherPlantActiveQuantity.ToString("N0")</div>
+                <div class="text-muted small">plants &middot; @Model.Dashboard.Production.MotherPlantActiveCount active batches</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card h-100"><div class="card-body">
+                <div class="text-muted small">Cutting Stock</div>
+                <div class="fs-4">@Model.Dashboard.Production.CuttingStockPhysical.ToString("N0")</div>
+                <div class="text-muted small">cuttings &middot; @Model.Dashboard.Production.CuttingStockInTransit.ToString("N0") in transit</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card h-100"><div class="card-body">
+                <div class="text-muted small">Potted Plant Stock</div>
+                <div class="fs-4">@Model.Dashboard.Production.PottedPlantPhysical.ToString("N0")</div>
+                <div class="text-muted small">plants &middot; @Model.Dashboard.Production.PottedPlantAvailable.ToString("N0") available</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card h-100"><div class="card-body">
+                <div class="text-muted small">Ready Stock</div>
+                <div class="fs-4">@Model.Dashboard.Production.ReadyStockQuantity.ToString("N0")</div>
+                <div class="text-muted small">plants confirmed Ready</div>
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card h-100"><div class="card-body">
+                <div class="text-muted small">Seed Stock</div>
+                @if (Model.Dashboard.Production.SeedStock.Any())
+                {
+                    @foreach (var su in Model.Dashboard.Production.SeedStock)
+                    {
+                        <div class="fs-6">@su.Physical.ToString("N1") <span class="text-muted small">@su.Unit</span></div>
+                    }
+                }
+                else
+                {
+                    <div class="text-muted small">No stock</div>
+                }
+            </div></div>
+        </div>
+        <div class="col-md-2">
+            <div class="card h-100"><div class="card-body">
+                <div class="text-muted small">Empty Pot Stock</div>
+                <div class="fs-4">@Model.Dashboard.Production.EmptyPotPhysical.ToString("N0")</div>
+                <div class="text-muted small">pots</div>
+            </div></div>
+        </div>
+    </div>
+    <div class="text-muted small mb-4">Pot/Tray Production in selected range: <strong>@Model.Dashboard.Production.PotProductionQuantityInRange.ToString("N0")</strong> pots <span class="badge bg-primary">Movement</span></div>
+
+    <!-- Section B: Ready Stock / Production Readiness -->
+    <h5>Ready Stock / Production Readiness</h5>
+    <div class="row g-3 mb-4">
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Sown</div>
+            <div class="fs-5">@Model.Dashboard.ReadyStock.SownQuantity.ToString("N0")</div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Confirmed Ready</div>
+            <div class="fs-5">@Model.Dashboard.ReadyStock.ConfirmedReadyQuantity.ToString("N0")</div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Remaining</div>
+            <div class="fs-5">@Model.Dashboard.ReadyStock.RemainingQuantity.ToString("N0")</div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100 border-danger"><div class="card-body">
+            <div class="text-danger small">Overdue</div>
+            <div class="fs-5">@Model.Dashboard.ReadyStock.OverdueCount <span class="text-muted small">batches</span></div>
+            <div class="text-muted small">@Model.Dashboard.ReadyStock.OverdueQuantity.ToString("N0") remaining</div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100 border-warning"><div class="card-body">
+            <div class="text-warning-emphasis small">Ready Today</div>
+            <div class="fs-5">@Model.Dashboard.ReadyStock.ReadyTodayCount <span class="text-muted small">batches</span></div>
+            <div class="text-muted small">@Model.Dashboard.ReadyStock.ReadyTodayQuantity.ToString("N0") remaining</div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100 border-success"><div class="card-body">
+            <div class="text-success small">Ready Soon</div>
+            <div class="fs-5">@Model.Dashboard.ReadyStock.ReadySoonCount <span class="text-muted small">batches</span></div>
+            <div class="text-muted small">@Model.Dashboard.ReadyStock.ReadySoonQuantity.ToString("N0") remaining</div>
+        </div></div></div>
+    </div>
+    <div class="mb-4">
+        <a asp-page="/Production/ReadyAlerts/Index" class="btn btn-sm btn-outline-danger">Open Ready Alerts &rarr;</a>
+        <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-sm btn-outline-success">Open Ready Confirmation &rarr;</a>
+    </div>
+
+    <!-- Section C: Growing Partner Summary -->
+    <h5>Growing Partner Summary</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped">
+            <thead class="table-light">
+                <tr>
+                    <th>Growing Partner</th><th>Area</th>
+                    <th>Starter Material Received</th><th>Cutting Received</th>
+                    <th>Pot/Tray Production</th><th>Current Potted Stock</th>
+                    <th>Transfers to Outlet</th><th>Pending Confirmations</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var g in Model.Dashboard.GrowingPartners)
+                {
+                    <tr>
+                        <td>@g.GrowingPartnerName</td>
+                        <td>@g.AreaName</td>
+                        <td>@g.StarterMaterialReceived.ToString("N0")</td>
+                        <td>@g.CuttingReceived.ToString("N0")</td>
+                        <td>@g.PotTrayProduction.ToString("N0")</td>
+                        <td>@g.CurrentPottedStock.ToString("N0")</td>
+                        <td>@g.TransfersToOutlet.ToString("N0")</td>
+                        <td>
+                            @if (g.PendingConfirmations > 0)
+                            {
+                                <span class="badge bg-warning text-dark">@g.PendingConfirmations</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">0</span>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Dashboard.GrowingPartners.Any())
+                {
+                    <tr><td colspan="8" class="text-center text-muted">No Growing-Partner-owned Areas match the current filters.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Section D: Outlet / Sales Summary -->
+    <h5>Outlet / Sales Summary</h5>
+    <div class="row g-3 mb-4">
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Outlet Stock</div>
+            <div class="fs-5">@Model.Dashboard.OutletSales.OutletStockPhysical.ToString("N0")</div>
+            <div class="text-muted small">@Model.Dashboard.OutletSales.OutletStockAvailable.ToString("N0") available</div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Pending Bookings</div>
+            <div class="fs-5">@Model.Dashboard.OutletSales.PendingBookings</div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Partially Dispatched</div>
+            <div class="fs-5">@Model.Dashboard.OutletSales.PartiallyDispatchedBookings</div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Remaining Booking Qty</div>
+            <div class="fs-5">@Model.Dashboard.OutletSales.RemainingBookingQuantity.ToString("N0")</div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Completed Dispatches</div>
+            <div class="fs-5">@Model.Dashboard.OutletSales.CompletedDispatchCountInRange</div>
+            <div class="text-muted small">@Model.Dashboard.OutletSales.CompletedDispatchQuantityInRange.ToString("N0") plants <span class="badge bg-primary">Movement</span></div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Cancelled Bookings</div>
+            <div class="fs-5">@Model.Dashboard.OutletSales.CancelledBookings</div>
+        </div></div></div>
+    </div>
+    <div class="mb-4">
+        <a asp-page="/Bookings/Index" class="btn btn-sm btn-outline-primary">Open Bookings &rarr;</a>
+    </div>
+
+    <!-- Section E: Seed Summary -->
+    <h5>Seed Summary</h5>
+    <div class="row g-3 mb-4">
+        <div class="col-md-3"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Main Office Seed Stock <span class="badge bg-secondary">Balance</span></div>
+            @if (Model.Dashboard.Seed.MainOfficeSeedStock.Any())
+            {
+                @foreach (var su in Model.Dashboard.Seed.MainOfficeSeedStock)
+                {
+                    <div class="fs-6">@su.Physical.ToString("N1") <span class="text-muted small">@su.Unit</span></div>
+                }
+            }
+            else { <div class="text-muted small">No stock</div> }
+        </div></div></div>
+        <div class="col-md-3"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Issued / Received (range) <span class="badge bg-primary">Movement</span></div>
+            <div class="fs-6">Issued: @Model.Dashboard.Seed.SeedIssuedQuantityInRange.ToString("N1")</div>
+            <div class="fs-6">Received: @Model.Dashboard.Seed.SeedReceivedQuantityInRange.ToString("N1")</div>
+        </div></div></div>
+        <div class="col-md-3"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Sown (range) <span class="badge bg-primary">Movement</span></div>
+            <div class="fs-5">@Model.Dashboard.Seed.SeedSownQuantityInRange.ToString("N1")</div>
+            <div class="text-muted small">@Model.Dashboard.Seed.SowingActivityCountInRange sowing events</div>
+        </div></div></div>
+        <div class="col-md-3"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Pending Seed Receipts <span class="badge bg-secondary">Balance</span></div>
+            <div class="fs-5">@Model.Dashboard.Seed.PendingSeedReceipts</div>
+        </div></div></div>
+    </div>
+    <div class="mb-4">
+        <a asp-page="/Production/SeedIssue/Index" class="btn btn-sm btn-outline-primary">Open Seed Issue &rarr;</a>
+    </div>
+
+    <!-- Section F: Cutting Summary -->
+    <h5>Cutting Summary</h5>
+    <div class="row g-3 mb-3">
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Cutting Available</div>
+            <div class="fs-5">@Model.Dashboard.Cutting.CuttingAvailable.ToString("N0")</div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">In Transit</div>
+            <div class="fs-5">@Model.Dashboard.Cutting.CuttingInTransit.ToString("N0")</div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Pending Confirmation</div>
+            <div class="fs-5">@Model.Dashboard.Cutting.PendingConfirmationCount <span class="text-muted small">(@Model.Dashboard.Cutting.PendingConfirmationQuantity.ToString("N0"))</span></div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Confirmed, Awaiting Transplant</div>
+            <div class="fs-5">@Model.Dashboard.Cutting.ConfirmedAwaitingTransplantCount <span class="text-muted small">(@Model.Dashboard.Cutting.ConfirmedAwaitingTransplantQuantity.ToString("N0"))</span></div>
+        </div></div></div>
+        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+            <div class="text-muted small">Transplanted (range)</div>
+            <div class="fs-5">@Model.Dashboard.Cutting.TransplantedCountInRange <span class="text-muted small">(@Model.Dashboard.Cutting.TransplantedQuantityInRange.ToString("N0"))</span></div>
+        </div></div></div>
+    </div>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm">
+            <thead class="table-light"><tr><th>Date</th><th>Type</th><th>Area</th><th>Species</th><th>Quantity</th></tr></thead>
+            <tbody>
+                @foreach (var a in Model.Dashboard.Cutting.RecentActivity)
+                {
+                    <tr>
+                        <td>@a.TransactionDate.ToString("dd/MM/yyyy HH:mm")</td>
+                        <td>@a.TransactionType</td>
+                        <td>@a.AreaName</td>
+                        <td>@a.SpeciesName</td>
+                        <td>@a.Quantity.ToString("N1")</td>
+                    </tr>
+                }
+                @if (!Model.Dashboard.Cutting.RecentActivity.Any())
+                {
+                    <tr><td colspan="5" class="text-center text-muted">No Cutting Stock activity in the selected date range.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Section G: Inventory / Stock Health -->
+    <h5>Inventory / Stock Health <span class="badge bg-secondary">Balance</span></h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-bordered">
+            <thead class="table-light"><tr><th>Domain</th><th>Physical</th><th>Reserved</th><th>Available</th><th>In Transit</th></tr></thead>
+            <tbody>
+                @foreach (var row in Model.Dashboard.StockHealth)
+                {
+                    <tr>
+                        <td>@row.Domain <span class="text-muted small">(@row.Unit)</span></td>
+                        <td>@(row.Physical?.ToString("N0") ?? "—")</td>
+                        <td>@(row.Reserved?.ToString("N0") ?? "N/A")</td>
+                        <td>@(row.Available?.ToString("N0") ?? "N/A")</td>
+                        <td>@(row.InTransit?.ToString("N0") ?? "N/A")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <div class="text-muted small">"N/A" means this stock domain has no such concept in the current architecture (e.g. Empty Pot Inventory has no Reserved/In-Transit/Available column) &mdash; never a fabricated zero.</div>
+    </div>
+
+    <!-- Charts -->
+    <h5>Charts</h5>
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6">
+            <div class="card h-100"><div class="card-body">
+                <div class="fw-semibold">Sowing vs. Confirmed Ready <span class="text-muted small">(daily, selected range, unit: quantity)</span></div>
+                @Html.Raw(RenderGroupedBarChart(Model.Dashboard.SowingVsReadyTrend, "Sown", "Confirmed Ready"))
+            </div></div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100"><div class="card-body">
+                <div class="fw-semibold">Outlet Dispatch Trend <span class="text-muted small">(daily, selected range, unit: plants)</span></div>
+                @Html.Raw(RenderSingleSeriesBarChart(Model.Dashboard.OutletDispatchTrend, "plants"))
+            </div></div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100"><div class="card-body">
+                <div class="fw-semibold">Growing Partner Production <span class="text-muted small">(selected range, unit: pots)</span></div>
+                @Html.Raw(RenderHorizontalBarChart(Model.Dashboard.GrowingPartnerProductionChart, "pots"))
+            </div></div>
+        </div>
+    </div>
+</div>

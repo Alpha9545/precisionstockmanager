@@ -1,0 +1,70 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.SeedStock.DetailsModel
+@{
+    ViewData["Title"] = "Seed Stock Details";
+}
+
+<div class="container mt-4">
+    @if (Model.SeedStock == null)
+    {
+        <div class="alert alert-danger">Not found.</div>
+    }
+    else
+    {
+        <div class="card shadow-sm mb-4">
+            <div class="card-header">
+                <h4 class="mb-0">@Model.SeedStock.SpeciesName (@Model.SeedStock.PlantTypeName) &mdash; @Model.SeedStock.AreaName</h4>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3"><strong>Area Type:</strong> @(Model.SeedStock.AreaType ?? "-")</div>
+                    <div class="col-md-3"><strong>Lot/Batch:</strong> @(string.IsNullOrEmpty(Model.SeedStock.BatchNo) ? "-" : Model.SeedStock.BatchNo)</div>
+                    <div class="col-md-3"><strong>Source:</strong> @(Model.SeedStock.SeedSourceName ?? "-")</div>
+                    <div class="col-md-3"><strong>Unit:</strong> @Model.SeedStock.Unit</div>
+                    <div class="col-md-3"><strong>Physical Quantity:</strong> @Model.SeedStock.PhysicalQuantity.ToString("N2")</div>
+                    <div class="col-md-3"><strong>In Transit:</strong> @Model.SeedStock.InTransitQuantity.ToString("N2")</div>
+                    <div class="col-md-3"><strong>Available:</strong> @Model.SeedStock.AvailableQuantity.ToString("N2")</div>
+                </div>
+                <div class="mt-3">
+                    <a asp-page="/Production/SeedStock/AddStock" asp-route-id="@Model.SeedStock.Id" class="btn btn-outline-success btn-sm">Add Stock</a>
+                    <a asp-page="/Production/SeedStock/Index" class="btn btn-outline-secondary btn-sm">Back</a>
+                </div>
+            </div>
+        </div>
+
+        <h5>Transaction History</h5>
+        <table class="table table-sm table-bordered">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Reference</th>
+                    <th>Quantity</th>
+                    <th>Before</th>
+                    <th>After</th>
+                    <th>User</th>
+                    <th>Remarks</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in Model.Transactions)
+                {
+                    <tr>
+                        <td>@t.TransactionDate.ToString("yyyy-MM-dd HH:mm")</td>
+                        <td>@t.TransactionType</td>
+                        <td>@(t.ReferenceType != null ? $"{t.ReferenceType} #{t.ReferenceId}" : "-")</td>
+                        <td>@t.Quantity.ToString("N2")</td>
+                        <td>@t.BeforeQuantity.ToString("N2")</td>
+                        <td>@t.AfterQuantity.ToString("N2")</td>
+                        <td>@(t.UserName ?? "-")</td>
+                        <td>@(t.Remarks ?? "-")</td>
+                    </tr>
+                }
+                @if (!Model.Transactions.Any())
+                {
+                    <tr><td colspan="8" class="text-center text-muted">No transactions yet.</td></tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>

@@ -3,401 +3,1534 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
     <title>@ViewData["Title"] - PlantStockManager</title>
+
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/PlantStockManager.styles.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/dashboard.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/flatpicker.min.css" />
-    @*     <link href='https://unpkg.com/boxicons@2.0.7/css/boxicons.min.css' rel='stylesheet'>
- *@
-
 </head>
+
 <body>
+
     @using System.Security.Claims
+
     @{
-        var designationId = User.FindFirst("DesignationId")?.Value;
-        var designationName = User.FindFirst("DesignationName")?.Value;
+        var isAuthenticated =
+            User.Identity != null &&
+            User.Identity.IsAuthenticated;
+
+        var designationId =
+            User.FindFirst("DesignationId")?.Value;
+
+        var designationName =
+            User.FindFirst("DesignationName")?.Value;
+
+        /*
+         * Current legacy Administrator designation:
+         * DesignationId = 5
+         *
+         * Phase 14 permission:
+         * Admin.ManageAreas
+         *
+         * We support both so the navigation continues working
+         * while the new role/permission system is being adopted.
+         */
+        var isAdministrator =
+            isAuthenticated &&
+            (
+                designationId == "5" ||
+                User.HasClaim("Permission", "Admin.ManageAreas")
+            );
+
+        var canManageAreas =
+            isAuthenticated &&
+            User.HasClaim("Permission", "Admin.ManageAreas");
+
+        var canSeeLegacyStockSorting =
+            isAuthenticated &&
+            (
+                designationId == "2" ||
+                designationId == "5"
+            );
+
+        var canSeeLegacyBookingEntry =
+            isAuthenticated &&
+            (
+                designationId == "3" ||
+                designationId == "5"
+            );
+
+        var canSeeDirectBooking =
+            isAuthenticated &&
+            (
+                designationId == "2" ||
+                designationId == "5"
+            );
+
+        var canSeeLegacyFulfillment =
+            isAuthenticated &&
+            (
+                designationId == "4" ||
+                designationId == "5"
+            );
     }
 
     <div class="overlay"></div>
 
+    <!-- =========================================================
+         SIDEBAR
+         ========================================================= -->
+
     <div class="sidebar close">
+
+        <!-- Logo / Menu -->
         <div class="logo-details">
 
-            <img src="~/images/menu.svg" alt="Menu Icon" class="menu-icon">
-            <span class="logo_name"> </span>
+            <img src="~/images/menu.svg"
+                 alt="Menu Icon"
+                 class="menu-icon" />
+
+            <span class="logo_name"></span>
+
         </div>
+
+
         <ul class="nav-links">
+
+            <!-- =================================================
+                 DASHBOARD
+                 ================================================= -->
+
             <li>
+
                 <a asp-page="/index">
-                    <img src="~/images/home.svg" alt="Home Icon" class="nav-icon">
-                    <span class="link_name">Home</span>
+
+                    <img src="~/images/home.svg"
+                         alt="Dashboard Icon"
+                         class="nav-icon" />
+
+                    <span class="link_name">
+                        Dashboard
+                    </span>
+
                 </a>
+
                 <ul class="sub-menu blank">
-                    <li><a class="link_name" asp-page="/index">Home</a></li>
+
+                    <li>
+                        <a class="link_name"
+                           asp-page="/index">
+                            Dashboard
+                        </a>
+                    </li>
+
                 </ul>
+
             </li>
 
+
+            <!-- =================================================
+                 PRODUCTION
+                 ================================================= -->
+
             <li>
+
                 <div class="icon-link">
+
                     <a href="#">
-                        <img src="~/images/compass.svg" alt="Office Icon" class="nav-icon">
-                        <span class="link_name">Office</span>
-                    </a>
-                    <img src="~/images/arrow.svg" alt="Expand" class="arrow">
-                </div>
-                <ul class="sub-menu">
-                    <li><a class="link_name" href="#">Office</a></li>
-                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "1" || designationId == "5")
-                    {
-                        <li><a asp-page="/Office/SeedBank">Add Seeds/Cuttings</a></li>
 
-                        @* <li><a asp-page="/SeedEntry/EditSowing">Assign Seeds/Cuttings</a></li> *@
-                    }
-                     @if (User.Identity != null && User.Identity.IsAuthenticated)
-                    {
-                        <li><a asp-page="/Office/SeedBankView">View Seeds/Cuttings</a></li>
-                    }
+                        <img src="~/images/compass.svg"
+                             alt="Production Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Production
+                        </span>
+
+                    </a>
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
+                </div>
+
+
+                <ul class="sub-menu">
+
+                    <li>
+                        <a class="link_name" href="#">
+                            Production
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/MotherPlant/Index">
+                            Mother Plant
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/CuttingPlan/Index">
+                            Cutting Plan
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/ActualCutting/Index">
+                            Actual Cutting
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/CuttingDelivery/Index">
+                            Cutting Delivery
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/PropagationBatch/Index">
+                            Propagation Batch
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/PotProduction/Index">
+                            Pot / Tray Production
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/SeedSowing/Index">
+                            Seed Sowing
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/ReadyAlerts/Index">
+                            Ready Alerts
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/ReadyConfirmation/Index">
+                            Ready Confirmation
+                        </a>
+                    </li>
+
                 </ul>
+
             </li>
+
+
+            <!-- =================================================
+                 INVENTORY
+                 ================================================= -->
+
             <li>
+
                 <div class="icon-link">
+
                     <a href="#">
-                        <img src="~/images/bulb.svg" alt="Solutions Icon" class="nav-icon">
-                        <span class="link_name">Sowing</span>
+
+                        <img src="~/images/leaf.svg"
+                             alt="Inventory Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Inventory
+                        </span>
+
                     </a>
-                    <img src="~/images/arrow.svg" alt="Expand" class="arrow">
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
                 </div>
+
+
                 <ul class="sub-menu">
-                    <li><a class="link_name" href="#">SeedEntry</a></li>
-                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "1" || designationId == "5")
-                    {
-                        <li><a asp-page="/SeedEntry/Sowing">Sowing</a></li>
-                        @* <li><a asp-page="/SeedEntry/temp">Add Plant Phase</a></li>  *@
-                        <li><a asp-page="/SeedEntry/EditSowing">Edit Sowing</a></li>
 
-                    }
-                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "2" || designationId == "5")
-                    {
-                        <li><a asp-page="/SeedEntry/temp">Add Plant Phase</a></li>
-                    }
-                    @if (User.Identity != null && User.Identity.IsAuthenticated)
-                     {
-                    <li class="for-desktop-records"><a asp-page="/Data/Sowingplants">Sowing Records</a></li>
-                    <li class="for-mobile-records"><a asp-page="/Data/Sowingplants">Sowing Records</a></li>
-                    <li><a asp-page="/Data/MonthWiseSowing">Monthwise Records</a></li>
-                     }
+                    <li>
+                        <a class="link_name" href="#">
+                            Inventory
+                        </a>
+                    </li>
 
+                    <li>
+                        <a asp-page="/Production/PottedPlantStock/Index">
+                            Potted Plant Stock
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/EmptyPotInventory/Index">
+                            Empty Pot Stock
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/CuttingStock/MyTransactions">
+                            Cutting Stock
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/SeedStock/Index">
+                            Seed Stock
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Data/ReadyStock">
+                            Ready Stock
+                        </a>
+                    </li>
+
+                    @if (canSeeLegacyStockSorting)
+                    {
+                        <li>
+                            <a asp-page="/SeedEntry/Inventory">
+                                Legacy Stock Sorting
+                            </a>
+                        </li>
+                    }
+
+                    <li>
+                        <a asp-page="/Data/StockHistory">
+                            Stock History
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Data/WastedStock">
+                            Wasted Stock
+                        </a>
+                    </li>
 
                 </ul>
+
             </li>
+
+
+            <!-- =================================================
+                 TRANSFERS
+                 ================================================= -->
+
             <li>
+
                 <div class="icon-link">
+
                     <a href="#">
-                        <img src="~/images/leaf.svg" alt="Booking Icon" class="nav-icon">
-                        <span class="link_name">Stock Info</span>
+
+                        <img src="~/images/compass.svg"
+                             alt="Transfers Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Transfers
+                        </span>
+
                     </a>
-                    <img src="~/images/arrow.svg" alt="Expand" class="arrow">
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
                 </div>
+
+
                 <ul class="sub-menu">
-                    <li><a class="link_name" href="#">Stock Info</a></li>
-                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "2" || designationId == "5")
-                    {
-                        <li><a asp-page="/SeedEntry/Inventory">Sort Available Stock</a></li>
-                    }
-                    @if (User.Identity != null && User.Identity.IsAuthenticated)
-                     {
-                    <li><a asp-page="/Data/ReadyStock">Ready Stock</a></li>
-                    <li><a asp-page="/Data/StockHistory">Utilized Stock</a></li>
-                    <li><a asp-page="/Data/WastedStock">Wasted Stock</a></li>
-                     }
+
+                    <li>
+                        <a class="link_name" href="#">
+                            Transfers
+                        </a>
+                    </li>
+
+                    <!-- Internal Transfer -->
+
+                    <li>
+                        <a asp-page="/Production/InternalTransfer/Index">
+                            Internal Transfer
+                        </a>
+                    </li>
+
+
+                    <!-- Cutting Transfer -->
+
+                    <li>
+                        <a asp-page="/Production/CuttingStock/EnterCutting">
+                            Enter Cutting
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/CuttingStock/GiveToMainOffice">
+                            Give Cutting to Main Office
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/CuttingStock/PendingConfirmations">
+                            Main Office Pending Cutting
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/CuttingStock/PendingTransplants">
+                            Pending Transplants
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/CuttingStock/MyTransactions">
+                            My Cutting Transactions
+                        </a>
+                    </li>
+
+
+                    <!-- Main Office → Growing Partner -->
+
+                    <li>
+                        <a asp-page="/Production/MainOfficeIssue/Create">
+                            Issue Starter Material to Growing Partner
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/MainOfficeIssue/PendingReceipts">
+                            Growing Partner Pending Receipts
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/MainOfficeIssue/MyIssues">
+                            My Main Office Issues
+                        </a>
+                    </li>
+
+
+                    <!-- Seed Issue -->
+
+                    <li>
+                        <a asp-page="/Production/SeedIssue/Create">
+                            Issue Seed to Polyhouse / Growing Area
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/SeedIssue/PendingReceipts">
+                            Polyhouse Pending Seed Receipts
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/SeedIssue/MyIssues">
+                            My Seed Issues
+                        </a>
+                    </li>
+
+
+                    <!-- Growing Partner → Outlet -->
+
+                    <li>
+                        <a asp-page="/Production/GrowingPartnerToOutlet/Create">
+                            Send Stock to Outlet
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/GrowingPartnerToOutlet/PendingReceipts">
+                            Outlet Pending Receipts
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/GrowingPartnerToOutlet/MySentTransfers">
+                            My Outlet Transfers
+                        </a>
+                    </li>
+
                 </ul>
+
             </li>
+
+
+            <!-- =================================================
+                 GROWING PARTNERS
+                 ================================================= -->
+
             <li>
+
                 <div class="icon-link">
-                    <a>
-                        <img src="~/images/cart.svg" alt="Booking Icon" class="nav-icon">
-                        <span class="link_name">Booking</span>
-                    </a>
-                    <img src="~/images/arrow.svg" alt="Expand" class="arrow">
-                </div>
-                <ul class="sub-menu">
-                    <li><a class="link_name">Booking</a></li>
-                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "3" || designationId == "5")
-                    {
-                        <li><a asp-page="/Bookings/Book">Add Booking</a></li>
-                        <li><a asp-page="/Bookings/EditBookingRecords">Edit Booking Records</a></li>
-                    }
-                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "2" || designationId == "5")
-                    {
-                        <li><a asp-page="/Bookings/DirectBooking">Add Direct Booking</a></li>
-                        <li><a asp-page="/Bookings/DirectBookingList">Direct Booking List</a></li>
-                    }
 
-                    @if (User.Identity != null && User.Identity.IsAuthenticated)
-                    {
-                        <li><a asp-page="/Data/BookingsRecord">Pending Booking Records</a></li>
-
-
-
-                        @* <li><a asp-page="/Data/SowingBookingSummary">Sowing Booking Summary</a></li>
-                    <li><a asp-page="/Data/test201225">Sowing Booking Summary test</a></li>
-                    <li><a asp-page="/Data/SowingBookingSync">Sowing Booking Summary test 2</a></li> *@
-                        <li><a asp-page="/Data/TotalStockSync">Sowing Booking Sync</a></li>
-
-                    }
-
-                    @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "4" || designationId == "5")
-                    {
-                        <li><a asp-page="/Bookings/Bookinglist">Fullfill Bookings</a></li>
-                        <li><a asp-page="/Bookings/RevertBooking">Revert Booking</a></li>
-
-                    }
-                    @if (User.Identity != null && User.Identity.IsAuthenticated)
-                    {
-                        <li><a asp-page="/Data/BookingHistory">Completed Booking</a></li>
-                    }
-                </ul>
-            </li>
-            <li>
-                <div class="icon-link">
                     <a href="#">
-                        <img src="~/images/find.svg" alt="Solutions Icon" class="nav-icon">
-                        <span class="link_name">Insights</span>
+
+                        <img src="~/images/bulb.svg"
+                             alt="Growing Partners Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Growing Partners
+                        </span>
+
                     </a>
-                    <img src="~/images/arrow.svg" alt="Expand" class="arrow">
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
                 </div>
+
+
                 <ul class="sub-menu">
-                    <li><a class="link_name" href="#">Insights</a></li>
-                    <li><a href="#">Sowing Plants</a></li>
-                    <li><a href="#">Inventory</a></li>
-                    <li><a href="#">Financial Burnout</a></li>
+
+                    <li>
+                        <a class="link_name" href="#">
+                            Growing Partners
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Admin/GrowingPartner">
+                            Partner List
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/MainOfficeIssue/Create">
+                            Starter Material
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/PotProduction/Index">
+                            Partner Production
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/PottedPlantStock/Index">
+                            Partner Stock
+                        </a>
+                    </li>
+
                 </ul>
-            </li>
-            <li>
-                <a href="#">
-                    <img src="~/images/credit-card.svg" alt="Home Icon" class="nav-icon">
-                    <span class="link_name">Pricing</span>
-                </a>
-                <ul class="sub-menu blank">
-                    <li><a class="link_name" href="#">Pricing</a></li>
-                </ul>
-            </li>
-            <li>
-                  <div class="icon-link">
-                <a>
-                    <img src="~/images/chart.svg" alt="Home Icon" class="nav-icon">
-                    <span class="link_name">Fertilizer</span>
-                </a>
-                 <img src="~/images/arrow.svg" alt="Expand" class="arrow">
-                  </div>
-                <ul class="sub-menu">
-                     @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "6")
-            {
-                        <li><a class="link_name" href="#">Fertilizer</a></li>
-                        <li><a asp-page="/Fertilizer/UnitMaster">Fertilizer Unit</a></li>
-                        <li><a asp-page="/Fertilizer/Type">Fertilizer Type</a></li>
-                        <li><a asp-page="/Fertilizer/Fertilizer">Fertilizer Name</a></li>
-                        <li><a asp-page="/Fertilizer/Source">Fertilizer Source</a></li>
-                        <li><a asp-page="/Fertilizer/Stock">Fertilizer Stock</a></li>
-                        <li><a asp-page="/Fertilizer/Usage">Fertilizer Usage Mark</a></li>
-                        <li><a asp-page="/Fertilizer/View">Fertilizer Data</a></li>
-                    }
-                </ul>
+
             </li>
 
-            @if (User.Identity != null && User.Identity.IsAuthenticated && designationId == "5")
+
+            <!-- =================================================
+                 OUTLET
+                 ================================================= -->
+
+            <li>
+
+                <div class="icon-link">
+
+                    <a href="#">
+
+                        <img src="~/images/cart.svg"
+                             alt="Outlet Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Outlet
+                        </span>
+
+                    </a>
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
+                </div>
+
+
+                <ul class="sub-menu">
+
+                    <li>
+                        <a class="link_name" href="#">
+                            Outlet
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/GrowingPartnerToOutlet/Create">
+                            Receive from Growing Partner
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/GrowingPartnerToOutlet/PendingReceipts">
+                            Pending Receipts
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/PottedPlantStock/Index">
+                            Outlet Stock
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/PottedPlantBooking/Index">
+                            Customer Booking
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/Dispatch/Index">
+                            Dispatch
+                        </a>
+                    </li>
+
+                </ul>
+
+            </li>
+
+
+            <!-- =================================================
+                 BOOKING
+                 ================================================= -->
+
+            <li>
+
+                <div class="icon-link">
+
+                    <a href="#">
+
+                        <img src="~/images/cart.svg"
+                             alt="Booking Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Booking
+                        </span>
+
+                    </a>
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
+                </div>
+
+
+                <ul class="sub-menu">
+
+                    <li>
+                        <a class="link_name" href="#">
+                            Booking
+                        </a>
+                    </li>
+
+
+                    <!-- New Booking System -->
+
+                    <li>
+                        <a asp-page="/Production/PottedPlantBooking/Index">
+                            Potted Plant Booking
+                        </a>
+                    </li>
+
+
+                    <!-- Legacy Booking -->
+
+                    @if (canSeeLegacyBookingEntry)
+                    {
+                        <li>
+                            <a asp-page="/Bookings/Book">
+                                Legacy Add Booking
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Bookings/EditBookingRecords">
+                                Legacy Edit Booking
+                            </a>
+                        </li>
+                    }
+
+
+                    @if (canSeeDirectBooking)
+                    {
+                        <li>
+                            <a asp-page="/Bookings/DirectBooking">
+                                Direct Booking
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Bookings/DirectBookingList">
+                                Direct Booking List
+                            </a>
+                        </li>
+                    }
+
+
+                    @if (isAuthenticated)
+                    {
+                        <li>
+                            <a asp-page="/Data/BookingsRecord">
+                                Pending Booking Records
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Data/BookingHistory">
+                                Completed Booking
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Data/TotalStockSync">
+                                Sowing Booking Sync
+                            </a>
+                        </li>
+                    }
+
+
+                    @if (canSeeLegacyFulfillment)
+                    {
+                        <li>
+                            <a asp-page="/Bookings/Bookinglist">
+                                Legacy Fulfill Bookings
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Bookings/RevertBooking">
+                                Revert Booking
+                            </a>
+                        </li>
+                    }
+
+                </ul>
+
+            </li>
+
+
+            <!-- =================================================
+                 PURCHASE
+                 ================================================= -->
+
+            <li>
+
+                <div class="icon-link">
+
+                    <a href="#">
+
+                        <img src="~/images/compass.svg"
+                             alt="Purchase Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Purchase
+                        </span>
+
+                    </a>
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
+                </div>
+
+
+                <ul class="sub-menu">
+
+                    <li>
+                        <a class="link_name" href="#">
+                            Purchase
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Admin/Vendor">
+                            Vendors
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/PurchaseOrder/Index">
+                            Purchase Orders
+                        </a>
+                    </li>
+
+                </ul>
+
+            </li>
+
+
+            <!-- =================================================
+                 LABORATORY
+                 ================================================= -->
+
+            <li>
+
+                <div class="icon-link">
+
+                    <a href="#">
+
+                        <img src="~/images/chart.svg"
+                             alt="Laboratory Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Laboratory
+                        </span>
+
+                    </a>
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
+                </div>
+
+
+                <ul class="sub-menu">
+
+                    <li>
+                        <a class="link_name" href="#">
+                            Laboratory
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/LabRequest/Index">
+                            Lab Requests
+                        </a>
+                    </li>
+
+                </ul>
+
+            </li>
+
+
+            <!-- =================================================
+                 FERTILIZER
+                 ================================================= -->
+
+            <li>
+
+                <div class="icon-link">
+
+                    <a href="#">
+
+                        <img src="~/images/leaf.svg"
+                             alt="Fertilizer Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Fertilizer
+                        </span>
+
+                    </a>
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
+                </div>
+
+
+                <ul class="sub-menu">
+
+                    <li>
+                        <a class="link_name" href="#">
+                            Fertilizer
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Fertilizer/UnitMaster">
+                            Fertilizer Unit
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Fertilizer/Type">
+                            Fertilizer Type
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Fertilizer/Fertilizer">
+                            Fertilizer Name
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Fertilizer/Source">
+                            Fertilizer Source
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Fertilizer/Stock">
+                            Fertilizer Stock
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Fertilizer/Usage">
+                            Fertilizer Usage
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Fertilizer/View">
+                            Fertilizer Data
+                        </a>
+                    </li>
+
+                </ul>
+
+            </li>
+
+
+            <!-- =================================================
+                 LABOUR
+                 ================================================= -->
+
+            <li>
+
+                <div class="icon-link">
+
+                    <a href="#">
+
+                        <img src="~/images/chart.svg"
+                             alt="Labour Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Labour
+                        </span>
+
+                    </a>
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
+                </div>
+
+
+                <ul class="sub-menu">
+
+                    <li>
+                        <a class="link_name" href="#">
+                            Labour
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/LabourLog/Index">
+                            Labour Entry
+                        </a>
+                    </li>
+
+                </ul>
+
+            </li>
+
+
+            <!-- =================================================
+                 REPORTS
+                 ================================================= -->
+
+            <li>
+
+                <div class="icon-link">
+
+                    <a href="#">
+
+                        <img src="~/images/find.svg"
+                             alt="Reports Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Reports
+                        </span>
+
+                    </a>
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
+                </div>
+
+
+                <ul class="sub-menu">
+
+                    <li>
+                        <a class="link_name" href="#">
+                            Reports
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Production/Dashboard/Index">
+                            Production Dashboard
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Data/Sowingplants">
+                            Sowing Records
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Data/MonthWiseSowing">
+                            Monthwise Sowing
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Data/StockHistory">
+                            Stock History
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Data/BookingHistory">
+                            Booking History
+                        </a>
+                    </li>
+
+                    <li>
+                        <a asp-page="/Data/BookingsRecord">
+                            Pending Bookings
+                        </a>
+                    </li>
+
+                </ul>
+
+            </li>
+
+
+            <!-- =================================================
+                 ADMINISTRATION
+                 ================================================= -->
+
+            @if (isAdministrator)
             {
                 <li>
 
                     <div class="icon-link">
+
                         <a href="#">
-                            <img src="~/images/cog.svg" alt="Home Icon" class="nav-icon">
-                            <span class="link_name">Setting</span>
+
+                            <img src="~/images/cog.svg"
+                                 alt="Administration Icon"
+                                 class="nav-icon" />
+
+                            <span class="link_name">
+                                Administration
+                            </span>
+
                         </a>
-                        <img src="~/images/arrow.svg" alt="Expand" class="arrow">
+
+                        <img src="~/images/arrow.svg"
+                             alt="Expand"
+                             class="arrow" />
+
                     </div>
 
+
                     <ul class="sub-menu">
-                        <li><a class="link_name" href="#">Setting</a></li>
-                        <li><a asp-page="/Admin/Seedsource">Add/Edit Seed Source</a></li>
-                        <li><a asp-page="/Admin/Polyhouse">Add/Edit Polyhouse</a></li>
-                        <li><a asp-page="/Admin/Plant">Add/Edit Plants</a></li>
-                        @* <li><a asp-page="/Admin/Employee">Add/Edit Employees</a></li>
-                    <li><a asp-page="/Account/AddUser">Add/Edit Users</a></li> *@
-                        <li><a asp-page="/Admin/Users">Add/Edit Employees</a></li>
+
+                        <li>
+                            <a class="link_name" href="#">
+                                Administration
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Admin/Users">
+                                Users / Employees
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Admin/Area">
+                                Areas
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Admin/Polyhouse">
+                                Polyhouses
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Admin/Plant">
+                                Plant Master
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Admin/Seedsource">
+                                Seed Sources
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Admin/Vendor">
+                                Vendors
+                            </a>
+                        </li>
+
+                        <li>
+                            <a asp-page="/Admin/GrowingPartner">
+                                Growing Partners
+                            </a>
+                        </li>
 
                     </ul>
 
+                </li>
+            }
+
+
+            <!-- =================================================
+                 MANAGEMENT DASHBOARD
+                 Administrator permission only
+                 ================================================= -->
+
+            @if (canManageAreas)
+            {
+                <li>
+
+                    <a asp-page="/ManagementDashboard/Index">
+
+                        <img src="~/images/chart.svg"
+                             alt="Management Dashboard Icon"
+                             class="nav-icon" />
+
+                        <span class="link_name">
+                            Management Dashboard
+                        </span>
+
+                    </a>
+
+
+                    <ul class="sub-menu blank">
+
+                        <li>
+                            <a class="link_name"
+                               asp-page="/ManagementDashboard/Index">
+                                Management Dashboard
+                            </a>
+                        </li>
+
+                    </ul>
 
                 </li>
             }
-            <li>
-                <div class="profile-details">
-                    @if (User.Identity != null && User.Identity.IsAuthenticated)
-                    {
+
+
+            <!-- =================================================
+                 PROFILE / LOGOUT
+                 ================================================= -->
+
+            @if (isAuthenticated)
+            {
+                <li>
+
+                    <div class="profile-details">
+
                         <div class="profile-content">
-                            <img src="~/images/user.png" class="profileImg" />
+
+                            <img src="~/images/user.png"
+                                 class="profileImg"
+                                 alt="User" />
+
                         </div>
 
 
                         <div class="name-job me-2">
-                            <div class="profile_name">@User.Identity.Name</div>
+
+                            <div class="profile_name">
+                                @User.Identity?.Name
+                            </div>
+
                         </div>
 
-                        <form asp-page="/Account/Logout" method="post" class="d-inline">
-                            <button type="submit" class="btn p-0 border-0 bg-transparent" title="Logout">
-                                <img src="~/images/log-out.svg" alt="Logout" class="log-out" style="height: 28px; width: 28px;" />
-                            </button>
-                        </form>
-                    }
-                </div>
 
-            </li>
+                        <form asp-page="/Account/Logout"
+                              method="post"
+                              class="d-inline">
+
+                            <button type="submit"
+                                    class="btn p-0 border-0 bg-transparent"
+                                    title="Logout">
+
+                                <img src="~/images/log-out.svg"
+                                     alt="Logout"
+                                     class="log-out"
+                                     style="height:28px;width:28px;" />
+
+                            </button>
+
+                        </form>
+
+                    </div>
+
+                </li>
+            }
+
         </ul>
+
     </div>
+
+
+    <!-- =========================================================
+         TOP HEADER
+         ========================================================= -->
+
     <header class="top-header">
+
+        <!-- Mobile Menu -->
+
         <div class="mobile-menu-icon">
 
-            <img src="~/images/menu.svg" alt="Menu Icon" class="menu-icon " style="filter: invert(1);margin-right:10px;">
+            <img src="~/images/menu.svg"
+                 alt="Menu Icon"
+                 class="menu-icon"
+                 style="filter:invert(1);margin-right:10px;" />
+
         </div>
+
+
         <div class="header-content">
 
-            <span class="header-title">Plant Manager</span>
-            @* <form asp-page="/Account/Logout" method="post" >
-                <button type="submit" class="btn btn-danger logout-btn">Logout</button>
-            </form> *@
-
-          @*   @if (User.Identity != null && User.Identity.IsAuthenticated)
-            {
-                <div class="d-flex align-items-center gap-3">
-                    <span class="text-dark fw-bold">Hello @User.Identity.Name ,</span><span style="color: red;">@designationName</span>
+            <span class="header-title">
+                Plant Manager
+            </span>
 
 
-                    <form asp-page="/Account/Logout" method="post" class="d-inline">
-                        <button type="submit" class="btn btn-danger logout-btn">Logout</button>
-                    </form>
-                </div>
-            } *@
-            @if (User.Identity != null && User.Identity.IsAuthenticated)
+            @if (isAuthenticated)
             {
                 <div class="user-area d-flex align-items-center gap-3">
-                    <!-- Desktop / md+ view -->
-                    <div class="d-none d-md-flex align-items-center gap-2">
-                        <span class="greeting text-dark fw-bold">
-                            Hello <span class="user-name">@User.Identity.Name</span>,
-                        </span>
-                        <span class="designation badge bg-danger">@designationName</span>
-                        <form asp-page="/Account/Logout" method="post" class="d-inline ms-2">
-                            <button type="submit" class="btn btn-sm btn-danger logout-btn">Logout</button>
-                        </form>
-                    </div>
 
-                    <!-- Mobile view: compact dropdown -->
-                    <div class="d-flex d-md-none align-items-center">
-                        <div class="dropdown">
-                            @{
-                                var name = User.Identity?.Name ?? "";
-                                var firstWord = name.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "";
-                            }
-                            <button class="btn btn-outline-secondary btn-sm dropdown-toggle user-avatar-btn"
-                                    type="button" id="userMenuBtn" data-bs-toggle="dropdown" aria-expanded="false">
-                                <span class="avatar-name">@firstWord</span>
+
+                    <!-- Desktop -->
+
+                    <div class="d-none d-md-flex align-items-center gap-2">
+
+                        <span class="greeting text-dark fw-bold">
+
+                            Hello
+
+                            <span class="user-name">
+                                @User.Identity?.Name
+                            </span>,
+
+                        </span>
+
+
+                        @if (!string.IsNullOrWhiteSpace(designationName))
+                        {
+                            <span class="designation badge bg-danger">
+                                @designationName
+                            </span>
+                        }
+
+
+                        <a class="btn btn-sm btn-outline-primary"
+                           asp-page="/Account/Profile">
+
+                            Profile
+
+                        </a>
+
+
+                        <form asp-page="/Account/Logout"
+                              method="post"
+                              class="d-inline ms-1">
+
+                            <button type="submit"
+                                    class="btn btn-sm btn-danger logout-btn">
+
+                                Logout
+
                             </button>
 
-                            <ul class="dropdown-menu dropdown-menu-end p-2" aria-labelledby="userMenuBtn" style="min-width:180px;">
-                                <li class="px-2">
-                                    <div class="fw-semibold small user-mobile-name">@User.Identity.Name</div>
-                                    <div class="small text-danger user-mobile-designation">@designationName</div>
-                                </li>
-                                <li><hr class="dropdown-divider" /></li>
-                                <li>
-                                    <a class="dropdown-item small" asp-page="/Account/Profile">Profile</a>
-                                </li>
-                                <li>
-                                    <form asp-page="/Account/Logout" method="post" class="m-0 px-2">
-                                        <button type="submit" class="btn btn-sm btn-outline-danger w-100">Logout</button>
-                                    </form>
-                                </li>
-                            </ul>
-                        </div>
+                        </form>
+
                     </div>
+
+
+                    <!-- Mobile -->
+
+                    <div class="d-flex d-md-none align-items-center">
+
+                        <div class="dropdown">
+
+                            @{
+                                var name =
+                                    User.Identity?.Name ?? "";
+
+                                var firstWord =
+                                    name
+                                    .Split(
+                                        ' ',
+                                        StringSplitOptions.RemoveEmptyEntries
+                                    )
+                                    .FirstOrDefault() ?? "";
+                            }
+
+
+                            <button class="btn btn-outline-secondary btn-sm dropdown-toggle user-avatar-btn"
+                                    type="button"
+                                    id="userMenuBtn"
+                                    data-bs-toggle="dropdown"
+                                    aria-expanded="false">
+
+                                <span class="avatar-name">
+                                    @firstWord
+                                </span>
+
+                            </button>
+
+
+                            <ul class="dropdown-menu dropdown-menu-end p-2"
+                                aria-labelledby="userMenuBtn"
+                                style="min-width:180px;">
+
+                                <li class="px-2">
+
+                                    <div class="fw-semibold small user-mobile-name">
+                                        @User.Identity?.Name
+                                    </div>
+
+                                    @if (!string.IsNullOrWhiteSpace(designationName))
+                                    {
+                                        <div class="small text-danger user-mobile-designation">
+                                            @designationName
+                                        </div>
+                                    }
+
+                                </li>
+
+
+                                <li>
+                                    <hr class="dropdown-divider" />
+                                </li>
+
+
+                                <li>
+
+                                    <a class="dropdown-item small"
+                                       asp-page="/Account/Profile">
+
+                                        Profile
+
+                                    </a>
+
+                                </li>
+
+
+                                <li>
+
+                                    <form asp-page="/Account/Logout"
+                                          method="post"
+                                          class="m-0 px-2">
+
+                                        <button type="submit"
+                                                class="btn btn-sm btn-outline-danger w-100">
+
+                                            Logout
+
+                                        </button>
+
+                                    </form>
+
+                                </li>
+
+                            </ul>
+
+                        </div>
+
+                    </div>
+
                 </div>
             }
             else
             {
+                <!-- Desktop Login -->
+
                 <div class="d-none d-md-block">
-                    <a class="btn btn-outline-primary" asp-page="/Account/Login">Login</a>
+
+                    <a class="btn btn-outline-primary"
+                       asp-page="/Account/Login">
+
+                        Login
+
+                    </a>
+
                 </div>
+
+
+                <!-- Mobile Login -->
+
                 <div class="d-block d-md-none">
-                    <a class="btn btn-outline-primary btn-sm" asp-page="/Account/Login">Login</a>
+
+                    <a class="btn btn-outline-primary btn-sm"
+                       asp-page="/Account/Login">
+
+                        Login
+
+                    </a>
+
                 </div>
             }
 
-
-
         </div>
+
     </header>
+
+
+    <!-- =========================================================
+         MAIN CONTENT
+         ========================================================= -->
 
     <div class="main-content">
 
         <main role="main" class="pb-3">
 
             @RenderBody()
+
         </main>
+
     </div>
 
 
-    @*     <footer class="footer">
-        <div class="footer-content">
-            &copy; 2025 - PlantStockManager - <a asp-area="" asp-page="/Privacy">Privacy</a>
-        </div>
-    </footer> *@
-
-
-
-
-
-
-
+    <!-- =========================================================
+         JAVASCRIPT
+         ========================================================= -->
 
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
+
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="~/js/site.js" asp-append-version="true"></script>
+
+    <script src="~/js/site.js"
+            asp-append-version="true"></script>
+
     <script src="~/js/flatpicker.min.js"></script>
 
+
     <script>
-           document.addEventListener("DOMContentLoaded", function () {
-            flatpickr("#fromDatePicker", {
-                dateFormat: "d/m/Y",
-                allowInput: true
-            });
-            flatpickr("#toDatePicker", {
-                dateFormat: "d/m/Y",
-                allowInput: true
-            });
-        });
-            // Define the base path for AJAX requests
-            window.basePath = '@Url.Content("~/")';
 
+        document.addEventListener(
+            "DOMContentLoaded",
+            function () {
 
-             // Force redirect on back after logout
-            if (window.history.replaceState) {
-                window.history.replaceState(null, null, window.location.href);
-            }
+                /*
+                 * From Date
+                 */
+                const fromDatePicker =
+                    document.getElementById("fromDatePicker");
 
-            window.addEventListener('pageshow', function (event) {
-                if (event.persisted || (window.performance && window.performance.navigation.type === 2)) {
-                    window.location.reload();
+                if (fromDatePicker) {
+
+                    flatpickr(
+                        "#fromDatePicker",
+                        {
+                            dateFormat: "d/m/Y",
+                            allowInput: true
+                        }
+                    );
+
                 }
-            });
-    </script>
-    @await RenderSectionAsync("Scripts", required: false)
 
+
+                /*
+                 * To Date
+                 */
+                const toDatePicker =
+                    document.getElementById("toDatePicker");
+
+                if (toDatePicker) {
+
+                    flatpickr(
+                        "#toDatePicker",
+                        {
+                            dateFormat: "d/m/Y",
+                            allowInput: true
+                        }
+                    );
+
+                }
+
+            }
+        );
+
+
+        /*
+         * Base path for AJAX requests.
+         */
+        window.basePath =
+            '@Url.Content("~/")';
+
+
+        /*
+         * Prevent browser from restoring
+         * an authenticated page from cache
+         * after logout.
+         */
+        if (window.history.replaceState) {
+
+            window.history.replaceState(
+                null,
+                null,
+                window.location.href
+            );
+
+        }
+
+
+        /*
+         * Handle browser Back / Forward cache.
+         */
+        window.addEventListener(
+            "pageshow",
+            function (event) {
+
+                if (
+                    event.persisted ||
+                    (
+                        window.performance &&
+                        window.performance.navigation &&
+                        window.performance.navigation.type === 2
+                    )
+                ) {
+
+                    window.location.reload();
+
+                }
+
+            }
+        );
+
+    </script>
+
+
+    @await RenderSectionAsync(
+        "Scripts",
+        required: false
+    )
 
 </body>
 </html>
-
-
-

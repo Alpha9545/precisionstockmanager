@@ -88,6 +88,20 @@ namespace PlantStockManager.Data
                         return false;
                 }
 
+                // 🔹 Check if any Variety under this Plant Type is used in MotherPlants (Production module)
+                string checkMotherPlants = @"
+SELECT COUNT(*) FROM dbo.MotherPlants mp
+JOIN dbo.PlantSpecies sp ON sp.Id = mp.SpeciesId
+WHERE sp.PlantTypeId = @Id";
+
+                using (var cmd = new SqlCommand(checkMotherPlants, connection))
+                {
+                    cmd.Parameters.AddWithValue("@Id", id);
+                    int count = (int)await cmd.ExecuteScalarAsync();
+                    if (count > 0)
+                        return false;
+                }
+
                 // 🔹 Safe to delete
                 string deleteQuery = "DELETE FROM PlantTypes WHERE Id = @Id";
 

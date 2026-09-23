@@ -1,0 +1,42 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.CuttingDelivery.DetailsModel
+@{
+    ViewData["Title"] = "Cutting Delivery Details";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header">
+            <h4 class="mb-0">@Model.CuttingDelivery!.DeliveryCode</h4>
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-5">Actual Cutting</dt>
+                <dd class="col-sm-7"><a asp-page="/Production/ActualCutting/Details" asp-route-id="@Model.CuttingDelivery.ActualCuttingId">@Model.CuttingDelivery.ActualCuttingCode</a></dd>
+                <dt class="col-sm-5">Mother Plant</dt>
+                <dd class="col-sm-7"><a asp-page="/Production/MotherPlant/Details" asp-route-id="@Model.CuttingDelivery.MotherPlantId">@Model.CuttingDelivery.MotherPlantCode</a></dd>
+                <dt class="col-sm-5">Plant Species</dt><dd class="col-sm-7">@Model.CuttingDelivery.SpeciesName (@Model.CuttingDelivery.PlantTypeName)</dd>
+                <dt class="col-sm-5">Delivery Date</dt><dd class="col-sm-7">@Model.CuttingDelivery.DeliveryDate.ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.CuttingDelivery.Status</dd>
+                <dt class="col-sm-5">Delivered Quantity</dt><dd class="col-sm-7">@Model.CuttingDelivery.DeliveredQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Loss Quantity</dt><dd class="col-sm-7">@Model.CuttingDelivery.LossQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Removed Quantity</dt><dd class="col-sm-7">@Model.CuttingDelivery.RemovedQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Rejected Quantity</dt><dd class="col-sm-7">@Model.CuttingDelivery.RejectedQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Damaged Quantity</dt><dd class="col-sm-7">@Model.CuttingDelivery.DamagedQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Net Quantity (to propagation)</dt><dd class="col-sm-7"><strong>@Model.CuttingDelivery.NetQuantity.ToString("N2")</strong></dd>
+                <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.CuttingDelivery.ResponsiblePersonName</dd>
+                <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.CuttingDelivery.SupervisorName</dd>
+                <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.CuttingDelivery.Remarks</dd>
+                <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.CuttingDelivery.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.CuttingDelivery.CreatedBy</dd>
+                @if (Model.CuttingDelivery.ModifiedDate.HasValue)
+                {
+                    <dt class="col-sm-5">Last Modified</dt><dd class="col-sm-7">@Model.CuttingDelivery.ModifiedDate.Value.ToString("dd/MM/yyyy HH:mm") by @Model.CuttingDelivery.ModifiedBy</dd>
+                }
+            </dl>
+        </div>
+        <div class="card-footer text-end">
+            <a asp-page="/Production/CuttingDelivery/Index" class="btn btn-secondary">Back</a>
+            <a asp-page="/Production/CuttingDelivery/Edit" asp-route-id="@Model.CuttingDelivery.Id" class="btn btn-warning">Edit</a>
+        </div>
+    </div>
+</div>

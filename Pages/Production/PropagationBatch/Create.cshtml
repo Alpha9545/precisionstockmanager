@@ -1,0 +1,121 @@
+@page
+@model PlantStockManager.Pages.Production.PropagationBatch.CreateModel
+@{
+    ViewData["Title"] = "Start Propagation Batch";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Start Propagation Batch</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (!Model.OpenCuttingDeliveries.Any())
+            {
+                <div class="alert alert-warning">
+                    No Cutting Delivery records have remaining Net Quantity available for propagation.
+                    <a asp-page="/Production/CuttingDelivery/Create">Record a Cutting Delivery</a> first.
+                </div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Cutting Delivery</label>
+                        <select asp-for="PropagationBatch.CuttingDeliveryId" id="cdSelect" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var cd in Model.OpenCuttingDeliveries)
+                            {
+                                var remaining = cd.NetQuantity - cd.PropagatedQuantityRecorded;
+                                <option value="@cd.Id" data-remaining="@remaining.ToString("0.####")">
+                                    @cd.DeliveryCode &mdash; @cd.MotherPlantCode / @cd.SpeciesName (Net @cd.NetQuantity.ToString("N2"), Remaining @remaining.ToString("N2"))
+                                </option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Remaining Available</label>
+                        <input type="text" id="remainingPreview" class="form-control" readonly placeholder="Select a Cutting Delivery" />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Propagation Date</label>
+                        <input type="date" asp-for="PropagationBatch.PropagationDate" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Quantity</label>
+                        <input type="number" step="0.01" min="0.01" asp-for="PropagationBatch.Quantity" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Propagation Area</label>
+                        <select asp-for="PropagationBatch.AreaId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var area in Model.Areas)
+                            {
+                                <option value="@area.Id">@area.Name (@area.PolyhouseName)</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Labour / Responsible Person</label>
+                        <select asp-for="PropagationBatch.ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="PropagationBatch.SupervisorId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="PropagationBatch.Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PropagationBatch/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Start Batch</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            $('#cdSelect').on('change', function () {
+                const remaining = $(this).find('option:selected').data('remaining');
+                $('#remainingPreview').val(remaining !== undefined ? remaining : '');
+            }).trigger('change');
+        });
+    </script>
+}

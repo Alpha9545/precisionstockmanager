@@ -1,0 +1,92 @@
+@page
+@model PlantStockManager.Pages.Production.PottedPlantStock.IndexModel
+@{
+    ViewData["Title"] = "Potted Plant Stock";
+}
+
+<div class="container-fluid mt-4">
+    <h2 class="mb-3">Potted Plant Stock</h2>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Total Physical</div>
+                    <div class="fs-3 fw-bold">@Model.TotalPhysical.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Total Reserved</div>
+                    <div class="fs-3 fw-bold">@Model.TotalReserved.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Total Available</div>
+                    <div class="fs-3 fw-bold">@Model.TotalAvailable.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Variety</th>
+                    <th>Pot Size</th>
+                    <th>Area</th>
+                    <th>Growing Partner</th>
+                    <th>Physical</th>
+                    <th>Reserved</th>
+                    <th>Available</th>
+                    <th>Sold / Dispatched (cumulative)</th>
+                    <th>Wasted (cumulative)</th>
+                    <th>Production Source</th>
+                    <th>Last Transaction</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in Model.Stocks)
+                {
+                    <tr>
+                        <td>@s.SpeciesName <span class="text-muted">(@s.PlantTypeName)</span></td>
+                        <td>@s.PotSize</td>
+                        <td>@(s.AreaName ?? "Unassigned")</td>
+                        <td>@(s.GrowingPartnerName ?? "Internal")</td>
+                        <td>@s.PhysicalQuantity.ToString("N2")</td>
+                        <td>@s.ReservedQuantity.ToString("N2")</td>
+                        <td><strong>@s.AvailableQuantity.ToString("N2")</strong></td>
+                        <td>@s.SoldDispatchedQuantity.ToString("N2")</td>
+                        <td>@s.WastedQuantity.ToString("N2")</td>
+                        <td>
+                            @if (s.LastProductionId.HasValue)
+                            {
+                                <a asp-page="/Production/PotProduction/Details" asp-route-id="@s.LastProductionId" class="text-decoration-none">@s.LastProductionCode</a>
+                                <span class="text-muted small d-block">@s.LastProductionSource</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">-</span>
+                            }
+                        </td>
+                        <td>@(s.LastTransactionDate.HasValue ? s.LastTransactionDate.Value.ToString("dd/MM/yyyy HH:mm") : "-")</td>
+                        <td>
+                            <a asp-page="/Production/PottedPlantStock/Details" asp-route-id="@s.Id" class="btn btn-sm btn-outline-secondary">View / History</a>
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Stocks.Any())
+                {
+                    <tr><td colspan="12" class="text-center text-muted">No Potted Plant Stock yet -- record a Pot Production to create it.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

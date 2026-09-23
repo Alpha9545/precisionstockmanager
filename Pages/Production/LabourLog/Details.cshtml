@@ -1,0 +1,41 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.LabourLog.DetailsModel
+@{
+    ViewData["Title"] = "Labour Log Details";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header">
+            <h4 class="mb-0">@Model.Log!.LabourLogCode</h4>
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-5">Worker</dt><dd class="col-sm-7">@Model.Log.WorkerName</dd>
+                <dt class="col-sm-5">Work Date</dt><dd class="col-sm-7">@Model.Log.WorkDate.ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@(Model.Log.AreaName ?? "Unassigned")</dd>
+                <dt class="col-sm-5">Work Type</dt><dd class="col-sm-7">@Model.Log.WorkType</dd>
+                <dt class="col-sm-5">Reference</dt><dd class="col-sm-7">@(Model.Log.ReferenceCode ?? "-")</dd>
+                <dt class="col-sm-5">Wage Type</dt><dd class="col-sm-7">@Model.Log.WageType</dd>
+                <dt class="col-sm-5">Wage Rate</dt><dd class="col-sm-7">@Model.Log.WageRate.ToString("N2")</dd>
+                <dt class="col-sm-5">Units Worked</dt><dd class="col-sm-7">@Model.Log.UnitsWorked.ToString("N2")</dd>
+                <dt class="col-sm-5">Total Wage</dt><dd class="col-sm-7">@Model.Log.TotalWage.ToString("N2")</dd>
+                <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@(Model.Log.SupervisorName ?? "-")</dd>
+                <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.Log.Status</dd>
+                <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.Log.Remarks</dd>
+                <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.Log.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.Log.CreatedBy</dd>
+                @if (Model.Log.ModifiedDate.HasValue)
+                {
+                    <dt class="col-sm-5">Last Modified</dt><dd class="col-sm-7">@Model.Log.ModifiedDate.Value.ToString("dd/MM/yyyy HH:mm") by @Model.Log.ModifiedBy</dd>
+                }
+            </dl>
+        </div>
+        <div class="card-footer text-center">
+            @if (Model.Log.Status == "Recorded")
+            {
+                <a asp-page="/Production/LabourLog/Edit" asp-route-id="@Model.Log.Id" class="btn btn-outline-warning">Edit</a>
+            }
+            <a asp-page="/Production/LabourLog/Index" class="btn btn-secondary">Back to List</a>
+        </div>
+    </div>
+</div>

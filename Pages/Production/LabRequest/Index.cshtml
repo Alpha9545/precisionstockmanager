@@ -1,0 +1,88 @@
+@page
+@model PlantStockManager.Pages.Production.LabRequest.IndexModel
+@{
+    ViewData["Title"] = "Lab Requests";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Lab Requests</h2>
+        <a asp-page="/Production/LabRequest/Create" class="btn btn-primary">+ New Lab Request</a>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Outstanding Sample Quantity (Sent)</div>
+                    <div class="fs-3 fw-bold">@Model.TotalOutstanding.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Species</th>
+                    <th>Pot Size</th>
+                    <th>Area</th>
+                    <th>Lab</th>
+                    <th>Sent Qty</th>
+                    <th>Sent Date</th>
+                    <th>Received Qty</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Requests)
+                {
+                    <tr>
+                        <td>@r.LabRequestCode</td>
+                        <td>@r.SpeciesName <span class="text-muted">(@r.PlantTypeName)</span></td>
+                        <td>@r.PotSize</td>
+                        <td>@(r.AreaName ?? "Unassigned")</td>
+                        <td>@r.LabName</td>
+                        <td>@r.SentQuantity.ToString("N2")</td>
+                        <td>@r.SentDate.ToString("dd/MM/yyyy")</td>
+                        <td>@(r.ReceivedQuantity?.ToString("N2") ?? "-")</td>
+                        <td>
+                            @{
+                                var badgeClass = r.Status switch
+                                {
+                                    "Completed" => "bg-success",
+                                    "Cancelled" => "bg-secondary",
+                                    _ => "bg-warning text-dark"
+                                };
+                            }
+                            <span class="badge @badgeClass">@r.Status</span>
+                        </td>
+                        <td>
+                            <a asp-page="/Production/LabRequest/Details" asp-route-id="@r.Id" class="btn btn-sm btn-outline-secondary">View</a>
+                            @if (r.Status == "Sent")
+                            {
+                                <a asp-page="/Production/LabRequest/Result" asp-route-id="@r.Id" class="btn btn-sm btn-outline-success">Record Result</a>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Requests.Any())
+                {
+                    <tr><td colspan="10" class="text-center text-muted">No Lab Requests found.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

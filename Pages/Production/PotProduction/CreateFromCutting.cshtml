@@ -1,0 +1,154 @@
+@page
+@model PlantStockManager.Pages.Production.PotProduction.CreateFromCuttingModel
+@{
+    ViewData["Title"] = "Record Pot Production (From Cutting Stock)";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Record Pot Production &mdash; From Cutting Stock (Growing Partner)</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (!Model.AvailableCuttingStocks.Any())
+            {
+                <div class="alert alert-warning">
+                    No Cutting Stock with available quantity is accessible to you. Cutting Stock is entered via
+                    <a asp-page="/Production/CuttingStock/EnterCutting">Enter Cutting</a> or received via a confirmed transfer.
+                </div>
+            }
+            @if (!Model.ActivePotSizes.Any())
+            {
+                <div class="alert alert-warning">
+                    No active Pot Sizes defined. <a asp-page="/Production/EmptyPotInventory/Create">Add a Pot Size</a> first.
+                </div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Source Cutting Stock</label>
+                        <select asp-for="PotProduction.SourceCuttingStockId" id="csSelect" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var cs in Model.AvailableCuttingStocks)
+                            {
+                                <option value="@cs.Id" data-areaid="@cs.AreaId" data-available="@cs.AvailableQuantity.ToString("0.####")">
+                                    @cs.SpeciesName &mdash; @cs.AreaName (@(cs.GrowingPartnerName ?? "Internal")) &mdash; Available @cs.AvailableQuantity.ToString("N2")
+                                </option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Available Cuttings</label>
+                        <input type="text" id="availablePreview" class="form-control" readonly placeholder="Select a Cutting Stock" />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Production Date</label>
+                        <input type="date" asp-for="PotProduction.ProductionDate" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Pot Size</label>
+                        <select asp-for="PotProduction.EmptyPotInventoryId" id="potSizeSelect" class="form-select" required>
+                            <option value="">-- Select a Cutting Stock first --</option>
+                            @foreach (var p in Model.ActivePotSizes)
+                            {
+                                <option value="@p.Id" data-areaid="@(p.AreaId?.ToString() ?? "")">
+                                    @p.PotSize @(string.IsNullOrEmpty(p.AreaName) ? "(Unassigned)" : $"({p.AreaName})") (stock: @p.PhysicalQuantity.ToString("N2"))
+                                </option>
+                            }
+                        </select>
+                        <small class="text-muted">Only Pot Sizes belonging to the selected Cutting Stock's own Area can be used -- production happens where the Growing Partner's cuttings physically are.</small>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Cuttings Consumed</label>
+                        <input type="number" step="0.01" min="0.01" asp-for="PotProduction.CuttingQuantityConsumed" class="form-control" required />
+                        <small class="text-muted">How many cuttings are being used up for this production run.</small>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Potted Plants Produced</label>
+                        <input type="number" step="0.01" min="0.01" asp-for="PotProduction.Quantity" class="form-control" required />
+                        <small class="text-muted">Number of empty pots consumed = number of potted plants produced. Must not exceed Cuttings Consumed -- the difference is Production Loss.</small>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Labour / Responsible Person</label>
+                        <select asp-for="PotProduction.ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="PotProduction.SupervisorId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="PotProduction.Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PotProduction/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Save Pot Production</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            function filterPotSizes() {
+                const selected = $('#csSelect').find('option:selected');
+                const areaId = selected.data('areaid');
+                const available = selected.data('available');
+                $('#availablePreview').val(available !== undefined ? available : '');
+
+                $('#potSizeSelect option').each(function () {
+                    const opt = $(this);
+                    if (!opt.val()) { opt.show(); return; } // keep the placeholder
+                    const optArea = opt.data('areaid');
+                    const matches = areaId !== undefined && String(optArea) === String(areaId);
+                    opt.toggle(matches);
+                });
+                // Reset the Pot Size selection if it no longer matches.
+                const currentOpt = $('#potSizeSelect').find('option:selected');
+                if (currentOpt.val() && !currentOpt.is(':visible')) {
+                    $('#potSizeSelect').val('');
+                }
+            }
+
+            $('#csSelect').on('change', filterPotSizes);
+            filterPotSizes();
+        });
+    </script>
+}

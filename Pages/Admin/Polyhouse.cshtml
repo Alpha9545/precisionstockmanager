@@ -21,19 +21,27 @@
             <tr>
                 @* <th>ID</th> *@
                 <th>Polyhouse Name</th>
+                <th>Areas</th>
+                <th>Total Area Size</th>
+                <th>Total Capacity</th>
                 <th>Action</th>
             </tr>
         </thead>
         <tbody>
             @foreach (var polyhouse in Model.Polyhouses)
             {
+                var summary = Model.AreaSummaries.ContainsKey(polyhouse.Id) ? Model.AreaSummaries[polyhouse.Id] : null;
                 <tr>
                     @* <td>@polyhouse.Id</td> *@
                     <td>@polyhouse.Name</td>
+                    <td>@(summary?.AreaCount ?? 0)</td>
+                    <td>@(summary != null && summary.SizeTotals.Count > 0 ? string.Join(", ", summary.SizeTotals) : "-")</td>
+                    <td>@(summary != null && summary.CapacityTotals.Count > 0 ? string.Join(", ", summary.CapacityTotals) : "-")</td>
                     <td>
                         <button class="btn btn-warning btn-sm" onclick="openEditModal('@polyhouse.Id', '@polyhouse.Name')">
                             Edit
                         </button>
+                        <a asp-page="/Admin/Area" class="btn btn-outline-secondary btn-sm">Manage Areas</a>
                     </td>
                 </tr>
             }

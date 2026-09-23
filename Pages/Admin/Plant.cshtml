@@ -77,15 +77,19 @@
                             <form method="post" asp-page-handler="AddSpecies" class="mb-3">
                                 <input type="hidden" name="NewSpeciesTypeId" value="@type.Id" />
                                 <div class="row g-2 align-items-end">
-                                    <div class="col-md-4">
+                                    <div class="col-md-3">
                                         <label class="form-label">Species Name</label>
                                         <input type="text" name="NewSpeciesName" class="form-control" placeholder="Species Name" required />
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-3">
                                         <label class="form-label">Scientific Name</label>
                                         <input type="text" name="NewSpeciesScientificName" class="form-control" placeholder="Scientific Name" />
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-3">
+                                        <label class="form-label">Ready Stock Days</label>
+                                        <input type="number" name="NewSpeciesReadyStockDays" min="1" class="form-control" placeholder="e.g. 25 (optional)" />
+                                    </div>
+                                    <div class="col-md-3">
                                         <button type="submit" class="btn btn-success">Add Species</button>
                                     </div>
                                 </div>
@@ -98,6 +102,7 @@
                                         @* <th>ID</th> *@
                                         <th>Species Name</th>
                                         <th>Scientific Name</th>
+                                        <th>Ready Stock Days</th>
                                         <th>Action</th>
                                     </tr>
                                 </thead>
@@ -108,6 +113,7 @@
                                             @* <td>@species.Id</td> *@
                                             <td>@species.Name</td>
                                             <td>@species.ScientificName</td>
+                                            <td>@(species.ReadyStockDays?.ToString() ?? "-")</td>
                                             @* <td>
                                                 <button class="btn btn-warning btn-sm" onclick="openEditSpeciesModal('@species.Id', '@species.Name', '@species.ScientificName')">
                                                     Edit
@@ -116,7 +122,7 @@
                                             <td>
                                                 <!-- Edit -->
                                                 <button class="btn btn-warning btn-sm"
-                                                        onclick="openEditSpeciesModal('@species.Id', '@species.Name', '@species.ScientificName')">
+                                                        onclick="openEditSpeciesModal('@species.Id', '@species.Name', '@species.ScientificName', '@(species.ReadyStockDays?.ToString() ?? "")')">
                                                     Edit
                                                 </button>
 
@@ -191,6 +197,11 @@
                         <label class="form-label">Scientific Name</label>
                         <input type="text" asp-for="EditSpeciesScientificName" class="form-control" id="editSpeciesScientificName" />
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label">Ready Stock Days</label>
+                        <input type="number" min="1" asp-for="EditSpeciesReadyStockDays" class="form-control" id="editSpeciesReadyStockDays" placeholder="e.g. 25 (optional)" />
+                        <div class="form-text">Days from Sowing to expected readiness. Used to auto-compute Expected Ready Date on new Sowings only -- changing this never rewrites an existing Sowing's dates.</div>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -213,10 +224,11 @@
     }
 
     // Open modal to edit plant species
-    function openEditSpeciesModal(id, name, scientificName) {
+    function openEditSpeciesModal(id, name, scientificName, readyStockDays) {
         document.getElementById("editSpeciesId").value = id;
         document.getElementById("editSpeciesName").value = name;
         document.getElementById("editSpeciesScientificName").value = scientificName;
+        document.getElementById("editSpeciesReadyStockDays").value = readyStockDays || "";
         var modal = new bootstrap.Modal(document.getElementById('editSpeciesModal'));
         modal.show();
     }

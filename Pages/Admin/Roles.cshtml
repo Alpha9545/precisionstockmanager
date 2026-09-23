@@ -1,0 +1,94 @@
+@page
+@model PlantStockManager.Pages.Admin.RolesModel
+@{
+    ViewData["Title"] = "Manage Roles & Permissions";
+}
+
+<div class="container mt-4">
+    <h2 class="mb-3">Roles & Permissions</h2>
+    <p class="text-muted">
+        Assign permissions to a Role here. Which users hold which Role (and, for
+        area-scoped roles, which Area) is managed on the
+        <a asp-page="/Admin/UserRoles">User Role Assignments</a> page.
+    </p>
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger">@Model.ErrorMessage</div>
+    }
+
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card mb-3">
+                <div class="card-header fw-bold">Roles</div>
+                <ul class="list-group list-group-flush">
+                    @foreach (var role in Model.Roles)
+                    {
+                        <li class="list-group-item d-flex justify-content-between align-items-center @(Model.SelectedRoleId == role.Id ? "active" : "")">
+                            <a asp-page="/Admin/Roles" asp-route-SelectedRoleId="@role.Id" class="text-decoration-none @(Model.SelectedRoleId == role.Id ? "text-white" : "")">
+                                @role.Name
+                                @if (role.IsSystemRole)
+                                {
+                                    <span class="badge bg-secondary ms-1">system</span>
+                                }
+                            </a>
+                        </li>
+                    }
+                </ul>
+            </div>
+
+            <div class="card">
+                <div class="card-header fw-bold">Add Role</div>
+                <div class="card-body">
+                    <form method="post" asp-page-handler="AddRole">
+                        <div class="mb-2">
+                            <label class="form-label">Name</label>
+                            <input type="text" asp-for="NewRoleName" class="form-control" required />
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label">Description</label>
+                            <input type="text" asp-for="NewRoleDescription" class="form-control" />
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Add Role</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            @if (Model.SelectedRoleId.HasValue)
+            {
+                <div class="card">
+                    <div class="card-header fw-bold">
+                        Permissions for @(Model.Roles.FirstOrDefault(r => r.Id == Model.SelectedRoleId)?.Name)
+                    </div>
+                    <div class="card-body">
+                        <form method="post" asp-page-handler="SavePermissions">
+                            <input type="hidden" name="roleId" value="@Model.SelectedRoleId" />
+                            <div class="row">
+                                @foreach (var perm in Model.PermissionsForSelectedRole)
+                                {
+                                    <div class="col-md-6 form-check mb-1">
+                                        <input type="checkbox" class="form-check-input" name="permissionIds" value="@perm.Id" id="perm_@perm.Id" checked="@perm.IsGrantedToRole" />
+                                        <label class="form-check-label" for="perm_@perm.Id">
+                                            @perm.Code
+                                            @if (!string.IsNullOrEmpty(perm.Description))
+                                            {
+                                                <div class="text-muted small">@perm.Description</div>
+                                            }
+                                        </label>
+                                    </div>
+                                }
+                            </div>
+                            <button type="submit" class="btn btn-success mt-3">Save Permissions</button>
+                        </form>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-info">Select a Role on the left to view/edit its permissions.</div>
+            }
+        </div>
+    </div>
+</div>

@@ -1,0 +1,92 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.ReadyConfirmation.ConfirmModel
+@{
+    ViewData["Title"] = "Confirm Ready";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 850px;">
+        <div class="card-header">
+            <h4 class="mb-0">Confirm Ready &mdash; @Model.SeedSowing.SowingCode</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <div class="alert alert-secondary">
+                <div class="row">
+                    <div class="col-md-6"><strong>Variety:</strong> @Model.SeedSowing.SpeciesName (@Model.SeedSowing.PlantTypeName)</div>
+                    <div class="col-md-6"><strong>Area:</strong> @Model.SeedSowing.AreaName</div>
+                    <div class="col-md-6"><strong>Polyhouse:</strong> @(Model.SeedSowing.PolyhouseName ?? "-")</div>
+                    <div class="col-md-6"><strong>Cavity/Tray Type:</strong> @Model.SeedSowing.CavityType</div>
+                    <div class="col-md-6"><strong>Sowing Date:</strong> @Model.SeedSowing.SowingDate.ToString("dd/MM/yyyy")</div>
+                    <div class="col-md-6"><strong>Ready Stock Days:</strong> @(Model.SeedSowing.ReadyStockDays?.ToString() ?? "-")</div>
+                    <div class="col-md-6"><strong>Expected Ready Date:</strong> @(Model.SeedSowing.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated") <span class="text-muted">(read-only, historical)</span></div>
+                    <div class="col-md-6"><strong>Lot/Batch:</strong> @(string.IsNullOrEmpty(Model.SeedSowing.BatchNo) ? "-" : Model.SeedSowing.BatchNo)</div>
+                    <div class="col-md-4"><strong>Sown Quantity:</strong> @Model.SeedSowing.QuantitySown.ToString("N2")</div>
+                    <div class="col-md-4"><strong>Already Confirmed:</strong> @Model.SeedSowing.ConfirmedReadyQuantity.ToString("N2")</div>
+                    <div class="col-md-4"><strong>Remaining:</strong> @Model.SeedSowing.RemainingReadyQuantity.ToString("N2")</div>
+                </div>
+                <div class="small text-muted mt-2">
+                    Expected Ready Date is only an estimate calculated at sowing time -- confirming here is an explicit,
+                    physical statement that this quantity is ready NOW. Reaching the Expected Ready Date never confirms
+                    anything automatically.
+                </div>
+            </div>
+
+            <form method="post">
+                <input type="hidden" asp-for="SeedSowingId" />
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Ready Quantity <span class="text-danger">*</span></label>
+                        <input type="number" step="0.01" min="0.01" max="@Model.SeedSowing.RemainingReadyQuantity"
+                               asp-for="ReadyQuantity" class="form-control" required />
+                        <div class="form-text">Up to the remaining quantity (@Model.SeedSowing.RemainingReadyQuantity.ToString("N2")). Enter less than the full remaining amount for a partial confirmation.</div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Labour / Responsible Person</label>
+                        <select asp-for="ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="SupervisorId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Confirm Ready</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

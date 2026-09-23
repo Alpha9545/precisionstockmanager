@@ -1,0 +1,53 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.PottedPlantBooking.DetailsModel
+@{
+    ViewData["Title"] = "Booking Details";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header">
+            <h4 class="mb-0">@Model.Booking!.BookingCode</h4>
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-5">Species</dt><dd class="col-sm-7">@Model.Booking.SpeciesName (@Model.Booking.PlantTypeName)</dd>
+                <dt class="col-sm-5">Pot Size</dt><dd class="col-sm-7">@Model.Booking.PotSize</dd>
+                <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@(Model.Booking.AreaName ?? "Unassigned")</dd>
+                <dt class="col-sm-5">Quantity (Booked)</dt><dd class="col-sm-7">@Model.Booking.Quantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Dispatched So Far</dt><dd class="col-sm-7">@Model.Booking.DispatchedQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Remaining (Reserved)</dt><dd class="col-sm-7">@Model.Booking.RemainingQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.Booking.Status</dd>
+                <dt class="col-sm-5">Customer Name</dt><dd class="col-sm-7">@Model.Booking.CustomerName</dd>
+                <dt class="col-sm-5">Contact</dt><dd class="col-sm-7">@Model.Booking.Contact</dd>
+                <dt class="col-sm-5">Address</dt><dd class="col-sm-7">@Model.Booking.Address</dd>
+                <dt class="col-sm-5">State / District</dt><dd class="col-sm-7">@Model.Booking.StateName / @Model.Booking.DistrictName</dd>
+                <dt class="col-sm-5">Booking Date</dt><dd class="col-sm-7">@Model.Booking.BookingDate.ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-5">Delivery Date (tentative)</dt><dd class="col-sm-7">@(Model.Booking.DeliveryDate?.ToString("dd/MM/yyyy") ?? "-")</dd>
+                @if (Model.Booking.ActualDeliveryDate.HasValue)
+                {
+                    <dt class="col-sm-5">Actual Delivery Date</dt><dd class="col-sm-7">@Model.Booking.ActualDeliveryDate.Value.ToString("dd/MM/yyyy")</dd>
+                }
+                <dt class="col-sm-5">Advance Taken</dt>
+                <dd class="col-sm-7">
+                    @(Model.Booking.AdvanceTaken ? $"Yes ({Model.Booking.AdvanceTakenAmount:N2})" : "No")
+                    @if (!string.IsNullOrWhiteSpace(Model.Booking.AdvanceTakenDetails))
+                    {
+                        <span class="text-muted">&mdash; @Model.Booking.AdvanceTakenDetails</span>
+                    }
+                </dd>
+                <dt class="col-sm-5">Booked By</dt><dd class="col-sm-7">@(Model.Booking.BookedByName ?? Model.Booking.BookedByOther)</dd>
+                <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.Booking.Remarks</dd>
+                <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.Booking.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.Booking.CreatedBy</dd>
+                @if (Model.Booking.ModifiedDate.HasValue)
+                {
+                    <dt class="col-sm-5">Last Modified</dt><dd class="col-sm-7">@Model.Booking.ModifiedDate.Value.ToString("dd/MM/yyyy HH:mm") by @Model.Booking.ModifiedBy</dd>
+                }
+            </dl>
+        </div>
+        <div class="card-footer text-center">
+            <a asp-page="/Production/PottedPlantBooking/Edit" asp-route-id="@Model.Booking.Id" class="btn btn-outline-warning">Edit</a>
+            <a asp-page="/Production/PottedPlantBooking/Index" class="btn btn-secondary">Back to List</a>
+        </div>
+    </div>
+</div>

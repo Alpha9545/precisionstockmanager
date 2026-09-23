@@ -1,0 +1,97 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.PurchaseOrder.ReceiveModel
+@{
+    ViewData["Title"] = "Receive Purchase Order";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Receive Stock &mdash; @Model.Order!.PurchaseOrderCode</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <form method="post">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Receipt Date</label>
+                        <input type="date" asp-for="ReceiptDate" class="form-control" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Received By</label>
+                        <select asp-for="ReceivedById" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var e in Model.PersonOptions)
+                            {
+                                <option value="@e.EmployeeID">@e.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <input type="text" asp-for="Remarks" class="form-control" />
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-bordered">
+                        <thead>
+                            <tr>
+                                <th>Category</th>
+                                <th>Item</th>
+                                <th>Ordered</th>
+                                <th>Already Received</th>
+                                <th>Pending</th>
+                                <th>Receive Now</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int i = 0; i < Model.Order.Items.Count; i++)
+                            {
+                                var item = Model.Order.Items[i];
+                                <tr>
+                                    <td>
+                                        @item.ItemCategory
+                                        <input type="hidden" name="ItemIds[@i]" value="@item.Id" />
+                                    </td>
+                                    <td>@item.DisplayName</td>
+                                    <td>@item.OrderedQuantity.ToString("N2")</td>
+                                    <td>@item.ReceivedQuantity.ToString("N2")</td>
+                                    <td>@item.PendingQuantity.ToString("N2")</td>
+                                    <td>
+                                        @if (item.PendingQuantity > 0)
+                                        {
+                                            <input type="number" step="0.01" min="0" max="@item.PendingQuantity"
+                                                   name="ReceiveQuantities[@i]" class="form-control form-control-sm" value="0" />
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">Fully received</span>
+                                            <input type="hidden" name="ReceiveQuantities[@i]" value="0" />
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PurchaseOrder/Details" asp-route-id="@Model.Order.Id" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Record Receipt</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

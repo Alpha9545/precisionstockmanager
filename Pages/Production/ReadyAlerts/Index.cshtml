@@ -1,0 +1,173 @@
+@page
+@model PlantStockManager.Pages.Production.ReadyAlerts.IndexModel
+@{
+    ViewData["Title"] = "Ready Alerts";
+}
+
+@functions {
+    // Days remaining (positive) or days overdue (negative), for display
+    // only -- purely a subtraction of two dates already on the model,
+    // never a second copy of the Overdue/ReadyToday/ReadySoon
+    // classification itself (that stays in SeedSowingRepository.ClassifyReadyAlert).
+    private static int DaysFromToday(DateTime? expectedReadyDate)
+    {
+        if (!expectedReadyDate.HasValue) return 0;
+        return (expectedReadyDate.Value.Date - DateTime.Today).Days;
+    }
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Ready Alerts</h2>
+        <a asp-page="/Production/SeedSowing/Index" class="btn btn-outline-secondary">Back to Seed Sowing</a>
+    </div>
+
+    <div class="alert alert-info">
+        Informational alerts only, based on each Sowing's Expected Ready Date. Viewing this page never changes a Sowing's
+        status, and never creates Ready Stock -- the Supervisor must confirm actual readiness in a later phase.
+        <form method="get" class="d-inline">
+            &nbsp;"Ready Soon" window:
+            <input type="number" name="WindowDays" value="@Model.WindowDays" min="1" max="90" class="form-control form-control-sm d-inline-block" style="width: 70px;" />
+            days &mdash; <button type="submit" class="btn btn-sm btn-outline-primary">Apply</button>
+        </form>
+    </div>
+
+    <h5 class="text-danger">Overdue (@Model.Overdue.Count)</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-danger">
+                <tr>
+                    <th>Sowing Code</th>
+                    <th>Variety</th>
+                    <th>Area</th>
+                    <th>Polyhouse</th>
+                    <th>Cavity</th>
+                    <th>Quantity</th>
+                    <th>Sowing Date</th>
+                    <th>Ready Days</th>
+                    <th>Expected Ready Date</th>
+                    <th>Days Overdue</th>
+                    <th>Lot/Batch</th>
+                    <th>Seed Source</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var sw in Model.Overdue)
+                {
+                    <tr>
+                        <td>@sw.SowingCode</td>
+                        <td>@sw.SpeciesName <span class="text-muted">(@sw.PlantTypeName)</span></td>
+                        <td>@sw.AreaName</td>
+                        <td>@(sw.PolyhouseName ?? "-")</td>
+                        <td>@sw.CavityType</td>
+                        <td>@sw.QuantitySown.ToString("N2")</td>
+                        <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
+                        <td>@(sw.ReadyStockDays?.ToString() ?? "-")</td>
+                        <td>@sw.ExpectedReadyDate?.ToString("dd/MM/yyyy")</td>
+                        <td><span class="badge bg-danger">@(-DaysFromToday(sw.ExpectedReadyDate)) day(s)</span></td>
+                        <td>@(string.IsNullOrEmpty(sw.BatchNo) ? "-" : sw.BatchNo)</td>
+                        <td>@(sw.SeedSourceName ?? "-")</td>
+                        <td><a asp-page="/Production/SeedSowing/Details" asp-route-id="@sw.Id" class="btn btn-sm btn-outline-secondary">Details</a></td>
+                    </tr>
+                }
+                @if (!Model.Overdue.Any())
+                {
+                    <tr><td colspan="13" class="text-center text-muted">No overdue Sowings.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h5 class="text-warning">Ready Today (@Model.ReadyToday.Count)</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-warning">
+                <tr>
+                    <th>Sowing Code</th>
+                    <th>Variety</th>
+                    <th>Area</th>
+                    <th>Polyhouse</th>
+                    <th>Cavity</th>
+                    <th>Quantity</th>
+                    <th>Sowing Date</th>
+                    <th>Ready Days</th>
+                    <th>Expected Ready Date</th>
+                    <th>Lot/Batch</th>
+                    <th>Seed Source</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var sw in Model.ReadyToday)
+                {
+                    <tr>
+                        <td>@sw.SowingCode</td>
+                        <td>@sw.SpeciesName <span class="text-muted">(@sw.PlantTypeName)</span></td>
+                        <td>@sw.AreaName</td>
+                        <td>@(sw.PolyhouseName ?? "-")</td>
+                        <td>@sw.CavityType</td>
+                        <td>@sw.QuantitySown.ToString("N2")</td>
+                        <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
+                        <td>@(sw.ReadyStockDays?.ToString() ?? "-")</td>
+                        <td>@sw.ExpectedReadyDate?.ToString("dd/MM/yyyy")</td>
+                        <td>@(string.IsNullOrEmpty(sw.BatchNo) ? "-" : sw.BatchNo)</td>
+                        <td>@(sw.SeedSourceName ?? "-")</td>
+                        <td><a asp-page="/Production/SeedSowing/Details" asp-route-id="@sw.Id" class="btn btn-sm btn-outline-secondary">Details</a></td>
+                    </tr>
+                }
+                @if (!Model.ReadyToday.Any())
+                {
+                    <tr><td colspan="12" class="text-center text-muted">No Sowings ready today.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h5 class="text-info">Ready Soon &mdash; within @Model.WindowDays day(s) (@Model.ReadySoon.Count)</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-info">
+                <tr>
+                    <th>Sowing Code</th>
+                    <th>Variety</th>
+                    <th>Area</th>
+                    <th>Polyhouse</th>
+                    <th>Cavity</th>
+                    <th>Quantity</th>
+                    <th>Sowing Date</th>
+                    <th>Ready Days</th>
+                    <th>Expected Ready Date</th>
+                    <th>Days Remaining</th>
+                    <th>Lot/Batch</th>
+                    <th>Seed Source</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var sw in Model.ReadySoon)
+                {
+                    <tr>
+                        <td>@sw.SowingCode</td>
+                        <td>@sw.SpeciesName <span class="text-muted">(@sw.PlantTypeName)</span></td>
+                        <td>@sw.AreaName</td>
+                        <td>@(sw.PolyhouseName ?? "-")</td>
+                        <td>@sw.CavityType</td>
+                        <td>@sw.QuantitySown.ToString("N2")</td>
+                        <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
+                        <td>@(sw.ReadyStockDays?.ToString() ?? "-")</td>
+                        <td>@sw.ExpectedReadyDate?.ToString("dd/MM/yyyy")</td>
+                        <td><span class="badge bg-info text-dark">@DaysFromToday(sw.ExpectedReadyDate) day(s)</span></td>
+                        <td>@(string.IsNullOrEmpty(sw.BatchNo) ? "-" : sw.BatchNo)</td>
+                        <td>@(sw.SeedSourceName ?? "-")</td>
+                        <td><a asp-page="/Production/SeedSowing/Details" asp-route-id="@sw.Id" class="btn btn-sm btn-outline-secondary">Details</a></td>
+                    </tr>
+                }
+                @if (!Model.ReadySoon.Any())
+                {
+                    <tr><td colspan="13" class="text-center text-muted">No Sowings ready soon.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

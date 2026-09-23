@@ -1,0 +1,53 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.LabRequest.DetailsModel
+@{
+    ViewData["Title"] = "Lab Request Details";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0">@Model.Request!.LabRequestCode</h4>
+            <span class="badge bg-secondary">@Model.Request.Status</span>
+        </div>
+        <div class="card-body">
+            @if (TempData["Error"] != null)
+            {
+                <div class="alert alert-danger">@TempData["Error"]</div>
+            }
+
+            <dl class="row mb-0">
+                <dt class="col-sm-5">Species</dt><dd class="col-sm-7">@Model.Request.SpeciesName (@Model.Request.PlantTypeName)</dd>
+                <dt class="col-sm-5">Pot Size</dt><dd class="col-sm-7">@Model.Request.PotSize</dd>
+                <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@(Model.Request.AreaName ?? "Unassigned")</dd>
+                <dt class="col-sm-5">Lab Name</dt><dd class="col-sm-7">@Model.Request.LabName</dd>
+                <dt class="col-sm-5">Sent Date</dt><dd class="col-sm-7">@Model.Request.SentDate.ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-5">Sent Quantity</dt><dd class="col-sm-7">@Model.Request.SentQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Expected Result Date</dt><dd class="col-sm-7">@(Model.Request.ExpectedResultDate?.ToString("dd/MM/yyyy") ?? "-")</dd>
+                @if (Model.Request.Status == "Completed")
+                {
+                    <dt class="col-sm-5">Received Date</dt><dd class="col-sm-7">@Model.Request.ReceivedDate!.Value.ToString("dd/MM/yyyy")</dd>
+                    <dt class="col-sm-5">Received Quantity</dt><dd class="col-sm-7">@Model.Request.ReceivedQuantity!.Value.ToString("N2")</dd>
+                    <dt class="col-sm-5">Result Notes</dt><dd class="col-sm-7">@Model.Request.ResultNotes</dd>
+                }
+                <dt class="col-sm-5">Responsible Person</dt><dd class="col-sm-7">@(Model.Request.ResponsiblePersonName ?? "-")</dd>
+                <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.Request.Remarks</dd>
+                <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.Request.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.Request.CreatedBy</dd>
+                @if (Model.Request.ModifiedDate.HasValue)
+                {
+                    <dt class="col-sm-5">Last Modified</dt><dd class="col-sm-7">@Model.Request.ModifiedDate.Value.ToString("dd/MM/yyyy HH:mm") by @Model.Request.ModifiedBy</dd>
+                }
+            </dl>
+        </div>
+        <div class="card-footer text-center">
+            @if (Model.Request.Status == "Sent")
+            {
+                <a asp-page="/Production/LabRequest/Result" asp-route-id="@Model.Request.Id" class="btn btn-success">Record Result</a>
+                <form method="post" asp-page-handler="Cancel" asp-route-id="@Model.Request.Id" class="d-inline" onsubmit="return confirm('Cancel this Lab Request? The sent quantity is restored to stock. This cannot be undone.');">
+                    <button type="submit" class="btn btn-outline-danger">Cancel (restore sample)</button>
+                </form>
+            }
+            <a asp-page="/Production/LabRequest/Index" class="btn btn-secondary">Back to List</a>
+        </div>
+    </div>
+</div>

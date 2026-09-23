@@ -1,0 +1,153 @@
+@page
+@model PlantStockManager.Pages.Production.CuttingDelivery.CreateModel
+@{
+    ViewData["Title"] = "Record Cutting Delivery";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Record Cutting Delivery</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (!Model.OpenActualCuttings.Any())
+            {
+                <div class="alert alert-warning">
+                    No Actual Cutting records have remaining Good Quantity available for delivery.
+                    <a asp-page="/Production/ActualCutting/Create">Record an Actual Cutting</a> first.
+                </div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Actual Cutting</label>
+                        <select asp-for="CuttingDelivery.ActualCuttingId" id="acSelect" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var ac in Model.OpenActualCuttings)
+                            {
+                                var remaining = ac.GoodQuantity - ac.DeliveredQuantityRecorded;
+                                <option value="@ac.Id" data-remaining="@remaining.ToString("0.####")">
+                                    @ac.ActualCuttingCode &mdash; @ac.MotherPlantCode / @ac.SpeciesName (Good @ac.GoodQuantity.ToString("N2"), Remaining @remaining.ToString("N2"))
+                                </option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Remaining Available</label>
+                        <input type="text" id="remainingPreview" class="form-control" readonly placeholder="Select an Actual Cutting" />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Delivery Date</label>
+                        <input type="date" asp-for="CuttingDelivery.DeliveryDate" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Delivered Quantity</label>
+                        <input type="number" step="0.01" min="0" asp-for="CuttingDelivery.DeliveredQuantity" id="deliveredQtyInput" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <small class="text-muted d-block mt-4">Loss + Removed + Rejected + Damaged must not exceed Delivered Quantity.</small>
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Loss Quantity</label>
+                        <input type="number" step="0.01" min="0" asp-for="CuttingDelivery.LossQuantity" class="form-control outcome-input" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Removed Quantity</label>
+                        <input type="number" step="0.01" min="0" asp-for="CuttingDelivery.RemovedQuantity" class="form-control outcome-input" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Rejected Quantity</label>
+                        <input type="number" step="0.01" min="0" asp-for="CuttingDelivery.RejectedQuantity" class="form-control outcome-input" />
+                    </div>
+
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Damaged Quantity</label>
+                        <input type="number" step="0.01" min="0" asp-for="CuttingDelivery.DamagedQuantity" class="form-control outcome-input" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Labour / Responsible Person</label>
+                        <select asp-for="CuttingDelivery.ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="CuttingDelivery.SupervisorId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="CuttingDelivery.Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+
+                    <div class="col-12">
+                        <div id="netPreview" class="alert alert-info mb-0">Net quantity reaching propagation: <strong id="netValue">0.00</strong></div>
+                        <div id="outcomeWarning" class="alert alert-warning d-none mb-0 mt-2">
+                            Loss + Removed + Rejected + Damaged exceeds Delivered Quantity.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/CuttingDelivery/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Save Cutting Delivery</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            $('#acSelect').on('change', function () {
+                const remaining = $(this).find('option:selected').data('remaining');
+                $('#remainingPreview').val(remaining !== undefined ? remaining : '');
+            }).trigger('change');
+
+            // Client-side hint only -- the server re-validates the exact
+            // rule (and the DB CHECK constraint enforces it regardless of
+            // what the client sends).
+            function checkOutcomes() {
+                const delivered = parseFloat($('#deliveredQtyInput').val()) || 0;
+                let sum = 0;
+                $('.outcome-input').each(function () { sum += parseFloat($(this).val()) || 0; });
+                $('#outcomeWarning').toggleClass('d-none', sum <= delivered + 0.0001);
+                $('#netValue').text((delivered - sum).toFixed(2));
+            }
+            $('#deliveredQtyInput, .outcome-input').on('input', checkOutcomes);
+        });
+    </script>
+}

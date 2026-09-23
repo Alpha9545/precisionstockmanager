@@ -1,0 +1,90 @@
+@page
+@model PlantStockManager.Pages.Admin.UserRolesModel
+@{
+    ViewData["Title"] = "User Role Assignments";
+}
+
+<div class="container mt-4">
+    <h2 class="mb-3">User Role Assignments</h2>
+    <p class="text-muted">
+        Every existing user was granted the <strong>Admin</strong> role as a temporary
+        safety net when this Phase 14 foundation was deployed, so nobody was locked out.
+        Use this page to give each real user their real Role (and, for area-scoped roles
+        like Kunjir/Kiran/Outlet Supervisor, the specific Area they supervise), then remove
+        their temporary Admin grant below once their real role is in place.
+    </p>
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger">@Model.ErrorMessage</div>
+    }
+
+    <form method="post" asp-page-handler="Add" class="mb-4">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label fw-bold">User</label>
+                <select asp-for="NewUserId" class="form-select" required>
+                    <option value="">-- Select --</option>
+                    @foreach (var u in Model.Users)
+                    {
+                        <option value="@u.EmployeeID">@u.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold">Role</label>
+                <select asp-for="NewRoleId" class="form-select" required>
+                    <option value="">-- Select --</option>
+                    @foreach (var r in Model.Roles)
+                    {
+                        <option value="@r.Id">@r.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-bold">Area (optional)</label>
+                <select asp-for="NewAreaId" class="form-select">
+                    <option value="">-- Not area-scoped --</option>
+                    @foreach (var a in Model.Areas)
+                    {
+                        <option value="@a.Id">@a.Name @(a.AreaType != null ? $"({a.AreaType})" : "")</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100">Assign</button>
+            </div>
+        </div>
+    </form>
+
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Area</th>
+                <th>Growing Partner</th>
+                <th>Assigned</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var a in Model.Assignments)
+            {
+                <tr>
+                    <td>@a.UserName</td>
+                    <td>@a.RoleName</td>
+                    <td>@(a.AreaName ?? "-")</td>
+                    <td>@(a.AreaId.HasValue ? (a.GrowingPartnerName ?? "Internal") : "-")</td>
+                    <td>@a.CreatedDate.ToString("yyyy-MM-dd")</td>
+                    <td>
+                        <form method="post" asp-page-handler="Remove" class="d-inline">
+                            <input type="hidden" name="id" value="@a.Id" />
+                            <button type="submit" class="btn btn-outline-danger btn-sm">Remove</button>
+                        </form>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>

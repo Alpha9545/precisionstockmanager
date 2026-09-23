@@ -1,0 +1,93 @@
+@page
+@model PlantStockManager.Pages.Production.PotProduction.IndexModel
+@{
+    ViewData["Title"] = "Pot Production";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Pot Production</h2>
+        <div>
+            <a asp-page="/Production/PotProduction/Create" class="btn btn-primary">+ From Propagation Batch</a>
+            <a asp-page="/Production/PotProduction/CreateFromCutting" class="btn btn-outline-primary">+ From Cutting Stock (Growing Partner)</a>
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card text-center shadow-sm">
+                <div class="card-body">
+                    <div class="text-muted small">Total Produced (excl. Cancelled)</div>
+                    <div class="fs-3 fw-bold">@Model.TotalProduced.ToString("N2")</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Source</th>
+                    <th>Variety</th>
+                    <th>Pot Size</th>
+                    <th>Area</th>
+                    <th>Date</th>
+                    <th>Quantity</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var pp in Model.PotProductions)
+                {
+                    <tr>
+                        <td>@pp.ProductionCode</td>
+                        <td>
+                            @if (pp.IsCuttingSourced)
+                            {
+                                <span class="badge bg-info text-dark">Cutting Stock</span> @(pp.GrowingPartnerName ?? "Internal")
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary">Propagation Batch</span>
+                                <span>@pp.PropagationBatchCode</span>
+                                <span> / </span>
+                                <span>@pp.MotherPlantCode</span>
+                            }
+                        </td>
+                        <td>@pp.SpeciesName <span class="text-muted">(@pp.PlantTypeName)</span></td>
+                        <td>@pp.PotSize</td>
+                        <td>@(pp.AreaName ?? "Unassigned")</td>
+                        <td>@pp.ProductionDate.ToString("dd/MM/yyyy")</td>
+                        <td>@pp.Quantity.ToString("N2")</td>
+                        <td>
+                            @if (pp.Status == "Cancelled")
+                            {
+                                <span class="badge bg-secondary">Cancelled</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">Completed</span>
+                            }
+                        </td>
+                        <td>
+                            <a asp-page="/Production/PotProduction/Details" asp-route-id="@pp.Id" class="btn btn-sm btn-outline-secondary">View</a>
+                            <a asp-page="/Production/PotProduction/Edit" asp-route-id="@pp.Id" class="btn btn-sm btn-outline-warning">Edit</a>
+                        </td>
+                    </tr>
+                }
+                @if (!Model.PotProductions.Any())
+                {
+                    <tr><td colspan="9" class="text-center text-muted">No Pot Production records found.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

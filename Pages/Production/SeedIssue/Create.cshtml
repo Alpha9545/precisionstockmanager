@@ -1,0 +1,99 @@
+@page
+@model PlantStockManager.Pages.Production.SeedIssue.CreateModel
+@{
+    ViewData["Title"] = "Issue Seed to Polyhouse/Growing Area";
+}
+
+<div class="container-fluid mt-4">
+    <h2 class="mb-3">Issue Seed to Polyhouse/Growing Area</h2>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <form method="get" class="row g-2 align-items-end mb-4">
+        <div class="col-md-4">
+            <label class="form-label fw-bold">From Main Office Area</label>
+            <select name="areaId" class="form-select" onchange="this.form.submit()">
+                <option value="">-- Select Main Office Area --</option>
+                @foreach (var a in Model.MainOfficeAreas)
+                {
+                    <option value="@a.Id" selected="@(Model.SelectedAreaId == a.Id)">@a.Name</option>
+                }
+            </select>
+        </div>
+    </form>
+
+    @if (Model.SelectedAreaId.HasValue)
+    {
+        <div class="table-responsive">
+            <table class="table table-striped table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Species/Variety</th>
+                        <th>Lot/Batch</th>
+                        <th>Physical</th>
+                        <th>In Transit</th>
+                        <th>Available to Issue</th>
+                        <th>Quantity to Issue</th>
+                        <th>Send To (Polyhouse/Growing Area)</th>
+                        <th>Responsible / Supervisor</th>
+                        <th>Remarks</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in Model.StockPools)
+                    {
+                        <tr>
+                            <td>@s.SpeciesName</td>
+                            <td>@(string.IsNullOrEmpty(s.BatchNo) ? "-" : s.BatchNo)</td>
+                            <td>@s.PhysicalQuantity.ToString("N2")</td>
+                            <td>@s.InTransitQuantity.ToString("N2")</td>
+                            <td class="fw-bold">@s.AvailableQuantity.ToString("N2")</td>
+                            <td style="max-width:160px;">
+                                <form method="post" asp-page-handler="Send">
+                                    <input type="hidden" name="seedStockId" value="@s.Id" />
+                                    <input type="hidden" name="areaId" value="@Model.SelectedAreaId" />
+                                    <input type="number" step="0.01" min="0.01" max="@s.AvailableQuantity" name="quantity" class="form-control form-control-sm mb-1" required />
+                                    <select name="destinationAreaId" class="form-select form-select-sm mb-1" required>
+                                        <option value="">-- Polyhouse/Growing Area --</option>
+                                        @foreach (var da in Model.DestinationAreas)
+                                        {
+                                            <option value="@da.Id">@da.Name (@da.AreaType)</option>
+                                        }
+                                    </select>
+                                    <select name="responsiblePersonId" class="form-select form-select-sm mb-1">
+                                        <option value="">-- Responsible Person --</option>
+                                        @foreach (var e in Model.ResponsiblePersons)
+                                        {
+                                            <option value="@e.EmployeeID">@e.Name</option>
+                                        }
+                                    </select>
+                                    <select name="supervisorId" class="form-select form-select-sm mb-1">
+                                        <option value="">-- Supervisor --</option>
+                                        @foreach (var e in Model.Supervisors)
+                                        {
+                                            <option value="@e.EmployeeID">@e.Name</option>
+                                        }
+                                    </select>
+                                    <input type="text" name="remarks" class="form-control form-control-sm mb-1" placeholder="Remarks" />
+                                    <button type="submit" class="btn btn-sm btn-primary w-100">Issue</button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                    @if (!Model.StockPools.Any())
+                    {
+                        <tr><td colspan="10" class="text-center text-muted">No available Seed Stock to issue at this Area.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

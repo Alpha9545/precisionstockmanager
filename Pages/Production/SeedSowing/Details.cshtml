@@ -1,0 +1,59 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.SeedSowing.DetailsModel
+@{
+    ViewData["Title"] = "Sowing Details";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header">
+            <h4 class="mb-0">@Model.SeedSowing!.SowingCode</h4>
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-5">Species/Variety</dt><dd class="col-sm-7">@Model.SeedSowing.SpeciesName (@Model.SeedSowing.PlantTypeName)</dd>
+                <dt class="col-sm-5">Lot/Batch</dt><dd class="col-sm-7">@(string.IsNullOrEmpty(Model.SeedSowing.BatchNo) ? "-" : Model.SeedSowing.BatchNo)</dd>
+                <dt class="col-sm-5">Seed Source</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedSourceName ?? "-")</dd>
+                <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@Model.SeedSowing.AreaName @(Model.SeedSowing.GrowingPartnerName != null ? $"({Model.SeedSowing.GrowingPartnerName})" : "")</dd>
+                <dt class="col-sm-5">Polyhouse</dt><dd class="col-sm-7">@(Model.SeedSowing.PolyhouseName ?? "-")</dd>
+                <dt class="col-sm-5">Cavity/Tray Type</dt><dd class="col-sm-7">@Model.SeedSowing.CavityType</dd>
+                <dt class="col-sm-5">Number of Trays</dt><dd class="col-sm-7">@(Model.SeedSowing.NumberOfTrays?.ToString() ?? "-")</dd>
+                <dt class="col-sm-5">Quantity Sown</dt><dd class="col-sm-7">@Model.SeedSowing.QuantitySown.ToString("N2")</dd>
+                <dt class="col-sm-5">Sowing Date</dt><dd class="col-sm-7">@Model.SeedSowing.SowingDate.ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-5">Ready Stock Days</dt><dd class="col-sm-7">@(Model.SeedSowing.ReadyStockDays?.ToString() ?? "-")</dd>
+                <dt class="col-sm-5">Expected Ready Date</dt><dd class="col-sm-7">@(Model.SeedSowing.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</dd>
+                <dt class="col-sm-5">Ready Alert</dt>
+                <dd class="col-sm-7">
+                    @switch (Model.AlertCategory)
+                    {
+                        case "Overdue":
+                            <span class="badge bg-danger">Overdue</span>
+                            break;
+                        case "ReadyToday":
+                            <span class="badge bg-warning text-dark">Ready Today</span>
+                            break;
+                        case "ReadySoon":
+                            <span class="badge bg-info text-dark">Ready Soon</span>
+                            break;
+                        default:
+                            <span class="text-muted">None</span>
+                            break;
+                    }
+                </dd>
+                <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.SeedSowing.Status</dd>
+                <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.SeedSowing.ResponsiblePersonName</dd>
+                <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.SeedSowing.SupervisorName</dd>
+                <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.SeedSowing.Remarks</dd>
+                <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.SeedSowing.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.SeedSowing.CreatedBy</dd>
+                @if (Model.SeedSowing.ModifiedDate.HasValue)
+                {
+                    <dt class="col-sm-5">Last Modified</dt><dd class="col-sm-7">@Model.SeedSowing.ModifiedDate.Value.ToString("dd/MM/yyyy HH:mm") by @Model.SeedSowing.ModifiedBy</dd>
+                }
+            </dl>
+        </div>
+        <div class="card-footer text-end">
+            <a asp-page="/Production/SeedSowing/Index" class="btn btn-secondary">Back</a>
+            <a asp-page="/Production/SeedSowing/Edit" asp-route-id="@Model.SeedSowing.Id" class="btn btn-warning">Edit</a>
+        </div>
+    </div>
+</div>

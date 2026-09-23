@@ -88,6 +88,39 @@ namespace PlantStockManager.Data
 
 
 
+        // General-purpose "any active user" list for new modules (Mother Plant
+        // ResponsiblePersonId, etc.) that aren't restricted to one Designation
+        // the way GetAllEmployeesBooking/GetAllEmployeesSowing are. Reuses the
+        // existing IMSUsers/Designation tables -- no new user table.
+        public async Task<List<Employee>> GetAllActiveUsers()
+        {
+            var employees = new List<Employee>();
+            using (var conn = _dbHelper.GetConnection())
+            {
+                await conn.OpenAsync();
+                var cmd = new SqlCommand(@"
+                    SELECT i.Id AS EmployeeID, i.Name AS Name, ISNULL(d.DesignationName, '') AS Designation
+                    FROM IMSUsers i
+                    LEFT JOIN Designation d ON i.DesignationID = d.DesignationID
+                    WHERE i.IsActive = 1
+                    ORDER BY i.Name", conn);
+
+                using (var reader = await cmd.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        employees.Add(new Employee
+                        {
+                            EmployeeID = reader.GetInt32(0),
+                            Name = reader.GetString(1),
+                            Designation = reader.GetString(2)
+                        });
+                    }
+                }
+            }
+            return employees;
+        }
+
         public async Task AddEmployee(string name, string designation)
         {
             using (var conn = _dbHelper.GetConnection())
