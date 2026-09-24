@@ -1,13 +1,14 @@
 @page
 @model PlantStockManager.Pages.Production.SeedSowing.CreateModel
 @{
-    ViewData["Title"] = "Sow Seed";
+    ViewData["Title"] = "Direct Sowing";
 }
 
 <div class="container mt-4">
-    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+    <div class="card shadow-sm mx-auto" style="max-width: 960px;">
         <div class="card-header">
-            <h4 class="mb-0">Sow Seed</h4>
+            <h4 class="mb-0">Direct Sowing</h4>
+            <small class="text-muted">Seed is taken directly from Main Office Seed Stock. A batch number (YYYY-MM-DD-L-NNN) is generated on save.</small>
         </div>
         <div class="card-body">
             @if (!ModelState.IsValid)
@@ -22,41 +23,87 @@
                 </div>
             }
 
-            @if (!Model.StockPools.Any())
+            @if (!Model.Areas.Any())
             {
                 <div class="alert alert-warning">
-                    No available Seed Stock found at a Polyhouse/Growing Area you can access.
-                    <a asp-page="/Production/SeedIssue/PendingReceipts">Confirm a pending Seed Issue</a> first.
+                    No growing Area is available to you. An Area appears here once at least one Polyhouse has been
+                    assigned to it (Administration &rarr; Polyhouse &rarr; "Belongs to Area") and you have access to that Area.
                 </div>
             }
 
-            <form method="post">
+            <form method="post" id="sowingForm">
                 <div class="row g-3">
-                    <div class="col-md-8">
-                        <label class="form-label fw-bold">Seed Stock (Species / Area / Lot)</label>
-                        <select asp-for="SeedSowing.SourceSeedStockId" id="stockSelect" class="form-select" required>
-                            <option value="">-- Select --</option>
-                            @foreach (var s in Model.StockPools)
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Sowing Date</label>
+                        <input type="date" asp-for="SeedSowing.SowingDate" id="sowingDate" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Area (site)</label>
+                        <select asp-for="SeedSowing.AreaId" id="areaSelect" class="form-select" required>
+                            <option value="">-- Select Area --</option>
+                            @foreach (var a in Model.Areas)
                             {
-                                <option value="@s.Id" data-available="@s.AvailableQuantity.ToString("0.####")">
-                                    @s.SpeciesName @(string.IsNullOrEmpty(s.BatchNo) ? "" : $"(Lot {s.BatchNo})") &mdash; @s.AreaName (available: @s.AvailableQuantity.ToString("N2") @s.Unit)
-                                </option>
+                                <option value="@a.Id">@a.Name</option>
                             }
                         </select>
                     </div>
 
                     <div class="col-md-4">
+                        <label class="form-label fw-bold">Polyhouse</label>
+                        <select asp-for="SeedSowing.PolyhouseId" id="polyhouseSelect" class="form-select" required
+                                data-selected="@Model.SeedSowing.PolyhouseId">
+                            <option value="">-- Select Area first --</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Species</label>
+                        <select asp-for="PlantTypeId" id="plantTypeSelect" class="form-select" required>
+                            <option value="">-- Select Species --</option>
+                            @foreach (var t in Model.PlantTypes)
+                            {
+                                <option value="@t.Id">@t.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Variety</label>
+                        <select asp-for="SeedSowing.SpeciesId" id="varietySelect" class="form-select" required
+                                data-selected="@(Model.SeedSowing.SpeciesId > 0 ? Model.SeedSowing.SpeciesId.ToString() : "")">
+                            <option value="">-- Select Species first --</option>
+                        </select>
+                        <div class="form-text" id="growingDaysInfo"></div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Expected Ready Date</label>
+                        <input type="text" id="expectedReadyPreview" class="form-control" readonly placeholder="Sowing Date + growing days" />
+                        <div class="form-text">Calculated automatically; the saved value is recomputed on the server.</div>
+                    </div>
+
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Main Office Seed Lot</label>
+                        <select asp-for="SeedSowing.SourceSeedStockId" id="seedLotSelect" class="form-select" required
+                                data-selected="@(Model.SeedSowing.SourceSeedStockId > 0 ? Model.SeedSowing.SourceSeedStockId.ToString() : "")">
+                            <option value="">-- Select Variety first --</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
                         <label class="form-label fw-bold">Available</label>
-                        <input type="text" id="availablePreview" class="form-control" readonly placeholder="Select Seed Stock" />
+                        <input type="text" id="availablePreview" class="form-control" readonly placeholder="Select a seed lot" />
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Quantity Sown</label>
-                        <input type="number" step="0.01" min="0.01" asp-for="SeedSowing.QuantitySown" class="form-control" required />
+                        <label class="form-label fw-bold">Seed Quantity</label>
+                        <input type="number" step="0.01" min="0.01" asp-for="SeedSowing.QuantitySown" id="quantityInput" class="form-control" required />
+                        <div class="text-danger small d-none" id="quantityWarning">Quantity exceeds the available seed stock.</div>
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Cavity / Tray Type</label>
+                        <label class="form-label fw-bold">Cavity</label>
                         <select asp-for="SeedSowing.CavityType" class="form-select" required>
                             <option value="">-- Select --</option>
                             @foreach (var ct in Model.CavityTypes)
@@ -67,30 +114,8 @@
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Number of Trays (optional)</label>
+                        <label class="form-label fw-bold">Tray Count</label>
                         <input type="number" step="1" min="1" asp-for="SeedSowing.NumberOfTrays" class="form-control" />
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Sowing Date</label>
-                        <input type="date" asp-for="SeedSowing.SowingDate" class="form-control" required />
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Expected Ready Date (optional estimate)</label>
-                        <input type="date" asp-for="SeedSowing.ExpectedReadyDate" class="form-control" />
-                        <div class="form-text">If the selected variety has a Ready Stock Days value configured (Admin &rarr; Plant Types &amp; Species), Expected Ready Date is computed automatically as Sowing Date + Ready Stock Days and this entry is overridden. Otherwise, this manual date is used as-is.</div>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="SeedSowing.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
                     </div>
 
                     <div class="col-md-6">
@@ -100,6 +125,17 @@
                             @foreach (var s in Model.Supervisors)
                             {
                                 <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Labour / Responsible Person</label>
+                        <select asp-for="SeedSowing.ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var r in Model.ResponsiblePersons)
+                            {
+                                <option value="@r.EmployeeID">@r.Name</option>
                             }
                         </select>
                     </div>
@@ -122,10 +158,100 @@
 @section Scripts {
     <script>
         $(function () {
-            $('#stockSelect').on('change', function () {
-                const available = $(this).find('option:selected').data('available');
-                $('#availablePreview').val(available !== undefined ? available : '');
-            }).trigger('change');
+            const handlerUrl = '@Url.Page("/Production/SeedSowing/Create")';
+            let growingDays = null;
+            let available = null;
+
+            function fill($select, items, placeholder, textFn, dataFn) {
+                const selected = String($select.data('selected') || '');
+                $select.empty().append($('<option>').val('').text(placeholder));
+                items.forEach(function (it) {
+                    const $o = $('<option>').val(it.id).text(textFn(it));
+                    if (dataFn) dataFn($o, it);
+                    if (String(it.id) === selected) $o.prop('selected', true);
+                    $select.append($o);
+                });
+                $select.data('selected', '');
+            }
+
+            function loadPolyhouses() {
+                const areaId = $('#areaSelect').val();
+                const $ph = $('#polyhouseSelect');
+                if (!areaId) { fill($ph, [], '-- Select Area first --', x => x.name); return; }
+                $.getJSON(handlerUrl, { handler: 'Polyhouses', areaId: areaId }, function (list) {
+                    fill($ph, list, list.length ? '-- Select Polyhouse --' : '-- No Polyhouse in this Area --', x => x.name);
+                });
+            }
+
+            function loadVarieties() {
+                const typeId = $('#plantTypeSelect').val();
+                const $v = $('#varietySelect');
+                if (!typeId) { fill($v, [], '-- Select Species first --', x => x.name); onVarietyChange(); return; }
+                $.getJSON(handlerUrl, { handler: 'Varieties', plantTypeId: typeId }, function (list) {
+                    fill($v, list, '-- Select Variety --',
+                        x => x.name + (x.growingDays ? ' (' + x.growingDays + ' days)' : ' (growing days not set)'),
+                        ($o, x) => $o.attr('data-days', x.growingDays || ''));
+                    onVarietyChange();
+                });
+            }
+
+            function onVarietyChange() {
+                const $opt = $('#varietySelect option:selected');
+                const days = parseInt($opt.attr('data-days'), 10);
+                growingDays = isNaN(days) ? null : days;
+                const $info = $('#growingDaysInfo');
+                if (!$('#varietySelect').val()) { $info.text('').removeClass('text-danger'); }
+                else if (growingDays) { $info.text('Growing days: ' + growingDays).removeClass('text-danger'); }
+                else { $info.text('Growing days are not configured for this variety - sowing will be refused. Set them in Administration > Plant Master.').addClass('text-danger'); }
+                updateExpected();
+                loadSeedLots();
+            }
+
+            function loadSeedLots() {
+                const speciesId = $('#varietySelect').val();
+                const $lot = $('#seedLotSelect');
+                if (!speciesId) { fill($lot, [], '-- Select Variety first --', x => x.lot); onLotChange(); return; }
+                $.getJSON(handlerUrl, { handler: 'SeedLots', speciesId: speciesId }, function (list) {
+                    fill($lot, list, list.length ? '-- Select Seed Lot --' : '-- No Main Office stock for this variety --',
+                        x => x.lot + ' - ' + (x.source || 'unknown source') + ' @@ ' + x.area + ' (available: ' + Number(x.available).toFixed(2) + ' ' + x.unit + ')',
+                        ($o, x) => $o.attr('data-available', x.available));
+                    onLotChange();
+                });
+            }
+
+            function onLotChange() {
+                const a = parseFloat($('#seedLotSelect option:selected').attr('data-available'));
+                available = isNaN(a) ? null : a;
+                $('#availablePreview').val(available === null ? '' : available.toFixed(2));
+                checkQuantity();
+            }
+
+            function checkQuantity() {
+                const q = parseFloat($('#quantityInput').val());
+                $('#quantityWarning').toggleClass('d-none', !(available !== null && !isNaN(q) && q > available));
+            }
+
+            function updateExpected() {
+                const d = $('#sowingDate').val();
+                if (!d || !growingDays) { $('#expectedReadyPreview').val(''); return; }
+                const parts = d.split('-').map(Number);
+                const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+                dt.setUTCDate(dt.getUTCDate() + growingDays);
+                const dd = String(dt.getUTCDate()).padStart(2, '0');
+                const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+                $('#expectedReadyPreview').val(dd + '-' + mm + '-' + dt.getUTCFullYear());
+            }
+
+            $('#areaSelect').on('change', loadPolyhouses);
+            $('#plantTypeSelect').on('change', loadVarieties);
+            $('#varietySelect').on('change', onVarietyChange);
+            $('#seedLotSelect').on('change', onLotChange);
+            $('#quantityInput').on('input', checkQuantity);
+            $('#sowingDate').on('change', updateExpected);
+
+            // Re-populate dependent lists after a failed POST.
+            if ($('#areaSelect').val()) loadPolyhouses();
+            if ($('#plantTypeSelect').val()) loadVarieties();
         });
     </script>
 }

@@ -153,8 +153,17 @@ ORDER BY si.CreatedDate ASC";
         // posted Id alone (spec item 11: "Do not trust posted AreaId/
         // UserId/SeedStockId. Re-fetch the actual database records and
         // validate them.").
+        //
+        // Phase B: Seed Issue is retired -- sowing consumes Main Office Seed
+        // Stock directly. No NEW issue can be created; existing records,
+        // ConfirmAsync/RejectAsync (to drain still-pending issues) and the
+        // table itself are kept.
+        public static bool NewIssuesEnabled => false;
+
         public async Task<(bool Success, string? Message, int Id)> InsertAsync(SeedIssue entry, int? userId)
         {
+            if (!NewIssuesEnabled)
+                return (false, "Seed Issue has been retired. Record sowing directly from Main Office Seed Stock.", 0);
             if (entry.IssuedQuantity <= 0)
                 return (false, "Quantity must be greater than zero.", 0);
             if (entry.SourceSeedStockId <= 0)

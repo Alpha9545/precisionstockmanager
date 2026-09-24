@@ -8,9 +8,20 @@
     <h2 class="mb-3">Polyhouse Management</h2>
 
     <!-- Add Polyhouse Form -->
+    <p class="text-muted small">
+        Business hierarchy: <strong>Area</strong> (site, e.g. Main Nursery) &rarr; <strong>Polyhouse</strong>
+        (production unit inside it, e.g. PH-01). Direct Sowing offers only the Polyhouses assigned to the chosen Area.
+    </p>
     <form method="post" asp-page-handler="Add" class="mb-4">
         <div class="input-group">
             <input type="text" asp-for="NewPolyhouseName" class="form-control" placeholder="Enter polyhouse name" required />
+            <select asp-for="NewAreaId" class="form-select" style="max-width:280px">
+                <option value="">-- Belongs to Area (site) --</option>
+                @foreach (var a in Model.Areas)
+                {
+                    <option value="@a.Id">@a.Name</option>
+                }
+            </select>
             <button type="submit" class="btn btn-primary">Add Polyhouse</button>
         </div>
     </form>
@@ -21,7 +32,8 @@
             <tr>
                 @* <th>ID</th> *@
                 <th>Polyhouse Name</th>
-                <th>Areas</th>
+                <th>Belongs to Area (site)</th>
+                <th>Legacy linked Areas</th>
                 <th>Total Area Size</th>
                 <th>Total Capacity</th>
                 <th>Action</th>
@@ -34,11 +46,13 @@
                 <tr>
                     @* <td>@polyhouse.Id</td> *@
                     <td>@polyhouse.Name</td>
+                    <td>@(polyhouse.AreaName ?? "-")</td>
                     <td>@(summary?.AreaCount ?? 0)</td>
                     <td>@(summary != null && summary.SizeTotals.Count > 0 ? string.Join(", ", summary.SizeTotals) : "-")</td>
                     <td>@(summary != null && summary.CapacityTotals.Count > 0 ? string.Join(", ", summary.CapacityTotals) : "-")</td>
                     <td>
-                        <button class="btn btn-warning btn-sm" onclick="openEditModal('@polyhouse.Id', '@polyhouse.Name')">
+                        <button type="button" class="btn btn-warning btn-sm js-edit-polyhouse"
+                                data-id="@polyhouse.Id" data-name="@polyhouse.Name" data-area-id="@(polyhouse.AreaId?.ToString() ?? "")">
                             Edit
                         </button>
                         <a asp-page="/Admin/Area" class="btn btn-outline-secondary btn-sm">Manage Areas</a>
@@ -64,6 +78,16 @@
                         <label for="editName" class="form-label">Polyhouse Name</label>
                         <input type="text" asp-for="EditPolyhouseName" class="form-control" id="editName" required />
                     </div>
+                    <div class="mb-3">
+                        <label for="editAreaId" class="form-label">Belongs to Area (site)</label>
+                        <select asp-for="EditAreaId" class="form-select" id="editAreaId">
+                            <option value="">-- None --</option>
+                            @foreach (var a in Model.Areas)
+                            {
+                                <option value="@a.Id">@a.Name</option>
+                            }
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -76,10 +100,12 @@
 
 <!-- JavaScript for Modal -->
 <script>
-    function openEditModal(id, name) {
-        document.getElementById("editId").value = id;
-        document.getElementById("editName").value = name;
-        var modal = new bootstrap.Modal(document.getElementById('editModal'));
-        modal.show();
-    }
+    document.querySelectorAll('.js-edit-polyhouse').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.getElementById("editId").value = btn.dataset.id;
+            document.getElementById("editName").value = btn.dataset.name;
+            document.getElementById("editAreaId").value = btn.dataset.areaId || "";
+            new bootstrap.Modal(document.getElementById('editModal')).show();
+        });
+    });
 </script>

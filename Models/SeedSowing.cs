@@ -30,6 +30,15 @@ namespace PlantStockManager.Models
         // Never a second Polyhouse relationship. Not persisted here.
         public string? PolyhouseName { get; set; }
 
+        // Phase B: the Polyhouse (inside AreaId) the batch is sown in, and
+        // the Main Office Area the seed came from (via SourceSeedStockId).
+        public int? PolyhouseId { get; set; }
+        public int SourceAreaId { get; set; }
+        public string? SourceAreaName { get; set; }
+
+        // Phase B: recorded by the Supervisor Approval that closes the batch.
+        public decimal WastageQuantity { get; set; }
+
         public string BatchNo { get; set; } = string.Empty;
         public int? SeedSourceId { get; set; }
         public string? SeedSourceName { get; set; }
@@ -96,6 +105,8 @@ namespace PlantStockManager.Models
         // precise, lock-protected check still happens in
         // ReadyConfirmationRepository.ConfirmAsync against a freshly
         // re-read value -- this is for display/pre-validation only.
-        public decimal RemainingReadyQuantity => QuantitySown - ConfirmedReadyQuantity;
+        // Quantity still awaiting Supervisor Approval (Phase B: wastage counts
+        // as accounted for). 0 once the sowing is Completed.
+        public decimal RemainingReadyQuantity => QuantitySown - ConfirmedReadyQuantity - WastageQuantity;
     }
 }

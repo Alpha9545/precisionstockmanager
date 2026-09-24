@@ -24,15 +24,25 @@ namespace PlantStockManager.Data
         private const string BaseSelect = @"
 SELECT
     rs.Id, rs.SeedSowingId, sw.SowingCode, rs.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
-    rs.AreaId, a.Name AS AreaName, ph.Name AS PolyhouseName,
+    rs.AreaId, a.Name AS AreaName, rs.PolyhouseId, COALESCE(rph.Name, ph.Name) AS PolyhouseName,
     rs.BatchNo, rs.CavityType, rs.SowingDate, rs.Quantity, rs.FirstConfirmationDate,
+    sw.QuantitySown, sw.ConfirmedReadyQuantity, sw.WastageQuantity, sw.Status AS SowingStatus,
+    appr.ApprovedByName, appr.ApprovalDate,
     rs.CreatedDate, rs.CreatedBy, rs.ModifiedDate, rs.ModifiedBy
 FROM dbo.ReadyStock rs
 INNER JOIN dbo.SeedSowings sw ON rs.SeedSowingId = sw.Id
 INNER JOIN dbo.PlantSpecies ps ON rs.SpeciesId = ps.Id
 INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
 INNER JOIN dbo.Area a ON rs.AreaId = a.Id
-LEFT JOIN dbo.Polyhouses ph ON a.PolyhouseId = ph.Id";
+LEFT JOIN dbo.Polyhouses ph ON a.PolyhouseId = ph.Id
+LEFT JOIN dbo.Polyhouses rph ON rs.PolyhouseId = rph.Id
+OUTER APPLY (
+    SELECT TOP 1 u.Name AS ApprovedByName, rc.ConfirmationDate AS ApprovalDate
+    FROM dbo.ReadyConfirmations rc
+    LEFT JOIN dbo.IMSUsers u ON u.Id = rc.ApprovedById
+    WHERE rc.ReadyStockId = rs.Id AND rc.Status = 'Confirmed'
+    ORDER BY rc.ConfirmationDate DESC
+) appr";
 
         public async Task<List<ReadyStock>> GetAllAsync()
         {
@@ -90,7 +100,7 @@ LEFT JOIN dbo.Polyhouses ph ON a.PolyhouseId = ph.Id";
         // actually happens, per the "no automatic Ready Stock creation"
         // rule. Mirrors SeedStockRepository.GetOrCreateLockedAsync.
         public async Task<int> GetOrCreateLockedAsync(
-            SqlConnection conn, SqlTransaction tx, int seedSowingId, int speciesId, int areaId,
+            SqlConnection conn, SqlTransaction tx, int seedSowingId, int speciesId, int areaId, int? polyhouseId,
             string batchNo, string cavityType, DateTime sowingDate, string? createdBy)
         {
             var lockCmd = new SqlCommand(
@@ -104,13 +114,14 @@ LEFT JOIN dbo.Polyhouses ph ON a.PolyhouseId = ph.Id";
             }
 
             const string insertSql = @"
-INSERT INTO dbo.ReadyStock (SeedSowingId, SpeciesId, AreaId, BatchNo, CavityType, SowingDate, Quantity, CreatedDate, CreatedBy)
-VALUES (@SeedSowingId, @SpeciesId, @AreaId, @BatchNo, @CavityType, @SowingDate, 0, SYSUTCDATETIME(), @CreatedBy);
+INSERT INTO dbo.ReadyStock (SeedSowingId, SpeciesId, AreaId, PolyhouseId, BatchNo, CavityType, SowingDate, Quantity, CreatedDate, CreatedBy)
+VALUES (@SeedSowingId, @SpeciesId, @AreaId, @PolyhouseId, @BatchNo, @CavityType, @SowingDate, 0, SYSUTCDATETIME(), @CreatedBy);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
             var insertCmd = new SqlCommand(insertSql, conn, tx);
             insertCmd.Parameters.AddWithValue("@SeedSowingId", seedSowingId);
             insertCmd.Parameters.AddWithValue("@SpeciesId", speciesId);
             insertCmd.Parameters.AddWithValue("@AreaId", areaId);
+            insertCmd.Parameters.AddWithValue("@PolyhouseId", (object?)polyhouseId ?? DBNull.Value);
             insertCmd.Parameters.AddWithValue("@BatchNo", batchNo ?? string.Empty);
             insertCmd.Parameters.AddWithValue("@CavityType", cavityType);
             insertCmd.Parameters.AddWithValue("@SowingDate", sowingDate.Date);
@@ -223,7 +234,14 @@ ORDER BY t.CreatedAt DESC";
                 PlantTypeName = reader.GetString(reader.GetOrdinal("PlantTypeName")),
                 AreaId = reader.GetInt32(reader.GetOrdinal("AreaId")),
                 AreaName = reader.GetString(reader.GetOrdinal("AreaName")),
+                PolyhouseId = reader.IsDBNull(reader.GetOrdinal("PolyhouseId")) ? null : reader.GetInt32(reader.GetOrdinal("PolyhouseId")),
                 PolyhouseName = reader.IsDBNull(reader.GetOrdinal("PolyhouseName")) ? null : reader.GetString(reader.GetOrdinal("PolyhouseName")),
+                QuantitySown = reader.GetDecimal(reader.GetOrdinal("QuantitySown")),
+                ApprovedReadyQuantity = reader.GetDecimal(reader.GetOrdinal("ConfirmedReadyQuantity")),
+                WastageQuantity = reader.GetDecimal(reader.GetOrdinal("WastageQuantity")),
+                SowingStatus = reader.GetString(reader.GetOrdinal("SowingStatus")),
+                ApprovedByName = reader.IsDBNull(reader.GetOrdinal("ApprovedByName")) ? null : reader.GetString(reader.GetOrdinal("ApprovedByName")),
+                ApprovalDate = reader.IsDBNull(reader.GetOrdinal("ApprovalDate")) ? null : reader.GetDateTime(reader.GetOrdinal("ApprovalDate")),
                 BatchNo = reader.GetString(reader.GetOrdinal("BatchNo")),
                 CavityType = reader.GetString(reader.GetOrdinal("CavityType")),
                 SowingDate = reader.GetDateTime(reader.GetOrdinal("SowingDate")),

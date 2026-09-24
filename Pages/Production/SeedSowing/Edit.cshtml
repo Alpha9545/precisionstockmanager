@@ -89,7 +89,7 @@
                 </div>
             </form>
 
-            @if (Model.SeedSowing.Status != "Cancelled")
+            @if (Model.SeedSowing.Status == "Sown" && Model.SeedSowing.ConfirmedReadyQuantity == 0 && Model.SeedSowing.WastageQuantity == 0)
             {
                 <hr />
                 <form method="post" asp-page-handler="Cancel" asp-route-id="@Model.SeedSowing.Id" onsubmit="return confirm('Cancel this Sowing? This returns the consumed seed to its source Seed Stock pool. This cannot be undone.');">

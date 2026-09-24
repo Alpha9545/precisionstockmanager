@@ -79,11 +79,14 @@ namespace PlantStockManager.Authorization
                 ["/Office/SeedBank"] = R("SeedStock.View", "SeedStock.Enter"),
                 ["/Office/SeedBankView"] = R("SeedStock.View"),
 
-                // Seed Issue (to be removed from the active workflow in Phase B)
+                // Seed Issue -- RETIRED in Phase B (sowing consumes Main Office
+                // Seed Stock directly). Create only shows a "retired" notice and
+                // refuses every POST; MyIssues is read-only history; draining
+                // any still-pending issue is a System Administrator task.
                 ["/Production/SeedIssue/Create"] = R("SeedStock.Enter"),
                 ["/Production/SeedIssue/MyIssues"] = R("SeedStock.View"),
-                ["/Production/SeedIssue/PendingReceipts"] = R("Sowing.View", "Sowing.Enter"),
-                ["/Production/SeedIssue/ConfirmReceipt"] = R("Sowing.Enter"),
+                ["/Production/SeedIssue/PendingReceipts"] = FullAccessOnlyRule,
+                ["/Production/SeedIssue/ConfirmReceipt"] = FullAccessOnlyRule,
 
                 // ---- Sowing / Ready stock ----------------------------------
                 ["/Production/SeedSowing/Index"] = R("Sowing.View"),
@@ -93,7 +96,8 @@ namespace PlantStockManager.Authorization
                 ["/Production/ReadyAlerts/Index"] = R("ReadyStock.View|Sowing.View"),
                 ["/Production/ReadyConfirmation/Index"] = R("ReadyStock.View"),
                 ["/Production/ReadyConfirmation/History"] = R("ReadyStock.View", "ReadyStock.Confirm"),
-                ["/Production/ReadyConfirmation/Confirm"] = R("ReadyStock.Confirm"),
+                ["/Production/ReadyConfirmation/Confirm"] = R("ReadyStock.Confirm"),   // Phase B: Supervisor Approval
+                ["/Production/ReadyStock/Index"] = R("ReadyStock.View"),               // Phase B: approved Ready Stock
 
                 // Legacy sowing module (SeedEntries / Inventory)
                 ["/SeedEntry/Sowing"] = R("Sowing.Enter"),
@@ -101,6 +105,10 @@ namespace PlantStockManager.Authorization
                 ["/SeedEntry/SowingToInventory"] = R("Sowing.Enter"),
                 ["/SeedEntry/PlantPhase"] = R("Sowing.Enter"),
                 ["/SeedEntry/GrowthTracker"] = R("Sowing.View", "Sowing.Enter"),
+                // Phase B fix: "/SeedEntry/temp" is the live legacy "Add Plant
+                // Phase" page (stage updates of existing legacy batches), not a
+                // developer page -- same rule as GrowthTracker.
+                ["/SeedEntry/temp"] = R("Sowing.View", "Sowing.Enter"),
                 ["/SeedEntry/Thinning"] = R("Sowing.View"),
                 ["/SeedEntry/Inventory"] = R("Sowing.View|ReadyStock.View", "Sowing.Enter"),
 
@@ -219,7 +227,6 @@ namespace PlantStockManager.Authorization
 
                 // ---- Developer / sample pages: System Administrator only ---
                 ["/Data/test201225"] = FullAccessOnlyRule,
-                ["/SeedEntry/temp"] = FullAccessOnlyRule,
                 ["/SamplePages/SidebarDesign"] = FullAccessOnlyRule,
                 ["/random"] = FullAccessOnlyRule,
             };

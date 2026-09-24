@@ -416,7 +416,7 @@
             else { <div class="text-muted small">No stock</div> }
         </div></div></div>
         <div class="col-md-3"><div class="card h-100"><div class="card-body">
-            <div class="text-muted small">Issued / Received (range) <span class="badge bg-primary">Movement</span></div>
+            <div class="text-muted small">Seed Issue (historical, retired) <span class="badge bg-primary">Movement</span></div>
             <div class="fs-6">Issued: @Model.Dashboard.Seed.SeedIssuedQuantityInRange.ToString("N1")</div>
             <div class="fs-6">Received: @Model.Dashboard.Seed.SeedReceivedQuantityInRange.ToString("N1")</div>
         </div></div></div>
@@ -426,12 +426,13 @@
             <div class="text-muted small">@Model.Dashboard.Seed.SowingActivityCountInRange sowing events</div>
         </div></div></div>
         <div class="col-md-3"><div class="card h-100"><div class="card-body">
-            <div class="text-muted small">Pending Seed Receipts <span class="badge bg-secondary">Balance</span></div>
+            <div class="text-muted small">Pending Seed Receipts (legacy Seed Issue) <span class="badge bg-secondary">Balance</span></div>
             <div class="fs-5">@Model.Dashboard.Seed.PendingSeedReceipts</div>
         </div></div></div>
     </div>
     <div class="mb-4">
-        <a asp-page="/Production/SeedIssue/Index" class="btn btn-sm btn-outline-primary">Open Seed Issue &rarr;</a>
+        <a asp-page="/Production/SeedStock/Index" class="btn btn-sm btn-outline-primary me-2">Open Seed Stock &rarr;</a>
+        <a asp-page="/Production/SeedSowing/Index" class="btn btn-sm btn-outline-primary">Open Direct Sowing &rarr;</a>
     </div>
 
     <!-- Section F: Cutting Summary -->

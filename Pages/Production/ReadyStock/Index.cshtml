@@ -1,0 +1,91 @@
+@page
+@model PlantStockManager.Pages.Production.ReadyStock.IndexModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Ready Stock";
+    var canSeeSowing = await FeatureAccess.CanAccessPageAsync(User, "/Production/SeedSowing/Details");
+    var canSeeApproval = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyConfirmation/Index");
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Ready Stock <small class="text-muted fs-6">(supervisor-approved batches)</small></h2>
+        @if (canSeeApproval)
+        {
+            <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-outline-secondary">Supervisor Approval</a>
+        }
+    </div>
+
+    <form method="get" class="row g-2 mb-3">
+        <div class="col-md-4">
+            <input type="text" name="Search" value="@Model.Search" class="form-control" placeholder="Batch, species, variety, area or polyhouse" />
+        </div>
+        <div class="col-md-3 d-flex align-items-center">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="IncludeEmpty" value="true" id="includeEmpty" @(Model.IncludeEmpty ? "checked" : "") />
+                <label class="form-check-label" for="includeEmpty">Include batches with no stock left</label>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-primary">Filter</button>
+        </div>
+        <div class="col-md-3 text-end align-self-center">
+            <strong>Total ready:</strong> @Model.TotalQuantity.ToString("N2")
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-light">
+                <tr>
+                    <th>Batch No.</th>
+                    <th>Species</th>
+                    <th>Variety</th>
+                    <th>Area</th>
+                    <th>Polyhouse</th>
+                    <th>Cavity</th>
+                    <th>Sowing Date</th>
+                    <th>Sown</th>
+                    <th>Approved Ready</th>
+                    <th>Wastage</th>
+                    <th>Ready Stock Now</th>
+                    <th>Approved By</th>
+                    <th>Approval Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Items)
+                {
+                    <tr>
+                        <td>
+                            @if (canSeeSowing)
+                            {
+                                <a asp-page="/Production/SeedSowing/Details" asp-route-id="@r.SeedSowingId">@r.SowingCode</a>
+                            }
+                            else
+                            {
+                                @r.SowingCode
+                            }
+                        </td>
+                        <td>@r.PlantTypeName</td>
+                        <td>@r.SpeciesName</td>
+                        <td>@r.AreaName</td>
+                        <td>@(r.PolyhouseName ?? "-")</td>
+                        <td>@r.CavityType</td>
+                        <td>@r.SowingDate.ToString("dd/MM/yyyy")</td>
+                        <td>@r.QuantitySown.ToString("N2")</td>
+                        <td>@r.ApprovedReadyQuantity.ToString("N2")</td>
+                        <td>@r.WastageQuantity.ToString("N2")</td>
+                        <td><strong>@r.Quantity.ToString("N2")</strong></td>
+                        <td>@(r.ApprovedByName ?? "-")</td>
+                        <td>@(r.ApprovalDate?.ToString("dd/MM/yyyy") ?? "-")</td>
+                    </tr>
+                }
+                @if (!Model.Items.Any())
+                {
+                    <tr><td colspan="13" class="text-center text-muted">No approved Ready Stock found.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

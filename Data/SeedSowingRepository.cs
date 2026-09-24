@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -36,13 +37,10 @@ namespace PlantStockManager.Data
         // InsertAsync already uses for _areaRepo.GetAreaById.
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
 
-        // Sowing may only be recorded against Seed Stock held at an
-        // active Kunjir/Kiran Area -- the same evidence-based rule
-        // Phase H's post-review correction already established for where
-        // a Seed Issue may be received (PROJECT_DOCUMENTATION.md
-        // Decision 19's correction paragraph). Reused, not re-derived,
-        // since Sowing only ever happens at the same kind of location.
-        private static readonly string[] ValidSowingAreaTypes = { "Kunjir", "Kiran" };
+        // Phase B: the former Kunjir/Kiran-only rule (seed had to be ISSUED
+        // to a growing Area first) is retired. Sowing now consumes Main
+        // Office Seed Stock directly and records the growing Area +
+        // Polyhouse chosen on the form (DirectSowingRules).
 
         // Post-review correction: the business's exact, closed cavity
         // list (never free text). Exact-string match, case- and
@@ -53,8 +51,7 @@ namespace PlantStockManager.Data
         // array as CK_SeedSowings_CavityType in
         // Database/Phase23_SeedSowing.sql -- the two must be kept in
         // sync if this list is ever revised.
-        private static readonly string[] ValidCavityTypes = { "9 Cavity", "24 Cavity", "42 Cavity", "102 Cavity", "150 Cavity" };
-        public static IReadOnlyList<string> CavityTypes => ValidCavityTypes;
+        public static IReadOnlyList<string> CavityTypes => DirectSowingRules.CavityTypes;
 
         // Phase 24 (Phase J): the default "Ready Soon" lookahead window,
         // in days. The business's own spec only ever gave 3 as an
@@ -95,7 +92,9 @@ namespace PlantStockManager.Data
         private const string BaseSelect = @"
 SELECT
     sw.Id, sw.SowingCode, sw.SourceSeedStockId, sw.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
-    sw.AreaId, a.Name AS AreaName, gp.Name AS GrowingPartnerName, ph.Name AS PolyhouseName,
+    sw.AreaId, a.Name AS AreaName, gp.Name AS GrowingPartnerName,
+    sw.PolyhouseId, COALESCE(sph.Name, ph.Name) AS PolyhouseName,
+    ss.AreaId AS SourceAreaId, ssa.Name AS SourceAreaName, sw.WastageQuantity,
     sw.BatchNo, sw.SeedSourceId, src.Name AS SeedSourceName,
     sw.CavityType, sw.NumberOfTrays, sw.QuantitySown, sw.SowingDate, sw.ReadyStockDays, sw.ExpectedReadyDate, sw.Status,
     sw.ConfirmedReadyQuantity,
@@ -109,7 +108,9 @@ INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
 INNER JOIN dbo.Area a ON sw.AreaId = a.Id
 LEFT JOIN dbo.GrowingPartners gp ON a.GrowingPartnerId = gp.Id
 LEFT JOIN dbo.Polyhouses ph ON a.PolyhouseId = ph.Id
+LEFT JOIN dbo.Polyhouses sph ON sw.PolyhouseId = sph.Id
 INNER JOIN dbo.SeedStock ss ON sw.SourceSeedStockId = ss.Id
+LEFT JOIN dbo.Area ssa ON ss.AreaId = ssa.Id
 LEFT JOIN dbo.SeedSources src ON sw.SeedSourceId = src.Id
 LEFT JOIN dbo.IMSUsers r ON sw.ResponsiblePersonId = r.Id
 LEFT JOIN dbo.IMSUsers sup ON sw.SupervisorId = sup.Id";
@@ -199,7 +200,7 @@ LEFT JOIN dbo.IMSUsers sup ON sw.SupervisorId = sup.Id";
 
             var sql = BaseSelect + @"
 WHERE sw.Status = 'Sown' AND sw.ExpectedReadyDate IS NOT NULL AND sw.ExpectedReadyDate <= @Horizon
-      AND sw.ConfirmedReadyQuantity < sw.QuantitySown
+      AND sw.ConfirmedReadyQuantity + sw.WastageQuantity < sw.QuantitySown
 ORDER BY sw.ExpectedReadyDate";
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@Horizon", horizon.Date);
@@ -232,7 +233,7 @@ ORDER BY sw.ExpectedReadyDate";
             await conn.OpenAsync();
 
             var sql = BaseSelect + @"
-WHERE sw.Status = 'Sown' AND sw.ConfirmedReadyQuantity < sw.QuantitySown
+WHERE sw.Status = 'Sown' AND sw.ConfirmedReadyQuantity + sw.WastageQuantity < sw.QuantitySown
 ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
             using var cmd = new SqlCommand(sql, conn);
             using var reader = await cmd.ExecuteReaderAsync();
@@ -255,7 +256,7 @@ ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
         // "no automatic readiness" rule).
         public static string ClassifyReadyAlert(string status, DateTime? expectedReadyDate, DateTime today, int readySoonWindowDays)
         {
-            if (status == "Cancelled" || !expectedReadyDate.HasValue)
+            if (status != "Sown" || !expectedReadyDate.HasValue)
                 return "None";
 
             var readyDate = expectedReadyDate.Value.Date;
@@ -268,34 +269,37 @@ ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
             return "None";
         }
 
-        // Consumes the source Seed Stock pool (decrements PhysicalQuantity,
-        // writes a 'Sown' ledger row) and records the Sowing itself, in
-        // ONE transaction. AreaId/SpeciesId/BatchNo/SeedSourceId are
-        // always derived from the locked source row, never trusted from
-        // the caller; the source Area is independently re-verified to be
-        // an active Kunjir/Kiran Area -- never trust a stale/tampered
-        // SourceSeedStockId to have been offered from a legitimate
-        // dropdown.
+        // Phase B -- DIRECT SOWING. One atomic transaction:
+        //   1) lock the Main Office Seed Stock pool (UPDLOCK/HOLDLOCK) and
+        //      refuse if the quantity exceeds Available (no negative stock);
+        //   2) the pool must be at an ACTIVE MainOffice Area, and its
+        //      variety must match the variety chosen on the form;
+        //   3) the growing Area must be active and the Polyhouse must belong
+        //      to it (dbo.Polyhouses.AreaId);
+        //   4) Expected Ready Date = Sowing Date + the variety's growing days
+        //      (dbo.PlantSpecies.ReadyStockDays) -- a variety without growing
+        //      days is refused (no manual date);
+        //   5) batch number YYYY-MM-DD-L-NNN from dbo.BatchNumberSequences,
+        //      stored in the unique SowingCode column;
+        //   6) insert the sowing and write the 'Sown' ledger entry.
+        // Area AUTHORIZATION (may this user sow into that Area?) is checked
+        // by the page before this call, against the growing Area.
         public async Task<(bool Success, string? Message, int Id)> InsertAsync(SeedSowing entry, int? userId)
         {
             if (entry.SourceSeedStockId <= 0)
-                return (false, "Source Seed Stock is required.", 0);
+                return (false, "Main Office seed lot is required.", 0);
+            if (entry.AreaId <= 0)
+                return (false, "Area is required.", 0);
+            if (!entry.PolyhouseId.HasValue || entry.PolyhouseId.Value <= 0)
+                return (false, "Polyhouse is required.", 0);
             if (entry.QuantitySown <= 0)
-                return (false, "Quantity Sown must be greater than zero.", 0);
-            if (string.IsNullOrWhiteSpace(entry.CavityType))
-                return (false, "Cavity/Tray Type is required.", 0);
-            // Post-review correction: exact-match against the closed
-            // cavity list -- never trust a posted value just because the
-            // Create page's dropdown only ever offers these five. A
-            // spacing/case/wording variant ('102 cavity', '102-cell',
-            // '102c') is rejected here, before any lock is taken, exactly
-            // like every other closed-set field this app already
-            // enforces server-side (e.g. SeedIssueRepository's own
-            // ValidDestinationAreaTypes check).
-            if (!ValidCavityTypes.Contains(entry.CavityType))
-                return (false, $"Cavity/Tray Type must be one of: {string.Join(", ", ValidCavityTypes)}.", 0);
+                return (false, "Seed Quantity must be greater than zero.", 0);
+            if (!DirectSowingRules.IsValidCavityType(entry.CavityType))
+                return (false, $"Cavity must be one of: {string.Join(", ", DirectSowingRules.CavityTypes)}.", 0);
             if (entry.NumberOfTrays.HasValue && entry.NumberOfTrays.Value <= 0)
-                return (false, "Number of Trays must be greater than zero when provided.", 0);
+                return (false, "Tray Count must be greater than zero when provided.", 0);
+            if (entry.SowingDate == default)
+                return (false, "Sowing Date is required.", 0);
 
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
@@ -303,86 +307,103 @@ ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
 
             try
             {
-                // 1) Lock the source Seed Stock pool and validate enough
-                // is AVAILABLE (Physical - InTransit) -- the same
-                // discipline ReserveInTransitAsync uses, even though a
-                // growing Area's own pool has no code path that raises
-                // its InTransitQuantity today.
-                var lockCmd = new SqlCommand(
-                    "SELECT AreaId, SpeciesId, BatchNo, SeedSourceId, PhysicalQuantity, InTransitQuantity FROM dbo.SeedStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
-                    conn, tx);
+                // 1) + 2) Lock the Main Office seed pool.
+                var lockCmd = new SqlCommand(@"
+SELECT ss.AreaId, ss.SpeciesId, ss.BatchNo, ss.SeedSourceId, ss.PhysicalQuantity, ss.InTransitQuantity,
+       a.AreaType, a.IsActive
+FROM dbo.SeedStock ss WITH (UPDLOCK, HOLDLOCK)
+INNER JOIN dbo.Area a ON a.Id = ss.AreaId
+WHERE ss.Id = @Id", conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", entry.SourceSeedStockId);
-                using var reader = await lockCmd.ExecuteReaderAsync();
-                if (!await reader.ReadAsync())
+                int speciesId;
+                string batchNo;
+                int? seedSourceId;
+                decimal physical, inTransit;
+                string? sourceAreaType;
+                bool sourceAreaActive;
+                using (var reader = await lockCmd.ExecuteReaderAsync())
                 {
-                    reader.Close();
-                    tx.Rollback();
-                    return (false, "Source Seed Stock record not found.", 0);
-                }
-                var areaId = reader.GetInt32(reader.GetOrdinal("AreaId"));
-                var speciesId = reader.GetInt32(reader.GetOrdinal("SpeciesId"));
-                var batchNo = reader.GetString(reader.GetOrdinal("BatchNo"));
-                var seedSourceId = reader.IsDBNull(reader.GetOrdinal("SeedSourceId")) ? (int?)null : reader.GetInt32(reader.GetOrdinal("SeedSourceId"));
-                var physical = reader.GetDecimal(reader.GetOrdinal("PhysicalQuantity"));
-                var inTransit = reader.GetDecimal(reader.GetOrdinal("InTransitQuantity"));
-                reader.Close();
-
-                var available = physical - inTransit;
-                if (entry.QuantitySown > available)
-                {
-                    tx.Rollback();
-                    return (false, $"Insufficient available Seed Stock to sow (available {available:N2}, requested {entry.QuantitySown:N2}).", 0);
-                }
-
-                // 2) Force the source Area to a genuine, active Kunjir/
-                // Kiran Area, server-side -- never trust that only
-                // legitimate pools were ever offered in a dropdown.
-                var area = await _areaRepo.GetAreaById(areaId);
-                if (area == null || !area.IsActive || area.AreaType == null || !ValidSowingAreaTypes.Contains(area.AreaType))
-                {
-                    tx.Rollback();
-                    return (false, "Sowing can only be recorded against Seed Stock held at an active Polyhouse/Growing Area (Kunjir or Kiran).", 0);
+                    if (!await reader.ReadAsync())
+                    {
+                        reader.Close();
+                        tx.Rollback();
+                        return (false, "Selected Main Office seed lot not found.", 0);
+                    }
+                    speciesId = reader.GetInt32(reader.GetOrdinal("SpeciesId"));
+                    batchNo = reader.GetString(reader.GetOrdinal("BatchNo"));
+                    seedSourceId = reader.IsDBNull(reader.GetOrdinal("SeedSourceId")) ? null : reader.GetInt32(reader.GetOrdinal("SeedSourceId"));
+                    physical = reader.GetDecimal(reader.GetOrdinal("PhysicalQuantity"));
+                    inTransit = reader.GetDecimal(reader.GetOrdinal("InTransitQuantity"));
+                    sourceAreaType = reader.IsDBNull(reader.GetOrdinal("AreaType")) ? null : reader.GetString(reader.GetOrdinal("AreaType"));
+                    sourceAreaActive = reader.GetBoolean(reader.GetOrdinal("IsActive"));
                 }
 
-                entry.AreaId = areaId;
-                entry.SpeciesId = speciesId;
-                entry.BatchNo = batchNo;
-                entry.SeedSourceId = seedSourceId;
+                if (!DirectSowingRules.IsMainOfficeSeedLocation(sourceAreaType, sourceAreaActive))
+                {
+                    tx.Rollback();
+                    return (false, "Sowing must consume seed from an active Main Office Seed Stock lot.", 0);
+                }
+                if (entry.SpeciesId > 0 && entry.SpeciesId != speciesId)
+                {
+                    tx.Rollback();
+                    return (false, "The selected seed lot does not belong to the selected Variety.", 0);
+                }
+                var (enough, _, stockError) = DirectSowingRules.CheckSeedAvailability(physical, inTransit, entry.QuantitySown);
+                if (!enough)
+                {
+                    tx.Rollback();
+                    return (false, stockError, 0);
+                }
 
-                // Phase 24 (Phase J) CORRECTION to Phase I: look up the
-                // sown species' ReadyStockDays AT THIS MOMENT (never
-                // re-read later) and, when configured, compute
-                // ExpectedReadyDate = SowingDate + ReadyStockDays,
-                // overriding whatever was posted from the Create page --
-                // the master-data-driven value takes precedence over a
-                // manual guess whenever the master actually defines one.
-                // A species with no ReadyStockDays configured falls back
-                // to Phase I's original manual-entry behavior unchanged.
-                // Both the applied ReadyStockDays and the resulting
-                // ExpectedReadyDate are stored on this row itself, so a
-                // later edit to the species master can never rewrite
-                // this historical Sowing's dates.
+                // 3) Growing Area (active) and a Polyhouse inside it.
+                var locCmd = new SqlCommand(@"
+SELECT a.IsActive, p.AreaId AS PolyhouseAreaId
+FROM dbo.Area a
+LEFT JOIN dbo.Polyhouses p ON p.Id = @PolyhouseId
+WHERE a.Id = @AreaId", conn, tx);
+                locCmd.Parameters.AddWithValue("@AreaId", entry.AreaId);
+                locCmd.Parameters.AddWithValue("@PolyhouseId", entry.PolyhouseId!.Value);
+                using (var reader = await locCmd.ExecuteReaderAsync())
+                {
+                    if (!await reader.ReadAsync() || !reader.GetBoolean(0))
+                    {
+                        reader.Close();
+                        tx.Rollback();
+                        return (false, "Selected Area does not exist or is inactive.", 0);
+                    }
+                    var polyhouseAreaId = reader.IsDBNull(1) ? (int?)null : reader.GetInt32(1);
+                    if (polyhouseAreaId != entry.AreaId)
+                    {
+                        reader.Close();
+                        tx.Rollback();
+                        return (false, "Selected Polyhouse does not belong to the selected Area.", 0);
+                    }
+                }
+
+                // 4) Expected Ready Date from the variety's growing days.
                 var species = await _plantSpeciesRepo.GetByIdAsync(speciesId);
-                if (species?.ReadyStockDays.HasValue == true)
+                var expectedReadyDate = DirectSowingRules.ExpectedReadyDate(entry.SowingDate, species?.ReadyStockDays);
+                if (!expectedReadyDate.HasValue)
                 {
-                    entry.ReadyStockDays = species.ReadyStockDays;
-                    entry.ExpectedReadyDate = entry.SowingDate.Date.AddDays(species.ReadyStockDays.Value);
-                }
-                else
-                {
-                    entry.ReadyStockDays = null;
-                    // entry.ExpectedReadyDate is left exactly as posted
-                    // (Phase I's original optional manual entry).
+                    tx.Rollback();
+                    return (false, $"Growing days are not configured for variety '{species?.Name?.Trim()}'. Set them in Administration > Plant Master before sowing.", 0);
                 }
 
-                var sowingCode = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "SOW", entry.SowingDate.Year);
+                entry.SpeciesId = speciesId;
+                entry.BatchNo = batchNo;           // seed lot number (traceability to the seed received)
+                entry.SeedSourceId = seedSourceId;
+                entry.ReadyStockDays = species!.ReadyStockDays;
+                entry.ExpectedReadyDate = expectedReadyDate;
+
+                // 5) Unique sowing batch number (existing counter table).
+                var sowingCode = await _batchNumberRepo.GetNextSowingBatchNumberAsync(conn, tx, entry.SowingDate.Date);
 
                 const string insertSql = @"
 INSERT INTO dbo.SeedSowings
-(SowingCode, SourceSeedStockId, SpeciesId, AreaId, BatchNo, SeedSourceId, CavityType, NumberOfTrays, QuantitySown,
+(SowingCode, SourceSeedStockId, SpeciesId, AreaId, PolyhouseId, BatchNo, SeedSourceId, CavityType, NumberOfTrays, QuantitySown,
  SowingDate, ReadyStockDays, ExpectedReadyDate, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy)
 VALUES
-(@SowingCode, @SourceSeedStockId, @SpeciesId, @AreaId, @BatchNo, @SeedSourceId, @CavityType, @NumberOfTrays, @QuantitySown,
+(@SowingCode, @SourceSeedStockId, @SpeciesId, @AreaId, @PolyhouseId, @BatchNo, @SeedSourceId, @CavityType, @NumberOfTrays, @QuantitySown,
  @SowingDate, @ReadyStockDays, @ExpectedReadyDate, 'Sown', @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
@@ -391,6 +412,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 cmd.Parameters.AddWithValue("@SourceSeedStockId", entry.SourceSeedStockId);
                 cmd.Parameters.AddWithValue("@SpeciesId", entry.SpeciesId);
                 cmd.Parameters.AddWithValue("@AreaId", entry.AreaId);
+                cmd.Parameters.AddWithValue("@PolyhouseId", entry.PolyhouseId!.Value);
                 cmd.Parameters.AddWithValue("@BatchNo", entry.BatchNo ?? string.Empty);
                 cmd.Parameters.AddWithValue("@SeedSourceId", (object?)entry.SeedSourceId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CavityType", entry.CavityType);
@@ -404,11 +426,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 cmd.Parameters.AddWithValue("@Remarks", (object?)entry.Remarks ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CreatedBy", (object?)entry.CreatedBy ?? DBNull.Value);
 
-                var newId = (int)await cmd.ExecuteScalarAsync();
+                var newId = (int)(await cmd.ExecuteScalarAsync())!;
 
-                // 3) Consume the seed ('Sown' -- reserved for exactly
-                // this purpose, mirroring how PotProduction consumes
-                // CuttingStock via its own 'Potted' type, Decision 15).
+                // 6) Consume the Main Office seed ('Sown' ledger entry; the
+                // ledger/CHECK constraints also refuse a negative balance).
                 var (success, message) = await _seedStockRepo.RecordTransactionAsync(
                     conn, tx, entry.SourceSeedStockId, -entry.QuantitySown, "Sown", "SeedSowing", newId, userId, entry.Remarks);
                 if (!success)
@@ -496,7 +517,7 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
             try
             {
                 var lockCmd = new SqlCommand(
-                    "SELECT SourceSeedStockId, QuantitySown, Status FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                    "SELECT SourceSeedStockId, QuantitySown, Status, ConfirmedReadyQuantity, WastageQuantity FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", id);
                 using var reader = await lockCmd.ExecuteReaderAsync();
@@ -509,12 +530,23 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
                 var sourceSeedStockId = reader.GetInt32(reader.GetOrdinal("SourceSeedStockId"));
                 var quantitySown = reader.GetDecimal(reader.GetOrdinal("QuantitySown"));
                 var status = reader.GetString(reader.GetOrdinal("Status"));
+                var approvedReady = reader.GetDecimal(reader.GetOrdinal("ConfirmedReadyQuantity"));
+                var approvedWastage = reader.GetDecimal(reader.GetOrdinal("WastageQuantity"));
                 reader.Close();
 
                 if (status == "Cancelled")
                 {
                     tx.Rollback();
                     return (false, "This Seed Sowing record is already Cancelled.");
+                }
+                // Phase B: once a Supervisor Approval exists (Ready Stock was
+                // created / wastage recorded) the sowing can no longer be
+                // cancelled -- cancel the approval first (Ready Confirmation
+                // History), which re-opens the sowing.
+                if (status != "Sown" || approvedReady > 0 || approvedWastage > 0)
+                {
+                    tx.Rollback();
+                    return (false, "This sowing already has a Supervisor Approval. Cancel the approval first.");
                 }
 
                 var (success, message) = await _seedStockRepo.RecordTransactionAsync(
@@ -555,7 +587,11 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
                 AreaId = reader.GetInt32(reader.GetOrdinal("AreaId")),
                 AreaName = reader.GetString(reader.GetOrdinal("AreaName")),
                 GrowingPartnerName = reader.IsDBNull(reader.GetOrdinal("GrowingPartnerName")) ? null : reader.GetString(reader.GetOrdinal("GrowingPartnerName")),
+                PolyhouseId = reader.IsDBNull(reader.GetOrdinal("PolyhouseId")) ? null : reader.GetInt32(reader.GetOrdinal("PolyhouseId")),
                 PolyhouseName = reader.IsDBNull(reader.GetOrdinal("PolyhouseName")) ? null : reader.GetString(reader.GetOrdinal("PolyhouseName")),
+                SourceAreaId = reader.GetInt32(reader.GetOrdinal("SourceAreaId")),
+                SourceAreaName = reader.IsDBNull(reader.GetOrdinal("SourceAreaName")) ? null : reader.GetString(reader.GetOrdinal("SourceAreaName")),
+                WastageQuantity = reader.GetDecimal(reader.GetOrdinal("WastageQuantity")),
                 BatchNo = reader.GetString(reader.GetOrdinal("BatchNo")),
                 SeedSourceId = reader.IsDBNull(reader.GetOrdinal("SeedSourceId")) ? null : reader.GetInt32(reader.GetOrdinal("SeedSourceId")),
                 SeedSourceName = reader.IsDBNull(reader.GetOrdinal("SeedSourceName")) ? null : reader.GetString(reader.GetOrdinal("SeedSourceName")),

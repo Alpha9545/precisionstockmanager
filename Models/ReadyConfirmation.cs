@@ -26,6 +26,14 @@ namespace PlantStockManager.Models
         // ReadyConfirmationRepository.ConfirmAsync.
         public decimal ConfirmedQuantity { get; set; }
 
+        // Phase B -- Supervisor Approval: wastage recorded with this
+        // approval (Sown - Ready), its reason, and who approved it.
+        public decimal WastageQuantity { get; set; }
+        public string? WastageReason { get; set; }
+        public int? ApprovedById { get; set; }
+        public string? ApprovedByName { get; set; }
+        public decimal? SowingWastageQuantity { get; set; }
+
         public DateTime ConfirmationDate { get; set; } = DateTime.UtcNow;
 
         // 'Confirmed' | 'Cancelled'. Independent of SeedSowings.Status,

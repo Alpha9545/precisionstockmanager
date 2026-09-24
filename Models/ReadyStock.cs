@@ -48,6 +48,15 @@ namespace PlantStockManager.Models
         public string? SpeciesName { get; set; }
         public string? PlantTypeName { get; set; }
         public string? AreaName { get; set; }
+
+        // Phase B: location + traceability of an approved batch.
+        public int? PolyhouseId { get; set; }
+        public decimal QuantitySown { get; set; }
+        public decimal ApprovedReadyQuantity { get; set; }
+        public decimal WastageQuantity { get; set; }
+        public string? SowingStatus { get; set; }
+        public string? ApprovedByName { get; set; }
+        public DateTime? ApprovalDate { get; set; }
         public string? PolyhouseName { get; set; }
     }
 }

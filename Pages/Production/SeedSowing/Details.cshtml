@@ -1,18 +1,29 @@
 @page "{id:int}"
 @model PlantStockManager.Pages.Production.SeedSowing.DetailsModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
     ViewData["Title"] = "Sowing Details";
+    var canEdit = await FeatureAccess.CanAccessPageAsync(User, "/Production/SeedSowing/Edit");
 }
 
 <div class="container mt-4">
     <div class="card shadow-sm mx-auto" style="max-width: 700px;">
         <div class="card-header">
-            <h4 class="mb-0">@Model.SeedSowing!.SowingCode</h4>
+            <h4 class="mb-0">Batch @Model.SeedSowing!.SowingCode</h4>
         </div>
         <div class="card-body">
+            @if (TempData["Success"] != null)
+            {
+                <div class="alert alert-success">@TempData["Success"]</div>
+            }
+            @if (TempData["Error"] != null)
+            {
+                <div class="alert alert-danger">@TempData["Error"]</div>
+            }
             <dl class="row mb-0">
                 <dt class="col-sm-5">Species/Variety</dt><dd class="col-sm-7">@Model.SeedSowing.SpeciesName (@Model.SeedSowing.PlantTypeName)</dd>
-                <dt class="col-sm-5">Lot/Batch</dt><dd class="col-sm-7">@(string.IsNullOrEmpty(Model.SeedSowing.BatchNo) ? "-" : Model.SeedSowing.BatchNo)</dd>
+                <dt class="col-sm-5">Seed Lot</dt><dd class="col-sm-7">@(string.IsNullOrEmpty(Model.SeedSowing.BatchNo) ? "-" : Model.SeedSowing.BatchNo)</dd>
+                <dt class="col-sm-5">Seed Taken From</dt><dd class="col-sm-7">@(Model.SeedSowing.SourceAreaName ?? "-")</dd>
                 <dt class="col-sm-5">Seed Source</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedSourceName ?? "-")</dd>
                 <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@Model.SeedSowing.AreaName @(Model.SeedSowing.GrowingPartnerName != null ? $"({Model.SeedSowing.GrowingPartnerName})" : "")</dd>
                 <dt class="col-sm-5">Polyhouse</dt><dd class="col-sm-7">@(Model.SeedSowing.PolyhouseName ?? "-")</dd>
@@ -40,7 +51,9 @@
                             break;
                     }
                 </dd>
-                <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.SeedSowing.Status</dd>
+                <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@(Model.SeedSowing.Status == "Sown" ? "Growing (awaiting Supervisor Approval)" : Model.SeedSowing.Status)</dd>
+                <dt class="col-sm-5">Approved Ready Quantity</dt><dd class="col-sm-7">@Model.SeedSowing.ConfirmedReadyQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Wastage Quantity</dt><dd class="col-sm-7">@Model.SeedSowing.WastageQuantity.ToString("N2")</dd>
                 <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.SeedSowing.ResponsiblePersonName</dd>
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.SeedSowing.SupervisorName</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.SeedSowing.Remarks</dd>
@@ -53,7 +66,10 @@
         </div>
         <div class="card-footer text-end">
             <a asp-page="/Production/SeedSowing/Index" class="btn btn-secondary">Back</a>
-            <a asp-page="/Production/SeedSowing/Edit" asp-route-id="@Model.SeedSowing.Id" class="btn btn-warning">Edit</a>
+            @if (canEdit && Model.SeedSowing.Status == "Sown")
+            {
+                <a asp-page="/Production/SeedSowing/Edit" asp-route-id="@Model.SeedSowing.Id" class="btn btn-warning">Edit</a>
+            }
         </div>
     </div>
 </div>

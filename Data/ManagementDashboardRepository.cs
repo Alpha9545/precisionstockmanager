@@ -168,7 +168,7 @@ WHERE IsActive = 1
             var result = new ReadyStockSummary();
 
             using (var cmd = new SqlCommand(@"
-SELECT ISNULL(SUM(QuantitySown), 0), ISNULL(SUM(ConfirmedReadyQuantity), 0)
+SELECT ISNULL(SUM(QuantitySown), 0), ISNULL(SUM(ConfirmedReadyQuantity), 0), ISNULL(SUM(WastageQuantity), 0)
 FROM dbo.SeedSowings
 WHERE Status = 'Sown'
   AND (@AreaId IS NULL OR AreaId = @AreaId)
@@ -180,7 +180,8 @@ WHERE Status = 'Sown'
                 {
                     result.SownQuantity = reader.GetDecimal(0);
                     result.ConfirmedReadyQuantity = reader.GetDecimal(1);
-                    result.RemainingQuantity = result.SownQuantity - result.ConfirmedReadyQuantity;
+                    // Phase B: wastage recorded at approval is accounted for too.
+                    result.RemainingQuantity = result.SownQuantity - result.ConfirmedReadyQuantity - reader.GetDecimal(2);
                 }
             }
 

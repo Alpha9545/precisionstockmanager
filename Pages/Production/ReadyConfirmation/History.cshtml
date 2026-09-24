@@ -1,13 +1,15 @@
 @page "{id:int}"
 @model PlantStockManager.Pages.Production.ReadyConfirmation.HistoryModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
-    ViewData["Title"] = "Ready Confirmation History";
+    ViewData["Title"] = "Approval History";
+    var canApprove = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyConfirmation/Confirm");
 }
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="mb-0">Ready Confirmation History &mdash; @Model.SeedSowing.SowingCode</h2>
-        <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-outline-secondary">Back to Ready Confirmation</a>
+        <h2 class="mb-0">Approval History &mdash; Batch @Model.SeedSowing.SowingCode</h2>
+        <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-outline-secondary">Back to Supervisor Approval</a>
     </div>
 
     @if (TempData["Success"] != null)
@@ -24,13 +26,15 @@
             <div class="col-md-6"><strong>Variety:</strong> @Model.SeedSowing.SpeciesName (@Model.SeedSowing.PlantTypeName)</div>
             <div class="col-md-6"><strong>Area:</strong> @Model.SeedSowing.AreaName / @(Model.SeedSowing.PolyhouseName ?? "-")</div>
             <div class="col-md-4"><strong>Sown Quantity:</strong> @Model.SeedSowing.QuantitySown.ToString("N2")</div>
-            <div class="col-md-4"><strong>Confirmed Ready:</strong> @Model.SeedSowing.ConfirmedReadyQuantity.ToString("N2")</div>
-            <div class="col-md-4"><strong>Remaining:</strong> @Model.SeedSowing.RemainingReadyQuantity.ToString("N2")</div>
+            <div class="col-md-4"><strong>Approved Ready:</strong> @Model.SeedSowing.ConfirmedReadyQuantity.ToString("N2")</div>
+            <div class="col-md-4"><strong>Wastage:</strong> @Model.SeedSowing.WastageQuantity.ToString("N2")</div>
+            <div class="col-md-4"><strong>Still to approve:</strong> @Model.SeedSowing.RemainingReadyQuantity.ToString("N2")</div>
+            <div class="col-md-4"><strong>Status:</strong> @Model.SeedSowing.Status</div>
         </div>
-        @if (Model.SeedSowing.RemainingReadyQuantity > 0 && Model.SeedSowing.Status == "Sown")
+        @if (canApprove && Model.SeedSowing.RemainingReadyQuantity > 0 && Model.SeedSowing.Status == "Sown")
         {
             <div class="mt-2">
-                <a asp-page="/Production/ReadyConfirmation/Confirm" asp-route-id="@Model.SeedSowing.Id" class="btn btn-sm btn-success">Confirm remaining @Model.SeedSowing.RemainingReadyQuantity.ToString("N2")</a>
+                <a asp-page="/Production/ReadyConfirmation/Confirm" asp-route-id="@Model.SeedSowing.Id" class="btn btn-sm btn-success">Approve batch</a>
             </div>
         }
     </div>
@@ -39,9 +43,12 @@
         <table class="table table-sm table-striped table-hover">
             <thead class="table-light">
                 <tr>
-                    <th>Confirmation Code</th>
-                    <th>Confirmation Date</th>
-                    <th>Quantity</th>
+                    <th>Approval Code</th>
+                    <th>Approval Date</th>
+                    <th>Actual Ready</th>
+                    <th>Wastage</th>
+                    <th>Wastage Reason</th>
+                    <th>Approved By</th>
                     <th>Status</th>
                     <th>Responsible</th>
                     <th>Supervisor</th>
@@ -56,6 +63,9 @@
                         <td>@rc.ConfirmationCode</td>
                         <td>@rc.ConfirmationDate.ToString("dd/MM/yyyy HH:mm")</td>
                         <td>@rc.ConfirmedQuantity.ToString("N2")</td>
+                        <td>@rc.WastageQuantity.ToString("N2")</td>
+                        <td>@(rc.WastageReason ?? "-")</td>
+                        <td>@(rc.ApprovedByName ?? rc.CreatedBy ?? "-")</td>
                         <td>
                             @if (rc.Status == "Cancelled")
                             {
@@ -70,10 +80,10 @@
                         <td>@(rc.SupervisorName ?? "-")</td>
                         <td>@(rc.Remarks ?? "-")</td>
                         <td>
-                            @if (rc.Status == "Confirmed")
+                            @if (canApprove && rc.Status == "Confirmed")
                             {
                                 <form method="post" asp-page-handler="Cancel" asp-route-confirmationId="@rc.Id" asp-route-seedSowingId="@Model.SeedSowing.Id"
-                                      onsubmit="return confirm('Cancel this Ready Confirmation? This removes its quantity from Ready Stock and restores the Sowing\'s remaining un-confirmed quantity. This cannot be undone.');">
+                                      onsubmit="return confirm('Cancel this approval? Its Ready quantity is removed from Ready Stock and the batch is re-opened for approval.');">
                                     <button type="submit" class="btn btn-sm btn-outline-danger">Cancel</button>
                                 </form>
                             }
@@ -82,7 +92,7 @@
                 }
                 @if (!Model.Confirmations.Any())
                 {
-                    <tr><td colspan="8" class="text-center text-muted">No Ready Confirmations recorded yet for this Sowing.</td></tr>
+                    <tr><td colspan="11" class="text-center text-muted">No approval recorded yet for this batch.</td></tr>
                 }
             </tbody>
         </table>

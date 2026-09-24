@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -26,6 +27,12 @@ namespace PlantStockManager.Data
     // supports it" instruction asks. dbo.SeedSowings.Status therefore
     // stays 'Sown'/'Cancelled' only, completely untouched by this
     // phase -- CK_SeedSowings_Status is never widened.
+    //
+    // Phase B: a Ready Confirmation is now the SUPERVISOR APPROVAL that
+    // closes a sowing batch -- Actual Ready + Wastage (with reason) must
+    // equal the sown quantity, and SeedSowings.Status becomes 'Completed'
+    // (the Phase K "no new status" decision is superseded; see
+    // Database/PhaseB_DirectSowing.sql).
     public class ReadyConfirmationRepository
     {
         private readonly DatabaseHelper _dbHelper;
@@ -44,10 +51,11 @@ namespace PlantStockManager.Data
 SELECT
     rc.Id, rc.ConfirmationCode, rc.SeedSowingId, sw.SowingCode, rc.ReadyStockId,
     ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
-    a.Name AS AreaName, ph.Name AS PolyhouseName,
+    a.Name AS AreaName, COALESCE(sph.Name, ph.Name) AS PolyhouseName,
     sw.BatchNo, sw.CavityType, sw.SowingDate, sw.ExpectedReadyDate, sw.ReadyStockDays,
-    sw.QuantitySown, sw.ConfirmedReadyQuantity,
-    rc.ConfirmedQuantity, rc.ConfirmationDate, rc.Status,
+    sw.QuantitySown, sw.ConfirmedReadyQuantity, sw.WastageQuantity AS SowingWastageQuantity,
+    rc.ConfirmedQuantity, rc.WastageQuantity, rc.WastageReason, rc.ApprovedById, ab.Name AS ApprovedByName,
+    rc.ConfirmationDate, rc.Status,
     rc.ResponsiblePersonId, r.Name AS ResponsiblePersonName,
     rc.SupervisorId, sup.Name AS SupervisorName,
     rc.Remarks, rc.CreatedDate, rc.CreatedBy, rc.ModifiedDate, rc.ModifiedBy
@@ -57,6 +65,8 @@ INNER JOIN dbo.PlantSpecies ps ON sw.SpeciesId = ps.Id
 INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
 INNER JOIN dbo.Area a ON sw.AreaId = a.Id
 LEFT JOIN dbo.Polyhouses ph ON a.PolyhouseId = ph.Id
+LEFT JOIN dbo.Polyhouses sph ON sw.PolyhouseId = sph.Id
+LEFT JOIN dbo.IMSUsers ab ON rc.ApprovedById = ab.Id
 LEFT JOIN dbo.IMSUsers r ON rc.ResponsiblePersonId = r.Id
 LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
 
@@ -109,30 +119,32 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
             return list;
         }
 
-        // The atomic Ready Confirmation transaction (Phase K spec,
-        // "transaction safety" section):
-        //   1) Lock/re-fetch the source Sowing record
-        //   2) Validate eligible for Ready Confirmation
-        //   3) Validate requested Ready Quantity
-        //   (4: Area authorization happens at the PAGE level BEFORE
-        //      this call, using AreaAccessService against the AreaId
-        //      re-fetched via SeedSowingRepository.GetByIdAsync -- this
-        //      method never receives or trusts a posted AreaId at all,
-        //      mirroring how SeedSowing/Edit.cshtml.cs splits page-level
-        //      Area authorization from repository-level stock
-        //      integrity. See Pages/Production/ReadyConfirmation/
-        //      Confirm.cshtml.cs.)
-        //   5) Create/update the Ready Stock record
-        //   6) Create the corresponding stock ledger/transaction record
-        //   7) Update the source Sowing's ConfirmedReadyQuantity
-        //   8) Commit (or ROLLBACK on any failure -- no partial stock
-        //      movement)
+        // Phase B -- SUPERVISOR APPROVAL (closes the sowing batch).
+        // One atomic transaction:
+        //   1) lock the Sowing (UPDLOCK/HOLDLOCK) and re-derive every field
+        //      from it -- nothing about the batch is trusted from the form;
+        //   2) only a 'Sown' (growing) batch can be approved;
+        //   3) DirectSowingRules.ComputeApproval: Wastage = remaining - Ready;
+        //      Ready + Wastage must equal what is still to be accounted for,
+        //      nothing negative, a Wastage Reason whenever Wastage > 0;
+        //   (Area authorization is checked by the page against the AreaId
+        //    re-read from the Sowing, before this call.)
+        //   4) create/reuse the batch's ONE Ready Stock row (traceable to the
+        //      batch, variety, Area, Polyhouse and sowing date) and add the
+        //      approved Ready quantity through its ledger ('Confirmed');
+        //   5) record the approval (Actual Ready, Wastage, Reason, Approved
+        //      By = the logged-in user, Approval Date = now);
+        //   6) advance the Sowing's ConfirmedReadyQuantity/WastageQuantity and
+        //      set Status = 'Completed' (Ready + Wastage = Sown -- enforced
+        //      again by CK_SeedSowings_CompletedAccounted);
+        //   7) commit, or roll everything back.
+        // The approver may be a different user from the one who sowed.
         public async Task<(bool Success, string? Message, int Id)> ConfirmAsync(
-            int seedSowingId, decimal readyQuantity, int? responsiblePersonId, int? supervisorId,
+            int seedSowingId, decimal readyQuantity, string? wastageReason, int? responsiblePersonId, int? supervisorId,
             string? remarks, string? createdBy, int? userId)
         {
-            if (readyQuantity <= 0)
-                return (false, "Ready Quantity must be greater than zero.", 0);
+            if (readyQuantity < 0)
+                return (false, "Actual Ready Quantity cannot be negative.", 0);
 
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
@@ -140,102 +152,118 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
 
             try
             {
-                // 1) Lock the source Sowing and re-derive EVERY field
-                // from it -- never trust anything posted for these.
+                // 1) Lock the source Sowing.
                 var lockCmd = new SqlCommand(
-                    "SELECT SpeciesId, AreaId, BatchNo, CavityType, SowingDate, QuantitySown, ConfirmedReadyQuantity, Status " +
+                    "SELECT SpeciesId, AreaId, PolyhouseId, SowingCode, BatchNo, CavityType, SowingDate, QuantitySown, " +
+                    "ConfirmedReadyQuantity, WastageQuantity, Status " +
                     "FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", seedSowingId);
-                using var reader = await lockCmd.ExecuteReaderAsync();
-                if (!await reader.ReadAsync())
+                int speciesId, areaId;
+                int? polyhouseId;
+                string sowingCode, seedLotNo, cavityType, status;
+                DateTime sowingDate;
+                decimal quantitySown, confirmedSoFar, wastedSoFar;
+                using (var reader = await lockCmd.ExecuteReaderAsync())
                 {
-                    reader.Close();
-                    tx.Rollback();
-                    return (false, "Seed Sowing record not found.", 0);
+                    if (!await reader.ReadAsync())
+                    {
+                        reader.Close();
+                        tx.Rollback();
+                        return (false, "Seed Sowing record not found.", 0);
+                    }
+                    speciesId = reader.GetInt32(reader.GetOrdinal("SpeciesId"));
+                    areaId = reader.GetInt32(reader.GetOrdinal("AreaId"));
+                    polyhouseId = reader.IsDBNull(reader.GetOrdinal("PolyhouseId")) ? null : reader.GetInt32(reader.GetOrdinal("PolyhouseId"));
+                    sowingCode = reader.GetString(reader.GetOrdinal("SowingCode"));
+                    seedLotNo = reader.GetString(reader.GetOrdinal("BatchNo"));
+                    cavityType = reader.GetString(reader.GetOrdinal("CavityType"));
+                    sowingDate = reader.GetDateTime(reader.GetOrdinal("SowingDate"));
+                    quantitySown = reader.GetDecimal(reader.GetOrdinal("QuantitySown"));
+                    confirmedSoFar = reader.GetDecimal(reader.GetOrdinal("ConfirmedReadyQuantity"));
+                    wastedSoFar = reader.GetDecimal(reader.GetOrdinal("WastageQuantity"));
+                    status = reader.GetString(reader.GetOrdinal("Status"));
                 }
-                var speciesId = reader.GetInt32(reader.GetOrdinal("SpeciesId"));
-                var areaId = reader.GetInt32(reader.GetOrdinal("AreaId"));
-                var batchNo = reader.GetString(reader.GetOrdinal("BatchNo"));
-                var cavityType = reader.GetString(reader.GetOrdinal("CavityType"));
-                var sowingDate = reader.GetDateTime(reader.GetOrdinal("SowingDate"));
-                var quantitySown = reader.GetDecimal(reader.GetOrdinal("QuantitySown"));
-                var confirmedSoFar = reader.GetDecimal(reader.GetOrdinal("ConfirmedReadyQuantity"));
-                var status = reader.GetString(reader.GetOrdinal("Status"));
-                reader.Close();
 
-                // 2) Eligibility -- a Cancelled Sowing can never be
-                // Ready-Confirmed (reused from every other cancellable
-                // production event in this app).
+                // 2) Eligibility.
                 if (status != "Sown")
                 {
                     tx.Rollback();
-                    return (false, $"This Seed Sowing is '{status}' and cannot be Ready-Confirmed.", 0);
+                    return (false, $"This sowing batch is '{status}' and cannot be approved.", 0);
                 }
 
-                // 3) Quantity -- must not exceed what is genuinely still
-                // remaining, validated under THIS lock so a concurrent
-                // confirmation against the same Sowing cannot race it
-                // (mirrors DispatchRepository.InsertAsync's own
-                // remaining-quantity check against its Booking lock).
-                var remaining = quantitySown - confirmedSoFar;
-                if (readyQuantity > remaining)
+                // 3) Ready / Wastage arithmetic (under the lock).
+                var (ok, wastage, error) = DirectSowingRules.ComputeApproval(
+                    quantitySown, confirmedSoFar, wastedSoFar, readyQuantity, wastageReason);
+                if (!ok)
                 {
                     tx.Rollback();
-                    return (false, $"Ready Quantity ({readyQuantity:N2}) exceeds this Sowing's remaining un-confirmed quantity ({remaining:N2}).", 0);
+                    return (false, error, 0);
                 }
+                var reasonToStore = wastage > 0 ? wastageReason : null;
 
                 var confirmationCode = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "RDY", DateTime.UtcNow.Year);
 
-                // 5) The ONE ReadyStock pool row for this Sowing --
-                // created on first confirmation, reused on every
-                // subsequent partial confirmation.
+                // 4) The batch's ONE Ready Stock row (UNIQUE SeedSowingId ->
+                // sowing batch number; BatchNo keeps its existing meaning,
+                // the seed lot number).
                 var readyStockId = await _readyStockRepo.GetOrCreateLockedAsync(
-                    conn, tx, seedSowingId, speciesId, areaId, batchNo, cavityType, sowingDate, createdBy);
+                    conn, tx, seedSowingId, speciesId, areaId, polyhouseId, seedLotNo, cavityType, sowingDate, createdBy);
 
-                // Insert the confirmation header FIRST so its Id is
-                // available as ReferenceId on the ledger entry (mirrors
-                // DispatchRepository.InsertAsync's own ordering).
+                // 5) The approval record.
                 const string insertSql = @"
 INSERT INTO dbo.ReadyConfirmations
-(ConfirmationCode, SeedSowingId, ReadyStockId, ConfirmedQuantity, ConfirmationDate, Status,
- ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy)
+(ConfirmationCode, SeedSowingId, ReadyStockId, ConfirmedQuantity, WastageQuantity, WastageReason, ApprovedById,
+ ConfirmationDate, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy)
 VALUES
-(@ConfirmationCode, @SeedSowingId, @ReadyStockId, @ConfirmedQuantity, SYSUTCDATETIME(), 'Confirmed',
- @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy);
+(@ConfirmationCode, @SeedSowingId, @ReadyStockId, @ConfirmedQuantity, @WastageQuantity, @WastageReason, @ApprovedById,
+ SYSUTCDATETIME(), 'Confirmed', @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 using var cmd = new SqlCommand(insertSql, conn, tx);
                 cmd.Parameters.AddWithValue("@ConfirmationCode", confirmationCode);
                 cmd.Parameters.AddWithValue("@SeedSowingId", seedSowingId);
                 cmd.Parameters.AddWithValue("@ReadyStockId", readyStockId);
                 cmd.Parameters.AddWithValue("@ConfirmedQuantity", readyQuantity);
+                cmd.Parameters.AddWithValue("@WastageQuantity", wastage);
+                cmd.Parameters.AddWithValue("@WastageReason", (object?)reasonToStore ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ApprovedById", (object?)userId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ResponsiblePersonId", (object?)responsiblePersonId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@SupervisorId", (object?)supervisorId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
-                var newId = (int)await cmd.ExecuteScalarAsync();
+                var newId = (int)(await cmd.ExecuteScalarAsync())!;
 
-                // 6) The Ready Stock pool actually grows by exactly this
-                // confirmation's quantity.
-                var (stockSuccess, stockMessage) = await _readyStockRepo.RecordTransactionAsync(
-                    conn, tx, readyStockId, readyQuantity, "Confirmed", "ReadyConfirmation", newId, userId, remarks);
-                if (!stockSuccess)
+                // Ready Stock grows by exactly the approved Ready quantity
+                // (no ledger row when the whole batch was wastage).
+                if (readyQuantity > 0)
                 {
-                    tx.Rollback();
-                    return (false, stockMessage, 0);
+                    var (stockSuccess, stockMessage) = await _readyStockRepo.RecordTransactionAsync(
+                        conn, tx, readyStockId, readyQuantity, "Confirmed", "ReadyConfirmation", newId, userId,
+                        $"Supervisor Approval of batch {sowingCode}");
+                    if (!stockSuccess)
+                    {
+                        tx.Rollback();
+                        return (false, stockMessage, 0);
+                    }
                 }
 
-                // 7) The parent Sowing's running total advances -- never
-                // its Status (see class header comment).
-                var updateSowingCmd = new SqlCommand(
-                    "UPDATE dbo.SeedSowings SET ConfirmedReadyQuantity = @ConfirmedReadyQuantity, ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @ModifiedBy WHERE Id = @Id",
-                    conn, tx);
-                updateSowingCmd.Parameters.AddWithValue("@ConfirmedReadyQuantity", confirmedSoFar + readyQuantity);
+                // 6) Close the batch.
+                var newReady = confirmedSoFar + readyQuantity;
+                var newWastage = wastedSoFar + wastage;
+                var newStatus = newReady + newWastage == quantitySown ? "Completed" : "Sown";
+                var updateSowingCmd = new SqlCommand(@"
+UPDATE dbo.SeedSowings
+SET ConfirmedReadyQuantity = @Ready, WastageQuantity = @Wastage, Status = @Status,
+    ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @ModifiedBy
+WHERE Id = @Id", conn, tx);
+                updateSowingCmd.Parameters.AddWithValue("@Ready", newReady);
+                updateSowingCmd.Parameters.AddWithValue("@Wastage", newWastage);
+                updateSowingCmd.Parameters.AddWithValue("@Status", newStatus);
                 updateSowingCmd.Parameters.AddWithValue("@ModifiedBy", (object?)createdBy ?? DBNull.Value);
                 updateSowingCmd.Parameters.AddWithValue("@Id", seedSowingId);
                 await updateSowingCmd.ExecuteNonQueryAsync();
 
-                // 8) Commit.
+                // 7) Commit.
                 tx.Commit();
                 return (true, null, newId);
             }
@@ -246,15 +274,11 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             }
         }
 
-        // Reverses ONE Ready Confirmation: removes exactly its own
-        // quantity from the Ready Stock pool ('ReversalRemoval' --
-        // Decision 15's naming convention; there is no source pool to
-        // credit back to here, only an addition being undone) and
-        // restores the parent Sowing's ConfirmedReadyQuantity by the
-        // same amount. Never deletes the row, and never deletes the
-        // underlying ReadyStock pool row either (only its Quantity
-        // moves). Mirrors DispatchRepository.CancelAsync's own "lock
-        // both the child and the parent" discipline.
+        // Reverses ONE approval: removes exactly its Ready quantity from the
+        // batch's Ready Stock ('ReversalRemoval'; refused if that stock is no
+        // longer there), takes its Ready and Wastage back off the Sowing and
+        // RE-OPENS the batch (Completed -> Sown) so it can be approved again.
+        // Never deletes the approval row or the Ready Stock row.
         public async Task<(bool Success, string? Message)> CancelAsync(int id, string? modifiedBy, int? userId)
         {
             using var conn = _dbHelper.GetConnection();
@@ -264,21 +288,26 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             try
             {
                 var lockCmd = new SqlCommand(
-                    "SELECT SeedSowingId, ReadyStockId, ConfirmedQuantity, Status FROM dbo.ReadyConfirmations WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                    "SELECT SeedSowingId, ReadyStockId, ConfirmedQuantity, WastageQuantity, Status FROM dbo.ReadyConfirmations WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", id);
-                using var reader = await lockCmd.ExecuteReaderAsync();
-                if (!await reader.ReadAsync())
+                int seedSowingId, readyStockId;
+                decimal confirmedQuantity, wastageQuantity;
+                string status;
+                using (var reader = await lockCmd.ExecuteReaderAsync())
                 {
-                    reader.Close();
-                    tx.Rollback();
-                    return (false, "Ready Confirmation record not found.");
+                    if (!await reader.ReadAsync())
+                    {
+                        reader.Close();
+                        tx.Rollback();
+                        return (false, "Ready Confirmation record not found.");
+                    }
+                    seedSowingId = reader.GetInt32(reader.GetOrdinal("SeedSowingId"));
+                    readyStockId = reader.GetInt32(reader.GetOrdinal("ReadyStockId"));
+                    confirmedQuantity = reader.GetDecimal(reader.GetOrdinal("ConfirmedQuantity"));
+                    wastageQuantity = reader.GetDecimal(reader.GetOrdinal("WastageQuantity"));
+                    status = reader.GetString(reader.GetOrdinal("Status"));
                 }
-                var seedSowingId = reader.GetInt32(reader.GetOrdinal("SeedSowingId"));
-                var readyStockId = reader.GetInt32(reader.GetOrdinal("ReadyStockId"));
-                var confirmedQuantity = reader.GetDecimal(reader.GetOrdinal("ConfirmedQuantity"));
-                var status = reader.GetString(reader.GetOrdinal("Status"));
-                reader.Close();
 
                 if (status == "Cancelled")
                 {
@@ -286,28 +315,44 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                     return (false, "This Ready Confirmation is already Cancelled.");
                 }
 
-                // Lock the parent Sowing too -- ConfirmedReadyQuantity is
-                // about to be read-then-written, and a concurrent NEW
-                // confirmation against the same Sowing must not race
-                // this reversal.
                 var sowingLockCmd = new SqlCommand(
-                    "SELECT ConfirmedReadyQuantity FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                    "SELECT ConfirmedReadyQuantity, WastageQuantity, Status FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
                 sowingLockCmd.Parameters.AddWithValue("@Id", seedSowingId);
-                var confirmedSoFarObj = await sowingLockCmd.ExecuteScalarAsync();
-                if (confirmedSoFarObj == null || confirmedSoFarObj == DBNull.Value)
+                decimal confirmedSoFar, wastedSoFar;
+                string sowingStatus;
+                using (var reader = await sowingLockCmd.ExecuteReaderAsync())
                 {
-                    tx.Rollback();
-                    return (false, "Parent Seed Sowing no longer exists.");
+                    if (!await reader.ReadAsync())
+                    {
+                        reader.Close();
+                        tx.Rollback();
+                        return (false, "Parent Seed Sowing no longer exists.");
+                    }
+                    confirmedSoFar = reader.GetDecimal(0);
+                    wastedSoFar = reader.GetDecimal(1);
+                    sowingStatus = reader.GetString(2);
                 }
-                var confirmedSoFar = (decimal)confirmedSoFarObj;
-
-                var (reversalSuccess, reversalMessage) = await _readyStockRepo.RecordTransactionAsync(
-                    conn, tx, readyStockId, -confirmedQuantity, "ReversalRemoval", "ReadyConfirmation", id, userId, "Ready Confirmation cancelled");
-                if (!reversalSuccess)
+                if (sowingStatus == "Cancelled")
                 {
                     tx.Rollback();
-                    return (false, reversalMessage);
+                    return (false, "The parent sowing is Cancelled; this approval cannot be reversed.");
+                }
+                if (confirmedQuantity > confirmedSoFar || wastageQuantity > wastedSoFar)
+                {
+                    tx.Rollback();
+                    return (false, "The sowing totals are inconsistent with this approval; reversal refused.");
+                }
+
+                if (confirmedQuantity > 0)
+                {
+                    var (reversalSuccess, reversalMessage) = await _readyStockRepo.RecordTransactionAsync(
+                        conn, tx, readyStockId, -confirmedQuantity, "ReversalRemoval", "ReadyConfirmation", id, userId, "Supervisor Approval cancelled");
+                    if (!reversalSuccess)
+                    {
+                        tx.Rollback();
+                        return (false, reversalMessage);
+                    }
                 }
 
                 var updateConfirmationCmd = new SqlCommand(
@@ -317,11 +362,13 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 updateConfirmationCmd.Parameters.AddWithValue("@Id", id);
                 await updateConfirmationCmd.ExecuteNonQueryAsync();
 
-                var newConfirmedTotal = confirmedSoFar - confirmedQuantity;
-                var updateSowingCmd = new SqlCommand(
-                    "UPDATE dbo.SeedSowings SET ConfirmedReadyQuantity = @ConfirmedReadyQuantity, ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @ModifiedBy WHERE Id = @Id",
-                    conn, tx);
-                updateSowingCmd.Parameters.AddWithValue("@ConfirmedReadyQuantity", newConfirmedTotal < 0 ? 0 : newConfirmedTotal);
+                var updateSowingCmd = new SqlCommand(@"
+UPDATE dbo.SeedSowings
+SET ConfirmedReadyQuantity = @Ready, WastageQuantity = @Wastage, Status = 'Sown',
+    ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @ModifiedBy
+WHERE Id = @Id", conn, tx);
+                updateSowingCmd.Parameters.AddWithValue("@Ready", confirmedSoFar - confirmedQuantity);
+                updateSowingCmd.Parameters.AddWithValue("@Wastage", wastedSoFar - wastageQuantity);
                 updateSowingCmd.Parameters.AddWithValue("@ModifiedBy", (object?)modifiedBy ?? DBNull.Value);
                 updateSowingCmd.Parameters.AddWithValue("@Id", seedSowingId);
                 await updateSowingCmd.ExecuteNonQueryAsync();
@@ -357,6 +404,11 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 QuantitySown = reader.GetDecimal(reader.GetOrdinal("QuantitySown")),
                 ConfirmedReadyQuantity = reader.GetDecimal(reader.GetOrdinal("ConfirmedReadyQuantity")),
                 ConfirmedQuantity = reader.GetDecimal(reader.GetOrdinal("ConfirmedQuantity")),
+                WastageQuantity = reader.GetDecimal(reader.GetOrdinal("WastageQuantity")),
+                WastageReason = reader.IsDBNull(reader.GetOrdinal("WastageReason")) ? null : reader.GetString(reader.GetOrdinal("WastageReason")),
+                ApprovedById = reader.IsDBNull(reader.GetOrdinal("ApprovedById")) ? null : reader.GetInt32(reader.GetOrdinal("ApprovedById")),
+                ApprovedByName = reader.IsDBNull(reader.GetOrdinal("ApprovedByName")) ? null : reader.GetString(reader.GetOrdinal("ApprovedByName")),
+                SowingWastageQuantity = reader.GetDecimal(reader.GetOrdinal("SowingWastageQuantity")),
                 ConfirmationDate = reader.GetDateTime(reader.GetOrdinal("ConfirmationDate")),
                 Status = reader.GetString(reader.GetOrdinal("Status")),
                 ResponsiblePersonId = reader.IsDBNull(reader.GetOrdinal("ResponsiblePersonId")) ? null : reader.GetInt32(reader.GetOrdinal("ResponsiblePersonId")),

@@ -1,30 +1,33 @@
 @page
 @model PlantStockManager.Pages.Production.ReadyConfirmation.IndexModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @using PlantStockManager.Data
 @{
-    ViewData["Title"] = "Ready Confirmation";
+    ViewData["Title"] = "Supervisor Approval";
+    // Same rule the server enforces (FeatureAuthorizationConventions).
+    var canApprove = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyConfirmation/Confirm");
 }
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="mb-0">Ready Confirmation</h2>
+        <h2 class="mb-0">Supervisor Approval</h2>
         <div>
             <a asp-page="/Production/ReadyAlerts/Index" class="btn btn-outline-secondary me-2">Ready Alerts</a>
-            <a asp-page="/Production/SeedSowing/Index" class="btn btn-outline-secondary">Back to Seed Sowing</a>
+            <a asp-page="/Production/SeedSowing/Index" class="btn btn-outline-secondary">Back to Direct Sowing</a>
         </div>
     </div>
 
     <div class="alert alert-info">
-        A batch only enters Ready Stock once you explicitly confirm it here -- reaching its Expected Ready Date never
-        does this automatically. You may confirm the full remaining quantity, or a partial quantity if only part of a
-        batch is physically ready; confirming again later completes the rest.
+        A batch only enters Ready Stock when a supervisor approves it here -- reaching its Expected Ready Date never
+        does this automatically. Enter the Actual Ready Quantity; the rest of the sown quantity is recorded as wastage
+        (with a reason) and the batch is closed. The approver does not have to be the person who sowed.
     </div>
 
     <div class="table-responsive">
         <table class="table table-sm table-striped table-hover">
             <thead class="table-light">
                 <tr>
-                    <th>Sowing Code</th>
+                    <th>Batch No.</th>
                     <th>Variety</th>
                     <th>Area</th>
                     <th>Polyhouse</th>
@@ -33,8 +36,8 @@
                     <th>Expected Ready Date</th>
                     <th>Alert</th>
                     <th>Sown Qty</th>
-                    <th>Confirmed Qty</th>
-                    <th>Remaining Qty</th>
+                    <th>Approved Qty</th>
+                    <th>To Approve</th>
                     <th></th>
                 </tr>
             </thead>
@@ -69,14 +72,17 @@
                         <td>@sw.ConfirmedReadyQuantity.ToString("N2")</td>
                         <td><strong>@sw.RemainingReadyQuantity.ToString("N2")</strong></td>
                         <td>
-                            <a asp-page="/Production/ReadyConfirmation/Confirm" asp-route-id="@sw.Id" class="btn btn-sm btn-success">Confirm Ready</a>
+                            @if (canApprove)
+                            {
+                                <a asp-page="/Production/ReadyConfirmation/Confirm" asp-route-id="@sw.Id" class="btn btn-sm btn-success">Approve</a>
+                            }
                             <a asp-page="/Production/ReadyConfirmation/History" asp-route-id="@sw.Id" class="btn btn-sm btn-outline-secondary">History</a>
                         </td>
                     </tr>
                 }
                 @if (!Model.EligibleSowings.Any())
                 {
-                    <tr><td colspan="12" class="text-center text-muted">No Sown batches currently have a remaining un-confirmed quantity.</td></tr>
+                    <tr><td colspan="12" class="text-center text-muted">No growing batch is waiting for Supervisor Approval.</td></tr>
                 }
             </tbody>
         </table>

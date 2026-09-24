@@ -87,7 +87,11 @@ namespace PlantStockManager.Pages.Production.SeedStock
 
         private async Task LoadDropdownsAsync()
         {
-            var all = await _areaRepo.GetAllAreas();
+            // Phase B: Seed Stock lives at the Main Office only (Direct
+            // Sowing consumes it from there). The repository re-checks this.
+            var all = (await _areaRepo.GetAllAreas())
+                .Where(a => PlantStockManager.Services.DirectSowingRules.IsMainOfficeSeedLocation(a.AreaType, a.IsActive))
+                .ToList();
             Areas = _areaAccessService.HasFullAreaAccess(User)
                 ? all
                 : all.Where(a => _areaAccessService.CanAccessArea(User, a.Id)).ToList();

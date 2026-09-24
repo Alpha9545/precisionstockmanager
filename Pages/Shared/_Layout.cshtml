@@ -16,6 +16,7 @@
 <body>
 
     @using System.Security.Claims
+    @inject Microsoft.Extensions.Options.IOptionsMonitor<PlantStockManager.Services.LegacySeedPipelineOptions> LegacySeedPipeline
 
     @{
         var isAuthenticated =
@@ -164,7 +165,7 @@
 
                     <li nav-page="/Production/SeedSowing/Index">
                         <a asp-page="/Production/SeedSowing/Index">
-                            Seed Sowing
+                            Direct Sowing
                         </a>
                     </li>
 
@@ -176,7 +177,13 @@
 
                     <li nav-page="/Production/ReadyConfirmation/Index">
                         <a asp-page="/Production/ReadyConfirmation/Index">
-                            Ready Confirmation
+                            Supervisor Approval
+                        </a>
+                    </li>
+
+                    <li nav-page="/Production/ReadyStock/Index">
+                        <a asp-page="/Production/ReadyStock/Index">
+                            Ready Stock (approved batches)
                         </a>
                     </li>
 
@@ -371,25 +378,7 @@
                     </li>
 
 
-                    <!-- Seed Issue -->
-
-                    <li nav-page="/Production/SeedIssue/Create">
-                        <a asp-page="/Production/SeedIssue/Create">
-                            Issue Seed to Polyhouse / Growing Area
-                        </a>
-                    </li>
-
-                    <li nav-page="/Production/SeedIssue/PendingReceipts">
-                        <a asp-page="/Production/SeedIssue/PendingReceipts">
-                            Polyhouse Pending Seed Receipts
-                        </a>
-                    </li>
-
-                    <li nav-page="/Production/SeedIssue/MyIssues">
-                        <a asp-page="/Production/SeedIssue/MyIssues">
-                            My Seed Issues
-                        </a>
-                    </li>
+                    <!-- Seed Issue: retired in Phase B (sowing consumes Main Office Seed Stock directly). -->
 
 
                     <!-- Growing Partner → Outlet -->
@@ -1365,6 +1354,13 @@
     <div class="main-content">
 
         <main role="main" class="pb-3">
+
+            @* Phase B: the old seed pipeline pages are read-only (Services/LegacySeedPipeline.cs). *@
+            @if (!LegacySeedPipeline.CurrentValue.AllowLegacyWrites
+                 && PlantStockManager.Services.LegacySeedPipelineOptions.IsWriteBlockedPage(ViewContext.RouteData.Values["page"] as string))
+            {
+                <div class="alert alert-warning m-3">@PlantStockManager.Services.LegacySeedPipelineWriteFilter.BlockedMessage</div>
+            }
 
             @RenderBody()
 

@@ -1,13 +1,13 @@
 @page "{id:int}"
 @model PlantStockManager.Pages.Production.ReadyConfirmation.ConfirmModel
 @{
-    ViewData["Title"] = "Confirm Ready";
+    ViewData["Title"] = "Supervisor Approval";
 }
 
 <div class="container mt-4">
     <div class="card shadow-sm mx-auto" style="max-width: 850px;">
         <div class="card-header">
-            <h4 class="mb-0">Confirm Ready &mdash; @Model.SeedSowing.SowingCode</h4>
+            <h4 class="mb-0">Supervisor Approval &mdash; Batch @Model.SeedSowing.SowingCode</h4>
         </div>
         <div class="card-body">
             @if (!ModelState.IsValid)
@@ -31,15 +31,15 @@
                     <div class="col-md-6"><strong>Sowing Date:</strong> @Model.SeedSowing.SowingDate.ToString("dd/MM/yyyy")</div>
                     <div class="col-md-6"><strong>Ready Stock Days:</strong> @(Model.SeedSowing.ReadyStockDays?.ToString() ?? "-")</div>
                     <div class="col-md-6"><strong>Expected Ready Date:</strong> @(Model.SeedSowing.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated") <span class="text-muted">(read-only, historical)</span></div>
-                    <div class="col-md-6"><strong>Lot/Batch:</strong> @(string.IsNullOrEmpty(Model.SeedSowing.BatchNo) ? "-" : Model.SeedSowing.BatchNo)</div>
+                    <div class="col-md-6"><strong>Seed Lot:</strong> @(string.IsNullOrEmpty(Model.SeedSowing.BatchNo) ? "-" : Model.SeedSowing.BatchNo)</div>
                     <div class="col-md-4"><strong>Sown Quantity:</strong> @Model.SeedSowing.QuantitySown.ToString("N2")</div>
-                    <div class="col-md-4"><strong>Already Confirmed:</strong> @Model.SeedSowing.ConfirmedReadyQuantity.ToString("N2")</div>
-                    <div class="col-md-4"><strong>Remaining:</strong> @Model.SeedSowing.RemainingReadyQuantity.ToString("N2")</div>
+                    <div class="col-md-4"><strong>Already Approved (legacy partial):</strong> @Model.SeedSowing.ConfirmedReadyQuantity.ToString("N2")</div>
+                    <div class="col-md-4"><strong>To account for now:</strong> <span id="remaining" data-value="@Model.SeedSowing.RemainingReadyQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)">@Model.SeedSowing.RemainingReadyQuantity.ToString("N2")</span></div>
                 </div>
                 <div class="small text-muted mt-2">
-                    Expected Ready Date is only an estimate calculated at sowing time -- confirming here is an explicit,
-                    physical statement that this quantity is ready NOW. Reaching the Expected Ready Date never confirms
-                    anything automatically.
+                    Expected Ready Date is only an estimate calculated at sowing time. Approval is an explicit, physical
+                    count: Actual Ready + Wastage must equal the quantity sown, and approving closes the batch.
+                    Approved By is recorded as you (@User.Identity?.Name).
                 </div>
             </div>
 
@@ -47,11 +47,29 @@
                 <input type="hidden" asp-for="SeedSowingId" />
 
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Ready Quantity <span class="text-danger">*</span></label>
-                        <input type="number" step="0.01" min="0.01" max="@Model.SeedSowing.RemainingReadyQuantity"
-                               asp-for="ReadyQuantity" class="form-control" required />
-                        <div class="form-text">Up to the remaining quantity (@Model.SeedSowing.RemainingReadyQuantity.ToString("N2")). Enter less than the full remaining amount for a partial confirmation.</div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Actual Ready Quantity <span class="text-danger">*</span></label>
+                        <input type="number" step="0.01" min="0" max="@Model.SeedSowing.RemainingReadyQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                               asp-for="ReadyQuantity" id="readyQty" class="form-control" required />
+                        <div class="form-text">0 to @Model.SeedSowing.RemainingReadyQuantity.ToString("N2").</div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Wastage Quantity</label>
+                        <input type="text" id="wastagePreview" class="form-control" readonly />
+                        <div class="form-text">Calculated: sown &minus; ready.</div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Wastage Reason <span class="text-danger" id="reasonStar">*</span></label>
+                        <select asp-for="WastageReason" id="wastageReason" class="form-select">
+                            <option value="">-- Select --</option>
+                            @foreach (var r in Model.WastageReasons)
+                            {
+                                <option value="@r">@r</option>
+                            }
+                        </select>
+                        <div class="form-text">Required when wastage is more than 0.</div>
                     </div>
 
                     <div class="col-md-6">
@@ -84,9 +102,29 @@
 
                 <div class="text-center mt-4">
                     <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-secondary me-2">Cancel</a>
-                    <button type="submit" class="btn btn-success">Confirm Ready</button>
+                    <button type="submit" class="btn btn-success">Approve &amp; Close Batch</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const remaining = parseFloat(document.getElementById('remaining').dataset.value);
+            const ready = document.getElementById('readyQty');
+            const wastage = document.getElementById('wastagePreview');
+            const reason = document.getElementById('wastageReason');
+            function update() {
+                const r = parseFloat(ready.value);
+                if (isNaN(r)) { wastage.value = ''; reason.required = false; return; }
+                const w = Math.round((remaining - r) * 100) / 100;
+                wastage.value = w < 0 ? 'Ready exceeds sown quantity' : w.toFixed(2);
+                reason.required = w > 0;
+            }
+            ready.addEventListener('input', update);
+            update();
+        })();
+    </script>
+}

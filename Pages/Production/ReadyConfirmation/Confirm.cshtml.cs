@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using SeedSowingModel = PlantStockManager.Models.SeedSowing;
 
 namespace PlantStockManager.Pages.Production.ReadyConfirmation
@@ -19,6 +20,12 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
     // from the database on every GET and every POST via
     // SeedSowingRepository.GetByIdAsync (never a cached/posted value),
     // exactly mirroring SeedSowing/Edit.cshtml.cs's own discipline.
+    //
+    // Phase B: this is the SUPERVISOR APPROVAL page (permission
+    // ReadyStock.Confirm). The supervisor enters the Actual Ready Quantity;
+    // Wastage = remaining - Ready is calculated (never typed), a reason is
+    // required when it is > 0, Approved By = the logged-in user, and the
+    // batch closes (Status 'Completed').
     public class ConfirmModel : PageModel
     {
         private readonly SeedSowingRepository _seedSowingRepo;
@@ -43,6 +50,12 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
 
         [BindProperty]
         public decimal ReadyQuantity { get; set; }
+
+        // Phase B: required whenever Wastage (= remaining - Ready) > 0.
+        [BindProperty]
+        public string? WastageReason { get; set; }
+
+        public IReadOnlyList<string> WastageReasons => DirectSowingRules.WastageReasons;
 
         [BindProperty]
         public int? ResponsiblePersonId { get; set; }
@@ -76,7 +89,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             }
             if (sowing.RemainingReadyQuantity <= 0)
             {
-                TempData["Error"] = "This Sowing has already been fully Ready-Confirmed.";
+                TempData["Error"] = "This sowing batch has already been fully approved.";
                 return RedirectToPage("/Production/ReadyConfirmation/Index");
             }
 
@@ -103,17 +116,12 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
                 return RedirectToPage("/Production/ReadyConfirmation/Index");
             }
 
-            if (ReadyQuantity <= 0)
+            // Same rule the repository re-applies under lock.
+            var (ok, _, error) = DirectSowingRules.ComputeApproval(
+                sowing.QuantitySown, sowing.ConfirmedReadyQuantity, sowing.WastageQuantity, ReadyQuantity, WastageReason);
+            if (!ok)
             {
-                ModelState.AddModelError(string.Empty, "Ready Quantity must be greater than zero.");
-                SeedSowing = sowing;
-                await LoadDropdownsAsync();
-                return Page();
-            }
-            if (ReadyQuantity > sowing.RemainingReadyQuantity)
-            {
-                ModelState.AddModelError(string.Empty,
-                    $"Ready Quantity ({ReadyQuantity:N2}) exceeds this Sowing's remaining un-confirmed quantity ({sowing.RemainingReadyQuantity:N2}).");
+                ModelState.AddModelError(string.Empty, error!);
                 SeedSowing = sowing;
                 await LoadDropdownsAsync();
                 return Page();
@@ -124,17 +132,18 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             var createdBy = User.Identity?.Name ?? "System";
 
             var (success, message, _) = await _readyConfirmationRepo.ConfirmAsync(
-                sowing.Id, ReadyQuantity, ResponsiblePersonId, SupervisorId, Remarks, createdBy, userId);
+                sowing.Id, ReadyQuantity, WastageReason, ResponsiblePersonId, SupervisorId, Remarks, createdBy, userId);
 
             if (!success)
             {
-                ModelState.AddModelError(string.Empty, message ?? "Failed to record Ready Confirmation.");
+                ModelState.AddModelError(string.Empty, message ?? "Failed to record the Supervisor Approval.");
                 SeedSowing = sowing;
                 await LoadDropdownsAsync();
                 return Page();
             }
 
-            TempData["Success"] = $"Ready Confirmation recorded for {sowing.SowingCode}: {ReadyQuantity:N2} confirmed ready.";
+            var wastage = sowing.RemainingReadyQuantity - ReadyQuantity;
+            TempData["Success"] = $"Batch {sowing.SowingCode} approved: {ReadyQuantity:N2} added to Ready Stock, wastage {wastage:N2}. The sowing is now Completed.";
             return RedirectToPage("/Production/ReadyConfirmation/History", new { id = sowing.Id });
         }
 

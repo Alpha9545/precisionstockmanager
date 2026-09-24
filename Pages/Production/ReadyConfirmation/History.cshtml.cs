@@ -82,7 +82,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             }
             else
             {
-                TempData["Success"] = "Ready Confirmation cancelled. Ready Stock quantity reversed.";
+                TempData["Success"] = "Supervisor Approval cancelled: Ready Stock reversed and the sowing batch re-opened for approval.";
             }
 
             return RedirectToPage("/Production/ReadyConfirmation/History", new { id = seedSowingId });

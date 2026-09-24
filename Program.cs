@@ -154,7 +154,12 @@ builder.Services.AddRazorPages(options =>
     // replaces the former per-folder AuthorizeFolder/AllowAnonymous
     // conventions and the per-page [Authorize(Policy)] attributes.
     options.Conventions.Add(new FeatureAuthorizationPageConvention());
-});
+})
+// Phase B: the old seed pipeline (Seed Bank / legacy Sowing) is read-only
+// unless LegacySeedPipeline:AllowLegacyWrites is set to true for a
+// transition period. See Services/LegacySeedPipeline.cs.
+.AddMvcOptions(options => options.Filters.Add<LegacySeedPipelineWriteFilter>());
+builder.Services.Configure<LegacySeedPipelineOptions>(builder.Configuration.GetSection(LegacySeedPipelineOptions.SectionName));
 
 
 

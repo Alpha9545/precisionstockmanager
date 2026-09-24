@@ -85,16 +85,18 @@ namespace PlantStockManager.Pages.Admin
         // so obviously invalid input is rejected with a friendly message before it ever
         // reaches SQL Server.
         //
-        // PolyhouseId is required for every AreaType EXCEPT "MainOffice" --
-        // Main Office is a central location with no Polyhouse of its own
-        // (Phase 14 / redesign plan Decision 1), so it is the one AreaType
-        // allowed to have PolyhouseId = null.
+        // PolyhouseId (legacy link: "this Area is located inside that
+        // Polyhouse") is required for the operational AreaTypes used by the
+        // older modules (MotherPlant / Kunjir / Kiran / Outlet). It is
+        // optional for "MainOffice" (Phase 14 Decision 1) and -- Phase B --
+        // for a plain site Area (no AreaType, e.g. "Main Nursery"), which
+        // CONTAINS Polyhouses through dbo.Polyhouses.AreaId instead.
         private void ValidateArea(Area area, string prefix)
         {
-            bool isMainOffice = area.AreaType == "MainOffice";
+            bool polyhouseOptional = area.AreaType == "MainOffice" || string.IsNullOrWhiteSpace(area.AreaType);
 
-            if (!isMainOffice && (area.PolyhouseId == null || area.PolyhouseId <= 0))
-                ModelState.AddModelError($"{prefix}.PolyhouseId", "Polyhouse is required unless Area Type is Main Office.");
+            if (!polyhouseOptional && (area.PolyhouseId == null || area.PolyhouseId <= 0))
+                ModelState.AddModelError($"{prefix}.PolyhouseId", "Polyhouse is required for Mother Plant / Kunjir / Kiran / Outlet Areas.");
             if (string.IsNullOrWhiteSpace(area.Name))
                 ModelState.AddModelError($"{prefix}.Name", "Area Name is required.");
             if (area.AreaSize.HasValue && area.AreaSize <= 0)

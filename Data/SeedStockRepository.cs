@@ -79,6 +79,18 @@ LEFT JOIN dbo.SeedSources src ON ss.SeedSourceId = src.Id";
 
             try
             {
+                // Phase B: new seed is received ONLY into Main Office Seed
+                // Stock (the single operational source for Direct Sowing).
+                using (var areaCmd = new SqlCommand("SELECT AreaType, IsActive FROM dbo.Area WHERE Id = @AreaId", conn))
+                {
+                    areaCmd.Parameters.AddWithValue("@AreaId", entry.AreaId);
+                    using var areaReader = await areaCmd.ExecuteReaderAsync();
+                    if (!await areaReader.ReadAsync()
+                        || !PlantStockManager.Services.DirectSowingRules.IsMainOfficeSeedLocation(
+                               areaReader.IsDBNull(0) ? null : areaReader.GetString(0), areaReader.GetBoolean(1)))
+                        return (false, "Seed Stock can only be created at an active Main Office Area.", 0);
+                }
+
                 const string insertSql = @"
 INSERT INTO dbo.SeedStock (SpeciesId, AreaId, BatchNo, SeedSourceId, Unit, PhysicalQuantity, InTransitQuantity, CreatedDate, CreatedBy)
 VALUES (@SpeciesId, @AreaId, @BatchNo, @SeedSourceId, @Unit, 0, 0, SYSUTCDATETIME(), @CreatedBy);

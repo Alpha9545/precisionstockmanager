@@ -1,14 +1,19 @@
 @page
 @model PlantStockManager.Pages.Production.SeedSowing.IndexModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
-    ViewData["Title"] = "Seed Sowing";
+    ViewData["Title"] = "Direct Sowing";
+    var canSow = await FeatureAccess.CanAccessPageAsync(User, "/Production/SeedSowing/Create");
 }
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="mb-0">Seed Sowing</h2>
+        <h2 class="mb-0">Direct Sowing</h2>
         <div>
-            <a asp-page="/Production/SeedSowing/Create" class="btn btn-primary">+ Sow Seed</a>
+            @if (canSow)
+            {
+                <a asp-page="/Production/SeedSowing/Create" class="btn btn-primary">+ New Sowing</a>
+            }
         </div>
     </div>
 
@@ -36,14 +41,17 @@
         <table class="table table-striped table-hover">
             <thead>
                 <tr>
-                    <th>Code</th>
+                    <th>Batch No.</th>
                     <th>Species/Variety</th>
-                    <th>Lot/Batch</th>
+                    <th>Seed Lot</th>
                     <th>Area</th>
+                    <th>Polyhouse</th>
                     <th>Cavity Type</th>
                     <th>Sowing Date</th>
                     <th>Expected Ready</th>
                     <th>Quantity Sown</th>
+                    <th>Ready</th>
+                    <th>Wastage</th>
                     <th>Status</th>
                     <th></th>
                 </tr>
@@ -56,29 +64,39 @@
                         <td>@sw.SpeciesName <span class="text-muted">(@sw.PlantTypeName)</span></td>
                         <td>@(string.IsNullOrEmpty(sw.BatchNo) ? "-" : sw.BatchNo)</td>
                         <td>@sw.AreaName</td>
+                        <td>@(sw.PolyhouseName ?? "-")</td>
                         <td>@sw.CavityType@(sw.NumberOfTrays.HasValue ? $" x{sw.NumberOfTrays}" : "")</td>
                         <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
                         <td>@(sw.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "-")</td>
                         <td>@sw.QuantitySown.ToString("N2")</td>
+                        <td>@sw.ConfirmedReadyQuantity.ToString("N2")</td>
+                        <td>@sw.WastageQuantity.ToString("N2")</td>
                         <td>
                             @if (sw.Status == "Cancelled")
                             {
                                 <span class="badge bg-secondary">Cancelled</span>
                             }
+                            else if (sw.Status == "Completed")
+                            {
+                                <span class="badge bg-primary">Completed</span>
+                            }
                             else
                             {
-                                <span class="badge bg-success">Sown</span>
+                                <span class="badge bg-success">Growing</span>
                             }
                         </td>
                         <td>
                             <a asp-page="/Production/SeedSowing/Details" asp-route-id="@sw.Id" class="btn btn-sm btn-outline-secondary">View</a>
-                            <a asp-page="/Production/SeedSowing/Edit" asp-route-id="@sw.Id" class="btn btn-sm btn-outline-warning">Edit</a>
+                            @if (canSow && sw.Status == "Sown")
+                            {
+                                <a asp-page="/Production/SeedSowing/Edit" asp-route-id="@sw.Id" class="btn btn-sm btn-outline-warning">Edit</a>
+                            }
                         </td>
                     </tr>
                 }
                 @if (!Model.Sowings.Any())
                 {
-                    <tr><td colspan="10" class="text-center text-muted">No Sowing records found.</td></tr>
+                    <tr><td colspan="13" class="text-center text-muted">No Sowing records found.</td></tr>
                 }
             </tbody>
         </table>

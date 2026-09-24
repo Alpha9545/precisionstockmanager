@@ -21,6 +21,9 @@ namespace PlantStockManager.Pages.Admin
 
         public List<Polyhouse> Polyhouses { get; set; } = new();
 
+        // Phase B: Area (site) choices for "this Polyhouse belongs to Area".
+        public List<Area> Areas { get; set; } = new();
+
         // Area count and Area Size / Capacity totals per Polyhouse,
         // computed live from dbo.Area (requirement: Polyhouse
         // administration must display its Areas and calculate totals
@@ -32,6 +35,12 @@ namespace PlantStockManager.Pages.Admin
         public string NewPolyhouseName { get; set; }
 
         [BindProperty]
+        public int? NewAreaId { get; set; }
+
+        [BindProperty]
+        public int? EditAreaId { get; set; }
+
+        [BindProperty]
         public int EditId { get; set; }
 
         [BindProperty]
@@ -40,6 +49,7 @@ namespace PlantStockManager.Pages.Admin
         public async Task OnGetAsync()
         {
             Polyhouses = await _polyhouseRepo.GetAllPolyhouses();
+            Areas = await _areaRepo.GetAllAreas();
             await BuildAreaSummariesAsync();
         }
 
@@ -47,7 +57,7 @@ namespace PlantStockManager.Pages.Admin
         {
             if (!string.IsNullOrWhiteSpace(NewPolyhouseName))
             {
-                await _polyhouseRepo.AddPolyhouse(NewPolyhouseName);
+                await _polyhouseRepo.AddPolyhouse(NewPolyhouseName, await ValidAreaIdOrNullAsync(NewAreaId));
             }
             return RedirectToPage();
         }
@@ -56,10 +66,14 @@ namespace PlantStockManager.Pages.Admin
         {
             if (EditId > 0 && !string.IsNullOrWhiteSpace(EditPolyhouseName))
             {
-                await _polyhouseRepo.UpdatePolyhouse(EditId, EditPolyhouseName);
+                await _polyhouseRepo.UpdatePolyhouse(EditId, EditPolyhouseName, await ValidAreaIdOrNullAsync(EditAreaId));
             }
             return RedirectToPage();
         }
+
+        // Only an existing Area id is stored (never a tampered value).
+        private async Task<int?> ValidAreaIdOrNullAsync(int? areaId)
+            => areaId.HasValue && areaId.Value > 0 && await _areaRepo.GetAreaById(areaId.Value) != null ? areaId : null;
 
         private async Task BuildAreaSummariesAsync()
         {
