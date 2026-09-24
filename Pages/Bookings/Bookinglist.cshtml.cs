@@ -40,9 +40,12 @@ namespace PlantStockManager.Pages.Bookings
             public string? Contact { get; set; }
         }
 
-        public sampleModel(DatabaseHelper dbHelper)
+        private readonly SeedlingFulfilmentRepository _fulfilmentRepo;
+
+        public sampleModel(DatabaseHelper dbHelper, SeedlingFulfilmentRepository fulfilmentRepo)
         {
             _dbHelper = dbHelper;
+            _fulfilmentRepo = fulfilmentRepo;
         }
 
         public async Task<IActionResult> OnGetAsync()
@@ -124,24 +127,22 @@ namespace PlantStockManager.Pages.Bookings
             }
         }
 
-        public async Task<IActionResult> OnPostCancelBookingAsync([FromBody] int BookingId)
+        // Phase C: cancelling goes through SeedlingFulfilmentRepository.CancelAsync
+        // (one transaction: releases any Ready Stock reservation, records who,
+        // when and why). Only Pending bookings with nothing dispatched.
+        public class CancelBookingRequest
         {
-            using (var conn = _dbHelper.GetConnection())
-            {
-                await conn.OpenAsync();
-                string sql = "UPDATE Bookings SET Status = 'Cancelled' WHERE Id = @BookingId";
-                using (var cmd = new SqlCommand(sql, conn))
-                {
-                    cmd.Parameters.AddWithValue("@BookingId", BookingId);
-                    int rowsAffected = await cmd.ExecuteNonQueryAsync();
+            public int BookingId { get; set; }
+            public string? Reason { get; set; }
+        }
 
-                    if (rowsAffected > 0)
-                    {
-                        return new JsonResult(new { success = true });
-                    }
-                }
-            }
-            return new JsonResult(new { success = false });
+        public async Task<IActionResult> OnPostCancelBookingAsync([FromBody] CancelBookingRequest? request)
+        {
+            if (request == null || request.BookingId <= 0)
+                return new JsonResult(new { success = false, message = "Invalid request." });
+            var (ok, message) = await _fulfilmentRepo.CancelAsync(request.BookingId, request.Reason,
+                new SeedlingFulfilmentRepository.Actor(User.Identity?.Name, PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.GetUserId(User)));
+            return new JsonResult(new { success = ok, message });
         }
 
 

@@ -14,13 +14,16 @@ namespace PlantStockManager.Pages.Bookings
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
         private readonly BookingRepository _bookingRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly SeedlingFulfilmentRepository _fulfilmentRepo;
 
         public BookModel(
             PlantTypeRepository plantTypeRepo,
             PlantSpeciesRepository plantSpeciesRepo,
             BookingRepository bookingRepo,
-            EmployeeRepository employeeRepo)
+            EmployeeRepository employeeRepo,
+            SeedlingFulfilmentRepository fulfilmentRepo)
         {
+            _fulfilmentRepo = fulfilmentRepo;
             _plantTypeRepo = plantTypeRepo;
             _plantSpeciesRepo = plantSpeciesRepo;
             _bookingRepo = bookingRepo;
@@ -46,6 +49,15 @@ namespace PlantStockManager.Pages.Bookings
         {
             var species = await _plantSpeciesRepo.GetSpeciesByPlantType(plantTypeId);
             return new JsonResult(species);
+        }
+
+        // Phase C: Ready Stock availability for a variety (information only --
+        // creating a booking never reserves or reduces stock; a booking larger
+        // than what is available is a pre-booking and is reserved later).
+        public async Task<JsonResult> OnGetAvailabilityAsync(int speciesId)
+        {
+            var a = await _fulfilmentRepo.GetAvailabilityAsync(speciesId);
+            return new JsonResult(new { ready = a.PhysicalQuantity, reserved = a.ReservedQuantity, available = a.AvailableQuantity, batches = a.Batches });
         }
 
         public async Task<JsonResult> OnGetDistrictsByState(int stateId)

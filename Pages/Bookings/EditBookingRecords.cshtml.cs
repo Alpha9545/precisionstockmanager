@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using System.Security.Claims;
@@ -14,6 +15,7 @@ namespace PlantStockManager.Pages.Bookings
         private readonly PlantTypeRepository _plantTypeRepository;
         private readonly PlantSpeciesRepository _plantSpeciesRepository;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly SeedlingFulfilmentRepository _fulfilmentRepo;
 
         public List<Booking> Bookings { get; set; } = new();
         public List<PlantType> PlantTypes { get; set; } = new();
@@ -29,12 +31,17 @@ namespace PlantStockManager.Pages.Bookings
 
         [BindProperty] public Booking Booking { get; set; }
 
+        // Phase C: kept in dbo.BookingRevisions with the previous values.
+        [BindProperty] public string? RevisionReason { get; set; }
+
         public BookingRecordsModel(
             BookingRepository bookingRepository,
             PlantTypeRepository plantTypeRepository,
             PlantSpeciesRepository plantSpeciesRepository,
-            EmployeeRepository employeeRepo)
+            EmployeeRepository employeeRepo,
+            SeedlingFulfilmentRepository fulfilmentRepo)
         {
+            _fulfilmentRepo = fulfilmentRepo;
             _bookingRepository = bookingRepository;
             _plantTypeRepository = plantTypeRepository;
             _plantSpeciesRepository = plantSpeciesRepository;
@@ -109,16 +116,17 @@ namespace PlantStockManager.Pages.Bookings
             if (!ModelState.IsValid)
                 return new JsonResult(new { success = false, message = "Invalid input data." });
 
-            var ok = await _bookingRepository.UpdateBooking(Booking);
-            if (ok) return new JsonResult(new { success = true, message = "Booking updated successfully!" });
-            return new JsonResult(new { success = false, message = "Failed to update Booking." });
+            var (ok, message) = await _bookingRepository.UpdateBooking(Booking, RevisionReason, User.GetUserId());
+            return new JsonResult(new { success = ok, message });
         }
 
-        public async Task<IActionResult> OnPostDeleteBookingAsync(int id)
+        // Phase C: "Delete" no longer removes the booking. It CANCELS it
+        // (history kept, reservations released, reason recorded).
+        public async Task<IActionResult> OnPostDeleteBookingAsync(int id, string? reason)
         {
-            var result = await _bookingRepository.DeleteBookingWithTransactions(id);
-            if (result.Success) return new JsonResult(new { success = true });
-            return new JsonResult(new { success = false, message = result.Message });
+            var (ok, message) = await _fulfilmentRepo.CancelAsync(id, reason,
+                new SeedlingFulfilmentRepository.Actor(User.Identity?.Name, User.GetUserId()));
+            return new JsonResult(new { success = ok, message });
         }
     }
 }

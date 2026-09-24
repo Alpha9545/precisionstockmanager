@@ -1,0 +1,67 @@
+@page
+@model PlantStockManager.Pages.Bookings.FulfilmentModel
+@{
+    ViewData["Title"] = "Booking Fulfilment";
+}
+
+<div class="container-fluid mt-4">
+    <h3>Booking Fulfilment (Ready Stock)</h3>
+
+    @if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+
+    <form method="get" class="row g-2 mb-3">
+        <div class="col-md-2">
+            <select name="Status" class="form-select">
+                @foreach (var s in new[] { "Pending", "Completed", "Cancelled", "All" })
+                {
+                    <option value="@s" selected="@(s == (Model.Status ?? "All"))">@s</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <select name="Stage" class="form-select">
+                <option value="">All stages</option>
+                @foreach (var s in Model.Stages) { <option value="@s" selected="@(s == Model.Stage)">@s</option> }
+            </select>
+        </div>
+        <div class="col-md-3"><input type="text" name="Search" value="@Model.Search" class="form-control" placeholder="Customer or booking no." /></div>
+        <div class="col-md-1"><input type="date" name="From" value="@Model.From?.ToString("yyyy-MM-dd")" class="form-control" title="Required date from" /></div>
+        <div class="col-md-1"><input type="date" name="To" value="@Model.To?.ToString("yyyy-MM-dd")" class="form-control" title="Required date to" /></div>
+        <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Filter</button></div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-light">
+                <tr>
+                    <th>Booking</th><th>Customer</th><th>Booking date</th><th>Required date</th><th>Variety</th>
+                    <th class="text-end">Quantity</th><th class="text-end">Reserved</th><th class="text-end">Dispatched</th><th class="text-end">Remaining</th>
+                    <th>Status</th><th>Stage</th><th>Revision</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var b in Model.Bookings)
+                {
+                    <tr>
+                        <td>#@b.Id</td>
+                        <td>@b.CustomerName</td>
+                        <td>@b.BookingDate?.ToString("dd-MM-yyyy")</td>
+                        <td>@b.DeliveryDate?.ToString("dd-MM-yyyy")</td>
+                        <td>@b.PlantTypeName / @b.SpeciesName</td>
+                        <td class="text-end">@b.Quantity.ToString("N0")</td>
+                        <td class="text-end">@b.ReservedQuantity.ToString("N0")</td>
+                        <td class="text-end">@((b.DispatchedQuantity + b.LegacyFulfilledQuantity).ToString("N0"))@(b.LegacyFulfilledQuantity > 0 ? " (legacy)" : "")</td>
+                        <td class="text-end">@b.RemainingQuantity.ToString("N0")</td>
+                        <td>@b.Status</td>
+                        <td>@b.Stage</td>
+                        <td>@b.RevisionNo</td>
+                        <td><a asp-page="/Bookings/BookingDetails" asp-route-id="@b.Id" class="btn btn-sm btn-outline-primary">Open</a></td>
+                    </tr>
+                }
+                @if (!Model.Bookings.Any()) { <tr><td colspan="13" class="text-center text-muted">No bookings found.</td></tr> }
+            </tbody>
+        </table>
+        <div class="small text-muted">Showing at most 1,000 bookings, most recent required date first.</div>
+    </div>
+</div>

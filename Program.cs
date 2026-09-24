@@ -89,6 +89,7 @@ builder.Services.AddScoped<SeedIssueRepository>();
 builder.Services.AddScoped<SeedSowingRepository>();
 builder.Services.AddScoped<ReadyStockRepository>(); // Phase 25 (Phase K)
 builder.Services.AddScoped<ReadyConfirmationRepository>(); // Phase 25 (Phase K)
+builder.Services.AddScoped<SeedlingFulfilmentRepository>(); // Phase C: Ready Stock -> booking reservation -> dispatch
 
 // Management Dashboard (Phase 26/Phase L): a dedicated, READ-ONLY
 // reporting repository -- never a duplicate of any operational

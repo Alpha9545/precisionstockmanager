@@ -1,0 +1,46 @@
+@page
+@model PlantStockManager.Pages.Bookings.DispatchRegisterModel
+@{
+    ViewData["Title"] = "Seedling Dispatch Register";
+}
+
+<div class="container-fluid mt-4">
+    <h3>Seedling Dispatch Register</h3>
+    <form method="get" class="row g-2 mb-3">
+        <div class="col-md-2"><input type="date" name="From" value="@Model.From?.ToString("yyyy-MM-dd")" class="form-control" /></div>
+        <div class="col-md-2"><input type="date" name="To" value="@Model.To?.ToString("yyyy-MM-dd")" class="form-control" /></div>
+        <div class="col-md-4"><input type="text" name="Search" value="@Model.Search" class="form-control" placeholder="Customer, dispatch no. or batch" /></div>
+        <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Filter</button></div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped">
+            <thead class="table-light">
+                <tr>
+                    <th>Dispatch date</th><th>Dispatch</th><th>Customer</th><th>Booking</th><th>Booked variety</th><th>Actual variety</th>
+                    <th>Substitution</th><th>Batch</th><th>Area</th><th>Polyhouse</th><th class="text-end">Quantity</th><th>By</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var l in Model.Lines)
+                {
+                    <tr>
+                        <td>@l.DispatchDate?.ToString("dd-MM-yyyy")</td>
+                        <td>@l.DispatchCode</td>
+                        <td>@l.CustomerName</td>
+                        <td><a asp-page="/Bookings/BookingDetails" asp-route-id="@l.BookingId">#@l.BookingId</a></td>
+                        <td>@l.BookedSpeciesName</td>
+                        <td>@l.ActualSpeciesName</td>
+                        <td>@(l.IsSubstitution ? "Yes – " + l.SubstitutionReason : "No")</td>
+                        <td>@l.BatchCode</td>
+                        <td>@l.AreaName</td>
+                        <td>@(l.PolyhouseName ?? "-")</td>
+                        <td class="text-end">@l.Quantity.ToString("N0")</td>
+                        <td>@l.DispatchedBy</td>
+                    </tr>
+                }
+                @if (!Model.Lines.Any()) { <tr><td colspan="12" class="text-center text-muted">No seedling dispatches in this period.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>

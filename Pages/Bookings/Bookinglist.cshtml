@@ -342,6 +342,11 @@
                                 {
                                     <span class="text-muted small">Fulfilled</span>
                                 }
+                                <a asp-page="/Bookings/BookingDetails" asp-route-id="@booking.Id"
+                                   class="btn btn-sm btn-outline-primary btn-action" title="Reservation, dispatch and history">
+                                    <i class="fas fa-layer-group"></i>
+                                    <span class="btn-text">Manage</span>
+                                </a>
                             </div>
                         </td>
                     </tr>
@@ -371,14 +376,16 @@
                     let bookingId = this.getAttribute("data-booking-id");
                     let customerName = this.getAttribute("data-customer-name");
 
-                    if (confirm(`Are you sure you want to cancel the booking for ${customerName}?`)) {
+                    const reason = prompt(`Cancel the booking for ${customerName}?\nAny Ready Stock reservation will be released.\n\nCancellation reason:`);
+                    if (reason !== null && !reason.trim()) { alert("A cancellation reason is required."); return; }
+                    if (reason !== null) {
                         fetch(window.location.pathname + "?handler=CancelBooking", {
                             method: "POST",
                             headers: {
                                 "Content-Type": "application/json",
                                 "RequestVerificationToken": document.querySelector('input[name="__RequestVerificationToken"]').value
                             },
-                            body: JSON.stringify(parseInt(bookingId))
+                            body: JSON.stringify({ bookingId: parseInt(bookingId), reason: reason })
                         })
                         .then(response => response.json())
                         .then(data => {
@@ -402,8 +409,7 @@
                                     fulfillButton.remove();
                                 }
                             } else {
-                                console.log(JSON.stringify({ BookingId: parseInt(bookingId) }));
-                                alert("Failed to cancel booking. Try again!");
+                                alert(data.message || "Failed to cancel booking. Try again!");
                             }
                         })
                         .catch(error => console.error("Error:", error));

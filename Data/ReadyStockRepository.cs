@@ -26,6 +26,7 @@ SELECT
     rs.Id, rs.SeedSowingId, sw.SowingCode, rs.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
     rs.AreaId, a.Name AS AreaName, rs.PolyhouseId, COALESCE(rph.Name, ph.Name) AS PolyhouseName,
     rs.BatchNo, rs.CavityType, rs.SowingDate, rs.Quantity, rs.FirstConfirmationDate,
+    rs.ReservedQuantity, rs.DispatchedQuantity,
     sw.QuantitySown, sw.ConfirmedReadyQuantity, sw.WastageQuantity, sw.Status AS SowingStatus,
     appr.ApprovedByName, appr.ApprovalDate,
     rs.CreatedDate, rs.CreatedBy, rs.ModifiedDate, rs.ModifiedBy
@@ -139,16 +140,26 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             SqlConnection conn, SqlTransaction tx, int readyStockId, decimal quantityDelta,
             string transactionType, string? referenceType, int? referenceId, int? userId, string? remarks)
         {
-            var lockCmd = new SqlCommand("SELECT Quantity FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
+            var lockCmd = new SqlCommand("SELECT Quantity, ReservedQuantity, DispatchedQuantity FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
             lockCmd.Parameters.AddWithValue("@Id", readyStockId);
-            var beforeObj = await lockCmd.ExecuteScalarAsync();
-            if (beforeObj == null || beforeObj == DBNull.Value)
-                return (false, "Ready Stock record not found.");
+            decimal before, reserved, dispatched;
+            using (var reader = await lockCmd.ExecuteReaderAsync())
+            {
+                if (!await reader.ReadAsync())
+                    return (false, "Ready Stock record not found.");
+                before = reader.GetDecimal(0);
+                reserved = reader.GetDecimal(1);
+                dispatched = reader.GetDecimal(2);
+            }
 
-            var before = (decimal)beforeObj;
             var after = before + quantityDelta;
             if (after < 0)
                 return (false, $"This movement would take Ready Stock quantity negative (current {before:N2}, change {quantityDelta:N2}).");
+            // Phase C: plants already reserved for bookings or dispatched to
+            // customers cannot be taken back out of the approved Ready quantity
+            // (e.g. by cancelling the Supervisor Approval).
+            if (after < reserved + dispatched)
+                return (false, $"This batch has {reserved:N0} plants reserved for bookings and {dispatched:N0} dispatched; its Ready quantity cannot go below {reserved + dispatched:N0}. Release the reservations first.");
 
             var updateCmd = new SqlCommand(@"
 UPDATE dbo.ReadyStock
@@ -177,6 +188,98 @@ VALUES
             await insertTxCmd.ExecuteNonQueryAsync();
 
             return (true, null);
+        }
+
+        // Phase C: reserve (+) or release (-) plants of a batch for a booking.
+        // Called inside the caller's transaction (SeedlingFulfilmentRepository),
+        // under UPDLOCK/HOLDLOCK on the batch row. Reserved can never go
+        // negative nor above what is still physically there
+        // (Reserved + Dispatched <= Quantity; also a DB CHECK). Ledger row:
+        // 'Reservation' / 'ReservationRelease', BeforeQuantity = Reserved.
+        public async Task<(bool Success, string? Message)> RecordReservationAsync(
+            SqlConnection conn, SqlTransaction tx, int readyStockId, decimal reservedDelta,
+            string? referenceType, int? referenceId, int? userId, string? remarks)
+        {
+            var (ok, quantity, reserved, dispatched) = await LockQuantitiesAsync(conn, tx, readyStockId);
+            if (!ok)
+                return (false, "Ready Stock batch not found.");
+
+            var after = reserved + reservedDelta;
+            if (after < 0)
+                return (false, $"Cannot release {-reservedDelta:N0}: only {reserved:N0} reserved on this batch.");
+            if (after + dispatched > quantity)
+                return (false, $"{PlantStockManager.Services.SeedlingBookingRules.InsufficientStockMessage} Batch available {quantity - reserved - dispatched:N0}, requested {reservedDelta:N0}.");
+
+            var update = new SqlCommand("UPDATE dbo.ReadyStock SET ReservedQuantity = @After, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id", conn, tx);
+            update.Parameters.AddWithValue("@After", after);
+            update.Parameters.AddWithValue("@Id", readyStockId);
+            await update.ExecuteNonQueryAsync();
+
+            await InsertLedgerAsync(conn, tx, readyStockId, reservedDelta >= 0 ? "Reservation" : "ReservationRelease",
+                referenceType, referenceId, reservedDelta, reserved, userId, remarks);
+            return (true, null);
+        }
+
+        // Phase C: plants physically leave the batch. Only reserved plants can
+        // be dispatched: Reserved -= q, Dispatched += q (so Physical -= q).
+        // Two ledger rows keep both movements auditable: 'ReservationRelease'
+        // (BeforeQuantity = Reserved) and 'Dispatch' (BeforeQuantity = Physical).
+        public async Task<(bool Success, string? Message)> RecordDispatchAsync(
+            SqlConnection conn, SqlTransaction tx, int readyStockId, decimal quantity,
+            string? referenceType, int? referenceId, int? userId, string? remarks)
+        {
+            if (quantity <= 0)
+                return (false, "Dispatch quantity must be greater than zero.");
+            var (ok, readyQuantity, reserved, dispatched) = await LockQuantitiesAsync(conn, tx, readyStockId);
+            if (!ok)
+                return (false, "Ready Stock batch not found.");
+            if (quantity > reserved)
+                return (false, $"Only {reserved:N0} plants are reserved on this batch; {quantity:N0} cannot be dispatched.");
+            var physical = readyQuantity - dispatched;
+            if (quantity > physical)
+                return (false, $"Only {physical:N0} plants are physically in this batch.");
+
+            var update = new SqlCommand(@"
+UPDATE dbo.ReadyStock
+SET ReservedQuantity = ReservedQuantity - @Q, DispatchedQuantity = DispatchedQuantity + @Q, ModifiedDate = SYSUTCDATETIME()
+WHERE Id = @Id", conn, tx);
+            update.Parameters.AddWithValue("@Q", quantity);
+            update.Parameters.AddWithValue("@Id", readyStockId);
+            await update.ExecuteNonQueryAsync();
+
+            await InsertLedgerAsync(conn, tx, readyStockId, "ReservationRelease", referenceType, referenceId, -quantity, reserved, userId, "Dispatched");
+            await InsertLedgerAsync(conn, tx, readyStockId, "Dispatch", referenceType, referenceId, -quantity, physical, userId, remarks);
+            return (true, null);
+        }
+
+        private static async Task<(bool Ok, decimal Quantity, decimal Reserved, decimal Dispatched)> LockQuantitiesAsync(
+            SqlConnection conn, SqlTransaction tx, int readyStockId)
+        {
+            var cmd = new SqlCommand("SELECT Quantity, ReservedQuantity, DispatchedQuantity FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
+            cmd.Parameters.AddWithValue("@Id", readyStockId);
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+                return (false, 0, 0, 0);
+            return (true, reader.GetDecimal(0), reader.GetDecimal(1), reader.GetDecimal(2));
+        }
+
+        private static async Task InsertLedgerAsync(SqlConnection conn, SqlTransaction tx, int readyStockId, string transactionType,
+            string? referenceType, int? referenceId, decimal quantity, decimal beforeQuantity, int? userId, string? remarks)
+        {
+            var cmd = new SqlCommand(@"
+INSERT INTO dbo.ReadyStockTransactions
+(ReadyStockId, TransactionDate, TransactionType, ReferenceType, ReferenceId, Quantity, BeforeQuantity, UserId, Remarks, CreatedAt)
+VALUES
+(@ReadyStockId, SYSUTCDATETIME(), @TransactionType, @ReferenceType, @ReferenceId, @Quantity, @BeforeQuantity, @UserId, @Remarks, SYSUTCDATETIME());", conn, tx);
+            cmd.Parameters.AddWithValue("@ReadyStockId", readyStockId);
+            cmd.Parameters.AddWithValue("@TransactionType", transactionType);
+            cmd.Parameters.AddWithValue("@ReferenceType", (object?)referenceType ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@ReferenceId", (object?)referenceId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Quantity", quantity);
+            cmd.Parameters.AddWithValue("@BeforeQuantity", beforeQuantity);
+            cmd.Parameters.AddWithValue("@UserId", (object?)userId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
+            await cmd.ExecuteNonQueryAsync();
         }
 
         public async Task<List<ReadyStockTransaction>> GetTransactionsAsync(int readyStockId)
@@ -246,6 +349,8 @@ ORDER BY t.CreatedAt DESC";
                 CavityType = reader.GetString(reader.GetOrdinal("CavityType")),
                 SowingDate = reader.GetDateTime(reader.GetOrdinal("SowingDate")),
                 Quantity = reader.GetDecimal(reader.GetOrdinal("Quantity")),
+                ReservedQuantity = reader.GetDecimal(reader.GetOrdinal("ReservedQuantity")),
+                DispatchedQuantity = reader.GetDecimal(reader.GetOrdinal("DispatchedQuantity")),
                 FirstConfirmationDate = reader.IsDBNull(reader.GetOrdinal("FirstConfirmationDate")) ? null : reader.GetDateTime(reader.GetOrdinal("FirstConfirmationDate")),
                 CreatedDate = reader.GetDateTime(reader.GetOrdinal("CreatedDate")),
                 CreatedBy = reader.IsDBNull(reader.GetOrdinal("CreatedBy")) ? null : reader.GetString(reader.GetOrdinal("CreatedBy")),

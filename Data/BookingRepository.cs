@@ -7,10 +7,12 @@ namespace PlantStockManager.Data
     public class BookingRepository
     {
         private readonly DatabaseHelper _dbHelper;
+        private readonly SeedlingFulfilmentRepository _fulfilmentRepo;
 
-        public BookingRepository(DatabaseHelper dbHelper)
+        public BookingRepository(DatabaseHelper dbHelper, SeedlingFulfilmentRepository fulfilmentRepo)
         {
             _dbHelper = dbHelper;
+            _fulfilmentRepo = fulfilmentRepo;
         }
 
         public async Task<int> InsertBookingAsync(Booking entry)
@@ -328,133 +330,119 @@ WHERE YEAR(b.DeliveryDate) = @Year
 
 
 
-        public async Task<bool> UpdateBooking(Booking entry)
-        {
-            using (var conn = _dbHelper.GetConnection())
-            {
-                await conn.OpenAsync();
-                using (var transaction = conn.BeginTransaction())
-                {
-                    try
-                    {
-                        var cmd = new SqlCommand(@"
-UPDATE Bookings 
-SET PlantId             = @PlantId, 
-    SpeciesId           = @SpeciesId,
-    CustomerName        = @CustomerName, 
-    DeliveryDate        = @DeliveryDate, 
-    Quantity            = @Quantity,
-    Address             = @Address, 
-    Contact             = @Contact,
-    AdvanceTaken        = @AdvanceTaken,
-    AdvanceTakenAmount  = @AdvanceTakenAmount,
-    AdvanceTakenDetails = @AdvanceTakenDetails,
-    AddedBy             = @UpdatedBy,
-    BookingDate         = GETDATE(),
-    BookedById          = @BookedById,
-    BookedByOther       = NULL,
-    StateId             = @StateId,
-    DistrictId          = @DistrictId
-WHERE Id = @BookingId;", conn, transaction);
-
-                        cmd.Parameters.AddWithValue("@BookingId", entry.Id);
-                        cmd.Parameters.AddWithValue("@PlantId", entry.PlantId);
-                        cmd.Parameters.AddWithValue("@SpeciesId", entry.SpeciesId);
-                        cmd.Parameters.AddWithValue("@CustomerName", entry.CustomerName);
-                        cmd.Parameters.AddWithValue("@DeliveryDate", entry.DeliveryDate);
-                        cmd.Parameters.AddWithValue("@Quantity", entry.Quantity);
-                        cmd.Parameters.AddWithValue("@Address", entry.Address ?? (object)DBNull.Value);
-                        cmd.Parameters.AddWithValue("@Contact", entry.Contact ?? (object)DBNull.Value);
-                        cmd.Parameters.AddWithValue("@AdvanceTaken", entry.AdvanceTaken);
-                        cmd.Parameters.AddWithValue("@AdvanceTakenAmount", (object?)entry.AdvanceTakenAmount ?? DBNull.Value);
-                        cmd.Parameters.AddWithValue("@AdvanceTakenDetails", (object?)entry.AdvanceTakenDetails ?? DBNull.Value);
-                        cmd.Parameters.AddWithValue("@UpdatedBy", entry.AddedBy ?? (object)DBNull.Value);
-                        cmd.Parameters.AddWithValue("@BookedById", (object?)entry.BookedById ?? DBNull.Value);
-                        cmd.Parameters.AddWithValue("@StateId", entry.StateId);
-                        cmd.Parameters.AddWithValue("@DistrictId", entry.DistrictId);
-
-                        int rowsAffected = await cmd.ExecuteNonQueryAsync();
-
-                        if (rowsAffected > 0)
-                        {
-                            var transactionCmd = new SqlCommand(@"
-UPDATE Transactions 
-SET Quantity = @Quantity,
-    UpdatedBy = @UpdatedBy,
-    UpdatedOn = GETDATE()
-WHERE BookingId = @BookingId;", conn, transaction);
-
-                            transactionCmd.Parameters.AddWithValue("@BookingId", entry.Id);
-                            transactionCmd.Parameters.AddWithValue("@Quantity", entry.Quantity);
-                            transactionCmd.Parameters.AddWithValue("@UpdatedBy", entry.AddedBy ?? (object)DBNull.Value);
-
-                            await transactionCmd.ExecuteNonQueryAsync();
-
-                            transaction.Commit();
-                            return true;
-                        }
-
-                        transaction.Rollback();
-                        return false;
-                    }
-                    catch
-                    {
-                        transaction.Rollback();
-                        return false;
-                    }
-                }
-            }
-        }
-
-
-        public async Task<(bool Success, string Message)> DeleteBookingWithTransactions(int bookingId)
+        // Phase C: editing a booking no longer destroys history.
+        //   * every change is recorded in dbo.BookingRevisions (previous and new
+        //     values, reason, user, date) -- a reason is required;
+        //   * BookingDate and AddedBy are no longer overwritten (ModifiedBy /
+        //     ModifiedDate record who changed it);
+        //   * quantity / variety changes go through the same revision logic as
+        //     the Revise page (reservations above the new need are released,
+        //     never below what has been dispatched);
+        //   * only Pending bookings can be edited.
+        // The old 'Booking' row in dbo.Transactions is left as it was written.
+        public async Task<(bool Success, string Message)> UpdateBooking(Booking entry, string? reason, int? userId)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
             using var tx = conn.BeginTransaction();
-
             try
             {
-                // 1) Delete related transactions FIRST.
-                // TODO: Replace table names/columns to match your schema if different.
-                // Common names: BookingTransactions, BookingPayments, BookingLedger, etc.
-                var deleteTxSql = @"DELETE FROM Transactions WHERE BookingId = @Id;";
-                using (var cmdTx = new SqlCommand(deleteTxSql, conn, tx))
+                var read = new SqlCommand(@"
+SELECT PlantId, SpeciesId, Quantity, DeliveryDate, ISNULL(Status, 'Pending'), CustomerName, Address, Contact,
+       AdvanceTaken, AdvanceTakenAmount, AdvanceTakenDetails, BookedById, StateId, DistrictId
+FROM Bookings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
+                read.Parameters.AddWithValue("@Id", entry.Id);
+                int plantId, quantity; int? speciesId, bookedById, stateId, districtId; DateTime? delivery; string status;
+                string? customer, address, contact, advDetails; bool? advTaken; decimal? advAmount;
+                using (var r = await read.ExecuteReaderAsync())
                 {
-                    cmdTx.Parameters.AddWithValue("@Id", bookingId);
-                    await cmdTx.ExecuteNonQueryAsync();
+                    if (!await r.ReadAsync()) { r.Close(); tx.Rollback(); return (false, "Booking not found."); }
+                    plantId = r.GetInt32(0); speciesId = r.IsDBNull(1) ? null : r.GetInt32(1); quantity = r.GetInt32(2);
+                    delivery = r.IsDBNull(3) ? null : r.GetDateTime(3); status = r.GetString(4);
+                    customer = r.IsDBNull(5) ? null : r.GetString(5); address = r.IsDBNull(6) ? null : r.GetString(6);
+                    contact = r.IsDBNull(7) ? null : r.GetString(7); advTaken = r.IsDBNull(8) ? null : r.GetBoolean(8);
+                    advAmount = r.IsDBNull(9) ? null : r.GetDecimal(9); advDetails = r.IsDBNull(10) ? null : r.GetString(10);
+                    bookedById = r.IsDBNull(11) ? null : r.GetInt32(11); stateId = r.IsDBNull(12) ? null : r.GetInt32(12);
+                    districtId = r.IsDBNull(13) ? null : r.GetInt32(13);
                 }
+                if (status != "Pending") { tx.Rollback(); return (false, $"Only Pending bookings can be edited (this one is {status})."); }
 
-                // 2) Delete the booking row.
-                var deleteBookingSql = @"DELETE FROM Bookings WHERE Id = @Id;";
-                int affected;
-                using (var cmdBk = new SqlCommand(deleteBookingSql, conn, tx))
+                var changes = new List<string>();
+                void Diff(string label, object? before, object? after)
                 {
-                    cmdBk.Parameters.AddWithValue("@Id", bookingId);
-                    affected = await cmdBk.ExecuteNonQueryAsync();
+                    var b = Convert.ToString(before)?.Trim() ?? ""; var a = Convert.ToString(after)?.Trim() ?? "";
+                    if (b != a) changes.Add($"{label}: '{b}' -> '{a}'");
                 }
+                Diff("Customer", customer, entry.CustomerName);
+                Diff("Address", address, entry.Address);
+                Diff("Contact", contact, entry.Contact);
+                Diff("Advance taken", advTaken ?? false, entry.AdvanceTaken);
+                Diff("Advance amount", advAmount?.ToString("0.00"), entry.AdvanceTakenAmount?.ToString("0.00"));
+                Diff("Advance details", advDetails, entry.AdvanceTakenDetails);
+                Diff("Booked by", bookedById, entry.BookedById);
+                Diff("State", stateId, entry.StateId);
+                Diff("District", districtId, entry.DistrictId);
 
-                if (affected == 0)
-                {
-                    tx.Rollback();
-                    return (false, "Booking not found.");
-                }
+                var keyChanged = plantId != entry.PlantId || speciesId != entry.SpeciesId || quantity != entry.Quantity
+                                 || delivery?.Date != entry.DeliveryDate.Date;
+                if (!keyChanged && changes.Count == 0) { tx.Rollback(); return (true, "No changes to save."); }
+                if (string.IsNullOrWhiteSpace(reason)) { tx.Rollback(); return (false, "A reason for the change is required (it is kept in the booking history)."); }
+
+                var (ok, message) = await _fulfilmentRepo.ApplyRevisionAsync(conn, tx, entry.Id,
+                    new SeedlingFulfilmentRepository.RevisionRequest
+                    {
+                        NewPlantId = entry.PlantId,
+                        NewSpeciesId = entry.SpeciesId,
+                        NewQuantity = entry.Quantity,
+                        NewDeliveryDate = entry.DeliveryDate,
+                        Reason = reason,
+                        OtherChanges = changes.Count > 0 ? string.Join("; ", changes) : null
+                    },
+                    new SeedlingFulfilmentRepository.Actor(entry.AddedBy, userId));
+                if (!ok) { tx.Rollback(); return (false, message ?? "Failed to update Booking."); }
+
+                var cmd = new SqlCommand(@"
+UPDATE Bookings
+SET CustomerName        = @CustomerName,
+    Address             = @Address,
+    Contact             = @Contact,
+    AdvanceTaken        = @AdvanceTaken,
+    AdvanceTakenAmount  = @AdvanceTakenAmount,
+    AdvanceTakenDetails = @AdvanceTakenDetails,
+    BookedById          = @BookedById,
+    BookedByOther       = NULL,
+    StateId             = @StateId,
+    DistrictId          = @DistrictId,
+    ModifiedBy          = @UpdatedBy,
+    ModifiedDate        = SYSUTCDATETIME()
+WHERE Id = @BookingId;", conn, tx);
+                cmd.Parameters.AddWithValue("@BookingId", entry.Id);
+                cmd.Parameters.AddWithValue("@CustomerName", (object?)entry.CustomerName ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Address", entry.Address ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Contact", entry.Contact ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@AdvanceTaken", entry.AdvanceTaken);
+                cmd.Parameters.AddWithValue("@AdvanceTakenAmount", (object?)entry.AdvanceTakenAmount ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@AdvanceTakenDetails", (object?)entry.AdvanceTakenDetails ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@UpdatedBy", entry.AddedBy ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@BookedById", (object?)entry.BookedById ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@StateId", (object?)entry.StateId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@DistrictId", (object?)entry.DistrictId ?? DBNull.Value);
+                await cmd.ExecuteNonQueryAsync();
 
                 tx.Commit();
-                return (true, "Deleted");
-            }
-            catch (SqlException ex)
-            {
-                tx.Rollback();
-                // FK violations etc. will land here if other dependent tables exist.
-                return (false, "Delete failed: " + ex.Message);
+                return (true, message ?? "Booking updated successfully!");
             }
             catch (Exception ex)
             {
-                tx.Rollback();
-                return (false, "Delete failed: " + ex.Message);
+                try { tx.Rollback(); } catch { }
+                return (false, "Failed to update Booking: " + ex.Message);
             }
         }
+
+        // Phase C: the former DeleteBookingWithTransactions (a hard DELETE of
+        // the booking and its dbo.Transactions rows) is removed. Bookings are
+        // cancelled instead (SeedlingFulfilmentRepository.CancelAsync), which
+        // keeps the history and releases any reservation.
 
         public async Task<Booking?> GetBookingById(int id)
         {

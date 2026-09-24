@@ -174,7 +174,8 @@
                             @if (booking.Status == "Pending")
                             {
                                 <button class="btn btn-primary btn-sm edit-booking-btn" data-id="@booking.Id">Edit</button>
-                                <button class="btn btn-danger btn-sm ms-2 delete-booking-btn" data-id="@booking.Id">Delete</button>
+                                <button class="btn btn-danger btn-sm ms-2 delete-booking-btn" data-id="@booking.Id" title="Cancels the booking (history is kept)">Cancel</button>
+                                <a class="btn btn-outline-secondary btn-sm ms-2" asp-page="/Bookings/BookingDetails" asp-route-id="@booking.Id">History</a>
                             }
                             else
                             {
@@ -201,6 +202,7 @@
                 <form id="editBookingForm" method="post">
                     <input type="hidden" id="editBookingId" asp-for="Booking.Id" />
                     <input type="hidden" asp-for="Booking.AddedBy" value="Lalit" />
+                    <div class="alert alert-info py-2 small">Changes are kept in the booking history. Quantity or variety changes also adjust any Ready Stock reservation.</div>
 
                     <div class="col-md-12 mb-3">
                         <div class="row">
@@ -252,6 +254,11 @@
                             <input type="text" class="form-control" id="editQuantityInput" required />
                             <small class="text-muted d-block mt-1" id="editQuantityInWords"></small>
                             <input type="hidden" asp-for="Booking.Quantity" id="editHiddenQuantity" />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="fw-bold">Reason for change <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="RevisionReason" id="editRevisionReason" maxlength="500" required />
                         </div>
 
                         <!-- NEW: Booked By Whom (Employees) -->
@@ -474,6 +481,9 @@
                 if (!$('#editBookedByDropdown').val()){
                     showCustomAlert("Error", "Booked By is required.", "error"); return;
                 }
+                if (!$.trim($('#editRevisionReason').val())){
+                    showCustomAlert("Error", "Reason for change is required.", "error"); return;
+                }
 
                 let formData = $(this).serialize();
                 $.post('@Url.Page("/Bookings/EditBookingRecords", "EditBooking")', formData, function(res){
@@ -493,11 +503,15 @@
             // delete
             $(document).on('click', '.delete-booking-btn', function () {
                 const id = $(this).data('id');
-                if (!confirm('Delete this booking? This will remove its transactions first, then the booking.')) return;
-                $.post('@Url.Page("/Bookings/EditBookingRecords", "DeleteBooking")', { id: id }, function (res) {
-                    if (res.success) { alert('Booking deleted.'); location.reload(); }
-                    else { alert(res.message || 'Failed to delete booking.'); }
-                }).fail(function(){ alert('Server error while deleting.'); });
+                const reason = prompt('Cancel this booking? The booking and its history are kept and any Ready Stock reservation is released.\n\nCancellation reason:');
+                if (reason === null) return;
+                if (!$.trim(reason)) { alert('A cancellation reason is required.'); return; }
+                $.post('@Url.Page("/Bookings/EditBookingRecords", "DeleteBooking")',
+                       { id: id, reason: reason, __RequestVerificationToken: $('input[name="__RequestVerificationToken"]').val() },
+                       function (res) {
+                    if (res.success) { alert(res.message || 'Booking cancelled.'); location.reload(); }
+                    else { alert(res.message || 'Failed to cancel booking.'); }
+                }).fail(function(){ alert('Server error while cancelling.'); });
             });
         });
     </script>

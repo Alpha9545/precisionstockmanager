@@ -761,7 +761,7 @@ ORDER BY D", conn);
         private static async Task<decimal> GetReadyStockTotalAsync(SqlConnection conn, ManagementDashboardFilters filters)
         {
             using var cmd = new SqlCommand(@"
-SELECT ISNULL(SUM(Quantity), 0)
+SELECT ISNULL(SUM(Quantity - DispatchedQuantity), 0)   -- Phase C: physical = approved - dispatched
 FROM dbo.ReadyStock
 WHERE (@AreaId IS NULL OR AreaId = @AreaId)
   AND (@SpeciesId IS NULL OR SpeciesId = @SpeciesId)", conn);

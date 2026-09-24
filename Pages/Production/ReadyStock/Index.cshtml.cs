@@ -9,8 +9,8 @@ namespace PlantStockManager.Pages.Production.ReadyStock
     // Phase B: approved Ready Stock, one row per sowing batch, traceable to
     // Batch, Species, Variety, Area, Polyhouse, Sowing Date and Approved By.
     // Read-only (permission ReadyStock.View). Area-scoped with
-    // AreaAccessService exactly like every other list page. Booking/Dispatch
-    // consumption is NOT part of this phase.
+    // AreaAccessService exactly like every other list page.
+    // Phase C: shows Reserved (bookings), Dispatched, Physical and Available.
     public class IndexModel : PageModel
     {
         private readonly ReadyStockRepository _readyStockRepo;
@@ -30,7 +30,7 @@ namespace PlantStockManager.Pages.Production.ReadyStock
 
         public List<ReadyStockModel> Items { get; set; } = new();
 
-        public decimal TotalQuantity => Items.Sum(i => i.Quantity);
+        public decimal TotalQuantity => Items.Sum(i => i.PhysicalQuantity);
 
         public async Task OnGetAsync()
         {
@@ -40,7 +40,7 @@ namespace PlantStockManager.Pages.Production.ReadyStock
                 : all.Where(r => _areaAccessService.CanAccessArea(User, r.AreaId));
 
             if (!IncludeEmpty)
-                q = q.Where(r => r.Quantity > 0);
+                q = q.Where(r => r.PhysicalQuantity > 0);
 
             if (!string.IsNullOrWhiteSpace(Search))
             {

@@ -1,0 +1,222 @@
+@page
+@model PlantStockManager.Pages.Bookings.BookingDetailsModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Booking Fulfilment";
+    var b = Model.Booking!;
+    var canBook = await FeatureAccess.CanAccessPageAsync(User, "/Bookings/Revise");
+    var canDispatch = await FeatureAccess.CanAccessPageAsync(User, "/Bookings/SeedlingDispatch");
+    var isPending = b.Status == "Pending";
+    var readyStockUsable = isPending && !b.IsLegacyFulfilled;
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Booking #@b.Id &mdash; @b.CustomerName</h3>
+        <div class="d-flex gap-2 flex-wrap">
+            @if (canBook && isPending)
+            {
+                <a asp-page="/Bookings/Revise" asp-route-id="@b.Id" class="btn btn-outline-primary">Revise booking</a>
+            }
+            @if (canDispatch && readyStockUsable)
+            {
+                <a asp-page="/Bookings/SeedlingDispatch" asp-route-id="@b.Id" class="btn btn-success">Allocate / Dispatch</a>
+            }
+            <a asp-page="/Bookings/Fulfilment" class="btn btn-outline-secondary">Booking Fulfilment</a>
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+
+    <div class="row g-3 mb-3">
+        <div class="col-lg-7">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Species / Variety</dt><dd class="col-sm-8">@b.PlantTypeName / @b.SpeciesName</dd>
+                        <dt class="col-sm-4">Booked quantity</dt><dd class="col-sm-8">@b.Quantity.ToString("N0")</dd>
+                        <dt class="col-sm-4">Reserved (Ready Stock)</dt><dd class="col-sm-8">@b.ReservedQuantity.ToString("N0")</dd>
+                        <dt class="col-sm-4">Dispatched (Ready Stock)</dt><dd class="col-sm-8">@b.DispatchedQuantity.ToString("N0")</dd>
+                        @if (b.LegacyFulfilledQuantity > 0)
+                        {
+                            <dt class="col-sm-4">Fulfilled from legacy Inventory</dt><dd class="col-sm-8">@b.LegacyFulfilledQuantity.ToString("N0")</dd>
+                        }
+                        <dt class="col-sm-4">Remaining</dt><dd class="col-sm-8">@b.RemainingQuantity.ToString("N0")</dd>
+                        <dt class="col-sm-4">Status</dt>
+                        <dd class="col-sm-8"><span class="badge bg-secondary">@b.Status</span> <span class="ms-1">@b.Stage</span></dd>
+                        <dt class="col-sm-4">Fulfilment pipeline</dt>
+                        <dd class="col-sm-8">@(b.IsLegacyFulfilled ? "Legacy Inventory" : b.FulfilmentSource == "ReadyStock" ? "Ready Stock" : "Not chosen yet")</dd>
+                        <dt class="col-sm-4">Booking date</dt><dd class="col-sm-8">@b.BookingDate?.ToString("dd-MM-yyyy")</dd>
+                        <dt class="col-sm-4">Required (delivery) date</dt><dd class="col-sm-8">@b.DeliveryDate?.ToString("dd-MM-yyyy")</dd>
+                        @if (b.ActualDeliveryDate.HasValue)
+                        {
+                            <dt class="col-sm-4">Actual delivery</dt><dd class="col-sm-8">@b.ActualDeliveryDate.Value.ToString("dd-MM-yyyy")</dd>
+                        }
+                        <dt class="col-sm-4">Revision</dt><dd class="col-sm-8">@b.RevisionNo</dd>
+                        @if (b.ParentBookingId.HasValue)
+                        {
+                            <dt class="col-sm-4">Split from</dt><dd class="col-sm-8"><a asp-page="/Bookings/BookingDetails" asp-route-id="@b.ParentBookingId">Booking #@b.ParentBookingId</a></dd>
+                        }
+                        @if (b.Status == "Cancelled")
+                        {
+                            <dt class="col-sm-4">Cancelled</dt>
+                            <dd class="col-sm-8">@b.CancelledDate?.ToString("dd-MM-yyyy HH:mm") @(b.CancelledByName != null ? "by " + b.CancelledByName : "") &mdash; @b.CancellationReason</dd>
+                        }
+                    </dl>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card shadow-sm h-100">
+                <div class="card-header">Ready Stock for @b.SpeciesName</div>
+                <div class="card-body">
+                    @if (Model.Availability != null)
+                    {
+                        <table class="table table-sm mb-2">
+                            <tr><td>Ready Stock (physical)</td><td class="text-end">@Model.Availability.PhysicalQuantity.ToString("N0")</td></tr>
+                            <tr><td>Already reserved</td><td class="text-end">@Model.Availability.ReservedQuantity.ToString("N0")</td></tr>
+                            <tr class="fw-bold"><td>Available</td><td class="text-end">@Model.Availability.AvailableQuantity.ToString("N0")</td></tr>
+                        </table>
+                    }
+                    @if (canBook && readyStockUsable && b.UnreservedQuantity > 0)
+                    {
+                        @if (b.ReservedQuantity == 0 && b.DispatchedQuantity == 0)
+                        {
+                            <div class="alert alert-warning py-2 small">Pre-booking &ndash; not reserved.</div>
+                        }
+                        <form method="post" asp-page-handler="Reserve" class="row g-2 align-items-end">
+                            <input type="hidden" asp-for="Id" />
+                            <div class="col-7">
+                                <label class="form-label small mb-0">Reserve quantity (still to reserve: @b.UnreservedQuantity.ToString("N0"))</label>
+                                <input type="number" min="1" step="1" max="@((int)b.UnreservedQuantity)" asp-for="ReserveQuantity" class="form-control" required />
+                            </div>
+                            <div class="col-5">
+                                <button type="submit" class="btn btn-primary w-100">Reserve (oldest batch first)</button>
+                            </div>
+                        </form>
+                    }
+                    @if (canBook && isPending && b.ReservedQuantity > 0)
+                    {
+                        <form method="post" asp-page-handler="ReleaseAll" class="mt-2"
+                              onsubmit="return confirm('Release all reserved plants of this booking back to Ready Stock?');">
+                            <input type="hidden" asp-for="Id" />
+                            <button type="submit" class="btn btn-outline-warning btn-sm">Release all reservations</button>
+                        </form>
+                    }
+                    @if (b.IsLegacyFulfilled)
+                    {
+                        <div class="alert alert-secondary py-2 small mb-0">This booking was fulfilled from the legacy Inventory pipeline.</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <h5>Batch allocation</h5>
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped">
+            <thead class="table-light">
+                <tr>
+                    <th>Batch</th><th>Booked variety</th><th>Actual variety</th><th>Substitution</th><th>Sowing date</th><th>Cavity</th>
+                    <th>Area</th><th>Polyhouse</th><th>Supervisor</th><th>Approved by</th>
+                    <th class="text-end">Allocated</th><th class="text-end">Dispatched</th><th class="text-end">Released</th><th class="text-end">Open</th><th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in Model.Allocations)
+                {
+                    <tr>
+                        <td><a asp-page="/Production/SeedSowing/Details" asp-route-id="@a.SeedSowingId">@a.BatchCode</a></td>
+                        <td>@a.BookedSpeciesName</td>
+                        <td>@a.ActualSpeciesName</td>
+                        <td>@(a.IsSubstitution ? "Yes – " + a.SubstitutionReason : "No")</td>
+                        <td>@a.SowingDate?.ToString("dd-MM-yyyy")</td>
+                        <td>@a.CavityType</td>
+                        <td>@a.AreaName</td>
+                        <td>@(a.PolyhouseName ?? "-")</td>
+                        <td>@(a.SupervisorName ?? "-")</td>
+                        <td>@(a.ApprovedByName ?? "-")</td>
+                        <td class="text-end">@a.Quantity.ToString("N0")</td>
+                        <td class="text-end">@a.DispatchedQuantity.ToString("N0")</td>
+                        <td class="text-end">@a.ReleasedQuantity.ToString("N0")</td>
+                        <td class="text-end fw-bold">@a.OpenQuantity.ToString("N0")</td>
+                        <td>@a.Status</td>
+                    </tr>
+                }
+                @if (!Model.Allocations.Any()) { <tr><td colspan="15" class="text-muted text-center">No Ready Stock allocated.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    <h5>Dispatch history</h5>
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped">
+            <thead class="table-light">
+                <tr><th>Dispatch</th><th>Date</th><th>Batch</th><th>Booked variety</th><th>Actual variety</th><th>Substitution</th><th>Area / Polyhouse</th><th class="text-end">Quantity</th><th>By</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var d in Model.Dispatches)
+                {
+                    foreach (var l in d.Lines)
+                    {
+                        <tr>
+                            <td>@d.DispatchCode</td>
+                            <td>@d.DispatchDate.ToString("dd-MM-yyyy")</td>
+                            <td>@l.BatchCode</td>
+                            <td>@l.BookedSpeciesName</td>
+                            <td>@l.ActualSpeciesName</td>
+                            <td>@(l.IsSubstitution ? "Yes – " + l.SubstitutionReason : "No")</td>
+                            <td>@l.AreaName / @(l.PolyhouseName ?? "-")</td>
+                            <td class="text-end">@l.Quantity.ToString("N0")</td>
+                            <td>@d.CreatedBy</td>
+                        </tr>
+                    }
+                }
+                @if (!Model.Dispatches.Any()) { <tr><td colspan="9" class="text-muted text-center">Nothing dispatched from Ready Stock.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    <h5>Revision history</h5>
+    <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped">
+            <thead class="table-light">
+                <tr><th>#</th><th>Date</th><th>By</th><th>Variety</th><th>Quantity</th><th>Required date</th><th>Released</th><th>Split booking</th><th>Other changes</th><th>Reason</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Revisions)
+                {
+                    <tr>
+                        <td>@r.RevisionNo</td>
+                        <td>@r.ChangedDate.ToString("dd-MM-yyyy HH:mm")</td>
+                        <td>@r.ChangedBy</td>
+                        <td>@(r.PreviousSpeciesName == r.NewSpeciesName ? r.NewSpeciesName : $"{r.PreviousSpeciesName} → {r.NewSpeciesName}")</td>
+                        <td>@(r.PreviousQuantity == r.NewQuantity ? r.NewQuantity.ToString("N0") : $"{r.PreviousQuantity:N0} → {r.NewQuantity:N0}")</td>
+                        <td>@r.PreviousDeliveryDate?.ToString("dd-MM-yyyy") @(r.PreviousDeliveryDate != r.NewDeliveryDate ? "→ " + r.NewDeliveryDate?.ToString("dd-MM-yyyy") : "")</td>
+                        <td>@r.ReleasedQuantity.ToString("N0")</td>
+                        <td>@if (r.SplitBookingId.HasValue) { <a asp-page="/Bookings/BookingDetails" asp-route-id="@r.SplitBookingId">#@r.SplitBookingId</a> }</td>
+                        <td class="small">@r.OtherChanges</td>
+                        <td>@r.Reason</td>
+                    </tr>
+                }
+                @if (!Model.Revisions.Any()) { <tr><td colspan="10" class="text-muted text-center">No revisions (original booking).</td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    @if (canBook && isPending && b.DispatchedQuantity == 0 && !b.IsLegacyFulfilled)
+    {
+        <div class="card border-danger mb-4" style="max-width:640px">
+            <div class="card-body">
+                <h6 class="text-danger">Cancel booking</h6>
+                <p class="small mb-2">The booking and its history are kept; any Ready Stock reservation is released.</p>
+                <form method="post" asp-page-handler="Cancel" class="row g-2" onsubmit="return confirm('Cancel this booking?');">
+                    <input type="hidden" asp-for="Id" />
+                    <div class="col-8"><input type="text" asp-for="CancelReason" class="form-control" placeholder="Cancellation reason" maxlength="500" required /></div>
+                    <div class="col-4"><button type="submit" class="btn btn-danger w-100">Cancel booking</button></div>
+                </form>
+            </div>
+        </div>
+    }
+</div>

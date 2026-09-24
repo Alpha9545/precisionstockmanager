@@ -1,0 +1,103 @@
+@page
+@model PlantStockManager.Pages.Bookings.ReviseModel
+@{
+    ViewData["Title"] = "Revise Booking";
+    var b = Model.Booking!;
+}
+
+<div class="container mt-4" style="max-width: 900px;">
+    <h3>Revise Booking #@b.Id &mdash; @b.CustomerName</h3>
+
+    @if (!ModelState.IsValid)
+    {
+        <div class="alert alert-danger">@foreach (var e in ModelState.Values.SelectMany(v => v.Errors)) { <div>@e.ErrorMessage</div> }</div>
+    }
+
+    <div class="alert alert-secondary small">
+        Current: <strong>@b.PlantTypeName / @b.SpeciesName &times; @b.Quantity.ToString("N0")</strong>,
+        reserved @b.ReservedQuantity.ToString("N0"), dispatched @b.DispatchedQuantity.ToString("N0").
+        The original values are kept in the booking history. If the new quantity is lower, reserved plants above it are released
+        (newest batch first). The quantity can never go below what has already been dispatched. Changing the variety releases its reservations.
+    </div>
+
+    <form method="post">
+        <input type="hidden" asp-for="Id" />
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label fw-bold">Species</label>
+                <select asp-for="NewPlantId" class="form-select plant-select" data-target="#newVariety" required>
+                    @foreach (var t in Model.PlantTypes) { <option value="@t.Id">@t.Name</option> }
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label fw-bold">Variety</label>
+                <select asp-for="NewSpeciesId" id="newVariety" class="form-select" data-selected="@Model.NewSpeciesId" required></select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-bold">Quantity</label>
+                <input type="number" min="1" step="1" asp-for="NewQuantity" class="form-control" required />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-bold">Required date</label>
+                <input type="date" asp-for="NewDeliveryDate" class="form-control" />
+            </div>
+
+            <div class="col-12">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" asp-for="AddVariety" id="addVariety" />
+                    <label class="form-check-label" for="addVariety">Customer adds another variety (creates a linked booking)</label>
+                </div>
+            </div>
+            <div class="col-md-4 split-field">
+                <label class="form-label">Added species</label>
+                <select asp-for="SplitPlantId" class="form-select plant-select" data-target="#splitVariety">
+                    <option value="">-- Select --</option>
+                    @foreach (var t in Model.PlantTypes) { <option value="@t.Id">@t.Name</option> }
+                </select>
+            </div>
+            <div class="col-md-4 split-field">
+                <label class="form-label">Added variety</label>
+                <select asp-for="SplitSpeciesId" id="splitVariety" class="form-select" data-selected="@Model.SplitSpeciesId"></select>
+            </div>
+            <div class="col-md-2 split-field">
+                <label class="form-label">Quantity</label>
+                <input type="number" min="1" step="1" asp-for="SplitQuantity" class="form-control" />
+            </div>
+
+            <div class="col-12">
+                <label class="form-label fw-bold">Reason for the revision <span class="text-danger">*</span></label>
+                <input type="text" asp-for="Reason" class="form-control" maxlength="500" required />
+            </div>
+        </div>
+        <div class="mt-4">
+            <a asp-page="/Bookings/BookingDetails" asp-route-id="@b.Id" class="btn btn-secondary me-2">Back</a>
+            <button type="submit" class="btn btn-primary">Save revision</button>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const url = '@Url.Page("/Bookings/Revise")';
+            function load($plant) {
+                const $target = $($plant.data('target'));
+                const selected = String($target.data('selected') || '');
+                const id = $plant.val();
+                $target.empty().append($('<option>').val('').text('-- Select --'));
+                if (!id) return;
+                $.getJSON(url, { handler: 'Varieties', plantTypeId: id }, function (list) {
+                    list.forEach(function (v) {
+                        const $o = $('<option>').val(v.id).text(v.name);
+                        if (String(v.id) === selected) $o.prop('selected', true);
+                        $target.append($o);
+                    });
+                    $target.data('selected', '');
+                });
+            }
+            $('.plant-select').on('change', function () { load($(this)); }).each(function () { load($(this)); });
+            function toggleSplit() { $('.split-field').toggle($('#addVariety').is(':checked')); }
+            $('#addVariety').on('change', toggleSplit); toggleSplit();
+        });
+    </script>
+}

@@ -49,6 +49,14 @@ namespace PlantStockManager.Models
         public string? PlantTypeName { get; set; }
         public string? AreaName { get; set; }
 
+        // Phase C: Quantity keeps its Phase B meaning (supervisor-approved Ready
+        // quantity). Reservations and dispatches are tracked separately so the
+        // approved history of the batch is never overwritten.
+        public decimal ReservedQuantity { get; set; }
+        public decimal DispatchedQuantity { get; set; }
+        public decimal PhysicalQuantity => Quantity - DispatchedQuantity;
+        public decimal AvailableQuantity => Quantity - ReservedQuantity - DispatchedQuantity;
+
         // Phase B: location + traceability of an approved batch.
         public int? PolyhouseId { get; set; }
         public decimal QuantitySown { get; set; }

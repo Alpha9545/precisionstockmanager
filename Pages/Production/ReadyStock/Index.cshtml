@@ -23,14 +23,16 @@
         <div class="col-md-3 d-flex align-items-center">
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="IncludeEmpty" value="true" id="includeEmpty" @(Model.IncludeEmpty ? "checked" : "") />
-                <label class="form-check-label" for="includeEmpty">Include batches with no stock left</label>
+                <label class="form-check-label" for="includeEmpty">Include batches with no plants left</label>
             </div>
         </div>
         <div class="col-md-2">
             <button type="submit" class="btn btn-primary">Filter</button>
         </div>
         <div class="col-md-3 text-end align-self-center">
-            <strong>Total ready:</strong> @Model.TotalQuantity.ToString("N2")
+            <strong>Physical:</strong> @Model.TotalQuantity.ToString("N0") &middot;
+            <strong>Reserved:</strong> @Model.Items.Sum(i => i.ReservedQuantity).ToString("N0") &middot;
+            <strong>Available:</strong> @Model.Items.Sum(i => i.AvailableQuantity).ToString("N0")
         </div>
     </form>
 
@@ -48,7 +50,10 @@
                     <th>Sown</th>
                     <th>Approved Ready</th>
                     <th>Wastage</th>
-                    <th>Ready Stock Now</th>
+                    <th>Reserved</th>
+                    <th>Dispatched</th>
+                    <th>Physical Now</th>
+                    <th>Available</th>
                     <th>Approved By</th>
                     <th>Approval Date</th>
                 </tr>
@@ -76,14 +81,17 @@
                         <td>@r.QuantitySown.ToString("N2")</td>
                         <td>@r.ApprovedReadyQuantity.ToString("N2")</td>
                         <td>@r.WastageQuantity.ToString("N2")</td>
-                        <td><strong>@r.Quantity.ToString("N2")</strong></td>
+                        <td>@r.ReservedQuantity.ToString("N0")</td>
+                        <td>@r.DispatchedQuantity.ToString("N0")</td>
+                        <td>@r.PhysicalQuantity.ToString("N0")</td>
+                        <td><strong>@r.AvailableQuantity.ToString("N0")</strong></td>
                         <td>@(r.ApprovedByName ?? "-")</td>
                         <td>@(r.ApprovalDate?.ToString("dd/MM/yyyy") ?? "-")</td>
                     </tr>
                 }
                 @if (!Model.Items.Any())
                 {
-                    <tr><td colspan="13" class="text-center text-muted">No approved Ready Stock found.</td></tr>
+                    <tr><td colspan="16" class="text-center text-muted">No approved Ready Stock found.</td></tr>
                 }
             </tbody>
         </table>

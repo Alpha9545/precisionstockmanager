@@ -10,12 +10,15 @@ namespace PlantStockManager.Pages.Bookings
         private readonly BookingRepository _bookingRepo;
         private readonly InventoryRepository _inventoryRepo;
         private readonly InventoryTransactionRepository _transactionRepo;
+        private readonly SeedlingFulfilmentRepository _fulfilmentRepo;
 
         public RevertBookingModel(
             BookingRepository bookingRepo,
             InventoryRepository inventoryRepo,
-            InventoryTransactionRepository transactionRepo)
+            InventoryTransactionRepository transactionRepo,
+            SeedlingFulfilmentRepository fulfilmentRepo)
         {
+            _fulfilmentRepo = fulfilmentRepo;
             _bookingRepo = bookingRepo;
             _inventoryRepo = inventoryRepo;
             _transactionRepo = transactionRepo;
@@ -45,6 +48,14 @@ namespace PlantStockManager.Pages.Bookings
             if (booking == null)
                 return NotFound();
 
+            // Phase C: this page only reverses LEGACY Inventory fulfilment.
+            // A booking handled through Ready Stock is managed on Booking Fulfilment.
+            if (await _fulfilmentRepo.GetLegacyFulfilmentBlockReasonAsync(BookingId.Value) != null)
+            {
+                TempData["Message"] = "This booking was fulfilled from Ready Stock; it cannot be reverted here.";
+                return RedirectToPage();
+            }
+
             var transactions = await _transactionRepo.GetTransactionsByBookingId(BookingId.Value);
 
             foreach (var tx in transactions)
@@ -58,6 +69,7 @@ namespace PlantStockManager.Pages.Bookings
             }
 
             await _bookingRepo.UpdateStatus(booking.Id, "Pending");
+            await _fulfilmentRepo.ClearLegacySourceAsync(booking.Id);
 
             TempData["Message"] = "Booking reverted successfully.";
             return RedirectToPage(); // Reload

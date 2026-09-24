@@ -2,7 +2,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Options;
 using PlantStockManager.Data;
+using PlantStockManager.Services;
 using System.ComponentModel.DataAnnotations;
 
 
@@ -69,13 +71,38 @@ namespace PlantStockManager.Pages.Bookings
                 ? Url.Page("/Bookings/DirectBooking")!
                 : Url.Page("/Bookings/Bookinglist")!;
         }
-        public FulfillBookingModel(DatabaseHelper dbHelper)
+        private readonly SeedlingFulfilmentRepository _fulfilmentRepo;
+        private readonly IOptionsMonitor<LegacySeedPipelineOptions> _legacyOptions;
+
+        public FulfillBookingModel(DatabaseHelper dbHelper, SeedlingFulfilmentRepository fulfilmentRepo,
+            IOptionsMonitor<LegacySeedPipelineOptions> legacyOptions)
         {
             _dbHelper = dbHelper;
+            _fulfilmentRepo = fulfilmentRepo;
+            _legacyOptions = legacyOptions;
+        }
+
+        // Phase C: this page fulfils a booking from the OLD dbo.Inventory
+        // pipeline. It stays available during the transition, but a booking is
+        // fulfilled from ONE pipeline only -- never for a booking that already
+        // uses Ready Stock (reserved or dispatched). After the cutover it can be
+        // switched off with LegacySeedPipeline:AllowLegacyInventoryFulfilment.
+        private async Task<string?> LegacyBlockReasonAsync()
+        {
+            if (!_legacyOptions.CurrentValue.AllowLegacyInventoryFulfilment)
+                return "Fulfilment from the legacy Inventory has been switched off (cutover completed). Use Booking Fulfilment (Ready Stock) instead.";
+            return await _fulfilmentRepo.GetLegacyFulfilmentBlockReasonAsync(BookingId);
         }
 
         public async Task<IActionResult> OnGetAsync()
         {
+            var blocked = await LegacyBlockReasonAsync();
+            if (blocked != null)
+            {
+                TempData["Error"] = blocked;
+                return RedirectToPage("/Bookings/BookingDetails", new { id = BookingId });
+            }
+
             if (!await LoadBookingDetails())
                 return RedirectToPage("/Bookings/Bookinglist");
 
@@ -156,6 +183,15 @@ namespace PlantStockManager.Pages.Bookings
 
         public async Task<IActionResult> OnPostAsync()
         {
+            var blocked = await LegacyBlockReasonAsync();
+            if (blocked != null)
+            {
+                if (Request.Headers["X-Requested-With"] == "XMLHttpRequest")
+                    return new JsonResult(new { success = false, message = blocked });
+                TempData["Error"] = blocked;
+                return RedirectToPage("/Bookings/BookingDetails", new { id = BookingId });
+            }
+
             if (!await LoadBookingDetails())
                 return RedirectToPage("/Home/Index");
             //return RedirectToPage("/Bookings/Bookinglist");
@@ -217,6 +253,19 @@ namespace PlantStockManager.Pages.Bookings
 
             try
             {
+                // Phase C: re-check under a row lock, inside this transaction.
+                var guard = new SqlCommand(@"
+SELECT FulfilmentSource, ReservedQuantity, DispatchedQuantity, Status
+FROM Bookings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @BookingId", conn, transaction);
+                guard.Parameters.AddWithValue("@BookingId", BookingId);
+                using (var g = await guard.ExecuteReaderAsync())
+                {
+                    if (!await g.ReadAsync() || (g.IsDBNull(3) ? "" : g.GetString(3)) != "Pending")
+                        throw new Exception("This booking is no longer Pending.");
+                    if ((!g.IsDBNull(0) && g.GetString(0) == SeedlingBookingRules.SourceReadyStock) || g.GetDecimal(1) > 0 || g.GetDecimal(2) > 0)
+                        throw new Exception("This booking is being fulfilled from Ready Stock and cannot also use the legacy Inventory.");
+                }
+
                 foreach (var allocation in Allocations.Where(a => a.QuantityToUse > 0))
                 {
                     await UpdateInventory(conn, transaction, allocation);
@@ -224,6 +273,7 @@ namespace PlantStockManager.Pages.Bookings
                 }
 
                 await UpdateBookingStatus(conn, transaction);
+                await _fulfilmentRepo.MarkLegacyFulfilledAsync(conn, transaction, BookingId);
                 transaction.Commit();
             }
             catch
@@ -265,7 +315,7 @@ namespace PlantStockManager.Pages.Bookings
             cmd.Parameters.AddWithValue("@BookingId", BookingId);
             cmd.Parameters.AddWithValue("@InventoryId", allocation.InventoryId);
             cmd.Parameters.AddWithValue("@Quantity", allocation.QuantityToUse);
-            cmd.Parameters.AddWithValue("@User", "Lalit");
+            cmd.Parameters.AddWithValue("@User", User.Identity?.Name ?? "System"); // Phase C: was hard-coded "Lalit"
 
             await cmd.ExecuteNonQueryAsync();
         }

@@ -189,6 +189,13 @@ namespace PlantStockManager.Authorization
                 ["/Bookings/CancleBooking"] = R("Booking.View|Dispatch.View"),
                 ["/Bookings/TotalBookings"] = R("Booking.View|Dispatch.View|Reports.View"),
 
+                // Phase C: Ready Stock -> seedling booking reservation -> dispatch
+                ["/Bookings/Fulfilment"] = R("Booking.View|Dispatch.View|Reports.View"),
+                ["/Bookings/BookingDetails"] = R("Booking.View|Dispatch.View", "Booking.Enter"),   // reserve / release / cancel
+                ["/Bookings/Revise"] = R("Booking.Enter"),
+                ["/Bookings/SeedlingDispatch"] = R("Dispatch.View", "Dispatch.Enter"),            // allocate / substitute / dispatch
+                ["/Bookings/DispatchRegister"] = R("Dispatch.View|Booking.View|Reports.View"),
+
                 // ---- Purchase / lab / labour -------------------------------
                 ["/Production/PurchaseOrder/Index"] = R("Purchase.View"),
                 ["/Production/PurchaseOrder/Details"] = R("Purchase.View", "Purchase.Enter"),

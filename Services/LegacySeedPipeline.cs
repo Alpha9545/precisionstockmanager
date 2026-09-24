@@ -24,6 +24,14 @@ namespace PlantStockManager.Services
         // Default OFF: legacy writes are blocked.
         public bool AllowLegacyWrites { get; set; }
 
+        // Phase C: fulfilling bookings from the OLD dbo.Inventory
+        // (Pages/Bookings/FulfillBooking) stays ON during the transition, so the
+        // seedlings already in legacy Inventory can still be delivered. Set it
+        // to false after the historical cutover:
+        //   "LegacySeedPipeline": { "AllowLegacyInventoryFulfilment": false }
+        // No cutover date is assumed by the application.
+        public bool AllowLegacyInventoryFulfilment { get; set; } = true;
+
         // Old-pipeline pages whose state-changing requests are blocked.
         // Pages that only advance EXISTING legacy batches (PlantPhase, temp,
         // GrowthTracker, SowingToInventory) stay open so work already in

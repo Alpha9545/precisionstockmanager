@@ -1,0 +1,130 @@
+@page
+@model PlantStockManager.Pages.Bookings.SeedlingDispatchModel
+@{
+    ViewData["Title"] = "Seedling Dispatch";
+    var b = Model.Booking!;
+    var open = Model.Allocations.Where(a => a.Status == "Active" && a.OpenQuantity > 0).ToList();
+    var canWork = b.Status == "Pending" && !b.IsLegacyFulfilled;
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Seedling Dispatch &mdash; Booking #@b.Id</h3>
+        <a asp-page="/Bookings/BookingDetails" asp-route-id="@b.Id" class="btn btn-outline-secondary">Booking details &amp; history</a>
+    </div>
+
+    @if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-body row g-2">
+            <div class="col-md-4"><strong>Customer:</strong> @b.CustomerName</div>
+            <div class="col-md-4"><strong>Item:</strong> @b.PlantTypeName / @b.SpeciesName</div>
+            <div class="col-md-4"><strong>Required date:</strong> @b.DeliveryDate?.ToString("dd-MM-yyyy")</div>
+            <div class="col-md-2"><strong>Booked:</strong> @b.Quantity.ToString("N0")</div>
+            <div class="col-md-2"><strong>Allocated:</strong> @((b.ReservedQuantity + b.DispatchedQuantity).ToString("N0"))</div>
+            <div class="col-md-2"><strong>Dispatched:</strong> @b.DispatchedQuantity.ToString("N0")</div>
+            <div class="col-md-2"><strong>Remaining:</strong> @b.RemainingQuantity.ToString("N0")</div>
+            <div class="col-md-4"><strong>Status:</strong> @b.Status &mdash; @b.Stage</div>
+        </div>
+    </div>
+
+    @if (!canWork)
+    {
+        <div class="alert alert-secondary">This booking is @(b.Status)@(b.IsLegacyFulfilled ? " (legacy Inventory fulfilment)" : "") and cannot be allocated or dispatched.</div>
+    }
+    else
+    {
+        <h5>Dispatch from allocated batches</h5>
+        @if (!open.Any())
+        {
+            <div class="alert alert-warning">Nothing is allocated to this booking yet. Allocate a batch below (or ask the Booking Executive to reserve Ready Stock).</div>
+        }
+        else
+        {
+            <form method="post" asp-page-handler="Dispatch">
+                <input type="hidden" asp-for="Id" />
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped align-middle">
+                        <thead class="table-light">
+                            <tr><th>Batch</th><th>Booked variety</th><th>Actual variety</th><th>Substitution</th><th>Area / Polyhouse</th><th>Sowing date</th><th class="text-end">Allocated (open)</th><th style="width:140px">Dispatch now</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @for (var i = 0; i < open.Count; i++)
+                            {
+                                var a = open[i];
+                                var allowed = Model.CanUseArea(a.AreaId);
+                                <tr>
+                                    <td>@a.BatchCode</td>
+                                    <td>@a.BookedSpeciesName</td>
+                                    <td>@a.ActualSpeciesName</td>
+                                    <td>@(a.IsSubstitution ? "Yes – " + a.SubstitutionReason : "No")</td>
+                                    <td>@a.AreaName / @(a.PolyhouseName ?? "-")</td>
+                                    <td>@a.SowingDate?.ToString("dd-MM-yyyy")</td>
+                                    <td class="text-end">@a.OpenQuantity.ToString("N0")</td>
+                                    <td>
+                                        <input type="hidden" name="Lines[@i].AllocationId" value="@a.Id" />
+                                        <input type="number" name="Lines[@i].Quantity" value="0" min="0" step="1" max="@((int)a.OpenQuantity)" class="form-control form-control-sm" @(allowed ? "" : "disabled") />
+                                    </td>
+                                    <td>@if (!allowed) { <span class="small text-muted">No access to this Area</span> }</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="row g-2 align-items-end mb-4">
+                    <div class="col-md-2"><label class="form-label small">Dispatch date</label><input type="date" asp-for="DispatchDate" class="form-control" required /></div>
+                    <div class="col-md-3">
+                        <label class="form-label small">Responsible person</label>
+                        <select asp-for="ResponsiblePersonId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Staff) { <option value="@s.EmployeeID">@s.Name</option> }
+                        </select>
+                    </div>
+                    <div class="col-md-4"><label class="form-label small">Remarks</label><input type="text" asp-for="Remarks" class="form-control" maxlength="500" /></div>
+                    <div class="col-md-3"><button type="submit" class="btn btn-success w-100">Dispatch (partial or full)</button></div>
+                </div>
+            </form>
+        }
+
+        <h5>Allocate a batch / substitute a variety</h5>
+        <p class="small text-muted">Oldest batches first. A batch of the booked variety is a normal allocation. A different variety of the same species is recorded as a <strong>substitution</strong> and needs a reason. Still to allocate: <strong>@b.UnreservedQuantity.ToString("N0")</strong>.</p>
+        <form method="post" asp-page-handler="Allocate" class="row g-2 align-items-end mb-4">
+            <input type="hidden" asp-for="Id" />
+            <div class="col-md-5">
+                <label class="form-label small">Ready Stock batch</label>
+                <select asp-for="AllocateReadyStockId" class="form-select" required>
+                    <option value="">-- Select batch --</option>
+                    @foreach (var o in Model.BatchOptions)
+                    {
+                        var sub = o.SpeciesId != b.SpeciesId;
+                        <option value="@o.ReadyStockId">@o.BatchCode · @o.SpeciesName@(sub ? " (SUBSTITUTE)" : "") · @o.AreaName/@(o.PolyhouseName ?? "-") · sown @o.SowingDate.ToString("dd-MM-yyyy") · available @o.AvailableQuantity.ToString("N0")</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2"><label class="form-label small">Quantity</label><input type="number" min="1" step="1" asp-for="AllocateQuantity" class="form-control" required /></div>
+            <div class="col-md-3"><label class="form-label small">Substitution reason (only for another variety)</label><input type="text" asp-for="SubstitutionReason" class="form-control" maxlength="500" /></div>
+            <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Allocate</button></div>
+        </form>
+
+        @if (open.Any())
+        {
+            <h5>Release an allocation (re-allocate)</h5>
+            <form method="post" asp-page-handler="Release" class="row g-2 align-items-end mb-4"
+                  onsubmit="return confirm('Release this quantity back to Ready Stock?');">
+                <input type="hidden" asp-for="Id" />
+                <div class="col-md-6">
+                    <select asp-for="ReleaseAllocationId" class="form-select" required>
+                        <option value="">-- Select allocation --</option>
+                        @foreach (var a in open.Where(x => Model.CanUseArea(x.AreaId)))
+                        {
+                            <option value="@a.Id">@a.BatchCode · @a.ActualSpeciesName · open @a.OpenQuantity.ToString("N0")</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3"><input type="number" min="1" step="1" asp-for="ReleaseQuantity" class="form-control" placeholder="Quantity" required /></div>
+                <div class="col-md-3"><button type="submit" class="btn btn-outline-warning w-100">Release</button></div>
+            </form>
+        }
+    }
+</div>
