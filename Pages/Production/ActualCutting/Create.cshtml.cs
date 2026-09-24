@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using ActualCuttingModel = PlantStockManager.Models.ActualCutting;
@@ -12,12 +13,15 @@ namespace PlantStockManager.Pages.Production.ActualCutting
         private readonly ActualCuttingRepository _actualCuttingRepo;
         private readonly CuttingPlanRepository _cuttingPlanRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly MotherPlantAreaScope _areaScope;
 
         public CreateModel(
             ActualCuttingRepository actualCuttingRepo,
             CuttingPlanRepository cuttingPlanRepo,
-            EmployeeRepository employeeRepo)
+            EmployeeRepository employeeRepo,
+            MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
             _actualCuttingRepo = actualCuttingRepo;
             _cuttingPlanRepo = cuttingPlanRepo;
             _employeeRepo = employeeRepo;
@@ -63,6 +67,10 @@ namespace PlantStockManager.Pages.Production.ActualCutting
                     ModelState.AddModelError("ActualCutting.CuttingPlanId", "Cannot record Actual Cutting against a Cancelled plan.");
             }
 
+            // F1: the selected plan's Mother Plant Area must be one of the user's.
+            if (plan != null && !await _areaScope.CanAccessAsync(User, plan.MotherPlantId))
+                ModelState.AddModelError("ActualCutting.CuttingPlanId", "You are not authorized to record cuttings for this Cutting Plan's Area.");
+
             if (!ModelState.IsValid || plan == null)
             {
                 await LoadDropdownsAsync();
@@ -92,7 +100,7 @@ namespace PlantStockManager.Pages.Production.ActualCutting
 
         private async Task LoadDropdownsAsync()
         {
-            OpenCuttingPlans = await _cuttingPlanRepo.GetOpenForActualCuttingAsync();
+            OpenCuttingPlans = await _areaScope.FilterAsync(User, await _cuttingPlanRepo.GetOpenForActualCuttingAsync(), c => (int?)c.MotherPlantId);
             var activeUsers = await _employeeRepo.GetAllActiveUsers();
             ResponsiblePersons = activeUsers;
             Supervisors = activeUsers;

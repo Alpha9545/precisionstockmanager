@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using ActualCuttingModel = PlantStockManager.Models.ActualCutting;
@@ -10,9 +11,11 @@ namespace PlantStockManager.Pages.Production.ActualCutting
     {
         private readonly ActualCuttingRepository _actualCuttingRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly MotherPlantAreaScope _areaScope;
 
-        public EditModel(ActualCuttingRepository actualCuttingRepo, EmployeeRepository employeeRepo)
+        public EditModel(ActualCuttingRepository actualCuttingRepo, EmployeeRepository employeeRepo, MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
             _actualCuttingRepo = actualCuttingRepo;
             _employeeRepo = employeeRepo;
         }
@@ -34,6 +37,13 @@ namespace PlantStockManager.Pages.Production.ActualCutting
             var existing = await _actualCuttingRepo.GetByIdAsync(id);
             if (existing == null)
                 return RedirectToPage("/Production/ActualCutting/Index");
+
+            // F1: Area scope via the record's Mother Plant (MotherPlantAreaScope).
+            if (!await _areaScope.CanAccessAsync(User, existing.MotherPlantId))
+            {
+                TempData["Error"] = "You are not authorized to edit this Actual Cutting record.";
+                return RedirectToPage("/Production/ActualCutting/Index");
+            }
 
             ActualCutting = existing;
             await LoadDropdownsAsync();
@@ -64,6 +74,13 @@ namespace PlantStockManager.Pages.Production.ActualCutting
                 ModelState.AddModelError(string.Empty, "Actual Cutting record not found.");
                 await LoadDropdownsAsync();
                 return Page();
+            }
+            // F1: re-check Area scope against the STORED record (the posted
+            // Id is otherwise the only input deciding which record changes).
+            if (!await _areaScope.CanAccessAsync(User, existing.MotherPlantId))
+            {
+                TempData["Error"] = "You are not authorized to edit this Actual Cutting record.";
+                return RedirectToPage("/Production/ActualCutting/Index");
             }
             ActualCutting.CuttingPlanId = existing.CuttingPlanId;
             ActualCutting.MotherPlantId = existing.MotherPlantId;

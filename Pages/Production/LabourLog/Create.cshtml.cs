@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using LabourLogModel = PlantStockManager.Models.LabourLog;
@@ -11,9 +12,11 @@ namespace PlantStockManager.Pages.Production.LabourLog
         private readonly LabourLogRepository _labourLogRepo;
         private readonly EmployeeRepository _employeeRepo;
         private readonly AreaRepository _areaRepo;
+        private readonly AreaAccessService _areaAccessService;
 
-        public CreateModel(LabourLogRepository labourLogRepo, EmployeeRepository employeeRepo, AreaRepository areaRepo)
+        public CreateModel(LabourLogRepository labourLogRepo, EmployeeRepository employeeRepo, AreaRepository areaRepo, AreaAccessService areaAccessService)
         {
+            _areaAccessService = areaAccessService;
             _labourLogRepo = labourLogRepo;
             _employeeRepo = employeeRepo;
             _areaRepo = areaRepo;
@@ -48,6 +51,10 @@ namespace PlantStockManager.Pages.Production.LabourLog
             if (Log.UnitsWorked <= 0)
                 ModelState.AddModelError("Log.UnitsWorked", "Units Worked must be greater than zero.");
 
+            // F1: the posted AreaId must be an Area the user is assigned to.
+            if (Log.AreaId.HasValue && !_areaAccessService.CanAccessArea(User, Log.AreaId))
+                ModelState.AddModelError("Log.AreaId", "You are not authorized to record labour for the selected Area.");
+
             if (!ModelState.IsValid)
             {
                 await LoadDropdownsAsync();
@@ -70,7 +77,7 @@ namespace PlantStockManager.Pages.Production.LabourLog
         private async Task LoadDropdownsAsync()
         {
             Workers = await _employeeRepo.GetAllActiveUsers();
-            Areas = await _areaRepo.GetAllAreas();
+            Areas = _areaAccessService.FilterByArea(User, await _areaRepo.GetAllAreas(), a => (int?)a.Id); // F1
         }
     }
 }

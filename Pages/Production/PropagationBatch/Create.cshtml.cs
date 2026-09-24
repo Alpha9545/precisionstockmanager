@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using PropagationBatchModel = PlantStockManager.Models.PropagationBatch;
@@ -13,13 +14,16 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
         private readonly CuttingDeliveryRepository _cuttingDeliveryRepo;
         private readonly AreaRepository _areaRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly MotherPlantAreaScope _areaScope;
 
         public CreateModel(
             PropagationBatchRepository propagationBatchRepo,
             CuttingDeliveryRepository cuttingDeliveryRepo,
             AreaRepository areaRepo,
-            EmployeeRepository employeeRepo)
+            EmployeeRepository employeeRepo,
+            MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
             _propagationBatchRepo = propagationBatchRepo;
             _cuttingDeliveryRepo = cuttingDeliveryRepo;
             _areaRepo = areaRepo;
@@ -70,6 +74,13 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
                     ModelState.AddModelError("PropagationBatch.AreaId", "Selected Area is not valid or is inactive.");
             }
 
+            // F1: the delivery's Mother Plant Area AND the chosen propagation
+            // Area (when given) must both be Areas the user may act for.
+            if (delivery != null && !await _areaScope.CanAccessAsync(User, delivery.MotherPlantId))
+                ModelState.AddModelError("PropagationBatch.CuttingDeliveryId", "You are not authorized to start propagation from this Cutting Delivery's Area.");
+            if (PropagationBatch.AreaId.HasValue && !await _areaScope.CanAccessAsync(User, null, PropagationBatch.AreaId))
+                ModelState.AddModelError("PropagationBatch.AreaId", "You are not authorized to use the selected Area.");
+
             if (!ModelState.IsValid || delivery == null)
             {
                 await LoadDropdownsAsync();
@@ -99,7 +110,7 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
 
         private async Task LoadDropdownsAsync()
         {
-            OpenCuttingDeliveries = await _cuttingDeliveryRepo.GetOpenForPropagationAsync();
+            OpenCuttingDeliveries = await _areaScope.FilterAsync(User, await _cuttingDeliveryRepo.GetOpenForPropagationAsync(), d => (int?)d.MotherPlantId);
             Areas = await _areaRepo.GetAllAreas();
             var activeUsers = await _employeeRepo.GetAllActiveUsers();
             ResponsiblePersons = activeUsers;

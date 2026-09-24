@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using CuttingDeliveryModel = PlantStockManager.Models.CuttingDelivery;
@@ -10,9 +11,11 @@ namespace PlantStockManager.Pages.Production.CuttingDelivery
     {
         private readonly CuttingDeliveryRepository _cuttingDeliveryRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly MotherPlantAreaScope _areaScope;
 
-        public EditModel(CuttingDeliveryRepository cuttingDeliveryRepo, EmployeeRepository employeeRepo)
+        public EditModel(CuttingDeliveryRepository cuttingDeliveryRepo, EmployeeRepository employeeRepo, MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
             _cuttingDeliveryRepo = cuttingDeliveryRepo;
             _employeeRepo = employeeRepo;
         }
@@ -35,6 +38,13 @@ namespace PlantStockManager.Pages.Production.CuttingDelivery
             var existing = await _cuttingDeliveryRepo.GetByIdAsync(id);
             if (existing == null)
                 return RedirectToPage("/Production/CuttingDelivery/Index");
+
+            // F1: Area scope via the record's Mother Plant (MotherPlantAreaScope).
+            if (!await _areaScope.CanAccessAsync(User, existing.MotherPlantId))
+            {
+                TempData["Error"] = "You are not authorized to edit this Cutting Delivery record.";
+                return RedirectToPage("/Production/CuttingDelivery/Index");
+            }
 
             CuttingDelivery = existing;
             await LoadDropdownsAsync();
@@ -64,6 +74,13 @@ namespace PlantStockManager.Pages.Production.CuttingDelivery
                 ModelState.AddModelError(string.Empty, "Cutting Delivery record not found.");
                 await LoadDropdownsAsync();
                 return Page();
+            }
+            // F1: re-check Area scope against the STORED record (the posted
+            // Id is otherwise the only input deciding which record changes).
+            if (!await _areaScope.CanAccessAsync(User, existing.MotherPlantId))
+            {
+                TempData["Error"] = "You are not authorized to edit this Cutting Delivery record.";
+                return RedirectToPage("/Production/CuttingDelivery/Index");
             }
             CuttingDelivery.ActualCuttingId = existing.ActualCuttingId;
             CuttingDelivery.MotherPlantId = existing.MotherPlantId;

@@ -53,8 +53,13 @@ namespace PlantStockManager.Authorization
         //                       cross-Area reach to do its existing job.
         private static readonly string[] FullAccessRoleNames = { "Admin", "Management", "MainOfficeOfficer" };
 
+        // Phase A: a full-access user (e.g. the "System Administrator" role,
+        // see SecurityOptions.FullAccessRoleNames -> "FullAccess" claim)
+        // sees every Area as well. Area access stays SEPARATE from feature
+        // permissions: holding a feature permission never widens Area scope.
         public bool HasFullAreaAccess(ClaimsPrincipal user)
-            => FullAccessRoleNames.Any(role => user.HasClaim(RoleNameClaimType, role));
+            => user.IsFullAccess()
+               || FullAccessRoleNames.Any(role => user.HasClaim(RoleNameClaimType, role));
 
         // True when the user may access the given Area. A null areaId
         // (a record with no Area assigned at all) is always allowed --
@@ -71,6 +76,30 @@ namespace PlantStockManager.Authorization
             var target = areaId.Value.ToString();
             return user.HasClaim(c => c.Type == AreaAccessClaimType && c.Value == target);
         }
+
+        // F1: strict variant for records whose Area is REQUIRED for the
+        // operation (e.g. the Main Office Area a Cutting transfer is waiting
+        // at). Unlike CanAccessArea, a missing Area is NOT treated as
+        // "nothing to scope" -- only a full-access user may act on it.
+        public bool CanAccessRequiredArea(ClaimsPrincipal user, int? areaId)
+            => areaId.HasValue ? CanAccessArea(user, areaId) : HasFullAreaAccess(user);
+
+        // F1: for records that touch several Areas (e.g. an Internal
+        // Transfer's Source / Destination / Main Office Area): true when the
+        // user has cross-Area access or is assigned to at least one of the
+        // NON-null Areas given. Unlike CanAccessArea, a null Area never
+        // grants access by itself.
+        public bool CanAccessAnyArea(ClaimsPrincipal user, params int?[] areaIds)
+            => HasFullAreaAccess(user)
+                || areaIds.Any(id => id.HasValue && CanAccessArea(user, id));
+
+        // F1: in-memory list filter used by Index/queue pages -- identical
+        // to the "HasFullAreaAccess ? all : all.Where(CanAccessArea)"
+        // pattern already repeated across the Production pages.
+        public List<T> FilterByArea<T>(ClaimsPrincipal user, IEnumerable<T> items, Func<T, int?> areaSelector)
+            => HasFullAreaAccess(user)
+                ? items.ToList()
+                : items.Where(i => CanAccessArea(user, areaSelector(i))).ToList();
 
         // The full set of Area Ids this user is explicitly scoped to
         // (via UserRoles.AreaId), for pages that need to filter a list

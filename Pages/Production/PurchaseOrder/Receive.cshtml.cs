@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using PurchaseOrderModel = PlantStockManager.Models.PurchaseOrder;
@@ -10,12 +11,24 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
     {
         private readonly PurchaseOrderRepository _purchaseOrderRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly AreaAccessService _areaAccessService;
 
-        public ReceiveModel(PurchaseOrderRepository purchaseOrderRepo, EmployeeRepository employeeRepo)
+        public ReceiveModel(PurchaseOrderRepository purchaseOrderRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
         {
+            _areaAccessService = areaAccessService;
             _purchaseOrderRepo = purchaseOrderRepo;
             _employeeRepo = employeeRepo;
         }
+
+        // F1: a Purchase Order touches an Area only through its EmptyPot
+        // lines (PurchaseOrderItem.AreaId -- receiving them adds stock to
+        // that Area). Previously these pages trusted the order id alone.
+        // The user must be able to access EVERY EmptyPot line's Area
+        // (AreaAccessService; unassigned/null Areas keep the existing
+        // "nothing to scope" behaviour, so Fertilizer/Other-only orders are
+        // unaffected).
+        private bool CanAccessOrder(PurchaseOrderModel order)
+            => order.Items.All(i => i.ItemCategory != "EmptyPot" || _areaAccessService.CanAccessArea(User, i.AreaId));
 
         public PurchaseOrderModel? Order { get; set; }
         public List<Employee> PersonOptions { get; set; } = new();
@@ -43,7 +56,11 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
             Order = await _purchaseOrderRepo.GetByIdAsync(id);
             if (Order == null)
                 return RedirectToPage("/Production/PurchaseOrder/Index");
-            if (Order.Status != "Pending" && Order.Status != "PartiallyReceived")
+            if (!CanAccessOrder(Order))
+            {
+                TempData["Error"] = "You are not authorized to receive this Purchase Order.";
+                return RedirectToPage("/Production/PurchaseOrder/Index");
+            }            if (Order.Status != "Pending" && Order.Status != "PartiallyReceived")
             {
                 TempData["Error"] = $"This Purchase Order is '{Order.Status}' and cannot receive any more stock.";
                 return RedirectToPage("/Production/PurchaseOrder/Details", new { id });
@@ -58,7 +75,11 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
             var order = await _purchaseOrderRepo.GetByIdAsync(id);
             if (order == null)
                 return RedirectToPage("/Production/PurchaseOrder/Index");
-
+            if (!CanAccessOrder(order))
+            {
+                TempData["Error"] = "You are not authorized to receive this Purchase Order.";
+                return RedirectToPage("/Production/PurchaseOrder/Index");
+            }
             var lines = new List<(int PurchaseOrderItemId, decimal ReceivedQuantity)>();
             for (int i = 0; i < ItemIds.Count && i < ReceiveQuantities.Count; i++)
             {

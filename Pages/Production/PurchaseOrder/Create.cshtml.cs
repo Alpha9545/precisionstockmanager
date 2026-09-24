@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Data.SqlClient;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using PurchaseOrderModel = PlantStockManager.Models.PurchaseOrder;
@@ -13,13 +14,16 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
         private readonly VendorRepository _vendorRepo;
         private readonly AreaRepository _areaRepo;
         private readonly DatabaseHelper _dbHelper;
+        private readonly AreaAccessService _areaAccessService;
 
         public CreateModel(
             PurchaseOrderRepository purchaseOrderRepo,
             VendorRepository vendorRepo,
             AreaRepository areaRepo,
-            DatabaseHelper dbHelper)
+            DatabaseHelper dbHelper,
+            AreaAccessService areaAccessService)
         {
+            _areaAccessService = areaAccessService;
             _purchaseOrderRepo = purchaseOrderRepo;
             _vendorRepo = vendorRepo;
             _areaRepo = areaRepo;
@@ -52,6 +56,10 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
             if (Order.Items == null || Order.Items.Count == 0)
                 ModelState.AddModelError(string.Empty, "At least one line item is required.");
 
+            // F1: every EmptyPot line's destination Area must be one of the user's.
+            if (Order.Items != null && Order.Items.Any(i => i.ItemCategory == "EmptyPot" && !_areaAccessService.CanAccessArea(User, i.AreaId)))
+                ModelState.AddModelError(string.Empty, "You are not authorized to order Empty Pots for one or more of the selected Areas.");
+
             if (!ModelState.IsValid)
             {
                 await LoadDropdownsAsync();
@@ -77,7 +85,7 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
         private async Task LoadDropdownsAsync()
         {
             Vendors = await _vendorRepo.GetAllAsync(activeOnly: true);
-            Areas = await _areaRepo.GetAllAreas();
+            Areas = _areaAccessService.FilterByArea(User, await _areaRepo.GetAllAreas(), a => (int?)a.Id); // F1
 
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();

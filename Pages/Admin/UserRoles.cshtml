@@ -7,11 +7,13 @@
 <div class="container mt-4">
     <h2 class="mb-3">User Role Assignments</h2>
     <p class="text-muted">
-        Every existing user was granted the <strong>Admin</strong> role as a temporary
-        safety net when this Phase 14 foundation was deployed, so nobody was locked out.
-        Use this page to give each real user their real Role (and, for area-scoped roles
-        like Kunjir/Kiran/Outlet Supervisor, the specific Area they supervise), then remove
-        their temporary Admin grant below once their real role is in place.
+        A user's feature access comes <strong>only</strong> from the Role(s) assigned here
+        (permissions are maintained per Role on
+        <a asp-page="/Admin/Roles">Roles &amp; Permissions</a>). Add an <strong>Area</strong>
+        to an assignment to let the user see/change that physical Area's records; a user with
+        several roles gets the combined permissions. Changes apply within a few minutes
+        (or at next login). Only a System Administrator can grant administrative roles, and
+        nobody can change their own assignments.
     </p>
 
     @if (!string.IsNullOrEmpty(Model.ErrorMessage))

@@ -7,5 +7,9 @@ namespace PlantStockManager.Models
         public string? Description { get; set; }
         public bool IsSystemRole { get; set; }
         public DateTime CreatedDate { get; set; } = DateTime.UtcNow;
+
+        // Display-only aggregates (Phase A Role Management page).
+        public int PermissionCount { get; set; }
+        public int UserCount { get; set; }
     }
 }

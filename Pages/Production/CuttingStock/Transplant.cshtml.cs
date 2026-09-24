@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 // Alias required: Pages/Production/InternalTransfer/ makes "InternalTransfer"
@@ -22,9 +23,11 @@ namespace PlantStockManager.Pages.Production.CuttingStock
         private readonly InternalTransferRepository _internalTransferRepo;
         private readonly AreaRepository _areaRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly AreaAccessService _areaAccessService;
 
-        public TransplantModel(InternalTransferRepository internalTransferRepo, AreaRepository areaRepo, EmployeeRepository employeeRepo)
+        public TransplantModel(InternalTransferRepository internalTransferRepo, AreaRepository areaRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
         {
+            _areaAccessService = areaAccessService;
             _internalTransferRepo = internalTransferRepo;
             _areaRepo = areaRepo;
             _employeeRepo = employeeRepo;
@@ -54,6 +57,13 @@ namespace PlantStockManager.Pages.Production.CuttingStock
                 TempData["Error"] = "Transfer not found.";
                 return RedirectToPage("/Production/CuttingStock/PendingTransplants");
             }
+            // F1: only the Main Office Area the transfer is waiting at (or a
+            // cross-Area role) may route it.
+            if (!_areaAccessService.CanAccessRequiredArea(User, Transfer.PendingConfirmationAreaId))
+            {
+                TempData["Error"] = "You are not authorized to transplant that transfer.";
+                return RedirectToPage("/Production/CuttingStock/PendingTransplants");
+            }
             if (Transfer.Status == "Transplanted")
             {
                 TempData["Success"] = "This transfer has already been transplanted.";
@@ -78,6 +88,11 @@ namespace PlantStockManager.Pages.Production.CuttingStock
                 TempData["Error"] = "This transfer is no longer awaiting transplant.";
                 return RedirectToPage("/Production/CuttingStock/PendingTransplants");
             }
+            if (!_areaAccessService.CanAccessRequiredArea(User, Transfer.PendingConfirmationAreaId))
+            {
+                TempData["Error"] = "You are not authorized to transplant that transfer.";
+                return RedirectToPage("/Production/CuttingStock/PendingTransplants");
+            }
 
             if (DestinationPolyhouseAreaId <= 0)
                 ModelState.AddModelError(nameof(DestinationPolyhouseAreaId), "Destination Polyhouse is required.");
@@ -85,6 +100,18 @@ namespace PlantStockManager.Pages.Production.CuttingStock
                 ModelState.AddModelError(nameof(DestinationSupervisorId), "Destination Supervisor is required.");
             if (TransplantDate == default)
                 ModelState.AddModelError(nameof(TransplantDate), "Transplant Date is required.");
+
+            // F1: the posted destination/supervisor ids were trusted as-is.
+            // They must be one of the options this page actually offers
+            // (a Polyhouse-linked Area other than the source; an active user).
+            if (ModelState.IsValid)
+            {
+                await LoadDropdownsAsync(Transfer);
+                if (!DestinationAreas.Any(a => a.Id == DestinationPolyhouseAreaId))
+                    ModelState.AddModelError(nameof(DestinationPolyhouseAreaId), "Select a valid Destination Polyhouse.");
+                if (!Supervisors.Any(s => s.EmployeeID == DestinationSupervisorId))
+                    ModelState.AddModelError(nameof(DestinationSupervisorId), "Select a valid Destination Supervisor.");
+            }
 
             if (!ModelState.IsValid)
             {

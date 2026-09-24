@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using CuttingPlanModel = PlantStockManager.Models.CuttingPlan;
 
@@ -8,9 +9,11 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
     public class IndexModel : PageModel
     {
         private readonly CuttingPlanRepository _cuttingPlanRepo;
+        private readonly MotherPlantAreaScope _areaScope;
 
-        public IndexModel(CuttingPlanRepository cuttingPlanRepo)
+        public IndexModel(CuttingPlanRepository cuttingPlanRepo, MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
             _cuttingPlanRepo = cuttingPlanRepo;
         }
 
@@ -23,7 +26,9 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
 
         public async Task OnGetAsync()
         {
-            CuttingPlans = await _cuttingPlanRepo.GetAllAsync(status: Status);
+            // F1: Area scope via the record's Mother Plant (MotherPlantAreaScope): previously every Area's
+            // records were listed to every user.
+            CuttingPlans = await _areaScope.FilterAsync(User, await _cuttingPlanRepo.GetAllAsync(status: Status), r => (int?)r.MotherPlantId);
         }
     }
 }

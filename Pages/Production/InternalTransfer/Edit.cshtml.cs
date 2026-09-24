@@ -32,7 +32,11 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
         // theirs, and Cancel lives on this generic page for every
         // StockType, including the new GrowingPartnerToOutlet one.
         private bool CanAccessTransfer(InternalTransferModel t)
-            => _areaAccessService.CanAccessArea(User, t.SourceAreaId) || _areaAccessService.CanAccessArea(User, t.DestinationAreaId);
+            // F1: CanAccessArea(null) is "allowed", so a Cutting transfer
+            // (DestinationAreaId is NULL until transplanted) was editable
+            // and cancellable by EVERY user. Null Areas no longer grant
+            // access; the Main Office Area it waits at now counts too.
+            => _areaAccessService.CanAccessAnyArea(User, t.SourceAreaId, t.DestinationAreaId, t.PendingConfirmationAreaId);
 
         // StockType / source / destination / Quantity are permanently
         // immutable -- they already moved real stock. Editing here only

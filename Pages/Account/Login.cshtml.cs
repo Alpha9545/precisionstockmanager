@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
-using System.Security.Claims;
 
 namespace PlantStockManager.Pages.Account
 {
@@ -13,13 +12,13 @@ namespace PlantStockManager.Pages.Account
     {
         private readonly IConfiguration _config;
         private readonly DatabaseHelper _db;
-        private readonly UserRoleRepository _userRoleRepo;
+        private readonly UserClaimsFactory _claimsFactory;
 
-        public LoginModel(IConfiguration config, DatabaseHelper db, UserRoleRepository userRoleRepo)
+        public LoginModel(IConfiguration config, DatabaseHelper db, UserClaimsFactory claimsFactory)
         {
             _config = config;
             _db = db;
-            _userRoleRepo = userRoleRepo;
+            _claimsFactory = claimsFactory;
         }
 
         [BindProperty] public string Username { get; set; } = "";
@@ -64,61 +63,17 @@ WHERE u.Username = @u and u.IsActive = 1;";
                 // Verify BCrypt
                 if (BCrypt.Net.BCrypt.Verify(Password, storedHash))
                 {
-                    var claims = new List<Claim>
-                    {
-                        new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
-                        new Claim(ClaimTypes.Name, dbUsername),
-                            new Claim("UserId", userId.ToString()), // ✅ explicit claim for convenience
-
-                        // Store designation id as custom claim:
-                        new Claim("DesignationId", designationId?.ToString() ?? string.Empty)
-                    };
-
-                    // If you still use [Authorize(Roles="...")], put the DesignationName in Role claim:
-                    if (!string.IsNullOrWhiteSpace(designationName))
-                    {
-                        claims.Add(new Claim(ClaimTypes.Role, designationName));
-                        // Optional: also store the readable name as a separate custom claim
-                        claims.Add(new Claim("DesignationName", designationName));
-                    }
-
-                    // Phase 14: stamp one "Permission" claim per permission
-                    // code this user holds through dbo.UserRoles ->
-                    // dbo.RolePermissions -> dbo.Permissions, computed once
-                    // here so every later [Authorize(Policy = "...")] check
-                    // is a cheap in-memory claim lookup, not a DB round trip.
-                    // This is purely additive: a user with no UserRoles row
-                    // yet simply gets zero Permission claims and is only
-                    // affected by pages that actually check one.
-                    var permissionCodes = await _userRoleRepo.GetPermissionCodesForUserAsync(userId);
-                    foreach (var code in permissionCodes)
-                    {
-                        claims.Add(new Claim(MinimumAuthorizationLevelHandler.PermissionClaimType, code));
-                    }
-
-                    // Phase 17/B: stamp "RoleName"/"AreaAccess" claims from
-                    // the same dbo.UserRoles rows, for AreaAccessService.
-                    // "RoleName" is added for every assignment (even ones
-                    // with no AreaId, e.g. Admin/Management/LabWorker);
-                    // "AreaAccess" only for assignments that actually carry
-                    // an AreaId. Purely additive, same as the Permission
-                    // claims above -- no existing claim is touched, and a
-                    // user with no UserRoles row gets neither.
-                    var roleAssignments = await _userRoleRepo.GetAssignmentsForUserAsync(userId);
-                    foreach (var assignment in roleAssignments)
-                    {
-                        if (!string.IsNullOrWhiteSpace(assignment.RoleName))
-                        {
-                            claims.Add(new Claim(AreaAccessService.RoleNameClaimType, assignment.RoleName));
-                        }
-                        if (assignment.AreaId.HasValue)
-                        {
-                            claims.Add(new Claim(AreaAccessService.AreaAccessClaimType, assignment.AreaId.Value.ToString()));
-                        }
-                    }
-
-                    var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-                    var principal = new ClaimsPrincipal(identity);
+                    // F1: claims are now built by UserClaimsFactory -- the
+                    // same claim types/values as before (NameIdentifier,
+                    // Name, UserId, DesignationId, Role, DesignationName,
+                    // Permission, RoleName, AreaAccess), shared with the
+                    // cookie's periodic OnValidatePrincipal re-check so a
+                    // deactivated user or a changed UserRoles assignment
+                    // takes effect without waiting for the 7-day cookie to
+                    // expire. See Authorization/UserClaimsFactory.cs.
+                    await reader.CloseAsync();
+                    var principal = await _claimsFactory.CreatePrincipalAsync(
+                        new UserClaimsFactory.UserIdentityRow(userId, dbUsername, designationId, designationName));
 
                     await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
                     return RedirectToPage("/Index");

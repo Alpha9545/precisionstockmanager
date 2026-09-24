@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using CuttingDeliveryModel = PlantStockManager.Models.CuttingDelivery;
@@ -12,12 +13,15 @@ namespace PlantStockManager.Pages.Production.CuttingDelivery
         private readonly CuttingDeliveryRepository _cuttingDeliveryRepo;
         private readonly ActualCuttingRepository _actualCuttingRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly MotherPlantAreaScope _areaScope;
 
         public CreateModel(
             CuttingDeliveryRepository cuttingDeliveryRepo,
             ActualCuttingRepository actualCuttingRepo,
-            EmployeeRepository employeeRepo)
+            EmployeeRepository employeeRepo,
+            MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
             _cuttingDeliveryRepo = cuttingDeliveryRepo;
             _actualCuttingRepo = actualCuttingRepo;
             _employeeRepo = employeeRepo;
@@ -60,6 +64,10 @@ namespace PlantStockManager.Pages.Production.CuttingDelivery
                     ModelState.AddModelError("CuttingDelivery.ActualCuttingId", "Selected Actual Cutting record does not exist.");
             }
 
+            // F1: the selected Actual Cutting's Mother Plant Area must be one of the user's.
+            if (actualCutting != null && !await _areaScope.CanAccessAsync(User, actualCutting.MotherPlantId))
+                ModelState.AddModelError("CuttingDelivery.ActualCuttingId", "You are not authorized to record deliveries for this Actual Cutting's Area.");
+
             if (!ModelState.IsValid || actualCutting == null)
             {
                 await LoadDropdownsAsync();
@@ -89,7 +97,7 @@ namespace PlantStockManager.Pages.Production.CuttingDelivery
 
         private async Task LoadDropdownsAsync()
         {
-            OpenActualCuttings = await _actualCuttingRepo.GetOpenForDeliveryAsync();
+            OpenActualCuttings = await _areaScope.FilterAsync(User, await _actualCuttingRepo.GetOpenForDeliveryAsync(), a => (int?)a.MotherPlantId);
             var activeUsers = await _employeeRepo.GetAllActiveUsers();
             ResponsiblePersons = activeUsers;
             Supervisors = activeUsers;

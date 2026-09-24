@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PropagationBatchModel = PlantStockManager.Models.PropagationBatch;
 
@@ -7,9 +8,11 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
     public class IndexModel : PageModel
     {
         private readonly PropagationBatchRepository _propagationBatchRepo;
+        private readonly MotherPlantAreaScope _areaScope;
 
-        public IndexModel(PropagationBatchRepository propagationBatchRepo)
+        public IndexModel(PropagationBatchRepository propagationBatchRepo, MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
             _propagationBatchRepo = propagationBatchRepo;
         }
 
@@ -21,7 +24,9 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
 
         public async Task OnGetAsync()
         {
-            PropagationBatches = await _propagationBatchRepo.GetAllAsync();
+            // F1: Area scope via the record's Mother Plant (MotherPlantAreaScope): previously every Area's
+            // records were listed to every user.
+            PropagationBatches = await _areaScope.FilterAsync(User, await _propagationBatchRepo.GetAllAsync(), r => (int?)r.MotherPlantId, r => r.AreaId);
         }
     }
 }

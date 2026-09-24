@@ -69,6 +69,10 @@ builder.Services.AddScoped<GrowingPartnerRepository>();
 // login. Stateless, but Scoped to match every other service's lifetime
 // in this project.
 builder.Services.AddScoped<AreaAccessService>();
+// F1: resolves the Area of Phase 3-6 records through their Mother Plant
+// so those pages can use AreaAccessService (Authorization/MotherPlantAreaScope.cs).
+builder.Services.AddScoped<MotherPlantAreaScope>();
+builder.Services.AddScoped<AdministrativeAccessGuard>(); // Phase A: user/role anti-escalation rules
 
 // Main Office -> Polyhouse/Growing Area Seed Issue (Phase 22/Phase H):
 // a wholly new, dedicated Seed Stock domain (Physical/InTransit +
@@ -99,52 +103,57 @@ builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 //builder.Services.AddScoped<IUserClaimsPrincipalFactory<ApplicationUser>, ApplicationClaimsPrincipalFactory>();
 
 // Cookie-based Authentication
+// Phase A: security options (full-access role names, principal revalidation
+// interval) and the single claims builder shared by Login and the cookie
+// revalidation below. See Authorization/SecurityOptions.cs and
+// Authorization/UserClaimsFactory.cs.
+builder.Services.Configure<SecurityOptions>(builder.Configuration.GetSection(SecurityOptions.SectionName));
+builder.Services.AddScoped<UserClaimsFactory>();
+builder.Services.AddScoped<FeatureAccessService>(); // menu visibility = same rule as the server
+
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
         options.LoginPath = "/Account/Login"; // Redirect to login page
-        options.AccessDeniedPath = "/Account/AccessDenied"; // Optional
+        options.AccessDeniedPath = "/Account/AccessDenied"; // 403 page (Pages/Account/AccessDenied)
         options.ExpireTimeSpan = TimeSpan.FromDays(7);
+
+        // Claims are re-checked against dbo.IMSUsers / dbo.UserRoles /
+        // dbo.RolePermissions every SecurityOptions.PrincipalRevalidationMinutes:
+        // a deactivated user is signed out, and changed roles / role
+        // permissions / areas are re-stamped -- so editing a Role's
+        // permissions reaches every user holding that Role automatically.
+        options.Events.OnValidatePrincipal = UserClaimsFactory.ValidatePrincipalAsync;
     });
 
-// Permission-code authorization (Phase 14). Any [Authorize(Policy = "...")]
-// whose policy name matches a dbo.Permissions.Code is satisfied by a
-// "Permission" claim of the same value, granted at login time -- see
-// Authorization/PermissionAuthorizationPolicyProvider.cs and
-// Authorization/MinimumAuthorizationLevelHandler.cs. This does not remove
-// or change any of the existing folder-level AuthorizeFolder checks below;
-// it is an additional, opt-in layer that specific pages can request.
+// Role-based feature authorization (Phase 14 architecture, completed in
+// Phase A). A policy name is a dbo.Permissions.Code (or "A|B" = any of),
+// satisfied by a "Permission" claim that the user receives ONLY through
+// UserRoles -> Roles -> RolePermissions -> Permissions, or by the
+// "FullAccess" claim of a full-access role (System Administrator).
+// See Authorization/PermissionAuthorizationPolicyProvider.cs and
+// Authorization/MinimumAuthorizationLevelHandler.cs.
 builder.Services.AddSingleton<IAuthorizationPolicyProvider, PermissionAuthorizationPolicyProvider>();
 builder.Services.AddScoped<IAuthorizationHandler, MinimumAuthorizationLevelHandler>();
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // Deny-by-default: any endpoint without explicit authorization metadata
+    // requires an authenticated user.
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
 
 // Razor Pages with auth support
 builder.Services.AddRazorPages(options =>
 {
-    // Protect CRUD folders
-    options.Conventions.AuthorizeFolder("/SeedEntry");
-    options.Conventions.AuthorizeFolder("/Admin");
-    options.Conventions.AuthorizeFolder("/Bookings");
-    options.Conventions.AuthorizeFolder("/Production"); // Mother Plant, and later Cutting/Delivery/etc.
-
-    // Phase 26 (Phase L): baseline "must be authenticated" layer for the
-    // new Management Dashboard folder -- exactly mirroring how "/Admin"
-    // is both AuthorizeFolder-protected here AND carries its own
-    // stricter [Authorize(Policy = "Admin.ManageRoles"/"Admin.ManageUsers")]
-    // attributes on individual pages (Phase 14). The actual
-    // Administrator-only gate is the [Authorize(Policy = "Admin.ManageAreas")]
-    // attribute directly on Pages/ManagementDashboard/Index.cshtml.cs; this
-    // folder convention is a second, independent layer, not a substitute
-    // for it -- without it, a new top-level folder with no matching
-    // AuthorizeFolder/AllowAnonymous entry falls through to fully
-    // anonymous access, since no global authenticated-user fallback
-    // policy is configured anywhere in this app (see AddAuthorization()
-    // above).
-    options.Conventions.AuthorizeFolder("/ManagementDashboard");
-
-    // Allow anonymous access to these
-    options.Conventions.AllowAnonymousToPage("/Account/Login");
-    options.Conventions.AllowAnonymousToFolder("/Data"); // View-only folder
+    // Phase A: EVERY page's permission rule comes from ONE place --
+    // Authorization/FeatureAuthorizationConventions.cs. Anonymous pages
+    // (Login, Logout, AccessDenied, Error) are declared there too; any page
+    // missing from that map is restricted to full-access users. This
+    // replaces the former per-folder AuthorizeFolder/AllowAnonymous
+    // conventions and the per-page [Authorize(Policy)] attributes.
+    options.Conventions.Add(new FeatureAuthorizationPageConvention());
 });
 
 

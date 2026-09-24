@@ -141,8 +141,14 @@ LEFT JOIN dbo.IMSUsers dsup ON ctp.DestinationSupervisorId = dsup.Id";
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
+            // F1: StockType filter added. Without it this "Cutting" queue
+            // also listed PendingConfirmation MainOfficeIssue /
+            // GrowingPartnerToOutlet rows, and its Reject button (which
+            // calls RejectAsync by id) could reject them from outside their
+            // own Area-checked pages.
             var sql = BaseSelect + @"
 WHERE t.Status = 'PendingConfirmation'
+  AND t.StockType = 'Cutting'
   AND (@AreaId IS NULL OR t.PendingConfirmationAreaId = @AreaId)
 ORDER BY t.CreatedDate ASC";
             using var cmd = new SqlCommand(sql, conn);
@@ -169,6 +175,7 @@ ORDER BY t.CreatedDate ASC";
 
             var sql = BaseSelect + @"
 WHERE t.Status = 'ConfirmedAwaitingTransplant'
+  AND t.StockType = 'Cutting' -- F1: same StockType scoping as above
   AND (@AreaId IS NULL OR t.PendingConfirmationAreaId = @AreaId)
 ORDER BY t.ConfirmedDate ASC";
             using var cmd = new SqlCommand(sql, conn);

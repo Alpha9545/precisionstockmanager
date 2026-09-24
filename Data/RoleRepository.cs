@@ -6,8 +6,23 @@ namespace PlantStockManager.Data
     // dbo.Roles + dbo.RolePermissions. Kept together in one repository
     // because every real use (list a Role with its granted Permissions,
     // save a Role's Permission set) touches both tables at once.
+    //
+    // Phase A: dbo.Roles has TWO name columns in production -- the legacy
+    // "RoleName" (NOT NULL, UNIQUE) and "Name" (added later, what Phase 14's
+    // code reads). Database/PhaseA_RoleBasedAccess.sql guarantees both exist
+    // and are in sync; this repository reads RoleNameExpression (Name, falling
+    // back to RoleName) and writes BOTH on insert, so it works on either
+    // schema shape and never leaves one of them empty.
     public class RoleRepository
     {
+        public const string RoleNameExpression = "COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), ''), r.RoleName)";
+
+        private const string RoleSelect = @"
+SELECT r.Id, " + RoleNameExpression + @" AS Name, r.Description, r.IsSystemRole, r.CreatedDate,
+       (SELECT COUNT(*) FROM dbo.RolePermissions rp WHERE rp.RoleId = r.Id) AS PermissionCount,
+       (SELECT COUNT(DISTINCT ur.UserId) FROM dbo.UserRoles ur WHERE ur.RoleId = r.Id) AS UserCount
+FROM dbo.Roles r";
+
         private readonly DatabaseHelper _dbHelper;
 
         public RoleRepository(DatabaseHelper dbHelper)
@@ -21,22 +36,12 @@ namespace PlantStockManager.Data
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
-            const string sql = @"
-SELECT Id, Name, Description, IsSystemRole, CreatedDate
-FROM dbo.Roles
-ORDER BY Name";
+            const string sql = RoleSelect + " ORDER BY Name";
             using var cmd = new SqlCommand(sql, conn);
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
-                roles.Add(new Role
-                {
-                    Id = reader.GetInt32(reader.GetOrdinal("Id")),
-                    Name = reader.GetString(reader.GetOrdinal("Name")),
-                    Description = reader.IsDBNull(reader.GetOrdinal("Description")) ? null : reader.GetString(reader.GetOrdinal("Description")),
-                    IsSystemRole = reader.GetBoolean(reader.GetOrdinal("IsSystemRole")),
-                    CreatedDate = reader.GetDateTime(reader.GetOrdinal("CreatedDate"))
-                });
+                roles.Add(MapRole(reader));
             }
             return roles;
         }
@@ -46,36 +51,70 @@ ORDER BY Name";
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
-            const string sql = @"SELECT Id, Name, Description, IsSystemRole, CreatedDate FROM dbo.Roles WHERE Id = @Id";
+            const string sql = RoleSelect + " WHERE r.Id = @Id";
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@Id", roleId);
             using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
-                return new Role
-                {
-                    Id = reader.GetInt32(reader.GetOrdinal("Id")),
-                    Name = reader.GetString(reader.GetOrdinal("Name")),
-                    Description = reader.IsDBNull(reader.GetOrdinal("Description")) ? null : reader.GetString(reader.GetOrdinal("Description")),
-                    IsSystemRole = reader.GetBoolean(reader.GetOrdinal("IsSystemRole")),
-                    CreatedDate = reader.GetDateTime(reader.GetOrdinal("CreatedDate"))
-                };
+                return MapRole(reader);
             }
             return null;
         }
 
-        public async Task AddRoleAsync(string name, string? description)
+        // Adds a role, writing BOTH name columns. Returns false (nothing
+        // inserted) when a role with the same name already exists.
+        public async Task<bool> AddRoleAsync(string name, string? description)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
             const string sql = @"
-INSERT INTO dbo.Roles (Name, Description, IsSystemRole)
-VALUES (@Name, @Description, 0)";
+IF EXISTS (SELECT 1 FROM dbo.Roles r WHERE " + RoleNameExpression + @" = @Name OR r.RoleName = @Name)
+    SELECT 0;
+ELSE
+BEGIN
+    INSERT INTO dbo.Roles (Name, RoleName, Description, IsSystemRole)
+    VALUES (@Name, @Name, @Description, 0);
+    SELECT 1;
+END";
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@Name", name);
             cmd.Parameters.AddWithValue("@Description", (object?)description ?? DBNull.Value);
-            await cmd.ExecuteNonQueryAsync();
+            var result = await cmd.ExecuteScalarAsync();
+            return result != null && Convert.ToInt32(result) == 1;
+        }
+
+        // Permission codes currently granted to a role.
+        public async Task<List<string>> GetPermissionCodesForRoleAsync(int roleId)
+        {
+            var codes = new List<string>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            const string sql = @"
+SELECT p.Code FROM dbo.RolePermissions rp
+INNER JOIN dbo.Permissions p ON p.Id = rp.PermissionId
+WHERE rp.RoleId = @RoleId";
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@RoleId", roleId);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                codes.Add(reader.GetString(0));
+            return codes;
+        }
+
+        private static Role MapRole(SqlDataReader reader)
+        {
+            return new Role
+            {
+                Id = reader.GetInt32(reader.GetOrdinal("Id")),
+                Name = reader.IsDBNull(reader.GetOrdinal("Name")) ? string.Empty : reader.GetString(reader.GetOrdinal("Name")),
+                Description = reader.IsDBNull(reader.GetOrdinal("Description")) ? null : reader.GetString(reader.GetOrdinal("Description")),
+                IsSystemRole = reader.GetBoolean(reader.GetOrdinal("IsSystemRole")),
+                CreatedDate = reader.GetDateTime(reader.GetOrdinal("CreatedDate")),
+                PermissionCount = reader.GetInt32(reader.GetOrdinal("PermissionCount")),
+                UserCount = reader.GetInt32(reader.GetOrdinal("UserCount"))
+            };
         }
 
         // Every Permission that exists, flagged with whether the given Role

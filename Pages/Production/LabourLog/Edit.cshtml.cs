@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using LabourLogModel = PlantStockManager.Models.LabourLog;
@@ -11,9 +12,11 @@ namespace PlantStockManager.Pages.Production.LabourLog
         private readonly LabourLogRepository _labourLogRepo;
         private readonly EmployeeRepository _employeeRepo;
         private readonly AreaRepository _areaRepo;
+        private readonly AreaAccessService _areaAccessService;
 
-        public EditModel(LabourLogRepository labourLogRepo, EmployeeRepository employeeRepo, AreaRepository areaRepo)
+        public EditModel(LabourLogRepository labourLogRepo, EmployeeRepository employeeRepo, AreaRepository areaRepo, AreaAccessService areaAccessService)
         {
+            _areaAccessService = areaAccessService;
             _labourLogRepo = labourLogRepo;
             _employeeRepo = employeeRepo;
             _areaRepo = areaRepo;
@@ -33,6 +36,12 @@ namespace PlantStockManager.Pages.Production.LabourLog
             var existing = await _labourLogRepo.GetByIdAsync(id);
             if (existing == null)
                 return RedirectToPage("/Production/LabourLog/Index");
+            // F1: Area scope.
+            if (!_areaAccessService.CanAccessArea(User, existing.AreaId))
+            {
+                TempData["Error"] = "You are not authorized to edit this Labour Log.";
+                return RedirectToPage("/Production/LabourLog/Index");
+            }
 
             Log = existing;
             await LoadDropdownsAsync();
@@ -57,6 +66,14 @@ namespace PlantStockManager.Pages.Production.LabourLog
                 await LoadDropdownsAsync();
                 return Page();
             }
+            // F1: check the STORED record's Area, and the new Area if changed.
+            if (!_areaAccessService.CanAccessArea(User, existing.AreaId))
+            {
+                TempData["Error"] = "You are not authorized to edit this Labour Log.";
+                return RedirectToPage("/Production/LabourLog/Index");
+            }
+            if (Log.AreaId.HasValue && Log.AreaId != existing.AreaId && !_areaAccessService.CanAccessArea(User, Log.AreaId))
+                ModelState.AddModelError("Log.AreaId", "You are not authorized to use the selected Area.");
             if (existing.Status == "Cancelled")
             {
                 ModelState.AddModelError(string.Empty, "This Labour Log is already Cancelled and cannot be edited further.");
@@ -97,6 +114,14 @@ namespace PlantStockManager.Pages.Production.LabourLog
 
         public async Task<IActionResult> OnPostCancelAsync(int id)
         {
+            // F1: cancel previously trusted the posted id alone.
+            var target = await _labourLogRepo.GetByIdAsync(id);
+            if (target == null || !_areaAccessService.CanAccessArea(User, target.AreaId))
+            {
+                TempData["Error"] = "You are not authorized to cancel this Labour Log.";
+                return RedirectToPage("/Production/LabourLog/Index");
+            }
+
             var (success, message) = await _labourLogRepo.CancelAsync(id, User.Identity?.Name ?? "System");
             if (!success)
             {
@@ -111,7 +136,7 @@ namespace PlantStockManager.Pages.Production.LabourLog
         private async Task LoadDropdownsAsync()
         {
             Workers = await _employeeRepo.GetAllActiveUsers();
-            Areas = await _areaRepo.GetAllAreas();
+            Areas = _areaAccessService.FilterByArea(User, await _areaRepo.GetAllAreas(), a => (int?)a.Id); // F1
         }
     }
 }

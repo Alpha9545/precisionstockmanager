@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 // Alias required: this file's own namespace is nested under
@@ -25,11 +26,19 @@ namespace PlantStockManager.Pages.Production.CuttingStock
     public class ConfirmReceiptModel : PageModel
     {
         private readonly InternalTransferRepository _internalTransferRepo;
+        private readonly AreaAccessService _areaAccessService;
 
-        public ConfirmReceiptModel(InternalTransferRepository internalTransferRepo)
+        public ConfirmReceiptModel(InternalTransferRepository internalTransferRepo, AreaAccessService areaAccessService)
         {
             _internalTransferRepo = internalTransferRepo;
+            _areaAccessService = areaAccessService;
         }
+
+        // F1: only a user assigned to the Main Office Area the transfer is
+        // waiting at (or a cross-Area role) may view/confirm it -- the
+        // transfer id was previously the only input.
+        private bool IsAuthorizedFor(InternalTransferModel transfer)
+            => _areaAccessService.CanAccessRequiredArea(User, transfer.PendingConfirmationAreaId);
 
         public InternalTransferModel? Transfer { get; set; }
 
@@ -47,6 +56,11 @@ namespace PlantStockManager.Pages.Production.CuttingStock
                 TempData["Error"] = "That transfer is not awaiting confirmation.";
                 return RedirectToPage("/Production/CuttingStock/PendingConfirmations");
             }
+            if (!IsAuthorizedFor(Transfer))
+            {
+                TempData["Error"] = "You are not authorized to confirm that transfer.";
+                return RedirectToPage("/Production/CuttingStock/PendingConfirmations");
+            }
 
             ConfirmedQuantity = Transfer.Quantity;
             return Page();
@@ -58,6 +72,11 @@ namespace PlantStockManager.Pages.Production.CuttingStock
             if (Transfer == null || Transfer.StockType != "Cutting" || Transfer.Status != "PendingConfirmation")
             {
                 TempData["Error"] = "That transfer is not awaiting confirmation.";
+                return RedirectToPage("/Production/CuttingStock/PendingConfirmations");
+            }
+            if (!IsAuthorizedFor(Transfer))
+            {
+                TempData["Error"] = "You are not authorized to confirm that transfer.";
                 return RedirectToPage("/Production/CuttingStock/PendingConfirmations");
             }
 

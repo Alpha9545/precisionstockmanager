@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using CuttingPlanModel = PlantStockManager.Models.CuttingPlan;
@@ -12,12 +13,15 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
         private readonly CuttingPlanRepository _cuttingPlanRepo;
         private readonly MotherPlantRepository _motherPlantRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly MotherPlantAreaScope _areaScope;
 
         public EditModel(
             CuttingPlanRepository cuttingPlanRepo,
             MotherPlantRepository motherPlantRepo,
-            EmployeeRepository employeeRepo)
+            EmployeeRepository employeeRepo,
+            MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
             _cuttingPlanRepo = cuttingPlanRepo;
             _motherPlantRepo = motherPlantRepo;
             _employeeRepo = employeeRepo;
@@ -40,6 +44,13 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
             if (existing == null)
                 return RedirectToPage("/Production/CuttingPlan/Index");
 
+            // F1: Area scope via the plan's Mother Plant (MotherPlantAreaScope).
+            if (!await _areaScope.CanAccessAsync(User, existing.MotherPlantId))
+            {
+                TempData["Error"] = "You are not authorized to edit this Cutting Plan record.";
+                return RedirectToPage("/Production/CuttingPlan/Index");
+            }
+
             CuttingPlan = existing;
             await LoadDropdownsAsync(existing.MotherPlantId);
             return Page();
@@ -58,6 +69,17 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
             if (CuttingPlan.CuttingRate < 0)
                 ModelState.AddModelError("CuttingPlan.CuttingRate", "Cutting Rate cannot be negative.");
 
+            // F1: this handler used the POSTED CuttingPlan.Id without ever
+            // loading the stored record, so any user could overwrite any
+            // Area's plan. Load it and check its CURRENT Mother Plant Area,
+            // then the (possibly changed) new Mother Plant's Area as well.
+            var existingPlan = await _cuttingPlanRepo.GetByIdAsync(CuttingPlan.Id);
+            if (existingPlan == null || !await _areaScope.CanAccessAsync(User, existingPlan.MotherPlantId))
+            {
+                TempData["Error"] = "You are not authorized to edit this Cutting Plan record.";
+                return RedirectToPage("/Production/CuttingPlan/Index");
+            }
+
             MotherPlantModel? motherPlant = null;
             if (CuttingPlan.MotherPlantId > 0)
             {
@@ -65,6 +87,10 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
                 if (motherPlant == null)
                 {
                     ModelState.AddModelError("CuttingPlan.MotherPlantId", "Selected Mother Plant does not exist.");
+                }
+                else if (!await _areaScope.CanAccessAsync(User, motherPlant.Id))
+                {
+                    ModelState.AddModelError("CuttingPlan.MotherPlantId", "You are not authorized to plan cuttings for this Mother Plant's Area.");
                 }
             }
 
@@ -98,7 +124,11 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
                 if (current != null)
                     active.Add(current);
             }
-            SelectableMotherPlants = active;
+            // F1: other choices limited to the user's Areas; the plan's own
+            // current Mother Plant stays selectable (see comment above).
+            SelectableMotherPlants = (await _areaScope.FilterAsync(User, active, m => (int?)m.Id))
+                .Union(active.Where(m => m.Id == currentMotherPlantId))
+                .ToList();
 
             var activeUsers = await _employeeRepo.GetAllActiveUsers();
             ResponsiblePersons = activeUsers;

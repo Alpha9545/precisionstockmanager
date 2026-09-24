@@ -47,7 +47,8 @@ namespace PlantStockManager.Pages.ManagementDashboard
     // AND carries its own stricter per-page Policy attributes -- so
     // this page is covered by two independent layers, and menu
     // visibility (see _Layout.cshtml) is never the only protection.
-    [Authorize(Policy = "Admin.ManageAreas")]
+    // Phase A: the server-side rule for this page ("Admin.ManageAreas") is declared
+    // centrally in Authorization/FeatureAuthorizationConventions.cs.
     public class IndexModel : PageModel
     {
         private readonly ManagementDashboardRepository _dashboardRepo;

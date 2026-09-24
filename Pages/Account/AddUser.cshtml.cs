@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
@@ -7,6 +8,8 @@ using PlantStockManager.Models;
 
 namespace PlantStockManager.Pages.Account
 {
+    // Phase A: the server-side rule for this page ("Admin.ManageUsers") is declared
+    // centrally in Authorization/FeatureAuthorizationConventions.cs.
     public class AddUserModel : PageModel
     {
         private readonly DatabaseHelper _dbHelper;
@@ -23,30 +26,17 @@ namespace PlantStockManager.Pages.Account
         [BindProperty] public string Role { get; set; }
         public string Message { get; set; }
 
-        public void OnGet() { }
+        // F1: this page was ANONYMOUS (no convention covered /Account
+        // except Login) and inserted straight into dbo.IMSUsers with a
+        // free-text Role, so anyone on the internet could create a login.
+        // It now requires the same "Admin.ManageUsers" permission as the
+        // real user-management page and no longer writes anything itself:
+        // both verbs redirect to /Admin/Users, which is the single, guarded
+        // account-creation path (designation, duplicate and
+        // administrator-escalation checks live there).
+        public IActionResult OnGet() => RedirectToPage("/Admin/Users");
 
-        public async Task<IActionResult> OnPostAsync()
-        {
-            if (!ModelState.IsValid) return Page();
-
-            var user = new User { Username = Username, Role = Role };
-            var hashedPassword = _passwordHasher.HashPassword(user, Password);
-
-            using var conn = _dbHelper.GetConnection();
-            await conn.OpenAsync();
-
-            var cmd = new SqlCommand("INSERT INTO IMSUsers (Username, Password, Role) VALUES (@Username, @PasswordHash, @Role)", conn);
-            cmd.Parameters.AddWithValue("@Username", Username);
-            cmd.Parameters.AddWithValue("@PasswordHash", hashedPassword);
-            cmd.Parameters.AddWithValue("@Role", Role);
-
-            await cmd.ExecuteNonQueryAsync();
-
-            Message = "User added successfully!";
-            ModelState.Clear();
-            return Page();
-        }
-
+        public IActionResult OnPost() => RedirectToPage("/Admin/Users");
     
     }
 }

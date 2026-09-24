@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 
@@ -15,13 +16,16 @@ namespace PlantStockManager.Pages.Production.CuttingStock
         private readonly PlantTypeRepository _plantTypeRepo;
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
         private readonly AreaRepository _areaRepo;
+        private readonly AreaAccessService _areaAccessService;
 
         public EnterCuttingModel(
             CuttingStockRepository cuttingStockRepo,
             PlantTypeRepository plantTypeRepo,
             PlantSpeciesRepository plantSpeciesRepo,
-            AreaRepository areaRepo)
+            AreaRepository areaRepo,
+            AreaAccessService areaAccessService)
         {
+            _areaAccessService = areaAccessService;
             _cuttingStockRepo = cuttingStockRepo;
             _plantTypeRepo = plantTypeRepo;
             _plantSpeciesRepo = plantSpeciesRepo;
@@ -70,6 +74,17 @@ namespace PlantStockManager.Pages.Production.CuttingStock
             if (Quantity <= 0)
                 ModelState.AddModelError(nameof(Quantity), "Cutting Quantity must be greater than zero.");
 
+            // F1: the posted AreaId was trusted as-is -- any user could
+            // record cutting stock into any Area. It must now be one of the
+            // cutting-producing Areas offered by this page AND an Area the
+            // user is assigned to (AreaAccessService).
+            if (AreaId > 0)
+            {
+                var validSourceAreaIds = (await _areaRepo.GetByAreaTypesAsync(_sourceAreaTypes)).Select(a => a.Id).ToHashSet();
+                if (!validSourceAreaIds.Contains(AreaId) || !_areaAccessService.CanAccessArea(User, AreaId))
+                    ModelState.AddModelError(nameof(AreaId), "You are not authorized to record cuttings for the selected Area.");
+            }
+
             if (!ModelState.IsValid)
             {
                 await LoadDropdownsAsync();
@@ -95,7 +110,8 @@ namespace PlantStockManager.Pages.Production.CuttingStock
         private async Task LoadDropdownsAsync()
         {
             PlantTypes = await _plantTypeRepo.GetAllPlantTypes();
-            Areas = await _areaRepo.GetByAreaTypesAsync(_sourceAreaTypes);
+            // F1: only the Areas this user may record cuttings for.
+            Areas = _areaAccessService.FilterByArea(User, await _areaRepo.GetByAreaTypesAsync(_sourceAreaTypes), a => (int?)a.Id);
         }
     }
 }

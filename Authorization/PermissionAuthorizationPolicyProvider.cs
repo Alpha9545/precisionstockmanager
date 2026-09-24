@@ -33,8 +33,12 @@ namespace PlantStockManager.Authorization
                 return existing;
             }
 
-            // Otherwise treat the policy name as a permission code.
+            // Otherwise treat the policy name as a permission code, or an
+            // any-of list "A|B" (see PermissionPolicy). An authenticated
+            // user is always required, so an anonymous request is
+            // challenged (sent to Login) rather than forbidden.
             return new AuthorizationPolicyBuilder()
+                .RequireAuthenticatedUser()
                 .AddRequirements(new MinimumAuthorizationLevelRequirement(policyName))
                 .Build();
         }

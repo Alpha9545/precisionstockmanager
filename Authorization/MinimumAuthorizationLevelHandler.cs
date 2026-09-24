@@ -1,14 +1,15 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 
 namespace PlantStockManager.Authorization
 {
-    // Was an empty, unused stub -- this is the handler the redesign plan's
-    // Section D described as "replacing the currently-empty
-    // MinimumAuthorizationLevelHandler stub." Succeeds when the current
-    // user carries a "Permission" claim matching the requirement's code.
-    // Every claim is granted at login from UserRoles -> RolePermissions ->
-    // Permissions (see Login.cshtml.cs), so this handler never touches the
-    // database itself -- it is a cheap in-memory claim check per request.
+    // THE central feature-permission check. Succeeds when the current user
+    //   * has full access (a full-access role such as "System Administrator"
+    //     -- stamped as the "FullAccess" claim by UserClaimsFactory), or
+    //   * carries a "Permission" claim for ANY of the requirement's codes.
+    // Permission claims come ONLY from the user's roles
+    // (UserRoles -> Roles -> RolePermissions -> Permissions); there are no
+    // per-user permission rows. The handler never touches the database -- the
+    // claims are computed at login and refreshed by the cookie revalidation.
     public class MinimumAuthorizationLevelHandler : AuthorizationHandler<MinimumAuthorizationLevelRequirement>
     {
         public const string PermissionClaimType = "Permission";
@@ -17,7 +18,9 @@ namespace PlantStockManager.Authorization
             AuthorizationHandlerContext context,
             MinimumAuthorizationLevelRequirement requirement)
         {
-            if (context.User.HasClaim(c => c.Type == PermissionClaimType && c.Value == requirement.PermissionCode))
+            var user = context.User;
+            if (user.IsFullAccess()
+                || requirement.PermissionCodes.Any(code => user.HasClaim(PermissionClaimType, code)))
             {
                 context.Succeed(requirement);
             }

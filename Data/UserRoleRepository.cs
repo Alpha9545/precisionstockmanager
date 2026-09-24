@@ -24,7 +24,7 @@ namespace PlantStockManager.Data
 
             const string sql = @"
 SELECT ur.Id, ur.UserId, u.Username AS UserName,
-       ur.RoleId, r.Name AS RoleName,
+       ur.RoleId, COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), ''), r.RoleName) AS RoleName,
        ur.AreaId, a.Name AS AreaName,
        gp.Name AS GrowingPartnerName,
        ur.CreatedDate
@@ -33,7 +33,7 @@ INNER JOIN dbo.IMSUsers u ON ur.UserId = u.Id
 INNER JOIN dbo.Roles r ON ur.RoleId = r.Id
 LEFT JOIN dbo.Area a ON ur.AreaId = a.Id
 LEFT JOIN dbo.GrowingPartners gp ON a.GrowingPartnerId = gp.Id
-ORDER BY u.Username, r.Name";
+ORDER BY u.Username, RoleName";
             using var cmd = new SqlCommand(sql, conn);
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -51,7 +51,7 @@ ORDER BY u.Username, r.Name";
 
             const string sql = @"
 SELECT ur.Id, ur.UserId, u.Username AS UserName,
-       ur.RoleId, r.Name AS RoleName,
+       ur.RoleId, COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), ''), r.RoleName) AS RoleName,
        ur.AreaId, a.Name AS AreaName,
        gp.Name AS GrowingPartnerName,
        ur.CreatedDate
@@ -61,7 +61,7 @@ INNER JOIN dbo.Roles r ON ur.RoleId = r.Id
 LEFT JOIN dbo.Area a ON ur.AreaId = a.Id
 LEFT JOIN dbo.GrowingPartners gp ON a.GrowingPartnerId = gp.Id
 WHERE ur.UserId = @UserId
-ORDER BY r.Name";
+ORDER BY RoleName";
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@UserId", userId);
             using var reader = await cmd.ExecuteReaderAsync();
@@ -123,6 +123,35 @@ END";
             return inserted
                 ? (true, null)
                 : (false, "That user already has that role for that area.");
+        }
+
+        // Phase A: used by Add/Edit User to write the user's role inside the
+        // SAME transaction that creates/updates the dbo.IMSUsers row, so a
+        // user is never created without their role (or vice versa).
+        public static async Task InsertAssignmentAsync(SqlConnection conn, SqlTransaction tx, int userId, int roleId, int? areaId)
+        {
+            const string sql = @"
+IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @UserId AND RoleId = @RoleId AND
+               ((AreaId IS NULL AND @AreaId IS NULL) OR AreaId = @AreaId))
+    INSERT INTO dbo.UserRoles (UserId, RoleId, AreaId) VALUES (@UserId, @RoleId, @AreaId);";
+            using var cmd = new SqlCommand(sql, conn, tx);
+            cmd.Parameters.AddWithValue("@UserId", userId);
+            cmd.Parameters.AddWithValue("@RoleId", roleId);
+            cmd.Parameters.AddWithValue("@AreaId", (object?)areaId ?? DBNull.Value);
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        // Phase A: Edit User's single "Role / Area" selection replaces the
+        // user's assignments. Only called when the user has at most one
+        // assignment (multi-role users are managed on Admin > User Roles).
+        public static async Task ReplaceAssignmentsAsync(SqlConnection conn, SqlTransaction tx, int userId, int roleId, int? areaId)
+        {
+            using (var del = new SqlCommand("DELETE FROM dbo.UserRoles WHERE UserId = @UserId", conn, tx))
+            {
+                del.Parameters.AddWithValue("@UserId", userId);
+                await del.ExecuteNonQueryAsync();
+            }
+            await InsertAssignmentAsync(conn, tx, userId, roleId, areaId);
         }
 
         public async Task RemoveAssignmentAsync(int userRoleId)

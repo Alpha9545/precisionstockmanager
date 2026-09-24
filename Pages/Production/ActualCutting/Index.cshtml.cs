@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using ActualCuttingModel = PlantStockManager.Models.ActualCutting;
 
@@ -7,9 +8,11 @@ namespace PlantStockManager.Pages.Production.ActualCutting
     public class IndexModel : PageModel
     {
         private readonly ActualCuttingRepository _actualCuttingRepo;
+        private readonly MotherPlantAreaScope _areaScope;
 
-        public IndexModel(ActualCuttingRepository actualCuttingRepo)
+        public IndexModel(ActualCuttingRepository actualCuttingRepo, MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
             _actualCuttingRepo = actualCuttingRepo;
         }
 
@@ -21,7 +24,9 @@ namespace PlantStockManager.Pages.Production.ActualCutting
 
         public async Task OnGetAsync()
         {
-            ActualCuttings = await _actualCuttingRepo.GetAllAsync();
+            // F1: Area scope via the record's Mother Plant (MotherPlantAreaScope): previously every Area's
+            // records were listed to every user.
+            ActualCuttings = await _areaScope.FilterAsync(User, await _actualCuttingRepo.GetAllAsync(), r => (int?)r.MotherPlantId);
         }
     }
 }

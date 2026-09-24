@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
@@ -13,8 +14,10 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
         private readonly PottedPlantStockRepository _pottedPlantStockRepo;
         private readonly AreaRepository _areaRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly AreaAccessService _areaAccessService;
 
         public CreateModel(
+            AreaAccessService areaAccessService,
             InternalTransferRepository internalTransferRepo,
             EmptyPotInventoryRepository emptyPotInventoryRepo,
             PottedPlantStockRepository pottedPlantStockRepo,
@@ -26,6 +29,7 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
             _pottedPlantStockRepo = pottedPlantStockRepo;
             _areaRepo = areaRepo;
             _employeeRepo = employeeRepo;
+            _areaAccessService = areaAccessService;
         }
 
         [BindProperty]
@@ -67,11 +71,43 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
             if (InternalTransfer.Quantity <= 0)
                 ModelState.AddModelError("InternalTransfer.Quantity", "Quantity must be greater than zero.");
 
+            // F1: the chosen source pool's ACTUAL Area (read from the
+            // database, not the form) must be one the user is assigned to --
+            // previously any user could move any Area's stock out.
+            if (ModelState.IsValid)
+            {
+                int? sourceAreaId = null;
+                bool sourceFound;
+                if (InternalTransfer.StockType == "EmptyPot")
+                {
+                    var pool = await _emptyPotInventoryRepo.GetByIdAsync(InternalTransfer.SourceEmptyPotInventoryId!.Value);
+                    sourceFound = pool != null;
+                    sourceAreaId = pool?.AreaId;
+                }
+                else
+                {
+                    var pool = await _pottedPlantStockRepo.GetByIdAsync(InternalTransfer.SourcePottedPlantStockId!.Value);
+                    sourceFound = pool != null;
+                    sourceAreaId = pool?.AreaId;
+                }
+                if (!sourceFound || !_areaAccessService.CanAccessRequiredArea(User, sourceAreaId))
+                    ModelState.AddModelError(string.Empty, "You are not authorized to transfer stock from the selected source.");
+            }
+
             if (!ModelState.IsValid)
             {
                 await LoadDropdownsAsync();
                 return Page();
             }
+
+            // F1: over-posting guard. Status and PendingConfirmationAreaId
+            // are server-controlled (InsertHeaderAsync uses a posted Status
+            // verbatim, so "InternalTransfer.Status=PendingConfirmation"
+            // could inject a row into another workflow's queue), and the
+            // Cutting / confirmation fields never apply to this page.
+            InternalTransfer.Status = "Completed"; // the model's own default for EmptyPot/PottedPlant
+            InternalTransfer.PendingConfirmationAreaId = null;
+            InternalTransfer.SourceCuttingStockId = null;
 
             // Only the field relevant to the chosen Stock Type is kept --
             // the repository itself also enforces "exactly one of the
@@ -100,10 +136,10 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
         private async Task LoadDropdownsAsync()
         {
             var allEmptyPots = await _emptyPotInventoryRepo.GetAllAsync(activeOnly: true);
-            EmptyPotPools = allEmptyPots.Where(p => p.AreaId.HasValue && p.PhysicalQuantity > 0).ToList();
+            EmptyPotPools = allEmptyPots.Where(p => p.AreaId.HasValue && p.PhysicalQuantity > 0 && _areaAccessService.CanAccessArea(User, p.AreaId)).ToList();
 
             var allPotted = await _pottedPlantStockRepo.GetAllAsync();
-            PottedPlantPools = allPotted.Where(p => p.AreaId.HasValue && p.PhysicalQuantity > 0).ToList();
+            PottedPlantPools = allPotted.Where(p => p.AreaId.HasValue && p.PhysicalQuantity > 0 && _areaAccessService.CanAccessArea(User, p.AreaId)).ToList();
 
             Areas = await _areaRepo.GetAllAreas();
             var activeUsers = await _employeeRepo.GetAllActiveUsers();

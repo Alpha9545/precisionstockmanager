@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using PropagationBatchModel = PlantStockManager.Models.PropagationBatch;
@@ -11,9 +12,11 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
         private readonly PropagationBatchRepository _propagationBatchRepo;
         private readonly AreaRepository _areaRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly MotherPlantAreaScope _areaScope;
 
-        public EditModel(PropagationBatchRepository propagationBatchRepo, AreaRepository areaRepo, EmployeeRepository employeeRepo)
+        public EditModel(PropagationBatchRepository propagationBatchRepo, AreaRepository areaRepo, EmployeeRepository employeeRepo, MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
             _propagationBatchRepo = propagationBatchRepo;
             _areaRepo = areaRepo;
             _employeeRepo = employeeRepo;
@@ -37,6 +40,13 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
             var existing = await _propagationBatchRepo.GetByIdAsync(id);
             if (existing == null)
                 return RedirectToPage("/Production/PropagationBatch/Index");
+
+            // F1: Area scope via the record's Mother Plant (MotherPlantAreaScope).
+            if (!await _areaScope.CanAccessAsync(User, existing.MotherPlantId, existing.AreaId))
+            {
+                TempData["Error"] = "You are not authorized to edit this Propagation Batch record.";
+                return RedirectToPage("/Production/PropagationBatch/Index");
+            }
 
             PropagationBatch = existing;
             await LoadDropdownsAsync();
@@ -72,10 +82,22 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
                 await LoadDropdownsAsync();
                 return Page();
             }
+            // F1: re-check Area scope against the STORED record (the posted
+            // Id is otherwise the only input deciding which record changes).
+            if (!await _areaScope.CanAccessAsync(User, existing.MotherPlantId, existing.AreaId))
+            {
+                TempData["Error"] = "You are not authorized to edit this Propagation Batch record.";
+                return RedirectToPage("/Production/PropagationBatch/Index");
+            }
             PropagationBatch.CuttingDeliveryId = existing.CuttingDeliveryId;
             PropagationBatch.MotherPlantId = existing.MotherPlantId;
             PropagationBatch.SpeciesId = existing.SpeciesId;
             PropagationBatch.Quantity = existing.Quantity;
+
+            // F1: moving the batch to a different Area requires access to it too.
+            if (PropagationBatch.AreaId.HasValue && PropagationBatch.AreaId != existing.AreaId
+                && !await _areaScope.CanAccessAsync(User, null, PropagationBatch.AreaId))
+                ModelState.AddModelError("PropagationBatch.AreaId", "You are not authorized to use the selected Area.");
 
             if ((PropagationBatch.Status == "ReadyForPotting" || PropagationBatch.Status == "Completed")
                 && !PropagationBatchModel.CanReconcile(PropagationBatch.SurvivedQuantity, PropagationBatch.LossQuantity, PropagationBatch.Quantity))

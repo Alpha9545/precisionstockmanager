@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 // Alias required: Pages/Production/InternalTransfer/ makes "InternalTransfer"
@@ -17,9 +19,11 @@ namespace PlantStockManager.Pages.Production.CuttingStock
     {
         private readonly InternalTransferRepository _internalTransferRepo;
         private readonly AreaRepository _areaRepo;
+        private readonly AreaAccessService _areaAccessService;
 
-        public MyTransactionsModel(InternalTransferRepository internalTransferRepo, AreaRepository areaRepo)
+        public MyTransactionsModel(InternalTransferRepository internalTransferRepo, AreaRepository areaRepo, AreaAccessService areaAccessService)
         {
+            _areaAccessService = areaAccessService;
             _internalTransferRepo = internalTransferRepo;
             _areaRepo = areaRepo;
         }
@@ -28,13 +32,21 @@ namespace PlantStockManager.Pages.Production.CuttingStock
         public List<InternalTransferModel> Transactions { get; set; } = new();
         public int? SelectedAreaId { get; set; }
 
-        public async Task OnGetAsync(int? areaId)
+        public async Task<IActionResult> OnGetAsync(int? areaId)
         {
+            // F1: any Area's transaction history was readable by URL.
+            if (areaId.HasValue && !_areaAccessService.CanAccessArea(User, areaId))
+            {
+                TempData["Error"] = "You are not authorized to view transactions for the selected Area.";
+                return RedirectToPage("/Production/CuttingStock/MyTransactions");
+            }
+
             SelectedAreaId = areaId;
-            Areas = await _areaRepo.GetAllAreas();
+            Areas = _areaAccessService.FilterByArea(User, await _areaRepo.GetAllAreas(), a => (int?)a.Id);
             Transactions = areaId.HasValue
                 ? (await _internalTransferRepo.GetByAreaAsync(areaId.Value)).Where(t => t.StockType == "Cutting").ToList()
                 : new List<InternalTransferModel>();
+            return Page();
         }
     }
 }

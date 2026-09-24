@@ -22,60 +22,19 @@
             User.Identity != null &&
             User.Identity.IsAuthenticated;
 
-        var designationId =
-            User.FindFirst("DesignationId")?.Value;
-
         var designationName =
             User.FindFirst("DesignationName")?.Value;
 
         /*
-         * Current legacy Administrator designation:
-         * DesignationId = 5
-         *
-         * Phase 14 permission:
-         * Admin.ManageAreas
-         *
-         * We support both so the navigation continues working
-         * while the new role/permission system is being adopted.
+         * Phase A: the sidebar is permission-based. Every menu item carries
+         * nav-page="<page>" and is rendered only if the user passes that
+         * page's rule in Authorization/FeatureAuthorizationConventions.cs --
+         * the SAME rule the server enforces on the page itself (hiding a
+         * link is never the security boundary). A section (nav-section) is
+         * hidden when none of its items is visible. The System Administrator
+         * (full access) sees every item. The former hard-coded designation
+         * checks (DesignationId 2/3/4/5) are gone: access comes from roles.
          */
-        var isAdministrator =
-            isAuthenticated &&
-            (
-                designationId == "5" ||
-                User.HasClaim("Permission", "Admin.ManageAreas")
-            );
-
-        var canManageAreas =
-            isAuthenticated &&
-            User.HasClaim("Permission", "Admin.ManageAreas");
-
-        var canSeeLegacyStockSorting =
-            isAuthenticated &&
-            (
-                designationId == "2" ||
-                designationId == "5"
-            );
-
-        var canSeeLegacyBookingEntry =
-            isAuthenticated &&
-            (
-                designationId == "3" ||
-                designationId == "5"
-            );
-
-        var canSeeDirectBooking =
-            isAuthenticated &&
-            (
-                designationId == "2" ||
-                designationId == "5"
-            );
-
-        var canSeeLegacyFulfillment =
-            isAuthenticated &&
-            (
-                designationId == "4" ||
-                designationId == "5"
-            );
     }
 
     <div class="overlay"></div>
@@ -104,7 +63,7 @@
                  DASHBOARD
                  ================================================= -->
 
-            <li>
+            <li nav-page="/index">
 
                 <a asp-page="/index">
 
@@ -136,7 +95,7 @@
                  PRODUCTION
                  ================================================= -->
 
-            <li>
+            <li nav-section>
 
                 <div class="icon-link">
 
@@ -167,55 +126,55 @@
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/MotherPlant/Index">
                         <a asp-page="/Production/MotherPlant/Index">
                             Mother Plant
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/CuttingPlan/Index">
                         <a asp-page="/Production/CuttingPlan/Index">
                             Cutting Plan
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/ActualCutting/Index">
                         <a asp-page="/Production/ActualCutting/Index">
                             Actual Cutting
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/CuttingDelivery/Index">
                         <a asp-page="/Production/CuttingDelivery/Index">
                             Cutting Delivery
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/PropagationBatch/Index">
                         <a asp-page="/Production/PropagationBatch/Index">
                             Propagation Batch
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/PotProduction/Index">
                         <a asp-page="/Production/PotProduction/Index">
                             Pot / Tray Production
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/SeedSowing/Index">
                         <a asp-page="/Production/SeedSowing/Index">
                             Seed Sowing
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/ReadyAlerts/Index">
                         <a asp-page="/Production/ReadyAlerts/Index">
                             Ready Alerts
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/ReadyConfirmation/Index">
                         <a asp-page="/Production/ReadyConfirmation/Index">
                             Ready Confirmation
                         </a>
@@ -230,7 +189,7 @@
                  INVENTORY
                  ================================================= -->
 
-            <li>
+            <li nav-section>
 
                 <div class="icon-link">
 
@@ -261,52 +220,49 @@
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/PottedPlantStock/Index">
                         <a asp-page="/Production/PottedPlantStock/Index">
                             Potted Plant Stock
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/EmptyPotInventory/Index">
                         <a asp-page="/Production/EmptyPotInventory/Index">
                             Empty Pot Stock
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/CuttingStock/MyTransactions">
                         <a asp-page="/Production/CuttingStock/MyTransactions">
                             Cutting Stock
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/SeedStock/Index">
                         <a asp-page="/Production/SeedStock/Index">
                             Seed Stock
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Data/ReadyStock">
                         <a asp-page="/Data/ReadyStock">
                             Ready Stock
                         </a>
                     </li>
 
-                    @if (canSeeLegacyStockSorting)
-                    {
-                        <li>
-                            <a asp-page="/SeedEntry/Inventory">
-                                Legacy Stock Sorting
-                            </a>
-                        </li>
-                    }
+                    <li nav-page="/SeedEntry/Inventory">
+                        <a asp-page="/SeedEntry/Inventory">
+                            Legacy Stock Sorting
+                        </a>
+                    </li>
 
-                    <li>
+                    <li nav-page="/Data/StockHistory">
                         <a asp-page="/Data/StockHistory">
                             Stock History
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Data/WastedStock">
                         <a asp-page="/Data/WastedStock">
                             Wasted Stock
                         </a>
@@ -321,7 +277,7 @@
                  TRANSFERS
                  ================================================= -->
 
-            <li>
+            <li nav-section>
 
                 <div class="icon-link">
 
@@ -354,7 +310,7 @@
 
                     <!-- Internal Transfer -->
 
-                    <li>
+                    <li nav-page="/Production/InternalTransfer/Index">
                         <a asp-page="/Production/InternalTransfer/Index">
                             Internal Transfer
                         </a>
@@ -363,31 +319,31 @@
 
                     <!-- Cutting Transfer -->
 
-                    <li>
+                    <li nav-page="/Production/CuttingStock/EnterCutting">
                         <a asp-page="/Production/CuttingStock/EnterCutting">
                             Enter Cutting
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/CuttingStock/GiveToMainOffice">
                         <a asp-page="/Production/CuttingStock/GiveToMainOffice">
                             Give Cutting to Main Office
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/CuttingStock/PendingConfirmations">
                         <a asp-page="/Production/CuttingStock/PendingConfirmations">
                             Main Office Pending Cutting
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/CuttingStock/PendingTransplants">
                         <a asp-page="/Production/CuttingStock/PendingTransplants">
                             Pending Transplants
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/CuttingStock/MyTransactions">
                         <a asp-page="/Production/CuttingStock/MyTransactions">
                             My Cutting Transactions
                         </a>
@@ -396,19 +352,19 @@
 
                     <!-- Main Office → Growing Partner -->
 
-                    <li>
+                    <li nav-page="/Production/MainOfficeIssue/Create">
                         <a asp-page="/Production/MainOfficeIssue/Create">
                             Issue Starter Material to Growing Partner
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/MainOfficeIssue/PendingReceipts">
                         <a asp-page="/Production/MainOfficeIssue/PendingReceipts">
                             Growing Partner Pending Receipts
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/MainOfficeIssue/MyIssues">
                         <a asp-page="/Production/MainOfficeIssue/MyIssues">
                             My Main Office Issues
                         </a>
@@ -417,19 +373,19 @@
 
                     <!-- Seed Issue -->
 
-                    <li>
+                    <li nav-page="/Production/SeedIssue/Create">
                         <a asp-page="/Production/SeedIssue/Create">
                             Issue Seed to Polyhouse / Growing Area
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/SeedIssue/PendingReceipts">
                         <a asp-page="/Production/SeedIssue/PendingReceipts">
                             Polyhouse Pending Seed Receipts
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/SeedIssue/MyIssues">
                         <a asp-page="/Production/SeedIssue/MyIssues">
                             My Seed Issues
                         </a>
@@ -438,19 +394,19 @@
 
                     <!-- Growing Partner → Outlet -->
 
-                    <li>
+                    <li nav-page="/Production/GrowingPartnerToOutlet/Create">
                         <a asp-page="/Production/GrowingPartnerToOutlet/Create">
                             Send Stock to Outlet
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/GrowingPartnerToOutlet/PendingReceipts">
                         <a asp-page="/Production/GrowingPartnerToOutlet/PendingReceipts">
                             Outlet Pending Receipts
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/GrowingPartnerToOutlet/MySentTransfers">
                         <a asp-page="/Production/GrowingPartnerToOutlet/MySentTransfers">
                             My Outlet Transfers
                         </a>
@@ -465,7 +421,7 @@
                  GROWING PARTNERS
                  ================================================= -->
 
-            <li>
+            <li nav-section>
 
                 <div class="icon-link">
 
@@ -496,25 +452,25 @@
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Admin/GrowingPartner">
                         <a asp-page="/Admin/GrowingPartner">
                             Partner List
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/MainOfficeIssue/Create">
                         <a asp-page="/Production/MainOfficeIssue/Create">
                             Starter Material
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/PotProduction/Index">
                         <a asp-page="/Production/PotProduction/Index">
                             Partner Production
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/PottedPlantStock/Index">
                         <a asp-page="/Production/PottedPlantStock/Index">
                             Partner Stock
                         </a>
@@ -529,7 +485,7 @@
                  OUTLET
                  ================================================= -->
 
-            <li>
+            <li nav-section>
 
                 <div class="icon-link">
 
@@ -560,31 +516,31 @@
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/GrowingPartnerToOutlet/Create">
                         <a asp-page="/Production/GrowingPartnerToOutlet/Create">
                             Receive from Growing Partner
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/GrowingPartnerToOutlet/PendingReceipts">
                         <a asp-page="/Production/GrowingPartnerToOutlet/PendingReceipts">
                             Pending Receipts
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/PottedPlantStock/Index">
                         <a asp-page="/Production/PottedPlantStock/Index">
                             Outlet Stock
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/PottedPlantBooking/Index">
                         <a asp-page="/Production/PottedPlantBooking/Index">
                             Customer Booking
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/Dispatch/Index">
                         <a asp-page="/Production/Dispatch/Index">
                             Dispatch
                         </a>
@@ -599,7 +555,7 @@
                  BOOKING
                  ================================================= -->
 
-            <li>
+            <li nav-section>
 
                 <div class="icon-link">
 
@@ -633,7 +589,7 @@
 
                     <!-- New Booking System -->
 
-                    <li>
+                    <li nav-page="/Production/PottedPlantBooking/Index">
                         <a asp-page="/Production/PottedPlantBooking/Index">
                             Potted Plant Booking
                         </a>
@@ -642,74 +598,62 @@
 
                     <!-- Legacy Booking -->
 
-                    @if (canSeeLegacyBookingEntry)
-                    {
-                        <li>
-                            <a asp-page="/Bookings/Book">
-                                Legacy Add Booking
-                            </a>
-                        </li>
+                    <li nav-page="/Bookings/Book">
+                        <a asp-page="/Bookings/Book">
+                            Legacy Add Booking
+                        </a>
+                    </li>
 
-                        <li>
-                            <a asp-page="/Bookings/EditBookingRecords">
-                                Legacy Edit Booking
-                            </a>
-                        </li>
-                    }
+                    <li nav-page="/Bookings/EditBookingRecords">
+                        <a asp-page="/Bookings/EditBookingRecords">
+                            Legacy Edit Booking
+                        </a>
+                    </li>
 
 
-                    @if (canSeeDirectBooking)
-                    {
-                        <li>
-                            <a asp-page="/Bookings/DirectBooking">
-                                Direct Booking
-                            </a>
-                        </li>
+                    <li nav-page="/Bookings/DirectBooking">
+                        <a asp-page="/Bookings/DirectBooking">
+                            Direct Booking
+                        </a>
+                    </li>
 
-                        <li>
-                            <a asp-page="/Bookings/DirectBookingList">
-                                Direct Booking List
-                            </a>
-                        </li>
-                    }
+                    <li nav-page="/Bookings/DirectBookingList">
+                        <a asp-page="/Bookings/DirectBookingList">
+                            Direct Booking List
+                        </a>
+                    </li>
 
 
-                    @if (isAuthenticated)
-                    {
-                        <li>
-                            <a asp-page="/Data/BookingsRecord">
-                                Pending Booking Records
-                            </a>
-                        </li>
+                    <li nav-page="/Data/BookingsRecord">
+                        <a asp-page="/Data/BookingsRecord">
+                            Pending Booking Records
+                        </a>
+                    </li>
 
-                        <li>
-                            <a asp-page="/Data/BookingHistory">
-                                Completed Booking
-                            </a>
-                        </li>
+                    <li nav-page="/Data/BookingHistory">
+                        <a asp-page="/Data/BookingHistory">
+                            Completed Booking
+                        </a>
+                    </li>
 
-                        <li>
-                            <a asp-page="/Data/TotalStockSync">
-                                Sowing Booking Sync
-                            </a>
-                        </li>
-                    }
+                    <li nav-page="/Data/TotalStockSync">
+                        <a asp-page="/Data/TotalStockSync">
+                            Sowing Booking Sync
+                        </a>
+                    </li>
 
 
-                    @if (canSeeLegacyFulfillment)
-                    {
-                        <li>
-                            <a asp-page="/Bookings/Bookinglist">
-                                Legacy Fulfill Bookings
-                            </a>
-                        </li>
+                    <li nav-page="/Bookings/Bookinglist">
+                        <a asp-page="/Bookings/Bookinglist">
+                            Legacy Fulfill Bookings
+                        </a>
+                    </li>
 
-                        <li>
-                            <a asp-page="/Bookings/RevertBooking">
-                                Revert Booking
-                            </a>
-                        </li>
-                    }
+                    <li nav-page="/Bookings/RevertBooking">
+                        <a asp-page="/Bookings/RevertBooking">
+                            Revert Booking
+                        </a>
+                    </li>
 
                 </ul>
 
@@ -720,7 +664,7 @@
                  PURCHASE
                  ================================================= -->
 
-            <li>
+            <li nav-section>
 
                 <div class="icon-link">
 
@@ -751,13 +695,13 @@
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Admin/Vendor">
                         <a asp-page="/Admin/Vendor">
                             Vendors
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/PurchaseOrder/Index">
                         <a asp-page="/Production/PurchaseOrder/Index">
                             Purchase Orders
                         </a>
@@ -772,7 +716,7 @@
                  LABORATORY
                  ================================================= -->
 
-            <li>
+            <li nav-section>
 
                 <div class="icon-link">
 
@@ -803,7 +747,7 @@
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/LabRequest/Index">
                         <a asp-page="/Production/LabRequest/Index">
                             Lab Requests
                         </a>
@@ -818,7 +762,7 @@
                  FERTILIZER
                  ================================================= -->
 
-            <li>
+            <li nav-section>
 
                 <div class="icon-link">
 
@@ -849,43 +793,43 @@
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Fertilizer/UnitMaster">
                         <a asp-page="/Fertilizer/UnitMaster">
                             Fertilizer Unit
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Fertilizer/Type">
                         <a asp-page="/Fertilizer/Type">
                             Fertilizer Type
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Fertilizer/Fertilizer">
                         <a asp-page="/Fertilizer/Fertilizer">
                             Fertilizer Name
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Fertilizer/Source">
                         <a asp-page="/Fertilizer/Source">
                             Fertilizer Source
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Fertilizer/Stock">
                         <a asp-page="/Fertilizer/Stock">
                             Fertilizer Stock
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Fertilizer/Usage">
                         <a asp-page="/Fertilizer/Usage">
                             Fertilizer Usage
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Fertilizer/View">
                         <a asp-page="/Fertilizer/View">
                             Fertilizer Data
                         </a>
@@ -900,7 +844,7 @@
                  LABOUR
                  ================================================= -->
 
-            <li>
+            <li nav-section>
 
                 <div class="icon-link">
 
@@ -931,7 +875,7 @@
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/LabourLog/Index">
                         <a asp-page="/Production/LabourLog/Index">
                             Labour Entry
                         </a>
@@ -946,7 +890,7 @@
                  REPORTS
                  ================================================= -->
 
-            <li>
+            <li nav-section>
 
                 <div class="icon-link">
 
@@ -977,37 +921,37 @@
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Production/Dashboard/Index">
                         <a asp-page="/Production/Dashboard/Index">
                             Production Dashboard
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Data/Sowingplants">
                         <a asp-page="/Data/Sowingplants">
                             Sowing Records
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Data/MonthWiseSowing">
                         <a asp-page="/Data/MonthWiseSowing">
                             Monthwise Sowing
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Data/StockHistory">
                         <a asp-page="/Data/StockHistory">
                             Stock History
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Data/BookingHistory">
                         <a asp-page="/Data/BookingHistory">
                             Booking History
                         </a>
                     </li>
 
-                    <li>
+                    <li nav-page="/Data/BookingsRecord">
                         <a asp-page="/Data/BookingsRecord">
                             Pending Bookings
                         </a>
@@ -1022,85 +966,100 @@
                  ADMINISTRATION
                  ================================================= -->
 
-            @if (isAdministrator)
-            {
-                <li>
+            <li nav-section>
 
-                    <div class="icon-link">
+                <div class="icon-link">
 
-                        <a href="#">
+                    <a href="#">
 
-                            <img src="~/images/cog.svg"
-                                 alt="Administration Icon"
-                                 class="nav-icon" />
+                        <img src="~/images/cog.svg"
+                             alt="Administration Icon"
+                             class="nav-icon" />
 
-                            <span class="link_name">
-                                Administration
-                            </span>
+                        <span class="link_name">
+                            Administration
+                        </span>
 
+                    </a>
+
+                    <img src="~/images/arrow.svg"
+                         alt="Expand"
+                         class="arrow" />
+
+                </div>
+
+
+                <ul class="sub-menu">
+
+                    <li>
+                        <a class="link_name" href="#">
+                            Administration
                         </a>
+                    </li>
 
-                        <img src="~/images/arrow.svg"
-                             alt="Expand"
-                             class="arrow" />
+                    <li nav-page="/Admin/Users">
+                        <a asp-page="/Admin/Users">
+                            Users
+                        </a>
+                    </li>
 
-                    </div>
+                    <li nav-page="/Admin/Roles">
+                        <a asp-page="/Admin/Roles">
+                            Roles &amp; Permissions
+                        </a>
+                    </li>
 
+                    <li nav-page="/Admin/UserRoles">
+                        <a asp-page="/Admin/UserRoles">
+                            User Role / Area Assignments
+                        </a>
+                    </li>
 
-                    <ul class="sub-menu">
+                    <li nav-page="/Admin/Employee">
+                        <a asp-page="/Admin/Employee">
+                            Employees
+                        </a>
+                    </li>
 
-                        <li>
-                            <a class="link_name" href="#">
-                                Administration
-                            </a>
-                        </li>
+                    <li nav-page="/Admin/Area">
+                        <a asp-page="/Admin/Area">
+                            Areas
+                        </a>
+                    </li>
 
-                        <li>
-                            <a asp-page="/Admin/Users">
-                                Users / Employees
-                            </a>
-                        </li>
+                    <li nav-page="/Admin/Polyhouse">
+                        <a asp-page="/Admin/Polyhouse">
+                            Polyhouses
+                        </a>
+                    </li>
 
-                        <li>
-                            <a asp-page="/Admin/Area">
-                                Areas
-                            </a>
-                        </li>
+                    <li nav-page="/Admin/Plant">
+                        <a asp-page="/Admin/Plant">
+                            Plant Master
+                        </a>
+                    </li>
 
-                        <li>
-                            <a asp-page="/Admin/Polyhouse">
-                                Polyhouses
-                            </a>
-                        </li>
+                    <li nav-page="/Admin/Seedsource">
+                        <a asp-page="/Admin/Seedsource">
+                            Seed Sources
+                        </a>
+                    </li>
 
-                        <li>
-                            <a asp-page="/Admin/Plant">
-                                Plant Master
-                            </a>
-                        </li>
+                    <li nav-page="/Admin/Vendor">
+                        <a asp-page="/Admin/Vendor">
+                            Vendors
+                        </a>
+                    </li>
 
-                        <li>
-                            <a asp-page="/Admin/Seedsource">
-                                Seed Sources
-                            </a>
-                        </li>
+                    <li nav-page="/Admin/GrowingPartner">
+                        <a asp-page="/Admin/GrowingPartner">
+                            Growing Partners
+                        </a>
+                    </li>
 
-                        <li>
-                            <a asp-page="/Admin/Vendor">
-                                Vendors
-                            </a>
-                        </li>
+                </ul>
 
-                        <li>
-                            <a asp-page="/Admin/GrowingPartner">
-                                Growing Partners
-                            </a>
-                        </li>
-
-                    </ul>
-
-                </li>
-            }
+            </li>
 
 
             <!-- =================================================
@@ -1108,36 +1067,33 @@
                  Administrator permission only
                  ================================================= -->
 
-            @if (canManageAreas)
-            {
-                <li>
+            <li nav-page="/ManagementDashboard/Index">
 
-                    <a asp-page="/ManagementDashboard/Index">
+                <a asp-page="/ManagementDashboard/Index">
 
-                        <img src="~/images/chart.svg"
-                             alt="Management Dashboard Icon"
-                             class="nav-icon" />
+                    <img src="~/images/chart.svg"
+                         alt="Management Dashboard Icon"
+                         class="nav-icon" />
 
-                        <span class="link_name">
+                    <span class="link_name">
+                        Management Dashboard
+                    </span>
+
+                </a>
+
+
+                <ul class="sub-menu blank">
+
+                    <li>
+                        <a class="link_name"
+                           asp-page="/ManagementDashboard/Index">
                             Management Dashboard
-                        </span>
+                        </a>
+                    </li>
 
-                    </a>
+                </ul>
 
-
-                    <ul class="sub-menu blank">
-
-                        <li>
-                            <a class="link_name"
-                               asp-page="/ManagementDashboard/Index">
-                                Management Dashboard
-                            </a>
-                        </li>
-
-                    </ul>
-
-                </li>
-            }
+            </li>
 
 
             <!-- =================================================

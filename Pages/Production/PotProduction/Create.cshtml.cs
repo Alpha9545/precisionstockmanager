@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using PotProductionModel = PlantStockManager.Models.PotProduction;
@@ -13,13 +14,19 @@ namespace PlantStockManager.Pages.Production.PotProduction
         private readonly PropagationBatchRepository _propagationBatchRepo;
         private readonly EmptyPotInventoryRepository _emptyPotInventoryRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly AreaAccessService _areaAccessService;
+        private readonly MotherPlantAreaScope _areaScope;
 
         public CreateModel(
             PotProductionRepository potProductionRepo,
             PropagationBatchRepository propagationBatchRepo,
             EmptyPotInventoryRepository emptyPotInventoryRepo,
-            EmployeeRepository employeeRepo)
+            EmployeeRepository employeeRepo,
+            AreaAccessService areaAccessService,
+            MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
+            _areaAccessService = areaAccessService;
             _potProductionRepo = potProductionRepo;
             _propagationBatchRepo = propagationBatchRepo;
             _emptyPotInventoryRepo = emptyPotInventoryRepo;
@@ -76,6 +83,22 @@ namespace PlantStockManager.Pages.Production.PotProduction
             PotProduction.PotSize = selectedPool.PotSize;
             PotProduction.AreaId = selectedPool.AreaId;
 
+            // F1: the Empty Pot pool consumed (and the Potted Plant Stock
+            // created) belong to selectedPool.AreaId, and the source
+            // Propagation Batch belongs to its own/Mother Plant Area -- both
+            // were previously unchecked, so any user could consume any
+            // Area's pots/batches. Every sibling page (Edit/Details/Index/
+            // CreateFromCutting) is already Area-scoped.
+            var batch = await _propagationBatchRepo.GetByIdAsync(PotProduction.PropagationBatchId!.Value);
+            if (!_areaAccessService.CanAccessArea(User, selectedPool.AreaId)
+                || batch == null
+                || !await _areaScope.CanAccessAsync(User, batch.MotherPlantId, batch.AreaId))
+            {
+                ModelState.AddModelError(string.Empty, "You are not authorized to record Pot Production for the selected Area / Propagation Batch.");
+                await LoadDropdownsAsync();
+                return Page();
+            }
+
             PotProduction.CreatedBy = User.Identity?.Name ?? "System";
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
@@ -98,8 +121,9 @@ namespace PlantStockManager.Pages.Production.PotProduction
 
         private async Task LoadDropdownsAsync()
         {
-            OpenPropagationBatches = await _propagationBatchRepo.GetOpenForPotProductionAsync();
-            ActivePotSizes = await _emptyPotInventoryRepo.GetAllAsync(activeOnly: true);
+            // F1: only the batches / pools of the user's Area(s).
+            OpenPropagationBatches = await _areaScope.FilterAsync(User, await _propagationBatchRepo.GetOpenForPotProductionAsync(), pb => (int?)pb.MotherPlantId, pb => pb.AreaId);
+            ActivePotSizes = _areaAccessService.FilterByArea(User, await _emptyPotInventoryRepo.GetAllAsync(activeOnly: true), p => p.AreaId);
             var activeUsers = await _employeeRepo.GetAllActiveUsers();
             ResponsiblePersons = activeUsers;
             Supervisors = activeUsers;

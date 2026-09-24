@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using CuttingPlanModel = PlantStockManager.Models.CuttingPlan;
@@ -12,12 +13,15 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
         private readonly CuttingPlanRepository _cuttingPlanRepo;
         private readonly MotherPlantRepository _motherPlantRepo;
         private readonly EmployeeRepository _employeeRepo;
+        private readonly MotherPlantAreaScope _areaScope;
 
         public CreateModel(
             CuttingPlanRepository cuttingPlanRepo,
             MotherPlantRepository motherPlantRepo,
-            EmployeeRepository employeeRepo)
+            EmployeeRepository employeeRepo,
+            MotherPlantAreaScope areaScope)
         {
+            _areaScope = areaScope;
             _cuttingPlanRepo = cuttingPlanRepo;
             _motherPlantRepo = motherPlantRepo;
             _employeeRepo = employeeRepo;
@@ -66,6 +70,10 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
                 }
             }
 
+            // F1: the Mother Plant's Area must be one of the user's.
+            if (motherPlant != null && !await _areaScope.CanAccessAsync(User, motherPlant.Id))
+                ModelState.AddModelError("CuttingPlan.MotherPlantId", "You are not authorized to plan cuttings for this Mother Plant's Area.");
+
             if (!ModelState.IsValid || motherPlant == null)
             {
                 await LoadDropdownsAsync();
@@ -93,7 +101,7 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
         private async Task LoadDropdownsAsync()
         {
             var allMotherPlants = await _motherPlantRepo.GetAllAsync(status: "Active");
-            ActiveMotherPlants = allMotherPlants;
+            ActiveMotherPlants = await _areaScope.FilterAsync(User, allMotherPlants, m => (int?)m.Id); // F1
             var activeUsers = await _employeeRepo.GetAllActiveUsers();
             ResponsiblePersons = activeUsers;
             Supervisors = activeUsers;
