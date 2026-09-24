@@ -325,10 +325,17 @@ GO
 -- ----------------------------------------------------------------------------
 -- Existing bookings (unchanged). Legacy-fulfilled = has 'Allocation' rows in
 -- dbo.InventoryTransactions (the old fulfil page).
-SELECT b.Status, COUNT(*) AS Bookings, SUM(CAST(b.Quantity AS BIGINT)) AS BookedQuantity,
-       SUM(CASE WHEN EXISTS (SELECT 1 FROM dbo.InventoryTransactions it
-                             WHERE it.BookingId = b.Id AND it.TransactionType = 'Allocation') THEN 1 ELSE 0 END) AS LegacyFulfilled
+SELECT
+    b.Status,
+    COUNT(*) AS Bookings,
+    SUM(CAST(b.Quantity AS BIGINT)) AS BookedQuantity,
+    COUNT(DISTINCT CASE
+        WHEN it.BookingId IS NOT NULL THEN b.Id
+    END) AS LegacyFulfilled
 FROM dbo.Bookings b
+LEFT JOIN dbo.InventoryTransactions it
+    ON it.BookingId = b.Id
+    AND it.TransactionType = 'Allocation'
 GROUP BY b.Status;
 
 -- New booking columns initialised safely (expect 0 rows).
