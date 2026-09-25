@@ -1,0 +1,86 @@
+@page
+@model PlantStockManager.Pages.Production.PotProductionBatch.IndexModel
+@{
+    ViewData["Title"] = "Pot Production Batches";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Pot Production Batches</h2>
+        <a asp-page="/Production/PotProductionBatch/Create" class="btn btn-success">+ Plan Batch</a>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <div class="table-responsive">
+        <table class="table table-striped table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Batch Code</th>
+                    <th>Variety</th>
+                    <th>Area</th>
+                    <th>Pot Size</th>
+                    <th>Planned</th>
+                    <th>Consumed</th>
+                    <th>Produced</th>
+                    <th>Remaining</th>
+                    <th>Expected Ready</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var b in Model.Batches)
+                {
+                    var overdue = b.Status == "InProduction" && b.ExpectedReadyDate.Date < DateTime.Today;
+                    <tr class="@(overdue ? "table-danger" : "")">
+                        <td>@b.BatchCode</td>
+                        <td>@b.SpeciesName <span class="text-muted">(@b.PlantTypeName)</span></td>
+                        <td>@b.AreaName</td>
+                        <td>@b.PotSize</td>
+                        <td>@b.PlannedCuttingQuantity.ToString("N0")</td>
+                        <td>@b.CuttingQuantityConsumedTotal.ToString("N0")</td>
+                        <td>@b.QuantityProducedTotal.ToString("N0")</td>
+                        <td>@b.RemainingPlannedQuantity.ToString("N0")</td>
+                        <td>
+                            @b.ExpectedReadyDate.ToString("dd/MM/yyyy")
+                            @if (overdue)
+                            {
+                                <span class="badge bg-danger ms-1">Overdue</span>
+                            }
+                        </td>
+                        <td>
+                            @{
+                                var badgeClass = b.Status switch
+                                {
+                                    "Ready" => "bg-success",
+                                    "Cancelled" => "bg-secondary",
+                                    _ => "bg-warning text-dark"
+                                };
+                            }
+                            <span class="badge @badgeClass">@b.Status</span>
+                        </td>
+                        <td class="text-nowrap">
+                            <a asp-page="/Production/PotProductionBatch/Details" asp-route-id="@b.Id" class="btn btn-sm btn-outline-secondary">View</a>
+                            @if (b.Status == "InProduction")
+                            {
+                                <a asp-page="/Production/PotProductionBatch/DailyEntry" asp-route-id="@b.Id" class="btn btn-sm btn-primary">+ Daily Production</a>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Batches.Any())
+                {
+                    <tr><td colspan="11" class="text-center text-muted">No Pot Production Batches yet.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

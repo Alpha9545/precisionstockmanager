@@ -1,0 +1,136 @@
+@page
+@model PlantStockManager.Pages.Production.PotProductionBatch.CreateModel
+@{
+    ViewData["Title"] = "Plan Pot Production Batch";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Plan Pot Production Batch &mdash; From Cutting Stock</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (!Model.AvailableCuttingStocks.Any())
+            {
+                <div class="alert alert-warning">
+                    No Cutting Stock with available quantity is accessible to you.
+                </div>
+            }
+            @if (!Model.ActivePotSizes.Any())
+            {
+                <div class="alert alert-warning">
+                    No active Pot Sizes defined. <a asp-page="/Production/EmptyPotInventory/Create">Add a Pot Size</a> first.
+                </div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Source Cutting Stock</label>
+                        <select asp-for="Batch.SourceCuttingStockId" id="csSelect" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var cs in Model.AvailableCuttingStocks)
+                            {
+                                <option value="@cs.Id" data-areaid="@cs.AreaId" data-available="@cs.AvailableQuantity.ToString("0.####")">
+                                    @cs.SpeciesName &mdash; @cs.AreaName (@(cs.GrowingPartnerName ?? "Internal")) &mdash; Available @cs.AvailableQuantity.ToString("N2")
+                                </option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Available Cuttings</label>
+                        <input type="text" id="availablePreview" class="form-control" readonly placeholder="Select a Cutting Stock" />
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Pot Size</label>
+                        <select asp-for="Batch.EmptyPotInventoryId" id="potSizeSelect" class="form-select" required>
+                            <option value="">-- Select a Cutting Stock first --</option>
+                            @foreach (var p in Model.ActivePotSizes)
+                            {
+                                <option value="@p.Id" data-areaid="@(p.AreaId?.ToString() ?? "")">
+                                    @p.PotSize @(string.IsNullOrEmpty(p.AreaName) ? "(Unassigned)" : $"({p.AreaName})") (stock: @p.PhysicalQuantity.ToString("N2"))
+                                </option>
+                            }
+                        </select>
+                        <small class="text-muted">Only Pot Sizes belonging to the selected Cutting Stock's own Area can be used -- this batch's daily production will always use this SAME pool, never another Area's.</small>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Planned Cutting Quantity</label>
+                        <input type="number" step="0.01" min="0.01" asp-for="Batch.PlannedCuttingQuantity" class="form-control" required />
+                        <small class="text-muted">Total cuttings allocated to this batch. Daily production entries cannot together exceed this.</small>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Expected Ready Date</label>
+                        <input type="date" asp-for="Batch.ExpectedReadyDate" class="form-control" required />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supervisor <span class="text-muted fw-normal">(of the cutting stock's Area)</span></label>
+                        <select asp-for="Batch.SupervisorId" class="form-select" data-supervisor-area-source="#csSelect">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.Option.EmployeeID" data-kind="@s.KindKey" data-areas="@s.Option.AreaAttribute">@s.Option.Name</option>
+                            }
+                        </select>
+                        <small class="text-muted">Only this Supervisor can confirm the batch Ready once production is complete.</small>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="Batch.Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PotProductionBatch/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Save Batch Plan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            function filterPotSizes() {
+                const selected = $('#csSelect').find('option:selected');
+                const areaId = selected.data('areaid');
+                const available = selected.data('available');
+                $('#availablePreview').val(available !== undefined ? available : '');
+
+                $('#potSizeSelect option').each(function () {
+                    const opt = $(this);
+                    if (!opt.val()) { opt.show(); return; }
+                    const optArea = opt.data('areaid');
+                    const matches = areaId !== undefined && String(optArea) === String(areaId);
+                    opt.toggle(matches);
+                });
+                const currentOpt = $('#potSizeSelect').find('option:selected');
+                if (currentOpt.val() && !currentOpt.is(':visible')) {
+                    $('#potSizeSelect').val('');
+                }
+            }
+
+            $('#csSelect').on('change', filterPotSizes);
+            filterPotSizes();
+        });
+    </script>
+}

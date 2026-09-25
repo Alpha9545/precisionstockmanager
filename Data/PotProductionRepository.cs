@@ -24,19 +24,22 @@ namespace PlantStockManager.Data
         private readonly EmptyPotInventoryRepository _emptyPotInventoryRepo;
         private readonly PottedPlantStockRepository _pottedPlantStockRepo;
         private readonly CuttingStockRepository _cuttingStockRepo;
+        private readonly PotProductionBatchRepository _potProductionBatchRepo;
 
         public PotProductionRepository(
             DatabaseHelper dbHelper,
             BatchNumberRepository batchNumberRepo,
             EmptyPotInventoryRepository emptyPotInventoryRepo,
             PottedPlantStockRepository pottedPlantStockRepo,
-            CuttingStockRepository cuttingStockRepo)
+            CuttingStockRepository cuttingStockRepo,
+            PotProductionBatchRepository potProductionBatchRepo)
         {
             _dbHelper = dbHelper;
             _batchNumberRepo = batchNumberRepo;
             _emptyPotInventoryRepo = emptyPotInventoryRepo;
             _pottedPlantStockRepo = pottedPlantStockRepo;
             _cuttingStockRepo = cuttingStockRepo;
+            _potProductionBatchRepo = potProductionBatchRepo;
         }
 
         // PropagationBatches/MotherPlants are now LEFT JOINed (Phase 19)
@@ -51,7 +54,7 @@ namespace PlantStockManager.Data
 SELECT
     pp.Id, pp.ProductionCode, pp.PropagationBatchId, pb.BatchCode AS PropagationBatchCode,
     pp.MotherPlantId, mp.MotherPlantCode, pp.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
-    pp.SourceCuttingStockId, pp.CuttingQuantityConsumed,
+    pp.SourceCuttingStockId, pp.CuttingQuantityConsumed, pp.PotProductionBatchId,
     pp.PotSize, pp.EmptyPotInventoryId, pp.AreaId, a.Name AS AreaName, gp.Name AS GrowingPartnerName,
     pp.ProductionDate, pp.Quantity, pp.Status,
     pp.ResponsiblePersonId, r.Name AS ResponsiblePersonName,
@@ -104,6 +107,27 @@ ORDER BY pp.CreatedDate DESC";
                 return Map(reader);
             }
             return null;
+        }
+
+        // Phase 31: the daily-entry history for one Pot Production Batch,
+        // oldest first -- matches the batch detail page's running-total
+        // display (rule 2/3: Day 1 = 600, Day 2 = 500, Day 3 = 200 ->
+        // Potted Stock shows 1,300).
+        public async Task<List<PotProduction>> GetByBatchIdAsync(int potProductionBatchId)
+        {
+            var list = new List<PotProduction>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+
+            var sql = BaseSelect + " WHERE pp.PotProductionBatchId = @BatchId ORDER BY pp.ProductionDate, pp.CreatedDate";
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@BatchId", potProductionBatchId);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(Map(reader));
+            }
+            return list;
         }
 
         // Legacy path -- unchanged in behavior. Requires
@@ -328,6 +352,33 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 entry.PropagationBatchId = null;
                 entry.MotherPlantId = null;
 
+                // Phase 31: a batch-linked daily entry -- lock the batch
+                // header under the SAME transaction, check it is still
+                // open and would not exceed its own planned quantity
+                // (rule 4), and force PotSize to the batch's own,
+                // already-Area-scoped Pot Size (rule 5: an Area can never
+                // use empty pots issued to another Area -- the daily
+                // entry never re-chooses Pot Size/Area, it only ever uses
+                // the batch's own fixed pool).
+                Models.PotProductionBatch? batch = null;
+                if (entry.PotProductionBatchId.HasValue)
+                {
+                    var (batchOk, batchError, lockedBatch) = await _potProductionBatchRepo.LockForDailyEntryAsync(
+                        conn, tx, entry.PotProductionBatchId.Value, entry.CuttingQuantityConsumed.Value);
+                    if (!batchOk)
+                    {
+                        tx.Rollback();
+                        return (false, batchError, 0);
+                    }
+                    batch = lockedBatch;
+                    if (batch!.SourceCuttingStockId != entry.SourceCuttingStockId.Value)
+                    {
+                        tx.Rollback();
+                        return (false, "This daily entry's Cutting Stock does not match its batch's own source.", 0);
+                    }
+                    entry.PotSize = batch.PotSize;
+                }
+
                 // 2) Validate the requested Pot Size exists in the
                 // Cutting Stock's own Area, is active, and (as an early,
                 // non-authoritative check) has enough physical stock --
@@ -372,15 +423,16 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 INSERT INTO dbo.PotProduction
 (ProductionCode, PropagationBatchId, MotherPlantId, SpeciesId, SourceCuttingStockId, CuttingQuantityConsumed,
  PotSize, EmptyPotInventoryId, AreaId, ProductionDate, Quantity, Status,
- ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy)
+ ResponsiblePersonId, SupervisorId, Remarks, PotProductionBatchId, CreatedDate, CreatedBy)
 VALUES
 (@ProductionCode, NULL, NULL, @SpeciesId, @SourceCuttingStockId, @CuttingQuantityConsumed,
  @PotSize, @EmptyPotInventoryId, @AreaId, @ProductionDate, @Quantity, 'Completed',
- @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy);
+ @ResponsiblePersonId, @SupervisorId, @Remarks, @PotProductionBatchId, SYSUTCDATETIME(), @CreatedBy);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
                 using var cmd = new SqlCommand(insertSql, conn, tx);
                 cmd.Parameters.AddWithValue("@ProductionCode", productionCode);
+                cmd.Parameters.AddWithValue("@PotProductionBatchId", (object?)entry.PotProductionBatchId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@SpeciesId", entry.SpeciesId);
                 cmd.Parameters.AddWithValue("@SourceCuttingStockId", entry.SourceCuttingStockId.Value);
                 cmd.Parameters.AddWithValue("@CuttingQuantityConsumed", entry.CuttingQuantityConsumed.Value);
@@ -425,6 +477,15 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 {
                     tx.Rollback();
                     return (false, stockMessage, 0);
+                }
+
+                // 7) Roll the batch's own running totals forward (rule 2/3)
+                // -- only after every stock movement above has succeeded,
+                // under the same lock/transaction as step 1's own batch lock.
+                if (entry.PotProductionBatchId.HasValue)
+                {
+                    await PotProductionBatchRepository.AccumulateDailyEntryAsync(
+                        conn, tx, entry.PotProductionBatchId.Value, entry.CuttingQuantityConsumed.Value, entry.Quantity);
                 }
 
                 tx.Commit();
@@ -641,6 +702,7 @@ WHERE PropagationBatchId = @PropagationBatchId
                 SpeciesId = reader.GetInt32(reader.GetOrdinal("SpeciesId")),
                 SourceCuttingStockId = reader.IsDBNull(reader.GetOrdinal("SourceCuttingStockId")) ? null : reader.GetInt32(reader.GetOrdinal("SourceCuttingStockId")),
                 CuttingQuantityConsumed = reader.IsDBNull(reader.GetOrdinal("CuttingQuantityConsumed")) ? null : reader.GetDecimal(reader.GetOrdinal("CuttingQuantityConsumed")),
+                PotProductionBatchId = reader.IsDBNull(reader.GetOrdinal("PotProductionBatchId")) ? null : reader.GetInt32(reader.GetOrdinal("PotProductionBatchId")),
                 SpeciesName = reader.GetString(reader.GetOrdinal("SpeciesName")),
                 PlantTypeName = reader.GetString(reader.GetOrdinal("PlantTypeName")),
                 PotSize = reader.GetString(reader.GetOrdinal("PotSize")),

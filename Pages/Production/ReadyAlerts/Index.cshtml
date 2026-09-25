@@ -271,4 +271,99 @@
             </tbody>
         </table>
     </div>
+
+    <hr class="my-4" />
+    <h4>Pot Production Batch Alerts</h4>
+
+    <h5 class="text-danger">Overdue (@Model.PotBatchOverdue.Count)</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-danger">
+                <tr>
+                    <th>Batch Code</th><th>Variety</th><th>Area</th><th>Pot Size</th><th>Remaining</th>
+                    <th>Expected Ready Date</th><th>Days Overdue</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var pb in Model.PotBatchOverdue)
+                {
+                    <tr>
+                        <td>@pb.BatchCode</td>
+                        <td>@pb.SpeciesName <span class="text-muted">(@pb.PlantTypeName)</span></td>
+                        <td>@pb.AreaName</td>
+                        <td>@pb.PotSize</td>
+                        <td>@pb.RemainingPlannedQuantity.ToString("N0")</td>
+                        <td>@pb.ExpectedReadyDate.ToString("dd/MM/yyyy")</td>
+                        <td><span class="badge bg-danger">@(-DaysFromToday(pb.ExpectedReadyDate)) day(s)</span></td>
+                        <td><a asp-page="/Production/PotProductionBatch/Details" asp-route-id="@pb.Id" class="btn btn-sm btn-outline-secondary">Details</a></td>
+                    </tr>
+                }
+                @if (!Model.PotBatchOverdue.Any())
+                {
+                    <tr><td colspan="8" class="text-center text-muted">No overdue Pot Production Batches.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h5 class="text-warning">Ready Today (@Model.PotBatchReadyToday.Count)</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-warning">
+                <tr>
+                    <th>Batch Code</th><th>Variety</th><th>Area</th><th>Pot Size</th><th>Remaining</th>
+                    <th>Expected Ready Date</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var pb in Model.PotBatchReadyToday)
+                {
+                    <tr>
+                        <td>@pb.BatchCode</td>
+                        <td>@pb.SpeciesName <span class="text-muted">(@pb.PlantTypeName)</span></td>
+                        <td>@pb.AreaName</td>
+                        <td>@pb.PotSize</td>
+                        <td>@pb.RemainingPlannedQuantity.ToString("N0")</td>
+                        <td>@pb.ExpectedReadyDate.ToString("dd/MM/yyyy")</td>
+                        <td><a asp-page="/Production/PotProductionBatch/Details" asp-route-id="@pb.Id" class="btn btn-sm btn-outline-secondary">Details</a></td>
+                    </tr>
+                }
+                @if (!Model.PotBatchReadyToday.Any())
+                {
+                    <tr><td colspan="7" class="text-center text-muted">No Pot Production Batches ready today.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h5 class="text-info">Ready Soon &mdash; within @Model.WindowDays day(s) (@Model.PotBatchReadySoon.Count)</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-info">
+                <tr>
+                    <th>Batch Code</th><th>Variety</th><th>Area</th><th>Pot Size</th><th>Remaining</th>
+                    <th>Expected Ready Date</th><th>Days Remaining</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var pb in Model.PotBatchReadySoon)
+                {
+                    <tr>
+                        <td>@pb.BatchCode</td>
+                        <td>@pb.SpeciesName <span class="text-muted">(@pb.PlantTypeName)</span></td>
+                        <td>@pb.AreaName</td>
+                        <td>@pb.PotSize</td>
+                        <td>@pb.RemainingPlannedQuantity.ToString("N0")</td>
+                        <td>@pb.ExpectedReadyDate.ToString("dd/MM/yyyy")</td>
+                        <td><span class="badge bg-info text-dark">@DaysFromToday(pb.ExpectedReadyDate) day(s)</span></td>
+                        <td><a asp-page="/Production/PotProductionBatch/Details" asp-route-id="@pb.Id" class="btn btn-sm btn-outline-secondary">Details</a></td>
+                    </tr>
+                }
+                @if (!Model.PotBatchReadySoon.Any())
+                {
+                    <tr><td colspan="8" class="text-center text-muted">No Pot Production Batches ready soon.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
 </div>

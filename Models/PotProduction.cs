@@ -29,6 +29,15 @@ namespace PlantStockManager.Models
         // and PropagationBatchId populated.
         public int? SourceCuttingStockId { get; set; }
 
+        // Phase 31: which PotProductionBatch (if any) this daily entry
+        // belongs to. NULL for every pre-Phase-31 row (both the legacy
+        // Propagation-Batch path and the single-event Cutting-sourced
+        // path, PotProduction/CreateFromCutting.cshtml.cs) -- both keep
+        // working completely unchanged. Only ever set for a new row
+        // created through a batch's own daily-entry page (Data/
+        // PotProductionBatchRepository.cs).
+        public int? PotProductionBatchId { get; set; }
+
         // Phase 19: how many cuttings were consumed to produce Quantity
         // potted plants, for the Cutting-sourced path only (NULL for the
         // legacy path -- it has no separate "cuttings consumed" concept,

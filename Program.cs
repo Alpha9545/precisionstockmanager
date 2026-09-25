@@ -98,6 +98,11 @@ builder.Services.AddScoped<ReadyConfirmationRepository>(); // Phase 25 (Phase K)
 builder.Services.AddScoped<CuttingSowingRepository>();
 builder.Services.AddScoped<SeedlingFulfilmentRepository>(); // Phase C: Ready Stock -> booking reservation -> dispatch
 
+// Phase 31 (Phase 6): Cutting to Potted Plant Production batches --
+// the header PotProductionRepository.InsertFromCuttingStockAsync's daily
+// entries link back to. See Database/Phase31_PotProductionBatch.sql.
+builder.Services.AddScoped<PotProductionBatchRepository>();
+
 // Management Dashboard (Phase 26/Phase L): a dedicated, READ-ONLY
 // reporting repository -- never a duplicate of any operational
 // repository above, see Data/ManagementDashboardRepository.cs.

@@ -136,6 +136,20 @@ namespace PlantStockManager.Authorization
                 ["/Production/PotProduction/Create"] = R("PotProduction.Enter|Kiran.Enter"),
                 ["/Production/PotProduction/CreateFromCutting"] = R("PotProduction.Enter|Kiran.Enter"),
                 ["/Production/PotProduction/Edit"] = R("PotProduction.Enter|Kiran.Enter"),
+
+                // Phase 31 (Phase 6): Cutting to Potted Plant Production
+                // batches -- reuses the SAME PotProduction permission
+                // codes as the pages above (no new role/permission, per
+                // the "no unnecessary approval/permission" instruction).
+                // Ready confirmation is gated by the assigned-supervisor
+                // check itself (DirectSowingRules.CanApprove), not a
+                // separate permission code.
+                ["/Production/PotProductionBatch/Index"] = R("PotProduction.View|Kiran.View"),
+                ["/Production/PotProductionBatch/Details"] = R("PotProduction.View|Kiran.View"),
+                ["/Production/PotProductionBatch/Create"] = R("PotProduction.Enter|Kiran.Enter"),
+                ["/Production/PotProductionBatch/DailyEntry"] = R("PotProduction.Enter|Kiran.Enter"),
+                ["/Production/PotProductionBatch/ConfirmReady"] = R("PotProduction.Enter|Kiran.Enter"),
+
                 ["/Production/EmptyPotInventory/Index"] = R("PotProduction.View|Purchase.View"),
                 ["/Production/EmptyPotInventory/Details"] = R("PotProduction.View|Purchase.View"),
                 ["/Production/EmptyPotInventory/Create"] = R("PotProduction.Enter|Purchase.Enter"),

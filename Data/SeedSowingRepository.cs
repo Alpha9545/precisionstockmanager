@@ -258,9 +258,14 @@ ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
         // category here never writes anything, never changes Status,
         // and never creates or touches any stock row (Phase J's own
         // "no automatic readiness" rule).
-        public static string ClassifyReadyAlert(string status, DateTime? expectedReadyDate, DateTime today, int readySoonWindowDays)
+        // activeStatus defaults to "Sown" (Seed/Cutting Sowing's own
+        // "still open" status) -- Phase 31 passes "InProduction" for Pot
+        // Production Batches, whose own open/closed status uses a
+        // different word for the identical concept ("still open, not yet
+        // Ready-confirmed and not Cancelled"). No other behavior changes.
+        public static string ClassifyReadyAlert(string status, DateTime? expectedReadyDate, DateTime today, int readySoonWindowDays, string activeStatus = "Sown")
         {
-            if (status != "Sown" || !expectedReadyDate.HasValue)
+            if (status != activeStatus || !expectedReadyDate.HasValue)
                 return "None";
 
             var readyDate = expectedReadyDate.Value.Date;

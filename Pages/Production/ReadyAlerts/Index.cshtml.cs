@@ -4,6 +4,7 @@ using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using SeedSowingModel = PlantStockManager.Models.SeedSowing;
 using CuttingSowingModel = PlantStockManager.Models.CuttingSowing;
+using PotProductionBatchModel = PlantStockManager.Models.PotProductionBatch;
 
 namespace PlantStockManager.Pages.Production.ReadyAlerts
 {
@@ -35,15 +36,18 @@ namespace PlantStockManager.Pages.Production.ReadyAlerts
     {
         private readonly SeedSowingRepository _seedSowingRepo;
         private readonly CuttingSowingRepository _cuttingSowingRepo;
+        private readonly PotProductionBatchRepository _potProductionBatchRepo;
         private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
-        private readonly AreaAccessService _cuttingAreaAccessService; // Cutting Sowing uses the regular Area scope (Phase 3/4/5 convention)
+        private readonly AreaAccessService _cuttingAreaAccessService; // Cutting Sowing / Pot Production Batch use the regular Area scope (Phase 3/4/5/31 convention)
 
         public IndexModel(
             SeedSowingRepository seedSowingRepo, CuttingSowingRepository cuttingSowingRepo,
+            PotProductionBatchRepository potProductionBatchRepo,
             SeedlingAreaScope areaAccessService, AreaAccessService cuttingAreaAccessService)
         {
             _seedSowingRepo = seedSowingRepo;
             _cuttingSowingRepo = cuttingSowingRepo;
+            _potProductionBatchRepo = potProductionBatchRepo;
             _areaAccessService = areaAccessService;
             _cuttingAreaAccessService = cuttingAreaAccessService;
         }
@@ -66,6 +70,10 @@ namespace PlantStockManager.Pages.Production.ReadyAlerts
         public List<CuttingSowingModel> CuttingOverdue { get; set; } = new();
         public List<CuttingSowingModel> CuttingReadyToday { get; set; } = new();
         public List<CuttingSowingModel> CuttingReadySoon { get; set; } = new();
+
+        public List<PotProductionBatchModel> PotBatchOverdue { get; set; } = new();
+        public List<PotProductionBatchModel> PotBatchReadyToday { get; set; } = new();
+        public List<PotProductionBatchModel> PotBatchReadySoon { get; set; } = new();
 
         public async Task OnGetAsync()
         {
@@ -131,6 +139,28 @@ namespace PlantStockManager.Pages.Production.ReadyAlerts
                         break;
                     case "ReadySoon":
                         CuttingReadySoon.Add(sowing);
+                        break;
+                }
+            }
+
+            var potBatchCandidates = await _potProductionBatchRepo.GetAlertCandidatesAsync(horizon);
+            var potBatchAccessible = _cuttingAreaAccessService.HasFullAreaAccess(User)
+                ? potBatchCandidates
+                : potBatchCandidates.Where(b => _cuttingAreaAccessService.CanAccessArea(User, b.AreaId)).ToList();
+
+            foreach (var batch in potBatchAccessible)
+            {
+                var category = SeedSowingRepository.ClassifyReadyAlert(batch.Status, batch.ExpectedReadyDate, today, WindowDays, activeStatus: "InProduction");
+                switch (category)
+                {
+                    case "Overdue":
+                        PotBatchOverdue.Add(batch);
+                        break;
+                    case "ReadyToday":
+                        PotBatchReadyToday.Add(batch);
+                        break;
+                    case "ReadySoon":
+                        PotBatchReadySoon.Add(batch);
                         break;
                 }
             }

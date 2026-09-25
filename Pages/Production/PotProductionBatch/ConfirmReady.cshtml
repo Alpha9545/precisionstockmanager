@@ -1,0 +1,42 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.PotProductionBatch.ConfirmReadyModel
+@{
+    ViewData["Title"] = "Confirm Batch Ready";
+}
+
+@if (Model.Batch == null)
+{
+    <div class="container mt-4"><div class="alert alert-danger">Batch not found.</div></div>
+}
+else
+{
+    var b = Model.Batch;
+    <div class="container mt-4">
+        <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+            <div class="card-header">
+                <h4 class="mb-0">Confirm Ready &mdash; Batch @b.BatchCode</h4>
+            </div>
+            <div class="card-body">
+                <dl class="row">
+                    <dt class="col-sm-4">Variety</dt><dd class="col-sm-8">@b.SpeciesName (@b.PlantTypeName)</dd>
+                    <dt class="col-sm-4">Area</dt><dd class="col-sm-8">@b.AreaName</dd>
+                    <dt class="col-sm-4">Pot Size</dt><dd class="col-sm-8">@b.PotSize</dd>
+                    <dt class="col-sm-4">Cuttings Consumed</dt><dd class="col-sm-8">@b.CuttingQuantityConsumedTotal.ToString("N0") of @b.PlannedCuttingQuantity.ToString("N0") planned</dd>
+                    <dt class="col-sm-4">Potted Plants Produced</dt><dd class="col-sm-8">@b.QuantityProducedTotal.ToString("N0")</dd>
+                </dl>
+
+                <p class="text-muted">
+                    Confirming Ready closes this batch to further daily production entries. The potted plants already
+                    produced are already available in Potted Plant Stock for Main Office / Outlet / Customer.
+                </p>
+
+                <form method="post">
+                    <div class="text-center mt-3">
+                        <a asp-page="/Production/PotProductionBatch/Details" asp-route-id="@b.Id" class="btn btn-secondary me-2">Cancel</a>
+                        <button type="submit" class="btn btn-success">Confirm Ready</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+}
