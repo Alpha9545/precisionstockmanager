@@ -27,6 +27,7 @@
                 <dt class="col-sm-5">Cutting Rate</dt><dd class="col-sm-7">@Model.MotherPlant.CuttingRate.ToString("N4")</dd>
                 <dt class="col-sm-5">Expected Cutting Quantity</dt><dd class="col-sm-7">@Model.MotherPlant.ExpectedCuttingQuantity.ToString("N2")</dd>
                 <dt class="col-sm-5">Expected Monthly Cutting</dt><dd class="col-sm-7">@Model.MotherPlant.ExpectedMonthlyCuttingQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Actual Cutting Quantity</dt><dd class="col-sm-7">@Model.ActualCuttingQuantity.ToString("N2")</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.MotherPlant.Remarks</dd>
                 <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.MotherPlant.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.MotherPlant.CreatedBy</dd>
                 @if (Model.MotherPlant.ModifiedDate.HasValue)
@@ -40,4 +41,31 @@
             <a asp-page="/Production/MotherPlant/Edit" asp-route-id="@Model.MotherPlant.Id" class="btn btn-warning">Edit</a>
         </div>
     </div>
+
+    @if (Model.RecentHarvests.Any())
+    {
+        <div class="card shadow-sm mx-auto mt-3" style="max-width: 700px;">
+            <div class="card-header">
+                <h5 class="mb-0">Cutting Production History</h5>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead>
+                        <tr><th>Date</th><th class="text-end">Quantity</th><th>Recorded By</th><th>Remarks</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var h in Model.RecentHarvests)
+                        {
+                            <tr>
+                                <td>@h.TransactionDate.ToString("dd/MM/yyyy")</td>
+                                <td class="text-end">@h.Quantity.ToString("N2")</td>
+                                <td>@(h.UserName ?? "-")</td>
+                                <td>@(h.Remarks ?? "-")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
 </div>

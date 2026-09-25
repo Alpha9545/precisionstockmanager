@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using System.Linq;
 
 namespace PlantStockManager.Data
 {
@@ -338,26 +339,73 @@ ORDER BY t.CreatedAt DESC";
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
-                list.Add(new CuttingStockTransaction
-                {
-                    Id = reader.GetInt32(reader.GetOrdinal("Id")),
-                    CuttingStockId = reader.GetInt32(reader.GetOrdinal("CuttingStockId")),
-                    SpeciesName = reader.IsDBNull(reader.GetOrdinal("SpeciesName")) ? null : reader.GetString(reader.GetOrdinal("SpeciesName")),
-                    AreaName = reader.IsDBNull(reader.GetOrdinal("AreaName")) ? null : reader.GetString(reader.GetOrdinal("AreaName")),
-                    TransactionDate = reader.GetDateTime(reader.GetOrdinal("TransactionDate")),
-                    TransactionType = reader.GetString(reader.GetOrdinal("TransactionType")),
-                    ReferenceType = reader.IsDBNull(reader.GetOrdinal("ReferenceType")) ? null : reader.GetString(reader.GetOrdinal("ReferenceType")),
-                    ReferenceId = reader.IsDBNull(reader.GetOrdinal("ReferenceId")) ? null : reader.GetInt32(reader.GetOrdinal("ReferenceId")),
-                    Quantity = reader.GetDecimal(reader.GetOrdinal("Quantity")),
-                    BeforeQuantity = reader.GetDecimal(reader.GetOrdinal("BeforeQuantity")),
-                    AfterQuantity = reader.GetDecimal(reader.GetOrdinal("AfterQuantity")),
-                    UserId = reader.IsDBNull(reader.GetOrdinal("UserId")) ? null : reader.GetInt32(reader.GetOrdinal("UserId")),
-                    UserName = reader.IsDBNull(reader.GetOrdinal("UserName")) ? null : reader.GetString(reader.GetOrdinal("UserName")),
-                    Remarks = reader.IsDBNull(reader.GetOrdinal("Remarks")) ? null : reader.GetString(reader.GetOrdinal("Remarks")),
-                    CreatedAt = reader.GetDateTime(reader.GetOrdinal("CreatedAt"))
-                });
+                list.Add(MapTransaction(reader));
             }
             return list;
+        }
+
+        // Phase 3 (Mother Plant -> Cutting Production): "Actual Cutting
+        // Quantity" and harvest history for one Mother Plant record.
+        // CuttingStock/its ledger are pooled by (SpeciesId, AreaId), not by
+        // MotherPlantId (Model B deliberately has no Cutting Plan/Actual
+        // Cutting link -- see EnterCutting.cshtml.cs) -- so a Mother Plant's
+        // own harvested quantity is every 'Harvest' transaction against ITS
+        // OWN Species+Area pool, from its Planting Date onward (a later
+        // Mother Plant batch of the same Species+Area does not inherit an
+        // earlier batch's harvest history). Read-only; no schema change,
+        // no new table -- same "query existing data" approach as every
+        // other read-only aggregate in this codebase (e.g. Phase E).
+        public async Task<(decimal TotalQuantity, List<CuttingStockTransaction> Recent)> GetHarvestSummaryAsync(int speciesId, int areaId, DateTime since)
+        {
+            var recent = new List<CuttingStockTransaction>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+
+            const string sql = @"
+SELECT t.Id, t.CuttingStockId, ps.Name AS SpeciesName, a.Name AS AreaName,
+       t.TransactionDate, t.TransactionType, t.ReferenceType, t.ReferenceId,
+       t.Quantity, t.BeforeQuantity, t.AfterQuantity, t.UserId, u.Name AS UserName, t.Remarks, t.CreatedAt
+FROM dbo.CuttingStockTransactions t
+INNER JOIN dbo.CuttingStock c ON t.CuttingStockId = c.Id
+INNER JOIN dbo.PlantSpecies ps ON c.SpeciesId = ps.Id
+INNER JOIN dbo.Area a ON c.AreaId = a.Id
+LEFT JOIN dbo.IMSUsers u ON t.UserId = u.Id
+WHERE c.SpeciesId = @SpeciesId AND c.AreaId = @AreaId
+  AND t.TransactionType = 'Harvest' AND t.TransactionDate >= @Since
+ORDER BY t.TransactionDate DESC";
+
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@SpeciesId", speciesId);
+            cmd.Parameters.AddWithValue("@AreaId", areaId);
+            cmd.Parameters.AddWithValue("@Since", since.Date);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                recent.Add(MapTransaction(reader));
+            }
+            return (recent.Sum(t => t.Quantity), recent);
+        }
+
+        private static CuttingStockTransaction MapTransaction(SqlDataReader reader)
+        {
+            return new CuttingStockTransaction
+            {
+                Id = reader.GetInt32(reader.GetOrdinal("Id")),
+                CuttingStockId = reader.GetInt32(reader.GetOrdinal("CuttingStockId")),
+                SpeciesName = reader.IsDBNull(reader.GetOrdinal("SpeciesName")) ? null : reader.GetString(reader.GetOrdinal("SpeciesName")),
+                AreaName = reader.IsDBNull(reader.GetOrdinal("AreaName")) ? null : reader.GetString(reader.GetOrdinal("AreaName")),
+                TransactionDate = reader.GetDateTime(reader.GetOrdinal("TransactionDate")),
+                TransactionType = reader.GetString(reader.GetOrdinal("TransactionType")),
+                ReferenceType = reader.IsDBNull(reader.GetOrdinal("ReferenceType")) ? null : reader.GetString(reader.GetOrdinal("ReferenceType")),
+                ReferenceId = reader.IsDBNull(reader.GetOrdinal("ReferenceId")) ? null : reader.GetInt32(reader.GetOrdinal("ReferenceId")),
+                Quantity = reader.GetDecimal(reader.GetOrdinal("Quantity")),
+                BeforeQuantity = reader.GetDecimal(reader.GetOrdinal("BeforeQuantity")),
+                AfterQuantity = reader.GetDecimal(reader.GetOrdinal("AfterQuantity")),
+                UserId = reader.IsDBNull(reader.GetOrdinal("UserId")) ? null : reader.GetInt32(reader.GetOrdinal("UserId")),
+                UserName = reader.IsDBNull(reader.GetOrdinal("UserName")) ? null : reader.GetString(reader.GetOrdinal("UserName")),
+                Remarks = reader.IsDBNull(reader.GetOrdinal("Remarks")) ? null : reader.GetString(reader.GetOrdinal("Remarks")),
+                CreatedAt = reader.GetDateTime(reader.GetOrdinal("CreatedAt"))
+            };
         }
 
         private static CuttingStock Map(SqlDataReader reader)
