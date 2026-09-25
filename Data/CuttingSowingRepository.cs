@@ -106,6 +106,32 @@ LEFT JOIN dbo.IMSUsers sup ON cw.SupervisorId = sup.Id";
             return list;
         }
 
+        // Ready Alerts / Management Dashboard candidate list -- mirrors
+        // SeedSowingRepository.GetAlertCandidatesAsync exactly (same SQL
+        // shape, same DirectSowingRules-independent classification via
+        // the shared static SeedSowingRepository.ClassifyReadyAlert,
+        // which takes only primitive status/date/window arguments and is
+        // reused unchanged for either sowing type).
+        public async Task<List<CuttingSowing>> GetAlertCandidatesAsync(DateTime horizon)
+        {
+            var list = new List<CuttingSowing>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+
+            var sql = BaseSelect + @"
+WHERE cw.Status = 'Sown' AND cw.ExpectedReadyDate IS NOT NULL AND cw.ExpectedReadyDate <= @Horizon
+      AND cw.ConfirmedReadyQuantity + cw.WastageQuantity < cw.QuantitySown
+ORDER BY cw.ExpectedReadyDate";
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@Horizon", horizon.Date);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(Map(reader));
+            }
+            return list;
+        }
+
         // Active ('Sown') Cutting Sowings that still have remaining
         // un-confirmed quantity -- the Cutting Sowing Approval queue.
         // Mirrors SeedSowingRepository.GetReadyForConfirmationAsync.

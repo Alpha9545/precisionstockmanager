@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using SeedSowingModel = PlantStockManager.Models.SeedSowing;
+using CuttingSowingModel = PlantStockManager.Models.CuttingSowing;
 
 namespace PlantStockManager.Pages.Production.ReadyAlerts
 {
@@ -22,15 +23,29 @@ namespace PlantStockManager.Pages.Production.ReadyAlerts
     // old Inventory/SeedEntries pipeline), mirroring the exact
     // "SeedSowing, never bare Sowing" naming precedent Phase I already
     // set for the identical reason.
+    //
+    // Phase 5 follow-up: Cutting Sowing batches (Data/
+    // CuttingSowingRepository.cs) are alerted here too, in their OWN
+    // three lists/tables -- never merged into the Seed lists (do not mix
+    // seed stock and cutting stock), reusing the SAME classification
+    // function (SeedSowingRepository.ClassifyReadyAlert takes only
+    // primitive status/date/window arguments -- it has no seed-specific
+    // logic, so it is called unchanged for Cutting Sowing candidates too).
     public class IndexModel : PageModel
     {
         private readonly SeedSowingRepository _seedSowingRepo;
+        private readonly CuttingSowingRepository _cuttingSowingRepo;
         private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
+        private readonly AreaAccessService _cuttingAreaAccessService; // Cutting Sowing uses the regular Area scope (Phase 3/4/5 convention)
 
-        public IndexModel(SeedSowingRepository seedSowingRepo, SeedlingAreaScope areaAccessService)
+        public IndexModel(
+            SeedSowingRepository seedSowingRepo, CuttingSowingRepository cuttingSowingRepo,
+            SeedlingAreaScope areaAccessService, AreaAccessService cuttingAreaAccessService)
         {
             _seedSowingRepo = seedSowingRepo;
+            _cuttingSowingRepo = cuttingSowingRepo;
             _areaAccessService = areaAccessService;
+            _cuttingAreaAccessService = cuttingAreaAccessService;
         }
 
         // Judgment call, per the Phase J spec's own instruction ("before
@@ -47,6 +62,10 @@ namespace PlantStockManager.Pages.Production.ReadyAlerts
         public List<SeedSowingModel> Overdue { get; set; } = new();
         public List<SeedSowingModel> ReadyToday { get; set; } = new();
         public List<SeedSowingModel> ReadySoon { get; set; } = new();
+
+        public List<CuttingSowingModel> CuttingOverdue { get; set; } = new();
+        public List<CuttingSowingModel> CuttingReadyToday { get; set; } = new();
+        public List<CuttingSowingModel> CuttingReadySoon { get; set; } = new();
 
         public async Task OnGetAsync()
         {
@@ -91,6 +110,28 @@ namespace PlantStockManager.Pages.Production.ReadyAlerts
                     // filter already excluded Cancelled rows and rows
                     // further out than the horizon -- but is handled
                     // safely (simply not shown) if it ever did.
+                }
+            }
+
+            var cuttingCandidates = await _cuttingSowingRepo.GetAlertCandidatesAsync(horizon);
+            var cuttingAccessible = _cuttingAreaAccessService.HasFullAreaAccess(User)
+                ? cuttingCandidates
+                : cuttingCandidates.Where(s => _cuttingAreaAccessService.CanAccessArea(User, s.AreaId)).ToList();
+
+            foreach (var sowing in cuttingAccessible)
+            {
+                var category = SeedSowingRepository.ClassifyReadyAlert(sowing.Status, sowing.ExpectedReadyDate, today, WindowDays);
+                switch (category)
+                {
+                    case "Overdue":
+                        CuttingOverdue.Add(sowing);
+                        break;
+                    case "ReadyToday":
+                        CuttingReadyToday.Add(sowing);
+                        break;
+                    case "ReadySoon":
+                        CuttingReadySoon.Add(sowing);
+                        break;
                 }
             }
         }

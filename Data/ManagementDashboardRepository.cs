@@ -29,11 +29,19 @@ namespace PlantStockManager.Data
     {
         private readonly DatabaseHelper _dbHelper;
         private readonly SeedSowingRepository _seedSowingRepo;
+        // Phase 5 follow-up: Cutting Sowing batches (dbo.CuttingSowings)
+        // are folded into the SAME KPI numbers below (Sown/Confirmed
+        // Ready/Wastage/Overdue/ReadyToday/ReadySoon/Sowing Activity/
+        // trend) -- a Ready seedling is a Ready seedling regardless of
+        // origin, exactly like Data/ReadyStockRepository.cs's own
+        // dual-source read (never a second, seed-only KPI set).
+        private readonly CuttingSowingRepository _cuttingSowingRepo;
 
-        public ManagementDashboardRepository(DatabaseHelper dbHelper, SeedSowingRepository seedSowingRepo)
+        public ManagementDashboardRepository(DatabaseHelper dbHelper, SeedSowingRepository seedSowingRepo, CuttingSowingRepository cuttingSowingRepo)
         {
             _dbHelper = dbHelper;
             _seedSowingRepo = seedSowingRepo;
+            _cuttingSowingRepo = cuttingSowingRepo;
         }
 
         // ------------------------------------------------------------
@@ -185,6 +193,32 @@ WHERE Status = 'Sown'
                 }
             }
 
+            // Phase 5 follow-up: fold in Cutting Sowing's own Sown/
+            // Confirmed/Wastage the same way -- dbo.CuttingSowings has no
+            // AreaId/SpeciesId filter reuse from AddAreaSpecies (that
+            // helper targets a SeedSowings-shaped param set already bound
+            // above), so this is its own small, parameterized query.
+            using (var cmd = new SqlCommand(@"
+SELECT ISNULL(SUM(QuantitySown), 0), ISNULL(SUM(ConfirmedReadyQuantity), 0), ISNULL(SUM(WastageQuantity), 0)
+FROM dbo.CuttingSowings
+WHERE Status = 'Sown'
+  AND (@AreaId IS NULL OR AreaId = @AreaId)
+  AND (@SpeciesId IS NULL OR SpeciesId = @SpeciesId)", conn))
+            {
+                cmd.Parameters.AddWithValue("@AreaId", (object?)filters.AreaId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@SpeciesId", (object?)filters.SpeciesId ?? DBNull.Value);
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    var cuttingSown = reader.GetDecimal(0);
+                    var cuttingConfirmed = reader.GetDecimal(1);
+                    var cuttingWastage = reader.GetDecimal(2);
+                    result.SownQuantity += cuttingSown;
+                    result.ConfirmedReadyQuantity += cuttingConfirmed;
+                    result.RemainingQuantity += cuttingSown - cuttingConfirmed - cuttingWastage;
+                }
+            }
+
             var today = DateTime.Today;
             var horizon = today.AddDays(SeedSowingRepository.DefaultReadySoonWindowDays);
             var candidates = await _seedSowingRepo.GetAlertCandidatesAsync(horizon);
@@ -193,6 +227,36 @@ WHERE Status = 'Sown'
                 .Where(s => !filters.SpeciesId.HasValue || s.SpeciesId == filters.SpeciesId.Value);
 
             foreach (var sowing in scoped)
+            {
+                var category = SeedSowingRepository.ClassifyReadyAlert(sowing.Status, sowing.ExpectedReadyDate, today, SeedSowingRepository.DefaultReadySoonWindowDays);
+                switch (category)
+                {
+                    case "Overdue":
+                        result.OverdueCount++;
+                        result.OverdueQuantity += sowing.RemainingReadyQuantity;
+                        break;
+                    case "ReadyToday":
+                        result.ReadyTodayCount++;
+                        result.ReadyTodayQuantity += sowing.RemainingReadyQuantity;
+                        break;
+                    case "ReadySoon":
+                        result.ReadySoonCount++;
+                        result.ReadySoonQuantity += sowing.RemainingReadyQuantity;
+                        break;
+                }
+            }
+
+            // Phase 5 follow-up: the same Overdue/ReadyToday/ReadySoon
+            // counters, now also fed by Cutting Sowing candidates
+            // (SeedSowingRepository.ClassifyReadyAlert is reused
+            // unchanged -- it takes only primitive status/date/window
+            // arguments, no seed-specific logic).
+            var cuttingCandidates = await _cuttingSowingRepo.GetAlertCandidatesAsync(horizon);
+            var cuttingScoped = cuttingCandidates
+                .Where(s => !filters.AreaId.HasValue || s.AreaId == filters.AreaId.Value)
+                .Where(s => !filters.SpeciesId.HasValue || s.SpeciesId == filters.SpeciesId.Value);
+
+            foreach (var sowing in cuttingScoped)
             {
                 var category = SeedSowingRepository.ClassifyReadyAlert(sowing.Status, sowing.ExpectedReadyDate, today, SeedSowingRepository.DefaultReadySoonWindowDays);
                 switch (category)
@@ -491,6 +555,27 @@ WHERE Status <> 'Cancelled'
                 }
             }
 
+            // Phase 5 follow-up: fold in Cutting Sowing activity the same
+            // way -- a separate query (dbo.CuttingSowings), added into
+            // the SAME counters, never a second/parallel KPI.
+            using (var cmd = new SqlCommand(@"
+SELECT COUNT(*), ISNULL(SUM(QuantitySown), 0)
+FROM dbo.CuttingSowings
+WHERE Status <> 'Cancelled'
+  AND SowingDate >= @FromDate AND SowingDate < @ToDateExclusive
+  AND (@AreaId IS NULL OR AreaId = @AreaId)
+  AND (@SpeciesId IS NULL OR SpeciesId = @SpeciesId)", conn))
+            {
+                AddDateRange(cmd, filters);
+                AddAreaSpecies(cmd, filters);
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    result.SowingActivityCountInRange += reader.GetInt32(0);
+                    result.SeedSownQuantityInRange += reader.GetDecimal(1);
+                }
+            }
+
             using (var cmd = new SqlCommand(@"
 SELECT COUNT(*)
 FROM dbo.SeedIssues
@@ -712,6 +797,35 @@ ORDER BY SowingDate", conn))
                 using var reader = await cmd.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
                     points.Add(new TrendPoint { BucketDate = reader.GetDateTime(0), Series = "Sown", Value = reader.GetDecimal(1) });
+            }
+
+            // Phase 5 follow-up: Cutting Sowing's own "Sown" points, on the
+            // SAME "Sown" series (merged by date below) -- a production
+            // trend line that only ever showed seed-sown quantity would
+            // understate real sowing activity once Cutting Sowing is in use.
+            using (var cmd = new SqlCommand(@"
+SELECT SowingDate AS D, SUM(QuantitySown) AS V
+FROM dbo.CuttingSowings
+WHERE Status <> 'Cancelled'
+  AND SowingDate >= @FromDate AND SowingDate < @ToDateExclusive
+  AND (@AreaId IS NULL OR AreaId = @AreaId)
+  AND (@SpeciesId IS NULL OR SpeciesId = @SpeciesId)
+GROUP BY SowingDate
+ORDER BY SowingDate", conn))
+            {
+                AddDateRange(cmd, filters);
+                AddAreaSpecies(cmd, filters);
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var date = reader.GetDateTime(0);
+                    var value = reader.GetDecimal(1);
+                    var existing = points.FirstOrDefault(p => p.Series == "Sown" && p.BucketDate == date);
+                    if (existing != null)
+                        existing.Value += value;
+                    else
+                        points.Add(new TrendPoint { BucketDate = date, Series = "Sown", Value = value });
+                }
             }
 
             using (var cmd = new SqlCommand(@"

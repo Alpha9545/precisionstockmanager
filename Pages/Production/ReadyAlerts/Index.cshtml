@@ -170,4 +170,105 @@
             </tbody>
         </table>
     </div>
+
+    <hr class="my-4" />
+    <h4>Cutting Sowing Alerts</h4>
+
+    <h5 class="text-danger">Overdue (@Model.CuttingOverdue.Count)</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-danger">
+                <tr>
+                    <th>Sowing Code</th><th>Variety</th><th>Area</th><th>Cavity</th><th>Quantity</th>
+                    <th>Sowing Date</th><th>Ready Days</th><th>Expected Ready Date</th><th>Days Overdue</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var cw in Model.CuttingOverdue)
+                {
+                    <tr>
+                        <td>@cw.SowingCode</td>
+                        <td>@cw.SpeciesName <span class="text-muted">(@cw.PlantTypeName)</span></td>
+                        <td>@cw.AreaName</td>
+                        <td>@cw.CavityType</td>
+                        <td>@cw.QuantitySown.ToString("N2")</td>
+                        <td>@cw.SowingDate.ToString("dd/MM/yyyy")</td>
+                        <td>@(cw.ReadyStockDays?.ToString() ?? "-")</td>
+                        <td>@cw.ExpectedReadyDate?.ToString("dd/MM/yyyy")</td>
+                        <td><span class="badge bg-danger">@(-DaysFromToday(cw.ExpectedReadyDate)) day(s)</span></td>
+                        <td><a asp-page="/Production/CuttingSowing/Details" asp-route-id="@cw.Id" class="btn btn-sm btn-outline-secondary">Details</a></td>
+                    </tr>
+                }
+                @if (!Model.CuttingOverdue.Any())
+                {
+                    <tr><td colspan="10" class="text-center text-muted">No overdue Cutting Sowings.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h5 class="text-warning">Ready Today (@Model.CuttingReadyToday.Count)</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-warning">
+                <tr>
+                    <th>Sowing Code</th><th>Variety</th><th>Area</th><th>Cavity</th><th>Quantity</th>
+                    <th>Sowing Date</th><th>Ready Days</th><th>Expected Ready Date</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var cw in Model.CuttingReadyToday)
+                {
+                    <tr>
+                        <td>@cw.SowingCode</td>
+                        <td>@cw.SpeciesName <span class="text-muted">(@cw.PlantTypeName)</span></td>
+                        <td>@cw.AreaName</td>
+                        <td>@cw.CavityType</td>
+                        <td>@cw.QuantitySown.ToString("N2")</td>
+                        <td>@cw.SowingDate.ToString("dd/MM/yyyy")</td>
+                        <td>@(cw.ReadyStockDays?.ToString() ?? "-")</td>
+                        <td>@cw.ExpectedReadyDate?.ToString("dd/MM/yyyy")</td>
+                        <td><a asp-page="/Production/CuttingSowing/Details" asp-route-id="@cw.Id" class="btn btn-sm btn-outline-secondary">Details</a></td>
+                    </tr>
+                }
+                @if (!Model.CuttingReadyToday.Any())
+                {
+                    <tr><td colspan="9" class="text-center text-muted">No Cutting Sowings ready today.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h5 class="text-info">Ready Soon &mdash; within @Model.WindowDays day(s) (@Model.CuttingReadySoon.Count)</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-info">
+                <tr>
+                    <th>Sowing Code</th><th>Variety</th><th>Area</th><th>Cavity</th><th>Quantity</th>
+                    <th>Sowing Date</th><th>Ready Days</th><th>Expected Ready Date</th><th>Days Remaining</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var cw in Model.CuttingReadySoon)
+                {
+                    <tr>
+                        <td>@cw.SowingCode</td>
+                        <td>@cw.SpeciesName <span class="text-muted">(@cw.PlantTypeName)</span></td>
+                        <td>@cw.AreaName</td>
+                        <td>@cw.CavityType</td>
+                        <td>@cw.QuantitySown.ToString("N2")</td>
+                        <td>@cw.SowingDate.ToString("dd/MM/yyyy")</td>
+                        <td>@(cw.ReadyStockDays?.ToString() ?? "-")</td>
+                        <td>@cw.ExpectedReadyDate?.ToString("dd/MM/yyyy")</td>
+                        <td><span class="badge bg-info text-dark">@DaysFromToday(cw.ExpectedReadyDate) day(s)</span></td>
+                        <td><a asp-page="/Production/CuttingSowing/Details" asp-route-id="@cw.Id" class="btn btn-sm btn-outline-secondary">Details</a></td>
+                    </tr>
+                }
+                @if (!Model.CuttingReadySoon.Any())
+                {
+                    <tr><td colspan="10" class="text-center text-muted">No Cutting Sowings ready soon.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
 </div>
