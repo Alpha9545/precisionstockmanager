@@ -1,0 +1,129 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.CuttingSowing.ConfirmModel
+@{
+    ViewData["Title"] = "Cutting Sowing Supervisor Approval";
+    var s = Model.CuttingSowing;
+    var cavity = PlantStockManager.Services.DirectSowingRules.CavityCount(s.CavityType);
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Cutting Sowing Supervisor Approval &mdash; Batch @s.SowingCode</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <div class="alert alert-secondary">
+                <div class="row">
+                    <div class="col-md-6"><strong>Variety:</strong> @s.SpeciesName (@s.PlantTypeName)</div>
+                    <div class="col-md-6"><strong>Area:</strong> @s.AreaName</div>
+                    <div class="col-md-6"><strong>Sowing Date:</strong> @s.SowingDate.ToString("dd/MM/yyyy")</div>
+                    <div class="col-md-6"><strong>Expected Ready Date:</strong> @(s.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</div>
+                    <div class="col-md-6"><strong>Assigned Supervisor:</strong> @(s.SupervisorName ?? "-")</div>
+                </div>
+            </div>
+
+            <h6 class="fw-bold">From the sowing (read-only)</h6>
+            <table class="table table-sm table-bordered align-middle mb-3" style="max-width: 560px;">
+                <tbody>
+                    <tr><th class="w-50">Cutting Quantity entered</th><td>@s.CuttingQuantityEntered.ToString("N0")</td></tr>
+                    <tr><th>Cavity (inherited, cannot be changed)</th><td><strong>@s.CavityType</strong></td></tr>
+                    <tr><th>Sowing Trays</th><td>@(s.NumberOfTrays?.ToString("N0") ?? "-")</td></tr>
+                    <tr><th>Cuttings Sown (Cuttings Used)</th><td>@s.QuantitySown.ToString("N0")</td></tr>
+                </tbody>
+            </table>
+
+            <form method="post">
+                <input type="hidden" asp-for="CuttingSowingId" />
+
+                <h6 class="fw-bold">Supervisor Approval</h6>
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Actual Ready Trays <span class="text-danger">*</span></label>
+                        <input type="number" step="1" min="1" max="@(s.NumberOfTrays ?? 0)" asp-for="ActualReadyTrays"
+                               id="actualTrays" class="form-control" required />
+                        <div class="form-text">Whole trays, 1 to @(s.NumberOfTrays?.ToString("N0") ?? "-"). The only quantity you enter.</div>
+                    </div>
+                    <div class="col-md-8">
+                        <table class="table table-sm table-bordered mb-0">
+                            <tbody>
+                                <tr><th class="w-50">Actual Ready Seedlings <span class="text-muted fw-normal">= trays &times; @(cavity?.ToString() ?? "?")</span></th><td id="outSeedlings">&ndash;</td></tr>
+                                <tr><th>Wastage <span class="text-muted fw-normal">= cuttings sown &minus; ready seedlings</span></th><td id="outWastage">&ndash;</td></tr>
+                                <tr><th>Wastage %</th><td id="outWastagePct">&ndash;</td></tr>
+                            </tbody>
+                        </table>
+                        <div class="text-danger small d-none" id="previewError"></div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Wastage Reason <span class="text-danger">*</span></label>
+                        <select asp-for="WastageReason" id="wastageReason" class="form-select">
+                            <option value="">-- Select --</option>
+                            @foreach (var r in Model.WastageReasons)
+                            {
+                                <option value="@r">@r</option>
+                            }
+                        </select>
+                        <div class="form-text">Required when wastage is more than 0.</div>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Remarks</label>
+                        <textarea asp-for="Remarks" class="form-control" rows="1"></textarea>
+                    </div>
+                </div>
+
+                <div class="small text-muted mt-3">
+                    Approved By is recorded as you (@User.Identity?.Name). Ready Stock receives exactly the Actual Ready
+                    Seedlings (complete trays &times; the sowing's cavity); approving closes the batch.
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/CuttingSowing/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Approve &amp; Close Batch</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const trays = document.getElementById('actualTrays');
+            const reason = document.getElementById('wastageReason');
+            const err = document.getElementById('previewError');
+            const url = '@Url.Page("/Production/CuttingSowing/Confirm", "TrayPreview", new { id = Model.CuttingSowing.Id })';
+            function fmt(n) { return Number(n).toLocaleString('en-IN'); }
+            function preview() {
+                ['outSeedlings', 'outWastage', 'outWastagePct'].forEach(i => document.getElementById(i).textContent = '–');
+                err.classList.add('d-none');
+                if (!trays.value) { reason.required = false; return; }
+                fetch(url + '&trays=' + encodeURIComponent(trays.value), { headers: { 'Accept': 'application/json' } })
+                    .then(r => r.json())
+                    .then(r => {
+                        if (r.seedlings !== null) {
+                            document.getElementById('outSeedlings').textContent = fmt(r.seedlings);
+                            document.getElementById('outWastage').textContent = fmt(r.wastage);
+                            document.getElementById('outWastagePct').textContent = r.wastagePercent.toFixed(2) + '%';
+                        }
+                        reason.required = r.wastage > 0;
+                        if (r.error && !r.ok) { err.textContent = r.error; err.classList.remove('d-none'); }
+                    });
+            }
+            trays.addEventListener('input', preview);
+            preview();
+        })();
+    </script>
+}

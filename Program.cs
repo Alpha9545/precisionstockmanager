@@ -90,6 +90,12 @@ builder.Services.AddScoped<SeedStockRepository>();
 builder.Services.AddScoped<SeedSowingRepository>();
 builder.Services.AddScoped<ReadyStockRepository>(); // Phase 25 (Phase K)
 builder.Services.AddScoped<ReadyConfirmationRepository>(); // Phase 25 (Phase K)
+
+// Cutting Stock -> Cutting Sowing (Phase 5): the SAME tray/cavity ->
+// Ready Stock architecture as Direct Sowing above, deliberately a
+// separate table/repository -- never mixed with SeedSowingRepository.
+// See Database/Phase30_CuttingSowing.sql for the full reasoning.
+builder.Services.AddScoped<CuttingSowingRepository>();
 builder.Services.AddScoped<SeedlingFulfilmentRepository>(); // Phase C: Ready Stock -> booking reservation -> dispatch
 
 // Management Dashboard (Phase 26/Phase L): a dedicated, READ-ONLY

@@ -1,0 +1,102 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.CuttingSowing.HistoryModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Cutting Sowing Approval History";
+    var canApprove = await FeatureAccess.CanAccessPageAsync(User, "/Production/CuttingSowing/Confirm");
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Approval History &mdash; Batch @Model.CuttingSowing.SowingCode</h2>
+        <a asp-page="/Production/CuttingSowing/Index" class="btn btn-outline-secondary">Back to Cutting Sowing</a>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <div class="alert alert-secondary">
+        <div class="row">
+            <div class="col-md-6"><strong>Variety:</strong> @Model.CuttingSowing.SpeciesName (@Model.CuttingSowing.PlantTypeName)</div>
+            <div class="col-md-6"><strong>Area:</strong> @Model.CuttingSowing.AreaName</div>
+            <div class="col-md-4"><strong>Sown Quantity:</strong> @Model.CuttingSowing.QuantitySown.ToString("N2")</div>
+            <div class="col-md-4"><strong>Approved Ready:</strong> @Model.CuttingSowing.ConfirmedReadyQuantity.ToString("N2")</div>
+            <div class="col-md-4"><strong>Wastage:</strong> @Model.CuttingSowing.WastageQuantity.ToString("N2")</div>
+            <div class="col-md-4"><strong>Still to approve:</strong> @Model.CuttingSowing.RemainingReadyQuantity.ToString("N2")</div>
+            <div class="col-md-4"><strong>Status:</strong> @Model.CuttingSowing.Status</div>
+        </div>
+        @if (canApprove && Model.CuttingSowing.RemainingReadyQuantity > 0 && Model.CuttingSowing.Status == "Sown")
+        {
+            <div class="mt-2">
+                <a asp-page="/Production/CuttingSowing/Confirm" asp-route-id="@Model.CuttingSowing.Id" class="btn btn-sm btn-success">Approve batch</a>
+            </div>
+        }
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-light">
+                <tr>
+                    <th>Approval Code</th>
+                    <th>Approval Date</th>
+                    <th>Actual Ready Trays</th>
+                    <th>Actual Ready Seedlings</th>
+                    <th>Wastage</th>
+                    <th>Wastage %</th>
+                    <th>Wastage Reason</th>
+                    <th>Approved By</th>
+                    <th>Status</th>
+                    <th>Supervisor</th>
+                    <th>Remarks</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var rc in Model.Confirmations)
+                {
+                    <tr>
+                        <td>@rc.ConfirmationCode</td>
+                        <td>@rc.ConfirmationDate.ToString("dd/MM/yyyy HH:mm")</td>
+                        <td>@(rc.ActualTrayQuantity?.ToString("N0") ?? "–")</td>
+                        <td>@rc.ConfirmedQuantity.ToString("N0")</td>
+                        <td>@rc.WastageQuantity.ToString("N0")</td>
+                        <td>@rc.WastagePercent.ToString("0.00")%</td>
+                        <td>@(rc.WastageReason ?? "-")</td>
+                        <td>@(rc.ApprovedByName ?? rc.CreatedBy ?? "-")</td>
+                        <td>
+                            @if (rc.Status == "Cancelled")
+                            {
+                                <span class="badge bg-secondary">Cancelled</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-success">Confirmed</span>
+                            }
+                        </td>
+                        <td>@(rc.SupervisorName ?? "-")</td>
+                        <td>@(rc.Remarks ?? "-")</td>
+                        <td>
+                            @if (canApprove && Model.CanCancelApproval && rc.Status == "Confirmed")
+                            {
+                                <form method="post" asp-page-handler="Cancel" asp-route-confirmationId="@rc.Id" asp-route-cuttingSowingId="@Model.CuttingSowing.Id"
+                                      onsubmit="return confirm('Cancel this approval? Its Ready quantity is removed from Ready Stock and the batch is re-opened for approval.');">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Cancel</button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Confirmations.Any())
+                {
+                    <tr><td colspan="13" class="text-center text-muted">No approval recorded yet for this batch.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

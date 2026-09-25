@@ -18,7 +18,14 @@ namespace PlantStockManager.Models
     {
         public int Id { get; set; }
 
-        public int SeedSowingId { get; set; }
+        // Phase 5: exactly one of these two is set (CK_ReadyStock_SourceType)
+        // -- a Ready Stock row traces back to either a Direct Seed Sowing or
+        // a Cutting Sowing, never both, never neither. Booking/Dispatch/
+        // Alerts read this row's OWN denormalized columns below and never
+        // need to know which; only this table's own detail views care.
+        public int? SeedSowingId { get; set; }
+        public int? CuttingSowingId { get; set; }
+        public string SourceType => CuttingSowingId.HasValue ? "Cutting" : "Seed";
 
         // Denormalized from the owning Sowing at the moment this row
         // is first created -- never re-derived later, never trusted

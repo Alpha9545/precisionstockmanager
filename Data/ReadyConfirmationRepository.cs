@@ -47,25 +47,38 @@ namespace PlantStockManager.Data
             _readyStockRepo = readyStockRepo;
         }
 
+        // Phase 5: LEFT JOINs both dbo.SeedSowings and dbo.CuttingSowings and
+        // COALESCEs every sowing-derived column, mirroring
+        // ReadyStockRepository.BaseSelect exactly -- exactly one of the two
+        // ever matches a given row (CK_ReadyConfirmations_SourceType).
         private const string BaseSelect = @"
 SELECT
-    rc.Id, rc.ConfirmationCode, rc.SeedSowingId, sw.SowingCode, rc.ReadyStockId,
+    rc.Id, rc.ConfirmationCode, rc.SeedSowingId, rc.CuttingSowingId, COALESCE(sw.SowingCode, cw.SowingCode) AS SowingCode, rc.ReadyStockId,
     ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
-    a.Name AS AreaName, sph.Name AS PolyhouseName,   -- only the Polyhouse actually recorded (optional)
-    sw.BatchNo, sw.CavityType, sw.NumberOfTrays AS SowingTrays, sw.SowingDate, sw.ExpectedReadyDate, sw.ReadyStockDays,
-    sw.QuantitySown, sw.ConfirmedReadyQuantity, sw.WastageQuantity AS SowingWastageQuantity,
+    a.Name AS AreaName, COALESCE(sph.Name, cph.Name) AS PolyhouseName,   -- only the Polyhouse actually recorded (optional)
+    COALESCE(sw.BatchNo, cw.SowingCode) AS BatchNo,
+    COALESCE(sw.CavityType, cw.CavityType) AS CavityType,
+    COALESCE(sw.NumberOfTrays, cw.NumberOfTrays) AS SowingTrays,
+    COALESCE(sw.SowingDate, cw.SowingDate) AS SowingDate,
+    COALESCE(sw.ExpectedReadyDate, cw.ExpectedReadyDate) AS ExpectedReadyDate,
+    COALESCE(sw.ReadyStockDays, cw.ReadyStockDays) AS ReadyStockDays,
+    COALESCE(sw.QuantitySown, cw.QuantitySown) AS QuantitySown,
+    COALESCE(sw.ConfirmedReadyQuantity, cw.ConfirmedReadyQuantity) AS ConfirmedReadyQuantity,
+    COALESCE(sw.WastageQuantity, cw.WastageQuantity) AS SowingWastageQuantity,
     rc.ActualTrayQuantity, rc.ConfirmedQuantity, rc.WastageQuantity, rc.WastageReason, rc.ApprovedById, ab.Name AS ApprovedByName,
     rc.ConfirmationDate, rc.Status,
     rc.ResponsiblePersonId, r.Name AS ResponsiblePersonName,
     rc.SupervisorId, sup.Name AS SupervisorName,
     rc.Remarks, rc.CreatedDate, rc.CreatedBy, rc.ModifiedDate, rc.ModifiedBy
 FROM dbo.ReadyConfirmations rc
-INNER JOIN dbo.SeedSowings sw ON rc.SeedSowingId = sw.Id
-INNER JOIN dbo.PlantSpecies ps ON sw.SpeciesId = ps.Id
+LEFT JOIN dbo.SeedSowings sw ON rc.SeedSowingId = sw.Id
+LEFT JOIN dbo.CuttingSowings cw ON rc.CuttingSowingId = cw.Id
+INNER JOIN dbo.PlantSpecies ps ON COALESCE(sw.SpeciesId, cw.SpeciesId) = ps.Id
 INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
-INNER JOIN dbo.Area a ON sw.AreaId = a.Id
+INNER JOIN dbo.Area a ON COALESCE(sw.AreaId, cw.AreaId) = a.Id
 LEFT JOIN dbo.Polyhouses ph ON a.PolyhouseId = ph.Id
 LEFT JOIN dbo.Polyhouses sph ON sw.PolyhouseId = sph.Id
+LEFT JOIN dbo.Polyhouses cph ON a.PolyhouseId = cph.Id
 LEFT JOIN dbo.IMSUsers ab ON rc.ApprovedById = ab.Id
 LEFT JOIN dbo.IMSUsers r ON rc.ResponsiblePersonId = r.Id
 LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
@@ -111,6 +124,23 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
             var sql = BaseSelect + " WHERE rc.SeedSowingId = @SeedSowingId ORDER BY rc.CreatedDate DESC";
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@SeedSowingId", seedSowingId);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(Map(reader));
+            }
+            return list;
+        }
+
+        public async Task<List<ReadyConfirmation>> GetByCuttingSowingIdAsync(int cuttingSowingId)
+        {
+            var list = new List<ReadyConfirmation>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+
+            var sql = BaseSelect + " WHERE rc.CuttingSowingId = @CuttingSowingId ORDER BY rc.CreatedDate DESC";
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@CuttingSowingId", cuttingSowingId);
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
@@ -298,6 +328,155 @@ WHERE Id = @Id", conn, tx);
             }
         }
 
+        // Phase 5: the Cutting Sowing twin of ConfirmAsync above -- IDENTICAL
+        // logic (lock the source sowing, check eligibility/authority, tray
+        // arithmetic via DirectSowingRules.ComputeTrayApproval, get-or-create
+        // the batch's Ready Stock row, record the approval, close the
+        // batch), just reading/writing dbo.CuttingSowings and
+        // ReadyConfirmations.CuttingSowingId instead of dbo.SeedSowings/
+        // SeedSowingId. No database trigger backstops this path (see
+        // Database/Phase30_CuttingSowing.sql's header comment) -- every
+        // rule here is enforced in this method, under the sowing's own
+        // row lock, exactly like every other Phase 1-4 approval rule in
+        // this codebase.
+        public async Task<(bool Success, string? Message, int Id)> ConfirmCuttingSowingAsync(
+            int cuttingSowingId, decimal actualReadyTrays, string? wastageReason, string? remarks, string? createdBy, int? userId)
+        {
+            if (actualReadyTrays <= 0 || !DirectSowingRules.IsWholeNumber(actualReadyTrays))
+                return (false, "Actual Ready Trays must be a whole number of at least 1.", 0);
+
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+
+            try
+            {
+                var lockCmd = new SqlCommand(
+                    "SELECT SpeciesId, AreaId, SowingCode, CavityType, NumberOfTrays, SowingDate, QuantitySown, " +
+                    "ConfirmedReadyQuantity, WastageQuantity, Status, CreatedById, CreatedBy, SupervisorId " +
+                    "FROM dbo.CuttingSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                    conn, tx);
+                lockCmd.Parameters.AddWithValue("@Id", cuttingSowingId);
+                int speciesId, areaId;
+                string sowingCode, cavityType, status;
+                DateTime sowingDate;
+                decimal quantitySown, confirmedSoFar, wastedSoFar;
+                int? sowingCreatedById, assignedSupervisorId, sowingTrays;
+                string? sowingCreatedBy;
+                using (var reader = await lockCmd.ExecuteReaderAsync())
+                {
+                    if (!await reader.ReadAsync())
+                    {
+                        reader.Close();
+                        tx.Rollback();
+                        return (false, "Cutting Sowing record not found.", 0);
+                    }
+                    speciesId = reader.GetInt32(reader.GetOrdinal("SpeciesId"));
+                    areaId = reader.GetInt32(reader.GetOrdinal("AreaId"));
+                    sowingCode = reader.GetString(reader.GetOrdinal("SowingCode"));
+                    cavityType = reader.GetString(reader.GetOrdinal("CavityType"));
+                    sowingTrays = reader.IsDBNull(reader.GetOrdinal("NumberOfTrays")) ? null : reader.GetInt32(reader.GetOrdinal("NumberOfTrays"));
+                    sowingDate = reader.GetDateTime(reader.GetOrdinal("SowingDate"));
+                    quantitySown = reader.GetDecimal(reader.GetOrdinal("QuantitySown"));
+                    confirmedSoFar = reader.GetDecimal(reader.GetOrdinal("ConfirmedReadyQuantity"));
+                    wastedSoFar = reader.GetDecimal(reader.GetOrdinal("WastageQuantity"));
+                    status = reader.GetString(reader.GetOrdinal("Status"));
+                    sowingCreatedById = reader.IsDBNull(reader.GetOrdinal("CreatedById")) ? null : reader.GetInt32(reader.GetOrdinal("CreatedById"));
+                    sowingCreatedBy = reader.IsDBNull(reader.GetOrdinal("CreatedBy")) ? null : reader.GetString(reader.GetOrdinal("CreatedBy"));
+                    assignedSupervisorId = reader.IsDBNull(reader.GetOrdinal("SupervisorId")) ? null : reader.GetInt32(reader.GetOrdinal("SupervisorId"));
+                }
+
+                if (status != "Sown")
+                {
+                    tx.Rollback();
+                    return (false, $"This Cutting Sowing batch is '{status}' and cannot be approved.", 0);
+                }
+                // Approval authority: the EXISTING assigned-supervisor rule,
+                // unchanged -- only the supervisor assigned to this sowing,
+                // never the person who recorded it.
+                var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
+                    assignedSupervisorId, sowingCreatedById, sowingCreatedBy, userId, createdBy);
+                if (!mayApprove)
+                {
+                    tx.Rollback();
+                    return (false, authorityError, 0);
+                }
+
+                // Tray arithmetic (under the lock), always with the SOWING's
+                // own cavity and tray count -- never a value from the browser.
+                var (ok, actualTrays, readyQuantity, wastage, _, error) = DirectSowingRules.ComputeTrayApproval(
+                    quantitySown, sowingTrays, cavityType, confirmedSoFar, wastedSoFar, actualReadyTrays, wastageReason);
+                if (!ok)
+                {
+                    tx.Rollback();
+                    return (false, error, 0);
+                }
+                var reasonToStore = wastage > 0 ? wastageReason : null;
+
+                var confirmationCode = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "RDY", DateTime.UtcNow.Year);
+
+                var readyStockId = await _readyStockRepo.GetOrCreateLockedFromCuttingSowingAsync(
+                    conn, tx, cuttingSowingId, speciesId, areaId, polyhouseId: null, sowingCode, cavityType, sowingDate, createdBy);
+
+                const string insertSql = @"
+INSERT INTO dbo.ReadyConfirmations
+(ConfirmationCode, CuttingSowingId, ReadyStockId, ActualTrayQuantity, ConfirmedQuantity, WastageQuantity, WastageReason, ApprovedById,
+ ConfirmationDate, Status, SupervisorId, Remarks, CreatedDate, CreatedBy)
+VALUES
+(@ConfirmationCode, @CuttingSowingId, @ReadyStockId, @ActualTrayQuantity, @ConfirmedQuantity, @WastageQuantity, @WastageReason, @ApprovedById,
+ SYSUTCDATETIME(), 'Confirmed', @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy);
+SELECT CAST(SCOPE_IDENTITY() AS INT);";
+                using var cmd = new SqlCommand(insertSql, conn, tx);
+                cmd.Parameters.AddWithValue("@ConfirmationCode", confirmationCode);
+                cmd.Parameters.AddWithValue("@CuttingSowingId", cuttingSowingId);
+                cmd.Parameters.AddWithValue("@ReadyStockId", readyStockId);
+                cmd.Parameters.AddWithValue("@ActualTrayQuantity", actualTrays);
+                cmd.Parameters.AddWithValue("@ConfirmedQuantity", readyQuantity);
+                cmd.Parameters.AddWithValue("@WastageQuantity", wastage);
+                cmd.Parameters.AddWithValue("@WastageReason", (object?)reasonToStore ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ApprovedById", (object?)userId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@SupervisorId", (object?)assignedSupervisorId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
+                var newId = (int)(await cmd.ExecuteScalarAsync())!;
+
+                if (readyQuantity > 0)
+                {
+                    var (stockSuccess, stockMessage) = await _readyStockRepo.RecordTransactionAsync(
+                        conn, tx, readyStockId, readyQuantity, "Confirmed", "ReadyConfirmation", newId, userId,
+                        $"Supervisor Approval of Cutting Sowing batch {sowingCode}");
+                    if (!stockSuccess)
+                    {
+                        tx.Rollback();
+                        return (false, stockMessage, 0);
+                    }
+                }
+
+                var newReady = confirmedSoFar + readyQuantity;
+                var newWastage = wastedSoFar + wastage;
+                var newStatus = newReady + newWastage == quantitySown ? "Completed" : "Sown";
+                var updateSowingCmd = new SqlCommand(@"
+UPDATE dbo.CuttingSowings
+SET ConfirmedReadyQuantity = @Ready, WastageQuantity = @Wastage, Status = @Status,
+    ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @ModifiedBy
+WHERE Id = @Id", conn, tx);
+                updateSowingCmd.Parameters.AddWithValue("@Ready", newReady);
+                updateSowingCmd.Parameters.AddWithValue("@Wastage", newWastage);
+                updateSowingCmd.Parameters.AddWithValue("@Status", newStatus);
+                updateSowingCmd.Parameters.AddWithValue("@ModifiedBy", (object?)createdBy ?? DBNull.Value);
+                updateSowingCmd.Parameters.AddWithValue("@Id", cuttingSowingId);
+                await updateSowingCmd.ExecuteNonQueryAsync();
+
+                tx.Commit();
+                return (true, null, newId);
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { }
+                return (false, ex.Message, 0);
+            }
+        }
+
         // Reverses ONE approval: removes exactly its Ready quantity from the
         // batch's Ready Stock ('ReversalRemoval'; refused if that stock is no
         // longer there), takes its Ready and Wastage back off the Sowing and
@@ -312,10 +491,11 @@ WHERE Id = @Id", conn, tx);
             try
             {
                 var lockCmd = new SqlCommand(
-                    "SELECT SeedSowingId, ReadyStockId, ConfirmedQuantity, WastageQuantity, Status FROM dbo.ReadyConfirmations WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                    "SELECT SeedSowingId, CuttingSowingId, ReadyStockId, ConfirmedQuantity, WastageQuantity, Status FROM dbo.ReadyConfirmations WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", id);
-                int seedSowingId, readyStockId;
+                int? seedSowingId, cuttingSowingId;
+                int readyStockId;
                 decimal confirmedQuantity, wastageQuantity;
                 string status;
                 using (var reader = await lockCmd.ExecuteReaderAsync())
@@ -326,7 +506,8 @@ WHERE Id = @Id", conn, tx);
                         tx.Rollback();
                         return (false, "Ready Confirmation record not found.");
                     }
-                    seedSowingId = reader.GetInt32(reader.GetOrdinal("SeedSowingId"));
+                    seedSowingId = reader.IsDBNull(reader.GetOrdinal("SeedSowingId")) ? null : reader.GetInt32(reader.GetOrdinal("SeedSowingId"));
+                    cuttingSowingId = reader.IsDBNull(reader.GetOrdinal("CuttingSowingId")) ? null : reader.GetInt32(reader.GetOrdinal("CuttingSowingId"));
                     readyStockId = reader.GetInt32(reader.GetOrdinal("ReadyStockId"));
                     confirmedQuantity = reader.GetDecimal(reader.GetOrdinal("ConfirmedQuantity"));
                     wastageQuantity = reader.GetDecimal(reader.GetOrdinal("WastageQuantity"));
@@ -339,10 +520,16 @@ WHERE Id = @Id", conn, tx);
                     return (false, "This Ready Confirmation is already Cancelled.");
                 }
 
+                // Phase 5: exactly one of SeedSowingId/CuttingSowingId is set
+                // (CK_ReadyConfirmations_SourceType) -- lock and update
+                // whichever parent table actually produced this row.
+                var sowingTable = cuttingSowingId.HasValue ? "dbo.CuttingSowings" : "dbo.SeedSowings";
+                var parentSowingId = cuttingSowingId ?? seedSowingId!.Value;
+
                 var sowingLockCmd = new SqlCommand(
-                    "SELECT ConfirmedReadyQuantity, WastageQuantity, Status, SupervisorId FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                    $"SELECT ConfirmedReadyQuantity, WastageQuantity, Status, SupervisorId FROM {sowingTable} WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
-                sowingLockCmd.Parameters.AddWithValue("@Id", seedSowingId);
+                sowingLockCmd.Parameters.AddWithValue("@Id", parentSowingId);
                 decimal confirmedSoFar, wastedSoFar;
                 string sowingStatus;
                 int? sowingSupervisorId;
@@ -352,7 +539,7 @@ WHERE Id = @Id", conn, tx);
                     {
                         reader.Close();
                         tx.Rollback();
-                        return (false, "Parent Seed Sowing no longer exists.");
+                        return (false, cuttingSowingId.HasValue ? "Parent Cutting Sowing no longer exists." : "Parent Seed Sowing no longer exists.");
                     }
                     confirmedSoFar = reader.GetDecimal(0);
                     wastedSoFar = reader.GetDecimal(1);
@@ -361,6 +548,8 @@ WHERE Id = @Id", conn, tx);
                 }
                 // Phase 1 (F2): only the sowing's assigned supervisor may
                 // cancel its approval -- checked under the sowing's row lock.
+                // Applies identically to both sources -- the existing rule,
+                // never a new one.
                 var (mayCancel, cancelError) = DirectSowingRules.CanCancelApproval(sowingSupervisorId, userId);
                 if (!mayCancel)
                 {
@@ -396,15 +585,15 @@ WHERE Id = @Id", conn, tx);
                 updateConfirmationCmd.Parameters.AddWithValue("@Id", id);
                 await updateConfirmationCmd.ExecuteNonQueryAsync();
 
-                var updateSowingCmd = new SqlCommand(@"
-UPDATE dbo.SeedSowings
+                var updateSowingCmd = new SqlCommand($@"
+UPDATE {sowingTable}
 SET ConfirmedReadyQuantity = @Ready, WastageQuantity = @Wastage, Status = 'Sown',
     ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @ModifiedBy
 WHERE Id = @Id", conn, tx);
                 updateSowingCmd.Parameters.AddWithValue("@Ready", confirmedSoFar - confirmedQuantity);
                 updateSowingCmd.Parameters.AddWithValue("@Wastage", wastedSoFar - wastageQuantity);
                 updateSowingCmd.Parameters.AddWithValue("@ModifiedBy", (object?)modifiedBy ?? DBNull.Value);
-                updateSowingCmd.Parameters.AddWithValue("@Id", seedSowingId);
+                updateSowingCmd.Parameters.AddWithValue("@Id", parentSowingId);
                 await updateSowingCmd.ExecuteNonQueryAsync();
 
                 tx.Commit();
@@ -423,7 +612,8 @@ WHERE Id = @Id", conn, tx);
             {
                 Id = reader.GetInt32(reader.GetOrdinal("Id")),
                 ConfirmationCode = reader.GetString(reader.GetOrdinal("ConfirmationCode")),
-                SeedSowingId = reader.GetInt32(reader.GetOrdinal("SeedSowingId")),
+                SeedSowingId = reader.IsDBNull(reader.GetOrdinal("SeedSowingId")) ? null : reader.GetInt32(reader.GetOrdinal("SeedSowingId")),
+                CuttingSowingId = reader.IsDBNull(reader.GetOrdinal("CuttingSowingId")) ? null : reader.GetInt32(reader.GetOrdinal("CuttingSowingId")),
                 SowingCode = reader.GetString(reader.GetOrdinal("SowingCode")),
                 ReadyStockId = reader.GetInt32(reader.GetOrdinal("ReadyStockId")),
                 SpeciesName = reader.GetString(reader.GetOrdinal("SpeciesName")),

@@ -88,6 +88,19 @@ namespace PlantStockManager.Authorization
                 ["/Production/ReadyConfirmation/Confirm"] = R("ReadyStock.Confirm"),   // Phase B: Supervisor Approval
                 ["/Production/ReadyStock/Index"] = R("ReadyStock.View"),               // Phase B: approved Ready Stock
 
+                // ---- Cutting Sowing (Phase 5): Cutting Stock -> Tray/Cavity
+                // -> Ready Stock, sharing the SAME approval permission as
+                // Direct Sowing (ReadyStock.Confirm) but created/viewed by
+                // whoever operates the cutting-producing Areas -- the same
+                // actor as CuttingStock/EnterCutting (Phase 3/4), not the
+                // Sowing.* permissions Direct Sowing itself uses.
+                ["/Production/CuttingSowing/Index"] = R("MotherPlant.View|Kunjir.View|Kiran.View"),
+                ["/Production/CuttingSowing/Details"] = R("MotherPlant.View|Kunjir.View|Kiran.View"),
+                ["/Production/CuttingSowing/Create"] = R("MotherPlant.Enter|Kunjir.Enter|Kiran.Enter"),
+                ["/Production/CuttingSowing/Edit"] = R("MotherPlant.Enter|Kunjir.Enter|Kiran.Enter"),
+                ["/Production/CuttingSowing/History"] = R("ReadyStock.View", "ReadyStock.Confirm"),
+                ["/Production/CuttingSowing/Confirm"] = R("ReadyStock.Confirm"),
+
                 // ---- Mother plant / cutting --------------------------------
                 ["/Production/MotherPlant/Index"] = R("MotherPlant.View"),
                 ["/Production/MotherPlant/Details"] = R("MotherPlant.View"),

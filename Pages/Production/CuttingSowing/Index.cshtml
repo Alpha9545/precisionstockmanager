@@ -1,0 +1,85 @@
+@page
+@model PlantStockManager.Pages.Production.CuttingSowing.IndexModel
+@{
+    ViewData["Title"] = "Cutting Sowing";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0">Cutting Sowing</h2>
+        <a asp-page="/Production/CuttingSowing/Create" class="btn btn-success">Record Cutting Sowing</a>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <p class="text-muted">Total sown (active batches): <strong>@Model.TotalSown.ToString("N0")</strong></p>
+
+    <div class="table-responsive">
+        <table class="table table-striped table-hover align-middle">
+            <thead>
+                <tr>
+                    <th>Batch Code</th>
+                    <th>Variety</th>
+                    <th>Area</th>
+                    <th>Cavity</th>
+                    <th>Trays</th>
+                    <th>Sown</th>
+                    <th>Confirmed Ready</th>
+                    <th>Wastage</th>
+                    <th>Status</th>
+                    <th>Sowing Date</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in Model.Sowings)
+                {
+                    <tr>
+                        <td>@s.SowingCode</td>
+                        <td>@s.SpeciesName (@s.PlantTypeName)</td>
+                        <td>@s.AreaName</td>
+                        <td>@s.CavityType</td>
+                        <td>@s.NumberOfTrays</td>
+                        <td>@s.QuantitySown.ToString("N0")</td>
+                        <td>@s.ConfirmedReadyQuantity.ToString("N0")</td>
+                        <td>@s.WastageQuantity.ToString("N0")</td>
+                        <td>
+                            @{
+                                var badgeClass = s.Status switch
+                                {
+                                    "Completed" => "bg-success",
+                                    "Cancelled" => "bg-secondary",
+                                    _ => "bg-warning text-dark"
+                                };
+                            }
+                            <span class="badge @badgeClass">@s.Status</span>
+                        </td>
+                        <td>@s.SowingDate.ToString("dd/MM/yyyy")</td>
+                        <td class="text-nowrap">
+                            <a asp-page="/Production/CuttingSowing/Details" asp-route-id="@s.Id" class="btn btn-sm btn-outline-secondary">View</a>
+                            @if (s.Status == "Sown")
+                            {
+                                <a asp-page="/Production/CuttingSowing/Edit" asp-route-id="@s.Id" class="btn btn-sm btn-outline-warning">Edit</a>
+                                @if (s.RemainingReadyQuantity > 0)
+                                {
+                                    <a asp-page="/Production/CuttingSowing/Confirm" asp-route-id="@s.Id" class="btn btn-sm btn-primary">Approve</a>
+                                }
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Sowings.Any())
+                {
+                    <tr><td colspan="11" class="text-center text-muted">No Cutting Sowing records yet.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

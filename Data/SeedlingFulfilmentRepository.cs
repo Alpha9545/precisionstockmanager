@@ -787,17 +787,25 @@ ORDER BY b.DeliveryDate DESC, b.Id DESC", conn);
 SELECT a.Id, a.BookingId, a.ReadyStockId, a.BookedSpeciesId, a.ActualSpeciesId, a.IsSubstitution, a.SubstitutionReason,
        a.Quantity, a.DispatchedQuantity, a.ReleasedQuantity, a.Status, a.CreatedBy, a.CreatedDate, a.ModifiedBy, a.ModifiedDate,
        bps.Name AS BookedSpeciesName, aps.Name AS ActualSpeciesName,
-       sw.Id AS SeedSowingId, sw.SowingCode, sw.SowingDate, rs.CavityType, rs.BatchNo AS SeedLot, rs.AreaId, ar.Name AS AreaName,
-       COALESCE(rph.Name, sph.Name) AS PolyhouseName, sup.Name AS SupervisorName, appr.ApprovedByName
+       COALESCE(sw.Id, cw.Id) AS SeedSowingId, COALESCE(sw.SowingCode, cw.SowingCode) AS SowingCode,
+       COALESCE(sw.SowingDate, cw.SowingDate) AS SowingDate, rs.CavityType, rs.BatchNo AS SeedLot, rs.AreaId, ar.Name AS AreaName,
+       COALESCE(rph.Name, sph.Name, cph.Name) AS PolyhouseName, COALESCE(sup.Name, csup.Name) AS SupervisorName, appr.ApprovedByName
 FROM dbo.BookingBatchAllocations a
 INNER JOIN dbo.ReadyStock rs ON rs.Id = a.ReadyStockId
-INNER JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
+-- Phase 5: exactly one of rs.SeedSowingId/rs.CuttingSowingId is ever set
+-- (CK_ReadyStock_SourceType) -- LEFT JOIN both and COALESCE every
+-- sowing-derived column, same pattern as ReadyStockRepository/
+-- ReadyConfirmationRepository.
+LEFT JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
+LEFT JOIN dbo.CuttingSowings cw ON cw.Id = rs.CuttingSowingId
 INNER JOIN dbo.PlantSpecies aps ON aps.Id = a.ActualSpeciesId
 LEFT JOIN dbo.PlantSpecies bps ON bps.Id = a.BookedSpeciesId
 INNER JOIN dbo.Area ar ON ar.Id = rs.AreaId
 LEFT JOIN dbo.Polyhouses rph ON rph.Id = rs.PolyhouseId
 LEFT JOIN dbo.Polyhouses sph ON sph.Id = sw.PolyhouseId
+LEFT JOIN dbo.Polyhouses cph ON cph.Id = ar.PolyhouseId
 LEFT JOIN dbo.IMSUsers sup ON sup.Id = sw.SupervisorId
+LEFT JOIN dbo.IMSUsers csup ON csup.Id = cw.SupervisorId
 OUTER APPLY (SELECT TOP 1 u.Name AS ApprovedByName FROM dbo.ReadyConfirmations rc
              LEFT JOIN dbo.IMSUsers u ON u.Id = rc.ApprovedById
              WHERE rc.ReadyStockId = rs.Id AND rc.Status = 'Confirmed' ORDER BY rc.ConfirmationDate DESC) appr";
@@ -867,17 +875,20 @@ WHERE r.BookingId = @B ORDER BY r.RevisionNo", conn);
         private const string DispatchLineSelect = @"
 SELECT l.Id, l.SeedlingDispatchId, l.BookingBatchAllocationId, l.ReadyStockId, l.BookedSpeciesId, l.ActualSpeciesId,
        l.IsSubstitution, l.SubstitutionReason, l.Quantity, bps.Name AS BookedSpeciesName, aps.Name AS ActualSpeciesName,
-       sw.SowingCode, ar.Name AS AreaName, COALESCE(rph.Name, sph.Name) AS PolyhouseName, sw.SowingDate,
+       COALESCE(sw.SowingCode, cw.SowingCode) AS SowingCode, ar.Name AS AreaName,
+       COALESCE(rph.Name, sph.Name, cph.Name) AS PolyhouseName, COALESCE(sw.SowingDate, cw.SowingDate) AS SowingDate,
        d.DispatchCode, d.DispatchDate, d.BookingId, d.CustomerName, d.CreatedBy
 FROM dbo.SeedlingDispatchLines l
 INNER JOIN dbo.SeedlingDispatches d ON d.Id = l.SeedlingDispatchId
 INNER JOIN dbo.ReadyStock rs ON rs.Id = l.ReadyStockId
-INNER JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
+LEFT JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
+LEFT JOIN dbo.CuttingSowings cw ON cw.Id = rs.CuttingSowingId
 INNER JOIN dbo.PlantSpecies aps ON aps.Id = l.ActualSpeciesId
 LEFT JOIN dbo.PlantSpecies bps ON bps.Id = l.BookedSpeciesId
 INNER JOIN dbo.Area ar ON ar.Id = rs.AreaId
 LEFT JOIN dbo.Polyhouses rph ON rph.Id = rs.PolyhouseId
-LEFT JOIN dbo.Polyhouses sph ON sph.Id = sw.PolyhouseId";
+LEFT JOIN dbo.Polyhouses sph ON sph.Id = sw.PolyhouseId
+LEFT JOIN dbo.Polyhouses cph ON cph.Id = ar.PolyhouseId";
 
         private static SeedlingDispatchLine MapLine(SqlDataReader r)
         {
@@ -978,14 +989,16 @@ FROM dbo.ReadyStock WHERE SpeciesId = @S", conn);
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
             var cmd = new SqlCommand(@"
-SELECT rs.Id, rs.SpeciesId, ps.Name, ps.PlantTypeId, sw.SowingCode, rs.SowingDate, rs.FirstConfirmationDate, rs.CavityType,
-       rs.AreaId, ar.Name, COALESCE(rph.Name, sph.Name), rs.Quantity, rs.ReservedQuantity, rs.DispatchedQuantity
+SELECT rs.Id, rs.SpeciesId, ps.Name, ps.PlantTypeId, COALESCE(sw.SowingCode, cw.SowingCode), rs.SowingDate, rs.FirstConfirmationDate, rs.CavityType,
+       rs.AreaId, ar.Name, COALESCE(rph.Name, sph.Name, cph.Name), rs.Quantity, rs.ReservedQuantity, rs.DispatchedQuantity
 FROM dbo.ReadyStock rs
 INNER JOIN dbo.PlantSpecies ps ON ps.Id = rs.SpeciesId
-INNER JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
+LEFT JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
+LEFT JOIN dbo.CuttingSowings cw ON cw.Id = rs.CuttingSowingId
 INNER JOIN dbo.Area ar ON ar.Id = rs.AreaId
 LEFT JOIN dbo.Polyhouses rph ON rph.Id = rs.PolyhouseId
 LEFT JOIN dbo.Polyhouses sph ON sph.Id = sw.PolyhouseId
+LEFT JOIN dbo.Polyhouses cph ON cph.Id = ar.PolyhouseId
 WHERE ps.PlantTypeId = @P AND rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity > 0
 ORDER BY rs.SowingDate, rs.FirstConfirmationDate, rs.Id", conn);
             cmd.Parameters.AddWithValue("@P", plantTypeId);

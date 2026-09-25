@@ -1,0 +1,56 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.CuttingSowing.EditModel
+@{
+    ViewData["Title"] = "Edit Cutting Sowing";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header">
+            <h4 class="mb-0">Edit Cutting Sowing &mdash; @Model.CuttingSowing.SowingCode</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <dl class="row">
+                <dt class="col-sm-4">Variety</dt><dd class="col-sm-8">@Model.CuttingSowing.SpeciesName</dd>
+                <dt class="col-sm-4">Area</dt><dd class="col-sm-8">@Model.CuttingSowing.AreaName</dd>
+                <dt class="col-sm-4">Cavity / Trays</dt><dd class="col-sm-8">@Model.CuttingSowing.CavityType / @Model.CuttingSowing.NumberOfTrays</dd>
+                <dt class="col-sm-4">Sown Quantity</dt><dd class="col-sm-8">@Model.CuttingSowing.QuantitySown.ToString("N0")</dd>
+            </dl>
+
+            <form method="post">
+                <input type="hidden" asp-for="CuttingSowing.Id" />
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Supervisor</label>
+                    <select asp-for="CuttingSowing.SupervisorId" class="form-select" required>
+                        <option value="">-- Select supervisor --</option>
+                        @foreach (var s in Model.Supervisors)
+                        {
+                            <option value="@s.EmployeeID">@s.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Remarks</label>
+                    <textarea asp-for="CuttingSowing.Remarks" class="form-control" rows="2"></textarea>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/CuttingSowing/Details" asp-route-id="@Model.CuttingSowing.Id" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

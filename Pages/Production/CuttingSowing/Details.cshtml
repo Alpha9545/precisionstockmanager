@@ -1,0 +1,48 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.CuttingSowing.DetailsModel
+@{
+    ViewData["Title"] = "Cutting Sowing Details";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h4 class="mb-0">@Model.CuttingSowing!.SowingCode</h4>
+            <span class="badge bg-secondary">@Model.CuttingSowing.Status</span>
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-5">Variety</dt><dd class="col-sm-7">@Model.CuttingSowing.SpeciesName (@Model.CuttingSowing.PlantTypeName)</dd>
+                <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@Model.CuttingSowing.AreaName</dd>
+                <dt class="col-sm-5">Sowing Date</dt><dd class="col-sm-7">@Model.CuttingSowing.SowingDate.ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-5">Tray Cavity</dt><dd class="col-sm-7">@Model.CuttingSowing.CavityType</dd>
+                <dt class="col-sm-5">Complete Trays</dt><dd class="col-sm-7">@Model.CuttingSowing.NumberOfTrays</dd>
+                <dt class="col-sm-5">Cutting Quantity Entered</dt><dd class="col-sm-7">@Model.CuttingSowing.CuttingQuantityEntered.ToString("N0")</dd>
+                <dt class="col-sm-5">Cuttings Sown (deducted)</dt><dd class="col-sm-7 fw-bold">@Model.CuttingSowing.QuantitySown.ToString("N0")</dd>
+                <dt class="col-sm-5">Remaining (kept in stock)</dt><dd class="col-sm-7">@Model.CuttingSowing.RemainingCuttings.ToString("N0")</dd>
+                <dt class="col-sm-5">Confirmed Ready Quantity</dt><dd class="col-sm-7">@Model.CuttingSowing.ConfirmedReadyQuantity.ToString("N0")</dd>
+                <dt class="col-sm-5">Wastage</dt><dd class="col-sm-7">@Model.CuttingSowing.WastageQuantity.ToString("N0") (@Model.CuttingSowing.WastagePercent.ToString("0.00")%)</dd>
+                <dt class="col-sm-5">Expected Ready Date</dt><dd class="col-sm-7">@Model.CuttingSowing.ExpectedReadyDate?.ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.CuttingSowing.SupervisorName</dd>
+                <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.CuttingSowing.Remarks</dd>
+                <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.CuttingSowing.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.CuttingSowing.CreatedBy</dd>
+                @if (Model.CuttingSowing.ModifiedDate.HasValue)
+                {
+                    <dt class="col-sm-5">Last Modified</dt><dd class="col-sm-7">@Model.CuttingSowing.ModifiedDate.Value.ToString("dd/MM/yyyy HH:mm") by @Model.CuttingSowing.ModifiedBy</dd>
+                }
+            </dl>
+        </div>
+        <div class="card-footer text-end">
+            <a asp-page="/Production/CuttingSowing/Index" class="btn btn-secondary">Back</a>
+            @if (Model.CuttingSowing.Status == "Sown")
+            {
+                <a asp-page="/Production/CuttingSowing/Edit" asp-route-id="@Model.CuttingSowing.Id" class="btn btn-warning">Edit</a>
+                @if (Model.CuttingSowing.RemainingReadyQuantity > 0)
+                {
+                    <a asp-page="/Production/CuttingSowing/Confirm" asp-route-id="@Model.CuttingSowing.Id" class="btn btn-primary">Supervisor Approval</a>
+                }
+            }
+            <a asp-page="/Production/CuttingSowing/History" asp-route-id="@Model.CuttingSowing.Id" class="btn btn-outline-secondary">Approval History</a>
+        </div>
+    </div>
+</div>

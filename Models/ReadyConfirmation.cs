@@ -17,7 +17,10 @@ namespace PlantStockManager.Models
         public int Id { get; set; }
         public string ConfirmationCode { get; set; } = string.Empty;
 
-        public int SeedSowingId { get; set; }
+        // Phase 5: exactly one of these two is set (CK_ReadyConfirmations_SourceType).
+        public int? SeedSowingId { get; set; }
+        public int? CuttingSowingId { get; set; }
+        public string SourceType => CuttingSowingId.HasValue ? "Cutting" : "Seed";
         public int ReadyStockId { get; set; }
 
         // The caller-supplied (possibly partial) quantity confirmed

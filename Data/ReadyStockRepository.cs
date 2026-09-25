@@ -21,17 +21,29 @@ namespace PlantStockManager.Data
             _dbHelper = dbHelper;
         }
 
+        // Phase 5: LEFT JOINs both dbo.SeedSowings and dbo.CuttingSowings and
+        // COALESCEs every sowing-derived column -- exactly one of the two
+        // JOINs ever matches a given row (CK_ReadyStock_SourceType), so
+        // COALESCE always resolves to the real sowing's value, whichever
+        // pipeline produced it. Never mixes the two: a row's SpeciesId/
+        // AreaId/CavityType/etc. always come from its OWN single source.
         private const string BaseSelect = @"
 SELECT
-    rs.Id, rs.SeedSowingId, sw.SowingCode, rs.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
+    rs.Id, rs.SeedSowingId, rs.CuttingSowingId, COALESCE(sw.SowingCode, cw.SowingCode) AS SowingCode,
+    rs.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
     rs.AreaId, a.Name AS AreaName, rs.PolyhouseId, rph.Name AS PolyhouseName,   -- only the Polyhouse actually recorded (optional)
-    rs.BatchNo, sw.CavityType, sw.NumberOfTrays AS SowingTrays, appr.ReadyTrays, rs.SowingDate, rs.Quantity, rs.FirstConfirmationDate,
+    rs.BatchNo, COALESCE(sw.CavityType, cw.CavityType) AS CavityType,
+    COALESCE(sw.NumberOfTrays, cw.NumberOfTrays) AS SowingTrays, appr.ReadyTrays, rs.SowingDate, rs.Quantity, rs.FirstConfirmationDate,
     rs.ReservedQuantity, rs.DispatchedQuantity,
-    sw.QuantitySown, sw.ConfirmedReadyQuantity, sw.WastageQuantity, sw.Status AS SowingStatus,
+    COALESCE(sw.QuantitySown, cw.QuantitySown) AS QuantitySown,
+    COALESCE(sw.ConfirmedReadyQuantity, cw.ConfirmedReadyQuantity) AS ConfirmedReadyQuantity,
+    COALESCE(sw.WastageQuantity, cw.WastageQuantity) AS WastageQuantity,
+    COALESCE(sw.Status, cw.Status) AS SowingStatus,
     appr.ApprovedByName, appr.ApprovalDate,
     rs.CreatedDate, rs.CreatedBy, rs.ModifiedDate, rs.ModifiedBy
 FROM dbo.ReadyStock rs
-INNER JOIN dbo.SeedSowings sw ON rs.SeedSowingId = sw.Id
+LEFT JOIN dbo.SeedSowings sw ON rs.SeedSowingId = sw.Id
+LEFT JOIN dbo.CuttingSowings cw ON rs.CuttingSowingId = cw.Id
 INNER JOIN dbo.PlantSpecies ps ON rs.SpeciesId = ps.Id
 INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
 INNER JOIN dbo.Area a ON rs.AreaId = a.Id
@@ -43,7 +55,7 @@ OUTER APPLY (
     LEFT JOIN dbo.IMSUsers u ON u.Id = rc.ApprovedById
     WHERE rc.ReadyStockId = rs.Id AND rc.Status = 'Confirmed'
     ORDER BY rc.ConfirmationDate DESC
-) appr";   // one Confirmed approval per sowing (UX_ReadyConfirmations_OneConfirmedPerSowing)
+) appr";   // at most one Confirmed approval per sowing (UX_ReadyConfirmations_OneConfirmedPerSowing / ...PerCuttingSowing)
 
         public async Task<List<ReadyStock>> GetAllAsync()
         {
@@ -93,6 +105,22 @@ OUTER APPLY (
             return null;
         }
 
+        public async Task<ReadyStock?> GetByCuttingSowingIdAsync(int cuttingSowingId)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+
+            var sql = BaseSelect + " WHERE rs.CuttingSowingId = @CuttingSowingId";
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@CuttingSowingId", cuttingSowingId);
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                return Map(reader);
+            }
+            return null;
+        }
+
         // Finds-or-creates the ONE ReadyStock row for this Sowing --
         // called under the caller's own transaction
         // (ReadyConfirmationRepository.ConfirmAsync), with the parent
@@ -124,6 +152,41 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             insertCmd.Parameters.AddWithValue("@AreaId", areaId);
             insertCmd.Parameters.AddWithValue("@PolyhouseId", (object?)polyhouseId ?? DBNull.Value);
             insertCmd.Parameters.AddWithValue("@BatchNo", batchNo ?? string.Empty);
+            insertCmd.Parameters.AddWithValue("@CavityType", cavityType);
+            insertCmd.Parameters.AddWithValue("@SowingDate", sowingDate.Date);
+            insertCmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
+            return (int)await insertCmd.ExecuteScalarAsync();
+        }
+
+        // Phase 5: the Cutting Sowing twin of GetOrCreateLockedAsync above
+        // -- identical shape, CuttingSowingId instead of SeedSowingId, no
+        // separate "seed lot" BatchNo (Cutting Stock has no lot concept),
+        // so BatchNo is set to the Cutting Sowing's own code, giving every
+        // ReadyStock row a genuine, non-empty batch identifier either way.
+        public async Task<int> GetOrCreateLockedFromCuttingSowingAsync(
+            SqlConnection conn, SqlTransaction tx, int cuttingSowingId, int speciesId, int areaId, int? polyhouseId,
+            string sowingCode, string cavityType, DateTime sowingDate, string? createdBy)
+        {
+            var lockCmd = new SqlCommand(
+                "SELECT Id FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE CuttingSowingId = @CuttingSowingId",
+                conn, tx);
+            lockCmd.Parameters.AddWithValue("@CuttingSowingId", cuttingSowingId);
+            var existingId = await lockCmd.ExecuteScalarAsync();
+            if (existingId != null && existingId != DBNull.Value)
+            {
+                return (int)existingId;
+            }
+
+            const string insertSql = @"
+INSERT INTO dbo.ReadyStock (CuttingSowingId, SpeciesId, AreaId, PolyhouseId, BatchNo, CavityType, SowingDate, Quantity, CreatedDate, CreatedBy)
+VALUES (@CuttingSowingId, @SpeciesId, @AreaId, @PolyhouseId, @BatchNo, @CavityType, @SowingDate, 0, SYSUTCDATETIME(), @CreatedBy);
+SELECT CAST(SCOPE_IDENTITY() AS INT);";
+            var insertCmd = new SqlCommand(insertSql, conn, tx);
+            insertCmd.Parameters.AddWithValue("@CuttingSowingId", cuttingSowingId);
+            insertCmd.Parameters.AddWithValue("@SpeciesId", speciesId);
+            insertCmd.Parameters.AddWithValue("@AreaId", areaId);
+            insertCmd.Parameters.AddWithValue("@PolyhouseId", (object?)polyhouseId ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue("@BatchNo", sowingCode);
             insertCmd.Parameters.AddWithValue("@CavityType", cavityType);
             insertCmd.Parameters.AddWithValue("@SowingDate", sowingDate.Date);
             insertCmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
@@ -330,7 +393,8 @@ ORDER BY t.CreatedAt DESC";
             return new ReadyStock
             {
                 Id = reader.GetInt32(reader.GetOrdinal("Id")),
-                SeedSowingId = reader.GetInt32(reader.GetOrdinal("SeedSowingId")),
+                SeedSowingId = reader.IsDBNull(reader.GetOrdinal("SeedSowingId")) ? null : reader.GetInt32(reader.GetOrdinal("SeedSowingId")),
+                CuttingSowingId = reader.IsDBNull(reader.GetOrdinal("CuttingSowingId")) ? null : reader.GetInt32(reader.GetOrdinal("CuttingSowingId")),
                 SowingCode = reader.GetString(reader.GetOrdinal("SowingCode")),
                 SpeciesId = reader.GetInt32(reader.GetOrdinal("SpeciesId")),
                 SpeciesName = reader.GetString(reader.GetOrdinal("SpeciesName")),
