@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -113,19 +114,23 @@ LEFT JOIN dbo.IMSUsers u ON bk.BookedById = u.Id";
                 entry.AreaId = stockReader.IsDBNull(stockReader.GetOrdinal("AreaId")) ? null : stockReader.GetInt32(stockReader.GetOrdinal("AreaId"));
                 stockReader.Close();
 
-                // 1b) Business invariant (Phase G correction): a Customer
-                // Booking may ONLY be made against stock belonging to an
-                // active Outlet Area -- never directly against Growing
-                // Partner, MainOffice, or any other Area type. This is
-                // enforced here, independently of the posted value and of
-                // the page-level AreaAccessService checks (which only
-                // gate WHICH Areas a given user may reach, not WHICH
-                // Area types a Booking may target at all). Re-derives the
-                // Area from the already-locked stock row's real AreaId --
-                // never a posted AreaId. Mirrors the identical
-                // AreaType/IsActive check already used in
-                // InternalTransferRepository.InsertAsync (Phase F) for
-                // its destination-must-be-an-active-Outlet validation.
+                // 1b) Business invariant (Phase G, widened by Phase 7): a
+                // Customer Booking (Destination #3, "Direct Customer
+                // Sale") may ONLY be made against stock belonging to an
+                // active Outlet OR Main Office Area -- never directly
+                // against a Growing Partner/production Area or any other
+                // Area type. This is enforced here, independently of the
+                // posted value and of the page-level AreaAccessService
+                // checks (which only gate WHICH Areas a given user may
+                // reach, not WHICH Area types a Booking may target at
+                // all). Re-derives the Area from the already-locked stock
+                // row's real AreaId -- never a posted AreaId. The actual
+                // "which Area types" predicate lives in
+                // Services/PottedPlantDistributionRules.cs
+                // (IsValidCustomerSaleSourceArea), shared with
+                // InternalTransferRepository's own destination checks for
+                // the other two Phase 7 destinations, so the three can
+                // never silently drift apart.
                 if (entry.AreaId == null)
                 {
                     tx.Rollback();
@@ -137,19 +142,19 @@ LEFT JOIN dbo.IMSUsers u ON bk.BookedById = u.Id";
                     conn, tx);
                 areaCheckCmd.Parameters.AddWithValue("@AreaId", entry.AreaId.Value);
                 using var areaReader = await areaCheckCmd.ExecuteReaderAsync();
-                var isOutletAndActive = false;
+                var isValidSaleSource = false;
                 if (await areaReader.ReadAsync())
                 {
                     var areaIsActive = areaReader.GetBoolean(areaReader.GetOrdinal("IsActive"));
                     var areaType = areaReader.IsDBNull(areaReader.GetOrdinal("AreaType")) ? null : areaReader.GetString(areaReader.GetOrdinal("AreaType"));
-                    isOutletAndActive = areaIsActive && areaType == "Outlet";
+                    isValidSaleSource = PottedPlantDistributionRules.IsValidCustomerSaleSourceArea(areaType, areaIsActive);
                 }
                 areaReader.Close();
 
-                if (!isOutletAndActive)
+                if (!isValidSaleSource)
                 {
                     tx.Rollback();
-                    return (false, "Customer bookings can only be made against stock belonging to an active Outlet Area.", 0);
+                    return (false, "Customer bookings can only be made against stock belonging to an active Outlet or Main Office Area.", 0);
                 }
 
                 var bookingCode = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "BK", entry.BookingDate.Year);

@@ -14,7 +14,14 @@ namespace PlantStockManager.Models
         // image of 'MainOfficeIssue' -- same single-step send/confirm-with-
         // discrepancy shape, but source must be Growing-Partner-linked and
         // destination must be AreaType='Outlet', the opposite of
-        // MainOfficeIssue's own source/destination rule).
+        // MainOfficeIssue's own source/destination rule) |
+        // 'GrowingPartnerToMainOffice' (Phase 32/Phase 7 -- Destination #1
+        // of Ready Potted Plant Stock's three allowed destinations; the
+        // mirror image of GrowingPartnerToOutlet -- same shape, but
+        // destination must be AreaType='MainOffice' instead of 'Outlet').
+        // See Services/PottedPlantDistributionRules.cs for the shared
+        // Area-type predicates GrowingPartnerToOutlet/GrowingPartnerToMainOffice
+        // and PottedPlantBookingRepository all reuse.
         public string StockType { get; set; } = string.Empty;
 
         // Exactly one of these three is populated, matching StockType.
@@ -43,18 +50,19 @@ namespace PlantStockManager.Models
 
         // 'Completed' | 'Cancelled' | 'PendingConfirmation' | 'Rejected' |
         // 'ConfirmedAwaitingTransplant' | 'Transplanted' (the last two are
-        // Cutting-only -- Phase 16, Model B). A 'MainOfficeIssue' or
-        // 'GrowingPartnerToOutlet' row goes PendingConfirmation ->
-        // Completed (or Rejected) directly -- neither has a Transplant-
-        // style second step, since the destination is already known at
-        // creation for both.
+        // Cutting-only -- Phase 16, Model B). A 'MainOfficeIssue',
+        // 'GrowingPartnerToOutlet', or 'GrowingPartnerToMainOffice' row goes
+        // PendingConfirmation -> Completed (or Rejected) directly --
+        // neither has a Transplant-style second step, since the
+        // destination is already known at creation for all three.
         public string Status { get; set; } = "Completed";
 
         // Phase 15 confirmation fields -- populated once a
-        // 'PendingConfirmation' Cutting, MainOfficeIssue, or
-        // GrowingPartnerToOutlet transfer's receipt is confirmed
-        // (ConfirmReceiptAsync/ConfirmMainOfficeIssueAsync/
-        // ConfirmGrowingPartnerToOutletAsync) or rejected (RejectAsync).
+        // 'PendingConfirmation' Cutting, MainOfficeIssue,
+        // GrowingPartnerToOutlet, or GrowingPartnerToMainOffice transfer's
+        // receipt is confirmed (ConfirmReceiptAsync/
+        // ConfirmMainOfficeIssueAsync/ConfirmGrowingPartnerToOutletAsync/
+        // ConfirmGrowingPartnerToMainOfficeAsync) or rejected (RejectAsync).
         public decimal? ConfirmedQuantity { get; set; }
         public int? ConfirmedBy { get; set; }
         public DateTime? ConfirmedDate { get; set; }

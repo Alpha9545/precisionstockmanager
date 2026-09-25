@@ -1,0 +1,68 @@
+@page
+@model PlantStockManager.Pages.Production.GrowingPartnerToMainOffice.MySentTransfersModel
+@{
+    ViewData["Title"] = "My Main Office Transfers";
+}
+
+<div class="container-fluid mt-4">
+    <h2 class="mb-3">My Main Office Transfers</h2>
+
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <form method="get" class="row g-2 align-items-end mb-4">
+        <div class="col-md-4">
+            <label class="form-label fw-bold">Growing Partner Area</label>
+            <select name="areaId" class="form-select" onchange="this.form.submit()">
+                <option value="">-- Select Area --</option>
+                @foreach (var a in Model.SourceAreas)
+                {
+                    <option value="@a.Id" selected="@(Model.SelectedAreaId == a.Id)">@a.Name (@a.GrowingPartnerName)</option>
+                }
+            </select>
+        </div>
+    </form>
+
+    @if (Model.SelectedAreaId.HasValue)
+    {
+        <div class="table-responsive">
+            <table class="table table-striped table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Transfer Code</th>
+                        <th>To Main Office</th>
+                        <th>Variety</th>
+                        <th>Pot Size</th>
+                        <th>Sent</th>
+                        <th>Confirmed</th>
+                        <th>Discrepancy Reason</th>
+                        <th>Status</th>
+                        <th>Sent Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in Model.Transfers)
+                    {
+                        <tr>
+                            <td>@t.TransferCode</td>
+                            <td>@t.DestinationAreaName</td>
+                            <td>@t.SpeciesName</td>
+                            <td>@t.PotSize</td>
+                            <td>@t.Quantity.ToString("N2")</td>
+                            <td>@(t.ConfirmedQuantity?.ToString("N2") ?? "-")</td>
+                            <td>@(t.DiscrepancyReason ?? "-")</td>
+                            <td>@t.Status</td>
+                            <td>@t.CreatedDate.ToString("yyyy-MM-dd HH:mm")</td>
+                        </tr>
+                    }
+                    @if (!Model.Transfers.Any())
+                    {
+                        <tr><td colspan="9" class="text-center text-muted">No Growing Partner to Main Office transfers sent from this Area yet.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

@@ -1,0 +1,95 @@
+@page
+@model PlantStockManager.Pages.Production.GrowingPartnerToMainOffice.CreateModel
+@{
+    ViewData["Title"] = "Send Stock to Main Office";
+}
+
+<div class="container-fluid mt-4">
+    <h2 class="mb-3">Send Stock to Main Office</h2>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <form method="get" class="row g-2 align-items-end mb-4">
+        <div class="col-md-4">
+            <label class="form-label fw-bold">From Growing Partner Area</label>
+            <select name="areaId" class="form-select" onchange="this.form.submit()">
+                <option value="">-- Select Area --</option>
+                @foreach (var a in Model.SourceAreas)
+                {
+                    <option value="@a.Id" selected="@(Model.SelectedAreaId == a.Id)">@a.Name (@a.GrowingPartnerName)</option>
+                }
+            </select>
+        </div>
+    </form>
+
+    @if (Model.SelectedAreaId.HasValue)
+    {
+        <div class="table-responsive">
+            <table class="table table-striped table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Variety</th>
+                        <th>Pot Size</th>
+                        <th>Physical</th>
+                        <th>Reserved</th>
+                        <th>In Transit</th>
+                        <th>Available to Send</th>
+                        <th>Quantity to Send</th>
+                        <th>Send To (Main Office)</th>
+                        <th>Supervisor</th>
+                        <th>Remarks</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in Model.StockPools)
+                    {
+                        var availableToSend = s.PhysicalQuantity - s.ReservedQuantity - s.InTransitQuantity;
+                        <tr>
+                            <td>@s.SpeciesName</td>
+                            <td>@s.PotSize</td>
+                            <td>@s.PhysicalQuantity.ToString("N2")</td>
+                            <td>@s.ReservedQuantity.ToString("N2")</td>
+                            <td>@s.InTransitQuantity.ToString("N2")</td>
+                            <td class="fw-bold">@availableToSend.ToString("N2")</td>
+                            <td style="max-width:160px;">
+                                <form method="post" asp-page-handler="Send">
+                                    <input type="hidden" name="pottedPlantStockId" value="@s.Id" />
+                                    <input type="hidden" name="areaId" value="@Model.SelectedAreaId" />
+                                    <input type="number" step="0.01" min="0.01" max="@availableToSend" name="quantity" class="form-control form-control-sm mb-1" required />
+                                    <select name="destinationAreaId" class="form-select form-select-sm mb-1" required>
+                                        <option value="">-- Main Office --</option>
+                                        @foreach (var ma in Model.MainOfficeAreas)
+                                        {
+                                            <option value="@ma.Id">@ma.Name</option>
+                                        }
+                                    </select>
+                                    <select name="supervisorId" class="form-select form-select-sm mb-1">
+                                        <option value="">-- Supervisor --</option>
+                                        @foreach (var e in Model.Supervisors)
+                                        {
+                                            <option value="@e.EmployeeID">@e.Name</option>
+                                        }
+                                    </select>
+                                    <input type="text" name="remarks" class="form-control form-control-sm mb-1" placeholder="Remarks" />
+                                    <button type="submit" class="btn btn-sm btn-primary w-100">Send</button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                    @if (!Model.StockPools.Any())
+                    {
+                        <tr><td colspan="11" class="text-center text-muted">No available Potted Plant Stock to send at this Area.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

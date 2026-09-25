@@ -170,6 +170,15 @@ namespace PlantStockManager.Authorization
                 ["/Production/GrowingPartnerToOutlet/MySentTransfers"] = R("InternalTransfer.View"),
                 ["/Production/GrowingPartnerToOutlet/PendingReceipts"] = R("Outlet.View", "Outlet.Confirm"),
                 ["/Production/GrowingPartnerToOutlet/ConfirmReceipt"] = R("Outlet.Confirm"),
+                // Phase 32/Phase 7: mirror image of GrowingPartnerToOutlet
+                // above -- sender-side permissions unchanged
+                // (InternalTransfer.Enter/.View), receiver-side reuses
+                // Main Office's own existing codes (MainOffice.View/.Confirm),
+                // the same ones MainOfficeIssue/Create already holds.
+                ["/Production/GrowingPartnerToMainOffice/Create"] = R("InternalTransfer.Enter"),
+                ["/Production/GrowingPartnerToMainOffice/MySentTransfers"] = R("InternalTransfer.View"),
+                ["/Production/GrowingPartnerToMainOffice/PendingReceipts"] = R("MainOffice.View", "MainOffice.Confirm"),
+                ["/Production/GrowingPartnerToMainOffice/ConfirmReceipt"] = R("MainOffice.Confirm"),
 
                 // ---- Booking / dispatch / outlet ---------------------------
                 ["/Production/PottedPlantBooking/Index"] = R("Booking.View|Outlet.View"),

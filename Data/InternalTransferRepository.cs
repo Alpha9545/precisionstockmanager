@@ -249,6 +249,35 @@ ORDER BY t.CreatedDate ASC";
             return list;
         }
 
+        // Phase 32/Phase 7: GrowingPartnerToMainOffice-type transfers still
+        // awaiting Main Office's confirm/reject decision -- feeds that
+        // Area's receiving queue. Mirrors
+        // GetPendingGrowingPartnerToOutletAsync's shape exactly (filters
+        // by DestinationAreaId, known up front for this StockType too).
+        // destinationAreaId narrows to one Main Office Area; null returns
+        // every pending GrowingPartnerToMainOffice transfer regardless of
+        // destination.
+        public async Task<List<InternalTransfer>> GetPendingGrowingPartnerToMainOfficeAsync(int? destinationAreaId = null)
+        {
+            var list = new List<InternalTransfer>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+
+            var sql = BaseSelect + @"
+WHERE t.StockType = 'GrowingPartnerToMainOffice'
+  AND t.Status = 'PendingConfirmation'
+  AND (@AreaId IS NULL OR t.DestinationAreaId = @AreaId)
+ORDER BY t.CreatedDate ASC";
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@AreaId", (object?)destinationAreaId ?? DBNull.Value);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(Map(reader));
+            }
+            return list;
+        }
+
         public async Task<(bool Success, string? Message, int Id)> InsertAsync(InternalTransfer entry, int? userId)
         {
             if (entry.Quantity <= 0)
@@ -604,7 +633,7 @@ ORDER BY t.CreatedDate ASC";
                     // another Growing Partner's Area, or Main Office) that
                     // was never offered in the destination dropdown at all.
                     var destArea = entry.DestinationAreaId.HasValue ? await _areaRepo.GetAreaById(entry.DestinationAreaId.Value) : null;
-                    if (destArea == null || !destArea.IsActive || destArea.AreaType != "Outlet")
+                    if (destArea == null || !PottedPlantDistributionRules.IsValidOutletDestination(destArea.AreaType, destArea.IsActive))
                     {
                         tx.Rollback();
                         return (false, "The selected Destination Area is not an active Outlet Area.", 0);
@@ -634,10 +663,89 @@ ORDER BY t.CreatedDate ASC";
                     entry.Id = newId;
                     return (true, null, newId);
                 }
+                else if (entry.StockType == "GrowingPartnerToMainOffice")
+                {
+                    if (!entry.SourcePottedPlantStockId.HasValue)
+                    {
+                        tx.Rollback();
+                        return (false, "Source Growing Partner stock pool is required.", 0);
+                    }
+
+                    // Reserve against "available to send" (Physical -
+                    // Reserved - InTransit) -- the exact same generic
+                    // mechanism MainOfficeIssue/GrowingPartnerToOutlet
+                    // already use, reused as-is, not a second in-transit
+                    // column/system. Nothing is written to
+                    // PottedPlantStock.PhysicalQuantity or the ledger
+                    // here -- only InTransitQuantity rises.
+                    var (reserveSuccess, reserveMessage, srcAreaId, _) = await _pottedPlantStockRepo.ReserveInTransitAsync(
+                        conn, tx, entry.SourcePottedPlantStockId.Value, entry.Quantity);
+                    if (!reserveSuccess)
+                    {
+                        tx.Rollback();
+                        return (false, reserveMessage, 0);
+                    }
+                    if (!srcAreaId.HasValue)
+                    {
+                        tx.Rollback();
+                        return (false, "This Potted Plant Stock pool has no assigned Area (legacy/unassigned stock) and cannot be sent to Main Office until it is.", 0);
+                    }
+
+                    // Force the source to an active, Growing-Partner-linked
+                    // Area, server-side -- the identical check
+                    // GrowingPartnerToOutlet already uses for its own
+                    // source (Destination #1 and #2 both originate from a
+                    // production/Growing Partner Area).
+                    var srcArea = await _areaRepo.GetAreaById(srcAreaId.Value);
+                    if (srcArea == null || !srcArea.IsActive || !srcArea.GrowingPartnerId.HasValue)
+                    {
+                        tx.Rollback();
+                        return (false, "The selected source stock is not held at an active Growing Partner Area.", 0);
+                    }
+
+                    // Force the destination to an active Main Office Area,
+                    // server-side -- the mirror image of
+                    // GrowingPartnerToOutlet's own destination check. This
+                    // is what defeats a tampered POST/URL Area Id for a
+                    // non-Main-Office destination that was never offered
+                    // in the destination dropdown at all.
+                    var destArea = entry.DestinationAreaId.HasValue ? await _areaRepo.GetAreaById(entry.DestinationAreaId.Value) : null;
+                    if (destArea == null || !PottedPlantDistributionRules.IsValidMainOfficeDestination(destArea.AreaType, destArea.IsActive))
+                    {
+                        tx.Rollback();
+                        return (false, "The selected Destination Area is not an active Main Office Area.", 0);
+                    }
+
+                    entry.SourceAreaId = srcAreaId.Value;
+
+                    if (entry.SourceAreaId == entry.DestinationAreaId)
+                    {
+                        tx.Rollback();
+                        return (false, "Source and Destination Area must be different.", 0);
+                    }
+
+                    // GrowingPartnerToMainOffice transfers are ALWAYS
+                    // created pending -- no PhysicalQuantity/ledger
+                    // changes happen here, exactly like MainOfficeIssue/
+                    // GrowingPartnerToOutlet. Quantity records what was
+                    // sent and is never altered; the source pool's
+                    // PhysicalQuantity is only decremented once Main
+                    // Office confirms receipt
+                    // (ConfirmGrowingPartnerToMainOfficeAsync), by
+                    // whatever quantity was actually confirmed, which may
+                    // differ from what was sent.
+                    entry.Status = "PendingConfirmation";
+
+                    var newId = await InsertHeaderAsync(conn, tx, entry, userId);
+
+                    tx.Commit();
+                    entry.Id = newId;
+                    return (true, null, newId);
+                }
                 else
                 {
                     tx.Rollback();
-                    return (false, "Stock Type must be 'EmptyPot', 'PottedPlant', 'Cutting', 'MainOfficeIssue', or 'GrowingPartnerToOutlet'.", 0);
+                    return (false, "Stock Type must be 'EmptyPot', 'PottedPlant', 'Cutting', 'MainOfficeIssue', 'GrowingPartnerToOutlet', or 'GrowingPartnerToMainOffice'.", 0);
                 }
             }
             catch (Exception ex)
@@ -1190,6 +1298,148 @@ WHERE Id = @Id", conn, tx);
             }
         }
 
+        // Phase 32/Phase 7: Main Office confirms RECEIPT of a pending
+        // 'GrowingPartnerToMainOffice' transfer -- byte-for-byte the same
+        // single-step shape as ConfirmGrowingPartnerToOutletAsync/
+        // ConfirmMainOfficeIssueAsync immediately above (release full
+        // InTransit, decrement source by confirmed quantity, credit
+        // destination by confirmed quantity, mark Completed), since the
+        // underlying stock mechanics are identical regardless of which
+        // Area type is the source and which is the destination. Kept as
+        // its OWN method, deliberately not merged into the other two, so
+        // their own behavior stays provably byte-for-byte unchanged (the
+        // same "additive, don't touch the existing one" convention every
+        // prior phase has followed for a new source/workflow).
+        public async Task<(bool Success, string? Message)> ConfirmGrowingPartnerToMainOfficeAsync(
+            int id, decimal confirmedQuantity, string? discrepancyReason, int? confirmedByUserId, string? modifiedBy)
+        {
+            if (confirmedQuantity < 0)
+                return (false, "Confirmed quantity cannot be negative.");
+
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+
+            try
+            {
+                var lockCmd = new SqlCommand(
+                    "SELECT StockType, SourcePottedPlantStockId, DestinationAreaId, Quantity, Status FROM dbo.InternalTransfers WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                    conn, tx);
+                lockCmd.Parameters.AddWithValue("@Id", id);
+                using var reader = await lockCmd.ExecuteReaderAsync();
+                if (!await reader.ReadAsync())
+                {
+                    reader.Close();
+                    tx.Rollback();
+                    return (false, "Internal Transfer record not found.");
+                }
+                var stockType = reader.GetString(reader.GetOrdinal("StockType"));
+                var sourcePottedPlantStockId = reader.IsDBNull(reader.GetOrdinal("SourcePottedPlantStockId")) ? (int?)null : reader.GetInt32(reader.GetOrdinal("SourcePottedPlantStockId"));
+                var destinationAreaId = reader.IsDBNull(reader.GetOrdinal("DestinationAreaId")) ? (int?)null : reader.GetInt32(reader.GetOrdinal("DestinationAreaId"));
+                var sentQuantity = reader.GetDecimal(reader.GetOrdinal("Quantity"));
+                var status = reader.GetString(reader.GetOrdinal("Status"));
+                reader.Close();
+
+                if (stockType != "GrowingPartnerToMainOffice" || !sourcePottedPlantStockId.HasValue || !destinationAreaId.HasValue)
+                {
+                    tx.Rollback();
+                    return (false, "Only a pending Growing Partner to Main Office transfer can have its receipt confirmed this way.");
+                }
+                if (status != "PendingConfirmation")
+                {
+                    tx.Rollback();
+                    return (false, $"This transfer is already '{status}' and cannot be confirmed again.");
+                }
+                if (confirmedQuantity > sentQuantity)
+                {
+                    tx.Rollback();
+                    return (false, $"Confirmed quantity ({confirmedQuantity:N2}) cannot exceed the quantity actually sent ({sentQuantity:N2}).");
+                }
+                if (confirmedQuantity != sentQuantity && string.IsNullOrWhiteSpace(discrepancyReason))
+                {
+                    tx.Rollback();
+                    return (false, $"Confirmed quantity ({confirmedQuantity:N2}) differs from sent quantity ({sentQuantity:N2}) -- a reason is required.");
+                }
+
+                // Release the FULL sent quantity from InTransit -- nothing
+                // stays "in transit" once this commits, same reasoning as
+                // the other two Confirm methods above.
+                var (releaseSuccess, releaseMessage) = await _pottedPlantStockRepo.ReleaseInTransitAsync(
+                    conn, tx, sourcePottedPlantStockId.Value, sentQuantity);
+                if (!releaseSuccess)
+                {
+                    tx.Rollback();
+                    return (false, releaseMessage);
+                }
+
+                if (confirmedQuantity > 0)
+                {
+                    var (srcSuccess, srcMessage) = await _pottedPlantStockRepo.RecordTransactionAsync(
+                        conn, tx, sourcePottedPlantStockId.Value, -confirmedQuantity, "Transfer", "InternalTransfer", id, confirmedByUserId, discrepancyReason);
+                    if (!srcSuccess)
+                    {
+                        tx.Rollback();
+                        return (false, srcMessage);
+                    }
+
+                    var srcInfoCmd = new SqlCommand("SELECT SpeciesId, PotSize FROM dbo.PottedPlantStock WHERE Id = @Id", conn, tx);
+                    srcInfoCmd.Parameters.AddWithValue("@Id", sourcePottedPlantStockId.Value);
+                    using var srcInfoReader = await srcInfoCmd.ExecuteReaderAsync();
+                    if (!await srcInfoReader.ReadAsync())
+                    {
+                        srcInfoReader.Close();
+                        tx.Rollback();
+                        return (false, "Source Potted Plant Stock pool no longer exists.");
+                    }
+                    var srcSpeciesId = srcInfoReader.GetInt32(srcInfoReader.GetOrdinal("SpeciesId"));
+                    var srcPotSize = srcInfoReader.GetString(srcInfoReader.GetOrdinal("PotSize"));
+                    srcInfoReader.Close();
+
+                    // The destination Potted Plant Stock row still needs an
+                    // EmptyPotInventoryId link (schema requirement, not a
+                    // physical empty-pot movement) -- resolve or create a
+                    // zero-quantity Empty Pot pool for this Pot Size in the
+                    // Main Office Area to link against, exactly as the
+                    // other two Confirm methods already do for their own
+                    // destination.
+                    var destEmptyPotId = await _emptyPotInventoryRepo.GetOrCreateLockedAsync(conn, tx, srcPotSize, destinationAreaId, modifiedBy);
+                    var destId = await _pottedPlantStockRepo.GetOrCreateLockedAsync(conn, tx, srcSpeciesId, srcPotSize, destinationAreaId, destEmptyPotId, modifiedBy);
+                    var (destSuccess, destMessage) = await _pottedPlantStockRepo.RecordTransactionAsync(
+                        conn, tx, destId, confirmedQuantity, "Transfer", "InternalTransfer", id, confirmedByUserId, discrepancyReason);
+                    if (!destSuccess)
+                    {
+                        tx.Rollback();
+                        return (false, destMessage);
+                    }
+                }
+
+                var updateCmd = new SqlCommand(@"
+UPDATE dbo.InternalTransfers
+SET Status = 'Completed',
+    ConfirmedQuantity = @ConfirmedQuantity,
+    ConfirmedBy = @ConfirmedBy,
+    ConfirmedDate = SYSUTCDATETIME(),
+    DiscrepancyReason = @DiscrepancyReason,
+    ModifiedDate = SYSUTCDATETIME(),
+    ModifiedBy = @ModifiedBy
+WHERE Id = @Id", conn, tx);
+                updateCmd.Parameters.AddWithValue("@ConfirmedQuantity", confirmedQuantity);
+                updateCmd.Parameters.AddWithValue("@ConfirmedBy", (object?)confirmedByUserId ?? DBNull.Value);
+                updateCmd.Parameters.AddWithValue("@DiscrepancyReason", (object?)discrepancyReason ?? DBNull.Value);
+                updateCmd.Parameters.AddWithValue("@ModifiedBy", (object?)modifiedBy ?? DBNull.Value);
+                updateCmd.Parameters.AddWithValue("@Id", id);
+                await updateCmd.ExecuteNonQueryAsync();
+
+                tx.Commit();
+                return (true, null);
+            }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                return (false, ex.Message);
+            }
+        }
+
         // Main Office rejects a pending Cutting transfer outright (e.g.
         // nothing usable actually arrived). No PhysicalQuantity ever moved
         // for a pending transfer, so there is nothing to reverse there --
@@ -1242,16 +1492,17 @@ WHERE Id = @Id", conn, tx);
                         return (false, releaseMessage);
                     }
                 }
-                else if ((stockType == "MainOfficeIssue" || stockType == "GrowingPartnerToOutlet") && sourcePottedPlantStockId.HasValue)
+                else if ((stockType == "MainOfficeIssue" || stockType == "GrowingPartnerToOutlet" || stockType == "GrowingPartnerToMainOffice") && sourcePottedPlantStockId.HasValue)
                 {
                     // Same reasoning as the Cutting branch above: nothing
                     // has physically moved for a still-pending
-                    // MainOfficeIssue or GrowingPartnerToOutlet transfer,
-                    // so the full sent quantity -- currently held in
-                    // InTransitQuantity -- must be released back to
-                    // "available to send/issue". Both StockTypes share
-                    // this branch since the release mechanics are
-                    // identical regardless of which Area type is sending.
+                    // MainOfficeIssue, GrowingPartnerToOutlet, or
+                    // GrowingPartnerToMainOffice transfer, so the full
+                    // sent quantity -- currently held in InTransitQuantity
+                    // -- must be released back to "available to
+                    // send/issue". All three StockTypes share this branch
+                    // since the release mechanics are identical regardless
+                    // of which Area type is sending.
                     var (releaseSuccess, releaseMessage) = await _pottedPlantStockRepo.ReleaseInTransitAsync(
                         conn, tx, sourcePottedPlantStockId.Value, sentQuantity);
                     if (!releaseSuccess)
