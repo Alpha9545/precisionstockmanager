@@ -14,23 +14,36 @@ namespace PlantStockManager.Pages.Data
         private readonly PolyhouseRepository _polyhouseRepository;
         private readonly PlantTypeRepository _plantTypeRepository;
         private readonly PlantSpeciesRepository _plantSpeciesRepository;
+        private readonly StockLedgerRepository _stockLedgerRepository;
 
         public WastedStockModel(
             InventoryRepository inventoryRepository,
             PolyhouseRepository polyhouseRepository,
             PlantTypeRepository plantTypeRepository,
-            PlantSpeciesRepository plantSpeciesRepository)
+            PlantSpeciesRepository plantSpeciesRepository,
+            StockLedgerRepository stockLedgerRepository)
         {
             _inventoryRepository = inventoryRepository;
             _polyhouseRepository = polyhouseRepository;
             _plantTypeRepository = plantTypeRepository;
             _plantSpeciesRepository = plantSpeciesRepository;
+            _stockLedgerRepository = stockLedgerRepository;
         }
 
         public List<Inventory> Inventory { get; set; } = new();
         public List<Polyhouse> Polyhouses { get; set; } = new();
         public List<PlantType> PlantTypes { get; set; } = new();
         public List<PlantSpecies> PlantSpecies { get; set; } = new();
+
+        // Phase 8: the legacy Inventory-based report above stays
+        // untouched. These two sections close the gap the audit found --
+        // PottedPlantStock's own 'Wastage' ledger entries (Phase 8 finally
+        // writes them, see PottedPlantStockRepository.RecordWastageAsync)
+        // and Seed/Cutting Sowing "process wastage" (already-existing
+        // WastageQuantity business columns, never a ledger row -- there is
+        // no physical stock row for in-process seedlings to decrement).
+        public List<UnifiedStockTransaction> PottedPlantWastage { get; set; } = new();
+        public List<ProcessWastageRow> ProcessWastage { get; set; } = new();
 
         [BindProperty(SupportsGet = true)] public int? SelectedPolyhouse { get; set; }
         [BindProperty(SupportsGet = true)] public int? SelectedPlantType { get; set; }
@@ -56,6 +69,10 @@ namespace PlantStockManager.Pages.Data
                 SelectedSpecies,
                 DateFrom,
                 DateTo);
+
+            var pottedPlantHistory = await _stockLedgerRepository.GetUnifiedHistoryAsync(DateFrom.Value, DateTo.Value, "PottedPlant");
+            PottedPlantWastage = pottedPlantHistory.Where(t => t.TransactionType == "Wastage").ToList();
+            ProcessWastage = await _stockLedgerRepository.GetProcessWastageAsync(DateFrom.Value, DateTo.Value);
         }
 
         public async Task<JsonResult> OnGetSpeciesByPlantTypeAsync(int plantTypeId)

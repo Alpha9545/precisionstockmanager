@@ -137,6 +137,70 @@
             }
         </div>
     </div>
+
+    <hr class="my-4" />
+    <h4 class="text-danger">Potted Plant Stock Wastage</h4>
+    <div class="card p-3 shadow-sm mb-4">
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped table-hover table-sm">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Date</th><th>Variety</th><th>Pot Size</th><th>Area</th><th>Quantity Wasted</th><th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var w in Model.PottedPlantWastage)
+                    {
+                        <tr>
+                            <td>@w.TransactionDate.ToString("dd/MM/yyyy HH:mm")</td>
+                            <td>@w.SpeciesName</td>
+                            <td>@w.PotSize</td>
+                            <td>@(w.AreaName ?? "-")</td>
+                            <td><strong class="text-danger">@((-w.Quantity).ToString("N2"))</strong></td>
+                            <td>@(w.Remarks ?? "-")</td>
+                        </tr>
+                    }
+                    @if (!Model.PottedPlantWastage.Any())
+                    {
+                        <tr><td colspan="6" class="text-center text-muted">No Potted Plant Stock wastage recorded in this date range.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <h4 class="text-danger">Seed / Cutting Sowing Process Wastage</h4>
+    <p class="text-muted small">Seedlings that never became Ready Stock -- read from each Sowing's own recorded Wastage (approved at Ready Confirmation), not a separate stock ledger.</p>
+    <div class="card p-3 shadow-sm">
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped table-hover table-sm">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Sowing Date</th><th>Type</th><th>Batch Code</th><th>Variety</th><th>Area</th><th>Sown</th><th>Wasted</th><th>Wastage %</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var w in Model.ProcessWastage)
+                    {
+                        <tr>
+                            <td>@w.SowingDate.ToString("dd/MM/yyyy")</td>
+                            <td>@w.SourceType</td>
+                            <td>@w.BatchCode</td>
+                            <td>@w.SpeciesName</td>
+                            <td>@w.AreaName</td>
+                            <td>@w.QuantitySown.ToString("N0")</td>
+                            <td><strong class="text-danger">@w.WastageQuantity.ToString("N0")</strong></td>
+                            <td>@w.WastagePercent.ToString("N2")%</td>
+                        </tr>
+                    }
+                    @if (!Model.ProcessWastage.Any())
+                    {
+                        <tr><td colspan="8" class="text-center text-muted">No Seed/Cutting Sowing wastage recorded in this date range.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 @section Scripts {

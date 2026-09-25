@@ -156,6 +156,11 @@ namespace PlantStockManager.Authorization
                 ["/Production/EmptyPotInventory/AddStock"] = R("PotProduction.Enter|Purchase.Enter"),
                 ["/Production/PottedPlantStock/Index"] = R("PotProduction.View|Outlet.View|Booking.View|Dispatch.View|InternalTransfer.View"),
                 ["/Production/PottedPlantStock/Details"] = R("PotProduction.View|Outlet.View|Booking.View|Dispatch.View|InternalTransfer.View"),
+                // Phase 8: activates the existing (never-written) 'Wastage'
+                // ledger type -- reuses the same Enter-level codes as
+                // PotProduction/Create, since recording wastage against a
+                // pool is a production-area write action.
+                ["/Production/PottedPlantStock/RecordWastage"] = R("PotProduction.Enter|Kiran.Enter"),
 
                 // ---- Transfers ---------------------------------------------
                 ["/Production/InternalTransfer/Index"] = R("InternalTransfer.View"),
@@ -234,6 +239,10 @@ namespace PlantStockManager.Authorization
                 ["/Data/SowingByMonth"] = R("Sowing.View|Reports.View"),
                 ["/Data/StockHistory"] = R("ReadyStock.View|Reports.View"),
                 ["/Data/WastedStock"] = R("ReadyStock.View|Reports.View"),
+                // Phase 8: reuses the same read-only reporting codes as
+                // the two pages above -- a pure data-integrity report,
+                // no write action.
+                ["/Data/StockReconciliation"] = R("ReadyStock.View|Reports.View"),
                 ["/Data/TotalStockSync"] = R("Reports.View|Sowing.View|Booking.View"),
                 ["/Data/SowingBookingSync"] = R("Reports.View|Sowing.View|Booking.View"),
                 ["/Data/SowingBookingSummary"] = R("Reports.View|Sowing.View|Booking.View"),

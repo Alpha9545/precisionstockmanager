@@ -128,6 +128,67 @@
 
         </div>
     </div>
+
+    <hr class="my-4" />
+    <div class="d-flex justify-content-between align-items-center flex-wrap mb-3">
+        <h2 class="mb-0 text-primary">Modern Stock Ledger (Seed / Cutting / Empty Pot / Potted Plant / Ready Stock)</h2>
+        <form method="get" class="d-flex align-items-center gap-2">
+            <input type="hidden" name="DateFrom" value="@Model.DateFrom?.ToString("yyyy-MM-dd")" />
+            <input type="hidden" name="DateTo" value="@Model.DateTo?.ToString("yyyy-MM-dd")" />
+            <select name="SelectedStockType" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">All Stock Types</option>
+                <option value="SeedStock" selected="@(Model.SelectedStockType == "SeedStock")">Seed Stock</option>
+                <option value="CuttingStock" selected="@(Model.SelectedStockType == "CuttingStock")">Cutting Stock</option>
+                <option value="EmptyPot" selected="@(Model.SelectedStockType == "EmptyPot")">Empty Pot Stock</option>
+                <option value="PottedPlant" selected="@(Model.SelectedStockType == "PottedPlant")">Potted Plant Stock</option>
+                <option value="ReadyStock" selected="@(Model.SelectedStockType == "ReadyStock")">Ready Stock</option>
+            </select>
+        </form>
+    </div>
+
+    <div class="card shadow-sm p-3">
+        <div class="table-responsive" style="max-height:75vh; overflow-y: auto;">
+            <table class="table table-hover table-striped">
+                <thead class="table-dark position-sticky top-0">
+                    <tr>
+                        <th>Date</th>
+                        <th>Stock Type</th>
+                        <th>Variety</th>
+                        <th>Pot Size</th>
+                        <th>Area</th>
+                        <th>Movement</th>
+                        <th>Qty (+/-)</th>
+                        <th>Before</th>
+                        <th>After</th>
+                        <th>By</th>
+                        <th>Remarks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in Model.ModernHistory)
+                    {
+                        <tr>
+                            <td>@t.TransactionDate.ToString("dd/MM/yyyy HH:mm")</td>
+                            <td>@t.StockType</td>
+                            <td>@(t.SpeciesName ?? "-")</td>
+                            <td>@(t.PotSize ?? "-")</td>
+                            <td>@(t.AreaName ?? "-")</td>
+                            <td>@t.MovementLabel</td>
+                            <td class="@(t.Quantity < 0 ? "text-danger" : "text-success")">@t.Quantity.ToString("N2")</td>
+                            <td>@t.BeforeQuantity.ToString("N2")</td>
+                            <td>@t.AfterQuantity.ToString("N2")</td>
+                            <td>@(t.UserName ?? "-")</td>
+                            <td>@(t.Remarks ?? "-")</td>
+                        </tr>
+                    }
+                    @if (!Model.ModernHistory.Any())
+                    {
+                        <tr><td colspan="11" class="text-center text-muted">No modern stock ledger activity in this date range.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
 </div>
 
 <style>

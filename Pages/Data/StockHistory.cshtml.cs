@@ -14,11 +14,22 @@ namespace PlantStockManager.Pages.Data
         private readonly PolyhouseRepository _polyhouseRepository;
         private readonly PlantTypeRepository _plantTypeRepository;
         private readonly PlantSpeciesRepository _plantSpeciesRepository;
+        private readonly StockLedgerRepository _stockLedgerRepository;
 
         public List<Inventory> Inventory { get; set; } = new();
         public List<Polyhouse> Polyhouses { get; set; } = new();
         public List<PlantType> PlantTypes { get; set; } = new();
         public List<PlantSpecies> PlantSpecies { get; set; } = new();
+
+        // Phase 8 (Stock History and Wastage Integration): the legacy
+        // section above (Inventory) is the OLD seedling-Booking-allocation
+        // pipeline and stays completely untouched -- no historical data is
+        // altered. This is the missing half: a unified view over the five
+        // MODERN stock ledgers (Seed/Cutting/EmptyPot/PottedPlant/Ready),
+        // built read-only from what those repositories already wrote --
+        // see Data/StockLedgerRepository.cs for why no new history table
+        // was needed.
+        public List<UnifiedStockTransaction> ModernHistory { get; set; } = new();
 
         [BindProperty(SupportsGet = true)]
         public int? SelectedPolyhouse { get; set; }
@@ -30,6 +41,9 @@ namespace PlantStockManager.Pages.Data
         public int? SelectedSpecies { get; set; }
 
         [BindProperty(SupportsGet = true)]
+        public string? SelectedStockType { get; set; }
+
+        [BindProperty(SupportsGet = true)]
         public DateTime? DateFrom { get; set; }
 
         [BindProperty(SupportsGet = true)]
@@ -39,12 +53,14 @@ namespace PlantStockManager.Pages.Data
             InventoryRepository inventoryRepository,
             PolyhouseRepository polyhouseRepository,
             PlantTypeRepository plantTypeRepository,
-            PlantSpeciesRepository plantSpeciesRepository)
+            PlantSpeciesRepository plantSpeciesRepository,
+            StockLedgerRepository stockLedgerRepository)
         {
             _inventoryRepository = inventoryRepository;
             _polyhouseRepository = polyhouseRepository;
             _plantTypeRepository = plantTypeRepository;
             _plantSpeciesRepository = plantSpeciesRepository;
+            _stockLedgerRepository = stockLedgerRepository;
         }
 
 
@@ -69,6 +85,7 @@ namespace PlantStockManager.Pages.Data
             }
 
             Inventory = await _inventoryRepository.GetUtilizedInventory(SelectedPolyhouse, SelectedPlantType, SelectedSpecies, DateFrom, DateTo);
+            ModernHistory = await _stockLedgerRepository.GetUnifiedHistoryAsync(DateFrom.Value, DateTo.Value, SelectedStockType);
         }
 
         public async Task<IActionResult> OnGetGeneratePdfAsync()

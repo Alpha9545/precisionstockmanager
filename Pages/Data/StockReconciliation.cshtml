@@ -1,0 +1,74 @@
+@page
+@model PlantStockManager.Pages.Data.StockReconciliationModel
+@{
+    ViewData["Title"] = "Stock Reconciliation";
+}
+
+<div class="container-fluid py-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0 text-primary">Stock Reconciliation</h2>
+        @if (Model.DiscrepancyCount == 0)
+        {
+            <span class="badge bg-success fs-6">All @Model.Rows.Count pools balanced</span>
+        }
+        else
+        {
+            <span class="badge bg-danger fs-6">@Model.DiscrepancyCount of @Model.Rows.Count pools have a discrepancy</span>
+        }
+    </div>
+
+    <p class="text-muted">
+        For every stock pool: Opening (0) + IN &minus; OUT &minus; Wastage, computed purely from that pool's own ledger, must equal its currently stored quantity. Only mismatched rows below indicate a problem.
+    </p>
+
+    <div class="card shadow-sm p-3">
+        <div class="table-responsive" style="max-height:75vh; overflow-y: auto;">
+            <table class="table table-hover table-striped">
+                <thead class="table-dark position-sticky top-0">
+                    <tr>
+                        <th>Stock Type</th>
+                        <th>Variety</th>
+                        <th>Pot Size</th>
+                        <th>Area</th>
+                        <th>IN</th>
+                        <th>OUT</th>
+                        <th>Wastage</th>
+                        <th>Ledger-Computed Closing</th>
+                        <th>Actual Closing</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in Model.Rows)
+                    {
+                        <tr class="@(r.IsBalanced ? "" : "table-danger")">
+                            <td>@r.StockType</td>
+                            <td>@(r.SpeciesName ?? "-")</td>
+                            <td>@(r.PotSize ?? "-")</td>
+                            <td>@(r.AreaName ?? "-")</td>
+                            <td>@r.TotalIn.ToString("N2")</td>
+                            <td>@r.TotalOut.ToString("N2")</td>
+                            <td>@r.TotalWastage.ToString("N2")</td>
+                            <td>@r.LedgerComputedClosing.ToString("N2")</td>
+                            <td>@r.ActualClosing.ToString("N2")</td>
+                            <td>
+                                @if (r.IsBalanced)
+                                {
+                                    <span class="badge bg-success">Balanced</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-danger">Discrepancy (@r.Discrepancy.ToString("N2"))</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (!Model.Rows.Any())
+                    {
+                        <tr><td colspan="10" class="text-center text-muted">No stock pools found.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

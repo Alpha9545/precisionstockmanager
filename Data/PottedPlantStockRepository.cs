@@ -344,6 +344,55 @@ VALUES
             return (true, null);
         }
 
+        // Phase 8 (Stock History and Wastage Integration): activates the
+        // 'Wastage' TransactionType this ledger's own CHECK constraint
+        // has allowed since Phase 7 but which no code path ever wrote --
+        // potted plants damaged/died in stock (distinct from Dispatch,
+        // which is a sale, and from ReversalRemoval, which undoes a
+        // mistaken entry). Decrements PhysicalQuantity via the SAME
+        // RecordTransactionAsync every other movement uses (one ledger
+        // row, one transaction), then also increments the row's own
+        // WastedQuantity display column (present since Phase 7, never
+        // updated by anything until now) so Details/Index's existing
+        // "Wasted (cumulative)" column finally reflects real data.
+        public async Task<(bool Success, string? Message)> RecordWastageAsync(
+            int pottedPlantStockId, decimal quantity, string? reason, int? userId, string? modifiedBy)
+        {
+            if (quantity <= 0)
+                return (false, "Quantity must be greater than zero.");
+
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+
+            try
+            {
+                var (success, message) = await RecordTransactionAsync(
+                    conn, tx, pottedPlantStockId, -quantity, "Wastage", "Wastage", null, userId, reason);
+                if (!success)
+                {
+                    tx.Rollback();
+                    return (false, message);
+                }
+
+                var wastedCmd = new SqlCommand(
+                    "UPDATE dbo.PottedPlantStock SET WastedQuantity = WastedQuantity + @Quantity, ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @ModifiedBy WHERE Id = @Id",
+                    conn, tx);
+                wastedCmd.Parameters.AddWithValue("@Quantity", quantity);
+                wastedCmd.Parameters.AddWithValue("@ModifiedBy", (object?)modifiedBy ?? DBNull.Value);
+                wastedCmd.Parameters.AddWithValue("@Id", pottedPlantStockId);
+                await wastedCmd.ExecuteNonQueryAsync();
+
+                tx.Commit();
+                return (true, null);
+            }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                return (false, ex.Message);
+            }
+        }
+
         public async Task<List<PottedPlantStockTransaction>> GetTransactionsAsync(int pottedPlantStockId)
         {
             var list = new List<PottedPlantStockTransaction>();

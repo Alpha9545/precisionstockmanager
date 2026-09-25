@@ -103,6 +103,11 @@ builder.Services.AddScoped<SeedlingFulfilmentRepository>(); // Phase C: Ready St
 // entries link back to. See Database/Phase31_PotProductionBatch.sql.
 builder.Services.AddScoped<PotProductionBatchRepository>();
 
+// Phase 8 (Stock History and Wastage Integration): read-only UNION ALL
+// aggregation over the five existing stock ledgers -- no new table, no
+// writer methods. See Data/StockLedgerRepository.cs.
+builder.Services.AddScoped<StockLedgerRepository>();
+
 // Management Dashboard (Phase 26/Phase L): a dedicated, READ-ONLY
 // reporting repository -- never a duplicate of any operational
 // repository above, see Data/ManagementDashboardRepository.cs.
