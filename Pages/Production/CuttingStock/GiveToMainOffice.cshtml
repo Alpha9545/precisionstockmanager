@@ -39,7 +39,7 @@
                         <th>Physical</th>
                         <th>In Transit</th>
                         <th>Available</th>
-                        <th>Quantity to Send</th>
+                        <th style="min-width:220px;">Cutting Quantity / Tray Cavity</th>
                         <th>Send To (Main Office)</th>
                         <th>Remarks</th>
                         <th></th>
@@ -53,11 +53,19 @@
                             <td>@s.PhysicalQuantity.ToString("N2")</td>
                             <td>@s.InTransitQuantity.ToString("N2")</td>
                             <td class="fw-bold">@s.AvailableQuantity.ToString("N2")</td>
-                            <td style="max-width:120px;">
-                                <form method="post" asp-page-handler="Send">
+                            <td style="max-width:220px;">
+                                <form method="post" asp-page-handler="Send" class="tray-send-form">
                                     <input type="hidden" name="cuttingStockId" value="@s.Id" />
                                     <input type="hidden" name="areaId" value="@Model.SelectedAreaId" />
-                                    <input type="number" step="0.01" min="0.01" max="@s.AvailableQuantity" name="quantity" class="form-control form-control-sm mb-1" required />
+                                    <input type="number" step="1" min="1" max="@s.AvailableQuantity" name="quantity" class="form-control form-control-sm mb-1 qty-input" placeholder="Cutting quantity" required />
+                                    <select name="cavityType" class="form-select form-select-sm mb-1 cavity-input" required>
+                                        <option value="">-- Tray Cavity --</option>
+                                        @foreach (var c in Model.CavityTypes)
+                                        {
+                                            <option value="@c">@c</option>
+                                        }
+                                    </select>
+                                    <div class="form-text tray-preview mb-1">&nbsp;</div>
                                     <select name="pendingConfirmationAreaId" class="form-select form-select-sm mb-1" required>
                                         <option value="">-- Main Office --</option>
                                         @foreach (var mo in Model.MainOfficeAreas)
@@ -80,3 +88,24 @@
         </div>
     }
 </div>
+
+@section Scripts {
+    <script>
+        // Live preview only -- what actually gets sent is always
+        // recalculated server-side from scratch on submit.
+        $(function () {
+            function preview(form) {
+                var qty = $(form).find('.qty-input').val();
+                var cavity = $(form).find('.cavity-input').val();
+                var $out = $(form).find('.tray-preview');
+                if (!qty || !cavity) { $out.text(''); return; }
+                $.get('@Url.Page("/Production/CuttingStock/GiveToMainOffice", "TrayPreview")', { quantity: qty, cavityType: cavity }, function (r) {
+                    $out.text(r.ok
+                        ? r.trays + ' complete tray(s) = ' + r.cuttingsUsed + ' cuttings sent; ' + r.remainingCuttings + ' stay in this Area\'s stock.'
+                        : r.error);
+                });
+            }
+            $('.tray-send-form').on('input change', '.qty-input, .cavity-input', function () { preview($(this).closest('form')); });
+        });
+    </script>
+}

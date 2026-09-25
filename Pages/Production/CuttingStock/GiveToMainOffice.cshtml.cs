@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using CuttingStockModel = PlantStockManager.Models.CuttingStock;
 using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
 
@@ -54,7 +55,7 @@ namespace PlantStockManager.Pages.Production.CuttingStock
             return Page();
         }
 
-        public async Task<IActionResult> OnPostSendAsync(int cuttingStockId, decimal quantity, int pendingConfirmationAreaId, string? remarks, int? areaId)
+        public async Task<IActionResult> OnPostSendAsync(int cuttingStockId, decimal quantity, string? cavityType, int pendingConfirmationAreaId, string? remarks, int? areaId)
         {
             if (quantity <= 0)
             {
@@ -93,18 +94,29 @@ namespace PlantStockManager.Pages.Production.CuttingStock
                 StockType = "Cutting",
                 SourceCuttingStockId = cuttingStockId,
                 PendingConfirmationAreaId = pendingConfirmationAreaId,
-                Quantity = quantity,
+                Quantity = quantity, // raw entered quantity -- InsertAsync recalculates the complete-tray amount server-side and overwrites this
+                CavityType = cavityType,
                 Remarks = remarks,
                 CreatedBy = createdBy
             };
 
             var (success, message, _) = await _internalTransferRepo.InsertAsync(entry, userId);
             TempData[success ? "Success" : "Error"] = success
-                ? $"Sent {quantity:N2} to Main Office. Awaiting confirmation."
+                ? $"Sent {entry.NumberOfTrays:N0} complete {cavityType} tray(s) ({entry.Quantity:N0} cuttings) to Main Office. Awaiting confirmation. {(entry.RemainingCuttings > 0 ? $"{entry.RemainingCuttings:N0} leftover cuttings stay in this Area's stock." : "")}"
                 : (message ?? "Failed to send cutting to Main Office.");
 
             return RedirectToPage("/Production/CuttingStock/GiveToMainOffice", new { areaId });
         }
+
+        // Live preview for the Send form -- pure calculation, no state;
+        // the server recalculates from scratch again on the real POST.
+        public JsonResult OnGetTrayPreview(decimal quantity, string? cavityType)
+        {
+            var (ok, trays, cuttingsUsed, remaining, error) = DirectSowingRules.CalculateTrays(quantity, cavityType);
+            return new JsonResult(new { ok, trays, cuttingsUsed, remainingCuttings = remaining, error });
+        }
+
+        public IReadOnlyList<string> CavityTypes => DirectSowingRules.CavityTypes;
 
         private async Task LoadDropdownsAsync(int? areaId)
         {

@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -52,6 +53,7 @@ SELECT
     t.PendingConfirmationAreaId, pca.Name AS PendingConfirmationAreaName,
     t.Quantity, t.Status,
     t.ConfirmedQuantity, t.ConfirmedBy, cb.Name AS ConfirmedByName, t.ConfirmedDate, t.DiscrepancyReason,
+    t.CavityType, t.CuttingQuantityEntered, t.NumberOfTrays, t.ActualReadyTrays, t.WastageQuantity, t.WastageReason,
     t.ResponsiblePersonId, r.Name AS ResponsiblePersonName,
     t.SupervisorId, sup.Name AS SupervisorName,
     t.Remarks, t.CreatedDate, t.CreatedBy, t.ModifiedDate, t.ModifiedBy,
@@ -415,13 +417,39 @@ ORDER BY t.CreatedDate ASC";
                         return (false, "Source Species / Area is required.", 0);
                     }
 
+                    // Phase 4: tray/cavity math, same architecture as Direct
+                    // Sowing (Services/DirectSowingRules.cs) -- the caller's
+                    // raw entered quantity (entry.Quantity, as posted by
+                    // GiveToMainOffice) is NEVER what gets sent; only
+                    // complete trays are. The server recalculates from
+                    // scratch every time; nothing the browser computed is
+                    // trusted.
+                    var enteredQuantity = entry.Quantity;
+                    if (!DirectSowingRules.IsWholeNumber(enteredQuantity))
+                    {
+                        tx.Rollback();
+                        return (false, "Cutting Quantity must be a whole number.", 0);
+                    }
+                    var (traysOk, trays, cuttingsUsed, _, trayError) = DirectSowingRules.CalculateTrays(enteredQuantity, entry.CavityType);
+                    if (!traysOk)
+                    {
+                        tx.Rollback();
+                        return (false, trayError, 0);
+                    }
+                    entry.CuttingQuantityEntered = enteredQuantity;
+                    entry.NumberOfTrays = trays;
+                    entry.Quantity = cuttingsUsed; // what is actually reserved/sent -- leftover stays in the source pool
+
                     // Reserve against AvailableQuantity (PhysicalQuantity -
                     // InTransitQuantity) rather than a bare lock -- this is
                     // what stops the same physical cuttings being sent
                     // twice while an earlier transfer of theirs is still
                     // in flight. Nothing is written to
                     // CuttingStock.PhysicalQuantity or the ledger here --
-                    // only InTransitQuantity rises.
+                    // only InTransitQuantity rises. Only the complete-tray
+                    // portion (entry.Quantity) is reserved; the rounding
+                    // remainder never leaves the source pool's Available
+                    // Quantity.
                     var (reserveSuccess, reserveMessage, srcAreaId, _) = await _cuttingStockRepo.ReserveInTransitAsync(
                         conn, tx, entry.SourceCuttingStockId.Value, entry.Quantity);
                     if (!reserveSuccess)
@@ -627,10 +655,12 @@ ORDER BY t.CreatedDate ASC";
             const string insertSql = @"
 INSERT INTO dbo.InternalTransfers
 (TransferCode, StockType, SourceEmptyPotInventoryId, SourcePottedPlantStockId, SourceCuttingStockId, SourceAreaId,
- DestinationAreaId, PendingConfirmationAreaId, Quantity, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy)
+ DestinationAreaId, PendingConfirmationAreaId, Quantity, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy,
+ CavityType, CuttingQuantityEntered, NumberOfTrays)
 VALUES
 (@TransferCode, @StockType, @SourceEmptyPotInventoryId, @SourcePottedPlantStockId, @SourceCuttingStockId, @SourceAreaId,
- @DestinationAreaId, @PendingConfirmationAreaId, @Quantity, @Status, @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy);
+ @DestinationAreaId, @PendingConfirmationAreaId, @Quantity, @Status, @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy,
+ @CavityType, @CuttingQuantityEntered, @NumberOfTrays);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             using var cmd = new SqlCommand(insertSql, conn, tx);
@@ -648,6 +678,9 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             cmd.Parameters.AddWithValue("@SupervisorId", (object?)entry.SupervisorId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Remarks", (object?)entry.Remarks ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@CreatedBy", (object?)entry.CreatedBy ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@CavityType", (object?)entry.CavityType ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@CuttingQuantityEntered", (object?)entry.CuttingQuantityEntered ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@NumberOfTrays", (object?)entry.NumberOfTrays ?? DBNull.Value);
 
             var newId = (int)await cmd.ExecuteScalarAsync();
             entry.Id = newId;
@@ -657,19 +690,23 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         }
 
         // STEP 1 of 2 (Model B): Main Office confirms RECEIPT of a pending
-        // Cutting transfer -- enters the ACTUAL quantity received (which
-        // may differ from what was sent) and, if it's short, releases
-        // just the shortfall back to the source pool's AvailableQuantity.
-        // This method writes NO CuttingStockTransactions ledger row and
-        // does NOT touch PhysicalQuantity -- per the critical rule, stock
-        // only actually moves at ConfirmTransplantAsync. Quantity (what
-        // was sent) is left untouched on the row.
+        // Cutting transfer. Phase 4: the ONLY input is Actual Ready Trays
+        // -- ActualSeedlings/Wastage are always recalculated server-side
+        // from the row's own stored CavityType/NumberOfTrays/Quantity via
+        // DirectSowingRules.ComputeTrayApproval, exactly like Ready
+        // Confirmation's approval-by-trays (never trusted from the
+        // browser). "alreadyReady"/"alreadyWasted" are always 0 -- a
+        // Cutting transfer is confirmed exactly once (no partial/
+        // multi-stage confirmation, no "remaining" concept). If it's
+        // short, releases just the shortfall (= the computed wastage)
+        // back to the source pool's AvailableQuantity. This method writes
+        // NO CuttingStockTransactions ledger row and does NOT touch
+        // PhysicalQuantity -- per the critical rule, stock only actually
+        // moves at ConfirmTransplantAsync. Quantity (what was sent) is
+        // left untouched on the row.
         public async Task<(bool Success, string? Message)> ConfirmReceiptAsync(
-            int id, decimal confirmedQuantity, string? discrepancyReason, int? confirmedByUserId, string? modifiedBy)
+            int id, decimal actualReadyTrays, string? wastageReason, int? confirmedByUserId, string? modifiedBy)
         {
-            if (confirmedQuantity < 0)
-                return (false, "Confirmed quantity cannot be negative.");
-
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
             using var tx = conn.BeginTransaction();
@@ -677,7 +714,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             try
             {
                 var lockCmd = new SqlCommand(
-                    "SELECT StockType, SourceCuttingStockId, Quantity, Status FROM dbo.InternalTransfers WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                    "SELECT StockType, SourceCuttingStockId, Quantity, Status, CavityType, NumberOfTrays FROM dbo.InternalTransfers WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", id);
                 using var reader = await lockCmd.ExecuteReaderAsync();
@@ -691,6 +728,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 var sourceCuttingStockId = reader.IsDBNull(reader.GetOrdinal("SourceCuttingStockId")) ? (int?)null : reader.GetInt32(reader.GetOrdinal("SourceCuttingStockId"));
                 var sentQuantity = reader.GetDecimal(reader.GetOrdinal("Quantity"));
                 var status = reader.GetString(reader.GetOrdinal("Status"));
+                var cavityType = reader.IsDBNull(reader.GetOrdinal("CavityType")) ? null : reader.GetString(reader.GetOrdinal("CavityType"));
+                var numberOfTrays = reader.IsDBNull(reader.GetOrdinal("NumberOfTrays")) ? (int?)null : reader.GetInt32(reader.GetOrdinal("NumberOfTrays"));
                 reader.Close();
 
                 if (stockType != "Cutting" || !sourceCuttingStockId.HasValue)
@@ -703,26 +742,23 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                     tx.Rollback();
                     return (false, $"This transfer is already '{status}' and cannot be confirmed again.");
                 }
-                if (confirmedQuantity > sentQuantity)
+
+                var (ok, _, actualSeedlings, wastage, _, error) = DirectSowingRules.ComputeTrayApproval(
+                    sentQuantity, numberOfTrays, cavityType, alreadyReady: 0, alreadyWasted: 0, actualReadyTrays, wastageReason);
+                if (!ok)
                 {
                     tx.Rollback();
-                    return (false, $"Confirmed quantity ({confirmedQuantity:N2}) cannot exceed the quantity actually sent ({sentQuantity:N2}).");
-                }
-                if (confirmedQuantity != sentQuantity && string.IsNullOrWhiteSpace(discrepancyReason))
-                {
-                    tx.Rollback();
-                    return (false, $"Confirmed quantity ({confirmedQuantity:N2}) differs from sent quantity ({sentQuantity:N2}) -- a reason is required.");
+                    return (false, error);
                 }
 
-                // Release only the shortfall (sentQuantity - confirmedQuantity)
-                // back to AvailableQuantity -- the confirmed portion stays
-                // held (in transit, in spirit) against this transfer until
-                // it is actually transplanted.
-                var shortfall = sentQuantity - confirmedQuantity;
-                if (shortfall > 0)
+                // Release only the shortfall (= the computed wastage) back
+                // to AvailableQuantity -- the confirmed portion stays held
+                // (in transit, in spirit) against this transfer until it
+                // is actually transplanted.
+                if (wastage > 0)
                 {
                     var (releaseSuccess, releaseMessage) = await _cuttingStockRepo.ReleaseInTransitAsync(
-                        conn, tx, sourceCuttingStockId.Value, shortfall);
+                        conn, tx, sourceCuttingStockId.Value, wastage);
                     if (!releaseSuccess)
                     {
                         tx.Rollback();
@@ -736,13 +772,18 @@ SET Status = 'ConfirmedAwaitingTransplant',
     ConfirmedQuantity = @ConfirmedQuantity,
     ConfirmedBy = @ConfirmedBy,
     ConfirmedDate = SYSUTCDATETIME(),
-    DiscrepancyReason = @DiscrepancyReason,
+    ActualReadyTrays = @ActualReadyTrays,
+    WastageQuantity = @WastageQuantity,
+    WastageReason = @WastageReason,
+    DiscrepancyReason = @WastageReason,
     ModifiedDate = SYSUTCDATETIME(),
     ModifiedBy = @ModifiedBy
 WHERE Id = @Id", conn, tx);
-                updateCmd.Parameters.AddWithValue("@ConfirmedQuantity", confirmedQuantity);
+                updateCmd.Parameters.AddWithValue("@ConfirmedQuantity", actualSeedlings);
                 updateCmd.Parameters.AddWithValue("@ConfirmedBy", (object?)confirmedByUserId ?? DBNull.Value);
-                updateCmd.Parameters.AddWithValue("@DiscrepancyReason", (object?)discrepancyReason ?? DBNull.Value);
+                updateCmd.Parameters.AddWithValue("@ActualReadyTrays", actualReadyTrays);
+                updateCmd.Parameters.AddWithValue("@WastageQuantity", wastage);
+                updateCmd.Parameters.AddWithValue("@WastageReason", (object?)wastageReason ?? DBNull.Value);
                 updateCmd.Parameters.AddWithValue("@ModifiedBy", (object?)modifiedBy ?? DBNull.Value);
                 updateCmd.Parameters.AddWithValue("@Id", id);
                 await updateCmd.ExecuteNonQueryAsync();
@@ -1594,6 +1635,12 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
                 ConfirmedByName = reader.IsDBNull(reader.GetOrdinal("ConfirmedByName")) ? null : reader.GetString(reader.GetOrdinal("ConfirmedByName")),
                 ConfirmedDate = reader.IsDBNull(reader.GetOrdinal("ConfirmedDate")) ? null : reader.GetDateTime(reader.GetOrdinal("ConfirmedDate")),
                 DiscrepancyReason = reader.IsDBNull(reader.GetOrdinal("DiscrepancyReason")) ? null : reader.GetString(reader.GetOrdinal("DiscrepancyReason")),
+                CavityType = reader.IsDBNull(reader.GetOrdinal("CavityType")) ? null : reader.GetString(reader.GetOrdinal("CavityType")),
+                CuttingQuantityEntered = reader.IsDBNull(reader.GetOrdinal("CuttingQuantityEntered")) ? null : reader.GetDecimal(reader.GetOrdinal("CuttingQuantityEntered")),
+                NumberOfTrays = reader.IsDBNull(reader.GetOrdinal("NumberOfTrays")) ? null : reader.GetInt32(reader.GetOrdinal("NumberOfTrays")),
+                ActualReadyTrays = reader.IsDBNull(reader.GetOrdinal("ActualReadyTrays")) ? null : reader.GetDecimal(reader.GetOrdinal("ActualReadyTrays")),
+                WastageQuantity = reader.IsDBNull(reader.GetOrdinal("WastageQuantity")) ? null : reader.GetDecimal(reader.GetOrdinal("WastageQuantity")),
+                WastageReason = reader.IsDBNull(reader.GetOrdinal("WastageReason")) ? null : reader.GetString(reader.GetOrdinal("WastageReason")),
                 ResponsiblePersonId = reader.IsDBNull(reader.GetOrdinal("ResponsiblePersonId")) ? null : reader.GetInt32(reader.GetOrdinal("ResponsiblePersonId")),
                 ResponsiblePersonName = reader.IsDBNull(reader.GetOrdinal("ResponsiblePersonName")) ? null : reader.GetString(reader.GetOrdinal("ResponsiblePersonName")),
                 SupervisorId = reader.IsDBNull(reader.GetOrdinal("SupervisorId")) ? null : reader.GetInt32(reader.GetOrdinal("SupervisorId")),

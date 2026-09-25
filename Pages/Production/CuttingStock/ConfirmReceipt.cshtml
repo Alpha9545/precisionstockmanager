@@ -27,20 +27,33 @@
                 <dd class="col-sm-8">@Model.Transfer.SourceAreaName</dd>
                 <dt class="col-sm-4">Variety</dt>
                 <dd class="col-sm-8">@Model.Transfer.SpeciesName</dd>
-                <dt class="col-sm-4">Sent Quantity</dt>
-                <dd class="col-sm-8 fw-bold">@Model.Transfer.Quantity.ToString("N2")</dd>
+                <dt class="col-sm-4">Tray Cavity</dt>
+                <dd class="col-sm-8">@Model.Transfer.CavityType</dd>
+                <dt class="col-sm-4">Trays Sent</dt>
+                <dd class="col-sm-8">@Model.Transfer.NumberOfTrays</dd>
+                <dt class="col-sm-4">Cuttings Sent</dt>
+                <dd class="col-sm-8 fw-bold">@Model.Transfer.Quantity.ToString("N0")</dd>
             </dl>
 
             <form method="post">
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Confirmed Quantity (actually received)</label>
-                    <input type="number" step="0.01" min="0" asp-for="ConfirmedQuantity" class="form-control" required />
-                    <div class="form-text">Defaults to the sent quantity. Change it only if what physically arrived was different.</div>
+                    <label class="form-label fw-bold">Actual Ready Trays</label>
+                    <input type="number" step="1" min="1" max="@Model.Transfer.NumberOfTrays" asp-for="ActualReadyTrays" id="actualTrays" class="form-control" required />
+                    <div class="form-text">How many complete trays actually arrived / are ready. Cuttings received and wastage are calculated automatically.</div>
                 </div>
 
+                <div id="trayPreview" class="alert alert-secondary" style="display:none;"></div>
+
                 <div class="mb-3">
-                    <label class="form-label fw-bold">Discrepancy Reason</label>
-                    <textarea asp-for="DiscrepancyReason" class="form-control" rows="2" placeholder="Required only if the confirmed quantity differs from what was sent"></textarea>
+                    <label class="form-label fw-bold">Wastage Reason</label>
+                    <select asp-for="WastageReason" class="form-select">
+                        <option value="">-- None (no wastage) --</option>
+                        @foreach (var r in Model.WastageReasons)
+                        {
+                            <option value="@r">@r</option>
+                        }
+                    </select>
+                    <div class="form-text">Required only if the trays confirmed are fewer than the trays sent.</div>
                 </div>
 
                 <div class="text-center mt-4">
@@ -51,3 +64,26 @@
         </div>
     </div>
 </div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            function preview() {
+                var trays = $('#actualTrays').val();
+                var $out = $('#trayPreview');
+                if (!trays) { $out.hide(); return; }
+                $.get('@Url.Page("/Production/CuttingStock/ConfirmReceipt", "TrayPreview", new { id = Model.Transfer!.Id })', { trays: trays }, function (r) {
+                    if (r.ok) {
+                        $out.removeClass('alert-danger').addClass('alert-secondary')
+                            .text(trays + ' trays x @Model.Transfer.CavityType = ' + r.seedlings + ' cuttings received; wastage ' + r.wastage + ' (' + r.wastagePercent + '%).')
+                            .show();
+                    } else {
+                        $out.removeClass('alert-secondary').addClass('alert-danger').text(r.error).show();
+                    }
+                });
+            }
+            $('#actualTrays').on('input change', preview);
+            preview();
+        });
+    </script>
+}

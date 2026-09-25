@@ -36,6 +36,7 @@
                     <th>Transfer Code</th>
                     <th>Source Area</th>
                     <th>Variety</th>
+                    <th>Cavity</th>
                     <th>Sent Quantity</th>
                     <th>Sent Date</th>
                     <th></th>
@@ -48,6 +49,7 @@
                         <td>@t.TransferCode</td>
                         <td>@t.SourceAreaName</td>
                         <td>@t.SpeciesName</td>
+                        <td>@t.CavityType (@t.NumberOfTrays trays)</td>
                         <td>@t.Quantity.ToString("N2")</td>
                         <td>@t.CreatedDate.ToString("yyyy-MM-dd HH:mm")</td>
                         <td class="text-nowrap">
@@ -66,7 +68,7 @@
                 }
                 @if (!Model.Pending.Any())
                 {
-                    <tr><td colspan="6" class="text-center text-muted">No Cutting transfers awaiting confirmation.</td></tr>
+                    <tr><td colspan="7" class="text-center text-muted">No Cutting transfers awaiting confirmation.</td></tr>
                 }
             </tbody>
         </table>

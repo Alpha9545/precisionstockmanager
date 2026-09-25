@@ -36,8 +36,10 @@
                     <th>Transfer Code</th>
                     <th>Source Area</th>
                     <th>Variety</th>
+                    <th>Cavity</th>
                     <th>Sent</th>
                     <th>Confirmed</th>
+                    <th>Wastage</th>
                     <th>Confirmed On</th>
                     <th></th>
                 </tr>
@@ -49,8 +51,10 @@
                         <td>@t.TransferCode</td>
                         <td>@t.SourceAreaName</td>
                         <td>@t.SpeciesName</td>
+                        <td>@(t.CavityType ?? "-")</td>
                         <td>@t.Quantity.ToString("N2")</td>
                         <td class="fw-bold">@t.ConfirmedQuantity?.ToString("N2")</td>
+                        <td>@(t.WastageQuantity?.ToString("N2") ?? "-")</td>
                         <td>@t.ConfirmedDate?.ToString("yyyy-MM-dd HH:mm")</td>
                         <td>
                             <a asp-page="/Production/CuttingStock/Transplant" asp-route-id="@t.Id" class="btn btn-sm btn-primary">Transplant</a>
@@ -59,7 +63,7 @@
                 }
                 @if (!Model.Pending.Any())
                 {
-                    <tr><td colspan="7" class="text-center text-muted">No transfers awaiting transplant.</td></tr>
+                    <tr><td colspan="9" class="text-center text-muted">No transfers awaiting transplant.</td></tr>
                 }
             </tbody>
         </table>

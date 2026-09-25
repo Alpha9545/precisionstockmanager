@@ -59,8 +59,41 @@ namespace PlantStockManager.Models
         public int? ConfirmedBy { get; set; }
         public DateTime? ConfirmedDate { get; set; }
         // Required by the application whenever ConfirmedQuantity differs
-        // from Quantity, or when the transfer is Rejected outright.
+        // from Quantity, or when the transfer is Rejected outright. For a
+        // Cutting transfer this is set automatically to WastageReason
+        // below (kept for the Reject path and for any existing display
+        // that already reads it -- see Transplant.cshtml).
         public string? DiscrepancyReason { get; set; }
+
+        // Phase 4 (Cutting Delivery to Main Office) -- Cutting transfers
+        // only, mirroring the Direct Sowing/Ready Confirmation tray
+        // architecture (Services/DirectSowingRules.cs) instead of a
+        // freely-typed Quantity/ConfirmedQuantity pair:
+        //   CavityType/NumberOfTrays  -- chosen and computed when the
+        //     Mother Plant Supervisor sends it (GiveToMainOffice); Quantity
+        //     above becomes NumberOfTrays x cavity size (cuttings used in
+        //     COMPLETE trays only -- CuttingQuantityEntered is what was
+        //     actually counted; the rest simply stays in the source pool,
+        //     exactly like Direct Sowing's remaining seeds, with no
+        //     separate "remaining" concept surfaced anywhere);
+        //   ActualReadyTrays/WastageQuantity/WastageReason -- entered and
+        //     computed when Main Office confirms receipt (ConfirmReceipt):
+        //     ConfirmedQuantity = ActualReadyTrays x cavity size,
+        //     WastageQuantity = Quantity - ConfirmedQuantity.
+        public string? CavityType { get; set; }
+        public decimal? CuttingQuantityEntered { get; set; }
+        public int? NumberOfTrays { get; set; }
+        public decimal? ActualReadyTrays { get; set; }
+        public decimal? WastageQuantity { get; set; }
+        public string? WastageReason { get; set; }
+
+        // Display-only: how much of what was actually counted at the
+        // source Area never left as a complete tray (Direct Sowing's
+        // "remaining seeds" equivalent -- deliberately NOT called
+        // "Remaining Seedling Quantity", and never surfaced on the
+        // confirmation screen; it simply stays in the source Cutting
+        // Stock pool, available for the next delivery).
+        public decimal RemainingCuttings => CuttingQuantityEntered.HasValue ? CuttingQuantityEntered.Value - Quantity : 0;
 
         // Phase 16 (Model B): populated only once a Cutting transfer
         // reaches 'Transplanted' -- sourced from the 1:1
