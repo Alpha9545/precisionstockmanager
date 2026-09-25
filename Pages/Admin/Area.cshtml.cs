@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Admin
 {
@@ -9,20 +10,24 @@ namespace PlantStockManager.Pages.Admin
     {
         private readonly AreaRepository _areaRepo;
         private readonly PolyhouseRepository _polyhouseRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly GrowingPartnerRepository _growingPartnerRepo;
 
-        public AreaModel(AreaRepository areaRepo, PolyhouseRepository polyhouseRepo, EmployeeRepository employeeRepo, GrowingPartnerRepository growingPartnerRepo)
+        public AreaModel(AreaRepository areaRepo, PolyhouseRepository polyhouseRepo, SupervisorSelectionService supervisors, GrowingPartnerRepository growingPartnerRepo)
         {
             _areaRepo = areaRepo;
             _polyhouseRepo = polyhouseRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
             _growingPartnerRepo = growingPartnerRepo;
         }
 
         public List<Area> Areas { get; set; } = new();
         public List<Polyhouse> Polyhouses { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1 (D-3): an Area's supervisor must be an ACTIVE user who holds
+        // the permission of that Area's type (SupervisorRules.KindForAreaType)
+        // through a role assigned to THIS Area (or an all-Area role). One entry
+        // per (kind, user); the view narrows it to the chosen Area Type and Area.
+        public List<KindedSupervisorOption> Supervisors { get; set; } = new();
         // Phase 17: optional. "Internal / No Growing Partner" (the default,
         // GrowingPartnerId = null) always remains available -- this list
         // only adds the option to assign one.
@@ -50,6 +55,9 @@ namespace PlantStockManager.Pages.Admin
         public async Task<IActionResult> OnPostAddAsync()
         {
             ValidateArea(NewArea, "NewArea");
+            // A new Area has no role assignments yet: only an all-Area
+            // supervisor can be set now (Area id 0 matches no assignment).
+            await ValidateSupervisorAsync(NewArea, "NewArea", areaId: 0, currentSupervisorId: null);
 
             if (!ModelState.IsValid)
             {
@@ -68,6 +76,8 @@ namespace PlantStockManager.Pages.Admin
                 ModelState.AddModelError("EditArea.Id", "Invalid Area.");
 
             ValidateArea(EditArea, "EditArea");
+            var existing = EditArea.Id > 0 ? await _areaRepo.GetAreaById(EditArea.Id) : null;
+            await ValidateSupervisorAsync(EditArea, "EditArea", EditArea.Id, existing?.SupervisorId);
 
             if (!ModelState.IsValid)
             {
@@ -107,10 +117,30 @@ namespace PlantStockManager.Pages.Admin
                 ModelState.AddModelError($"{prefix}.AreaType", "Invalid Area Type.");
         }
 
+        // Phase 1 (D-3): server-side check of the chosen supervisor.
+        private async Task ValidateSupervisorAsync(Area area, string prefix, int areaId, int? currentSupervisorId)
+        {
+            if (!area.SupervisorId.HasValue || area.SupervisorId <= 0)
+                return;
+            if (area.SupervisorId == currentSupervisorId)
+                return; // unchanged value is kept
+            var kind = SupervisorRules.KindForAreaType(area.AreaType);
+            if (kind == null)
+            {
+                ModelState.AddModelError($"{prefix}.SupervisorId", "Choose the Area Type before assigning a supervisor.");
+                return;
+            }
+            var error = await _supervisors.ValidateAsync(kind.Value, areaId, area.SupervisorId, currentSupervisorId);
+            if (error != null)
+                ModelState.AddModelError($"{prefix}.SupervisorId", areaId == 0
+                    ? $"{error} A new Area has no assigned users yet: create the Area, assign the supervisor's role to it (Administration > User Role / Area Assignments), then set the supervisor."
+                    : error);
+        }
+
         private async Task LoadDropdownsAsync()
         {
             Polyhouses = await _polyhouseRepo.GetAllPolyhouses();
-            Supervisors = await _employeeRepo.GetAllActiveUsers();
+            Supervisors = await _supervisors.AllAreaKindOptionsAsync();
             GrowingPartners = await _growingPartnerRepo.GetAllAsync(activeOnly: true);
         }
     }

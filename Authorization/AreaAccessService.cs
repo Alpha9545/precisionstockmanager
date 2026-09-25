@@ -53,6 +53,10 @@ namespace PlantStockManager.Authorization
         //                       cross-Area reach to do its existing job.
         private static readonly string[] FullAccessRoleNames = { "Admin", "Management", "MainOfficeOfficer" };
 
+        // Phase 1: the same list, read by the supervisor-eligibility query
+        // (UserRoleRepository.GetSupervisorCandidatesAsync) -- one source.
+        public static IReadOnlyList<string> AllAreaRoleNames => FullAccessRoleNames;
+
         // Phase A: a full-access user (e.g. the "System Administrator" role,
         // see SecurityOptions.FullAccessRoleNames -> "FullAccess" claim)
         // sees every Area as well. Area access stays SEPARATE from feature

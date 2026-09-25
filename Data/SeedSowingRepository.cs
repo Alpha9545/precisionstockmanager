@@ -514,7 +514,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         // just one of them after the fact would create an inconsistent
         // historical record (see Decision 21's correction paragraph in
         // PROJECT_DOCUMENTATION.md).
-        public async Task<(bool Success, string? Message)> UpdateDetailsAsync(SeedSowing entry)
+        // Phase 1: editorId = the signed-in user; they can never become the
+        // supervisor themselves. ResponsiblePersonId is no longer written
+        // (removed from the UI) so stored values are preserved.
+        public async Task<(bool Success, string? Message)> UpdateDetailsAsync(SeedSowing entry, int? editorId = null)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
@@ -557,7 +560,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                         return (false, "The supervisor cannot be changed after the sowing has been approved.");
                     }
                     var approvers = (await _userRoleRepo.GetSowingApproversAsync(conn, tx)).Select(a => a.EmployeeID).ToList();
-                    var (supervisorOk, supervisorError) = DirectSowingRules.ValidateSupervisorAssignment(entry.SupervisorId, createdById, approvers);
+                    var (supervisorOk, supervisorError) = DirectSowingRules.ValidateSupervisorChange(entry.SupervisorId, createdById, editorId, approvers);
                     if (!supervisorOk)
                     {
                         tx.Rollback();
@@ -567,8 +570,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
                 const string updateSql = @"
 UPDATE dbo.SeedSowings
-SET ResponsiblePersonId = @ResponsiblePersonId,
-    SupervisorId = @SupervisorId,
+SET SupervisorId = @SupervisorId,
     Remarks = @Remarks,
     ModifiedDate = SYSUTCDATETIME(),
     ModifiedBy = @ModifiedBy
@@ -576,7 +578,6 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
 
                 using var cmd = new SqlCommand(updateSql, conn, tx);
                 cmd.Parameters.AddWithValue("@Id", entry.Id);
-                cmd.Parameters.AddWithValue("@ResponsiblePersonId", (object?)entry.ResponsiblePersonId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@SupervisorId", (object?)entry.SupervisorId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Remarks", (object?)entry.Remarks ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ModifiedBy", (object?)entry.ModifiedBy ?? DBNull.Value);

@@ -454,8 +454,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             {
                 const string updateSql = @"
 UPDATE dbo.PotProduction
-SET ResponsiblePersonId = @ResponsiblePersonId,
-    SupervisorId = @SupervisorId,
+SET SupervisorId = @SupervisorId,
     Remarks = @Remarks,
     ModifiedDate = SYSUTCDATETIME(),
     ModifiedBy = @ModifiedBy
@@ -463,7 +462,6 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
 
                 using var cmd = new SqlCommand(updateSql, conn);
                 cmd.Parameters.AddWithValue("@Id", entry.Id);
-                cmd.Parameters.AddWithValue("@ResponsiblePersonId", (object?)entry.ResponsiblePersonId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@SupervisorId", (object?)entry.SupervisorId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Remarks", (object?)entry.Remarks ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ModifiedBy", (object?)entry.ModifiedBy ?? DBNull.Value);

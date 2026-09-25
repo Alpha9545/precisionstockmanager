@@ -19,7 +19,11 @@
                 <dt class="col-sm-5">Quantity Dispatched</dt><dd class="col-sm-7">@Model.Dispatch.Quantity.ToString("N2")</dd>
                 <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.Dispatch.Status</dd>
                 <dt class="col-sm-5">Dispatch Date</dt><dd class="col-sm-7">@Model.Dispatch.DispatchDate.ToString("dd/MM/yyyy")</dd>
-                <dt class="col-sm-5">Responsible Person</dt><dd class="col-sm-7">@(Model.Dispatch.ResponsiblePersonName ?? "-")</dd>
+                @* Responsible Person was removed from data entry (Phase 1); an existing value is kept and shown for history only. *@
+                @if (!string.IsNullOrEmpty(Model.Dispatch.ResponsiblePersonName))
+                {
+                    <dt class="col-sm-5">Responsible Person (historical)</dt><dd class="col-sm-7">@Model.Dispatch.ResponsiblePersonName</dd>
+                }
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@(Model.Dispatch.SupervisorName ?? "-")</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.Dispatch.Remarks</dd>
                 <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.Dispatch.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.Dispatch.CreatedBy</dd>

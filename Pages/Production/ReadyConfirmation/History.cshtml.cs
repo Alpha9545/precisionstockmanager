@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using SeedSowingModel = PlantStockManager.Models.SeedSowing;
 // Alias required: this file's own folder (Pages/Production/
 // ReadyConfirmation/) makes "ReadyConfirmation" a nested namespace member
@@ -33,6 +34,10 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
 
         public SeedSowingModel SeedSowing { get; set; } = new();
         public List<ReadyConfirmationModel> Confirmations { get; set; } = new();
+
+        // Phase 1 (F2): only the sowing's assigned supervisor sees / may use
+        // Cancel (the repository re-checks under the sowing's row lock).
+        public bool CanCancelApproval => DirectSowingRules.CanCancelApproval(SeedSowing.SupervisorId, User.GetUserId()).Ok;
 
         public async Task<IActionResult> OnGetAsync(int id)
         {

@@ -74,13 +74,6 @@
                 </div>
                 <div class="row g-2 align-items-end mb-4">
                     <div class="col-md-2"><label class="form-label small">Dispatch date</label><input type="date" asp-for="DispatchDate" class="form-control" required /></div>
-                    <div class="col-md-3">
-                        <label class="form-label small">Responsible person</label>
-                        <select asp-for="ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var s in Model.Staff) { <option value="@s.EmployeeID">@s.Name</option> }
-                        </select>
-                    </div>
                     <div class="col-md-4"><label class="form-label small">Remarks</label><input type="text" asp-for="Remarks" class="form-control" maxlength="500" /></div>
                     <div class="col-md-3"><button type="submit" class="btn btn-success w-100">Dispatch (partial or full)</button></div>
                 </div>

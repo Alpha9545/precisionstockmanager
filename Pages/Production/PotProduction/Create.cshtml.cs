@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using PotProductionModel = PlantStockManager.Models.PotProduction;
 using PropagationBatchModel = PlantStockManager.Models.PropagationBatch;
 
@@ -13,7 +14,7 @@ namespace PlantStockManager.Pages.Production.PotProduction
         private readonly PotProductionRepository _potProductionRepo;
         private readonly PropagationBatchRepository _propagationBatchRepo;
         private readonly EmptyPotInventoryRepository _emptyPotInventoryRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly AreaAccessService _areaAccessService;
         private readonly MotherPlantAreaScope _areaScope;
 
@@ -21,7 +22,7 @@ namespace PlantStockManager.Pages.Production.PotProduction
             PotProductionRepository potProductionRepo,
             PropagationBatchRepository propagationBatchRepo,
             EmptyPotInventoryRepository emptyPotInventoryRepo,
-            EmployeeRepository employeeRepo,
+            SupervisorSelectionService supervisors,
             AreaAccessService areaAccessService,
             MotherPlantAreaScope areaScope)
         {
@@ -30,7 +31,7 @@ namespace PlantStockManager.Pages.Production.PotProduction
             _potProductionRepo = potProductionRepo;
             _propagationBatchRepo = propagationBatchRepo;
             _emptyPotInventoryRepo = emptyPotInventoryRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
         }
 
         [BindProperty]
@@ -38,8 +39,8 @@ namespace PlantStockManager.Pages.Production.PotProduction
 
         public List<PropagationBatchModel> OpenPropagationBatches { get; set; } = new();
         public List<PlantStockManager.Models.EmptyPotInventory> ActivePotSizes { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: Production Area supervisors of the chosen pot pool's Area.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
 
         public async Task OnGetAsync()
         {
@@ -99,6 +100,15 @@ namespace PlantStockManager.Pages.Production.PotProduction
                 return Page();
             }
 
+            var supervisorError = await _supervisors.ValidateAsync(SupervisorKind.ProductionArea, selectedPool.AreaId, PotProduction.SupervisorId);
+            if (supervisorError != null)
+            {
+                ModelState.AddModelError("PotProduction.SupervisorId", supervisorError);
+                await LoadDropdownsAsync();
+                return Page();
+            }
+            PotProduction.ResponsiblePersonId = null;   // Phase 1: no longer entered
+
             PotProduction.CreatedBy = User.Identity?.Name ?? "System";
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
@@ -124,9 +134,7 @@ namespace PlantStockManager.Pages.Production.PotProduction
             // F1: only the batches / pools of the user's Area(s).
             OpenPropagationBatches = await _areaScope.FilterAsync(User, await _propagationBatchRepo.GetOpenForPotProductionAsync(), pb => (int?)pb.MotherPlantId, pb => pb.AreaId);
             ActivePotSizes = _areaAccessService.FilterByArea(User, await _emptyPotInventoryRepo.GetAllAsync(activeOnly: true), p => p.AreaId);
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = await _supervisors.OptionsAsync(SupervisorKind.ProductionArea);
         }
     }
 }

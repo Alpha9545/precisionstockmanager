@@ -52,7 +52,6 @@
                     <th>Wastage Reason</th>
                     <th>Approved By</th>
                     <th>Status</th>
-                    <th>Responsible</th>
                     <th>Supervisor</th>
                     <th>Remarks</th>
                     <th></th>
@@ -80,11 +79,10 @@
                                 <span class="badge bg-success">Confirmed</span>
                             }
                         </td>
-                        <td>@(rc.ResponsiblePersonName ?? "-")</td>
                         <td>@(rc.SupervisorName ?? "-")</td>
                         <td>@(rc.Remarks ?? "-")</td>
                         <td>
-                            @if (canApprove && rc.Status == "Confirmed")
+                            @if (canApprove && Model.CanCancelApproval && rc.Status == "Confirmed")
                             {
                                 <form method="post" asp-page-handler="Cancel" asp-route-confirmationId="@rc.Id" asp-route-seedSowingId="@Model.SeedSowing.Id"
                                       onsubmit="return confirm('Cancel this approval? Its Ready quantity is removed from Ready Stock and the batch is re-opened for approval.');">

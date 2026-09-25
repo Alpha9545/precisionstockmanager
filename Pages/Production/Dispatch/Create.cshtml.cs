@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using DispatchModel = PlantStockManager.Models.Dispatch;
 
 namespace PlantStockManager.Pages.Production.Dispatch
@@ -20,13 +21,15 @@ namespace PlantStockManager.Pages.Production.Dispatch
     public class CreateModel : PageModel
     {
         private readonly DispatchRepository _dispatchRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly AreaRepository _areaRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly AreaAccessService _areaAccessService;
 
-        public CreateModel(DispatchRepository dispatchRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
+        public CreateModel(DispatchRepository dispatchRepo, AreaRepository areaRepo, SupervisorSelectionService supervisors, AreaAccessService areaAccessService)
         {
             _dispatchRepo = dispatchRepo;
-            _employeeRepo = employeeRepo;
+            _areaRepo = areaRepo;
+            _supervisors = supervisors;
             _areaAccessService = areaAccessService;
         }
 
@@ -41,7 +44,13 @@ namespace PlantStockManager.Pages.Production.Dispatch
         // (the amount to dispatch now, which may be a partial amount) --
         // see DispatchRepository.InsertAsync.
         public List<PlantStockManager.Models.PottedPlantBooking> DispatchableBookings { get; set; } = new();
-        public List<Employee> PersonOptions { get; set; } = new();
+        // Phase 1: supervisors of every Area kind; site.js shows only those
+        // who may supervise the selected Booking's Area (re-checked on save).
+        public List<KindedSupervisorOption> Supervisors { get; set; } = new();
+        public List<Area> Areas { get; set; } = new();
+
+        public string? AreaKindKey(int? areaId)
+            => areaId.HasValue ? SupervisorRules.KindKeyForAreaType(Areas.FirstOrDefault(a => a.Id == areaId.Value)?.AreaType) : null;
 
         public async Task OnGetAsync()
         {
@@ -87,6 +96,16 @@ namespace PlantStockManager.Pages.Production.Dispatch
                 return Page();
             }
 
+            // Phase 1: the supervisor must be eligible for the Booking's Area.
+            var supervisorError = await _supervisors.ValidateForAreaAsync(booking.AreaId, SupervisorKind.ProductionArea, Dispatch.SupervisorId);
+            if (supervisorError != null)
+            {
+                ModelState.AddModelError("Dispatch.SupervisorId", supervisorError);
+                await LoadDropdownsAsync();
+                return Page();
+            }
+
+            Dispatch.ResponsiblePersonId = null; // Phase 1: Responsible Person retired
             Dispatch.CreatedBy = User.Identity?.Name ?? "System";
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
@@ -109,7 +128,8 @@ namespace PlantStockManager.Pages.Production.Dispatch
             DispatchableBookings = _areaAccessService.HasFullAreaAccess(User)
                 ? all
                 : all.Where(b => _areaAccessService.CanAccessArea(User, b.AreaId)).ToList();
-            PersonOptions = await _employeeRepo.GetAllActiveUsers();
+            Areas = await _areaRepo.GetAllAreas();
+            Supervisors = await _supervisors.AllAreaKindOptionsAsync();
         }
     }
 }

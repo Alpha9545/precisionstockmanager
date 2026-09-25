@@ -340,11 +340,12 @@ WHERE Id = @Id", conn, tx);
                 }
 
                 var sowingLockCmd = new SqlCommand(
-                    "SELECT ConfirmedReadyQuantity, WastageQuantity, Status FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                    "SELECT ConfirmedReadyQuantity, WastageQuantity, Status, SupervisorId FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
                 sowingLockCmd.Parameters.AddWithValue("@Id", seedSowingId);
                 decimal confirmedSoFar, wastedSoFar;
                 string sowingStatus;
+                int? sowingSupervisorId;
                 using (var reader = await sowingLockCmd.ExecuteReaderAsync())
                 {
                     if (!await reader.ReadAsync())
@@ -356,6 +357,15 @@ WHERE Id = @Id", conn, tx);
                     confirmedSoFar = reader.GetDecimal(0);
                     wastedSoFar = reader.GetDecimal(1);
                     sowingStatus = reader.GetString(2);
+                    sowingSupervisorId = reader.IsDBNull(3) ? null : reader.GetInt32(3);
+                }
+                // Phase 1 (F2): only the sowing's assigned supervisor may
+                // cancel its approval -- checked under the sowing's row lock.
+                var (mayCancel, cancelError) = DirectSowingRules.CanCancelApproval(sowingSupervisorId, userId);
+                if (!mayCancel)
+                {
+                    tx.Rollback();
+                    return (false, cancelError);
                 }
                 if (sowingStatus == "Cancelled")
                 {

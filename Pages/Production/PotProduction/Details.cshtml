@@ -35,7 +35,11 @@
                 <dt class="col-sm-5">Production Date</dt><dd class="col-sm-7">@Model.PotProduction.ProductionDate.ToString("dd/MM/yyyy")</dd>
                 <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.PotProduction.Status</dd>
                 <dt class="col-sm-5">Quantity (Potted Plants Produced)</dt><dd class="col-sm-7">@Model.PotProduction.Quantity.ToString("N2")</dd>
-                <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.PotProduction.ResponsiblePersonName</dd>
+                @* Responsible Person was removed from data entry (Phase 1); an existing value is kept and shown for history only. *@
+                @if (!string.IsNullOrEmpty(Model.PotProduction.ResponsiblePersonName))
+                {
+                    <dt class="col-sm-5">Responsible Person (historical)</dt><dd class="col-sm-7">@Model.PotProduction.ResponsiblePersonName</dd>
+                }
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.PotProduction.SupervisorName</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.PotProduction.Remarks</dd>
                 <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.PotProduction.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.PotProduction.CreatedBy</dd>

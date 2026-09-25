@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using ActualCuttingModel = PlantStockManager.Models.ActualCutting;
 using CuttingPlanModel = PlantStockManager.Models.CuttingPlan;
 
@@ -12,27 +13,29 @@ namespace PlantStockManager.Pages.Production.ActualCutting
     {
         private readonly ActualCuttingRepository _actualCuttingRepo;
         private readonly CuttingPlanRepository _cuttingPlanRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly MotherPlantAreaScope _areaScope;
 
         public CreateModel(
             ActualCuttingRepository actualCuttingRepo,
             CuttingPlanRepository cuttingPlanRepo,
-            EmployeeRepository employeeRepo,
+            SupervisorSelectionService supervisors,
             MotherPlantAreaScope areaScope)
         {
             _areaScope = areaScope;
             _actualCuttingRepo = actualCuttingRepo;
             _cuttingPlanRepo = cuttingPlanRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
         }
 
         [BindProperty]
         public ActualCuttingModel ActualCutting { get; set; } = new();
 
         public List<CuttingPlanModel> OpenCuttingPlans { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: Production Area supervisors, narrowed to the chosen plan's Mother Plant Area.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
+        public IReadOnlyDictionary<int, int?> MotherPlantAreas { get; set; } = new Dictionary<int, int?>();
+        public string AreaOf(int motherPlantId) => MotherPlantAreas.TryGetValue(motherPlantId, out var a) && a.HasValue ? a.Value.ToString() : string.Empty;
 
         public async Task OnGetAsync()
         {
@@ -71,6 +74,15 @@ namespace PlantStockManager.Pages.Production.ActualCutting
             if (plan != null && !await _areaScope.CanAccessAsync(User, plan.MotherPlantId))
                 ModelState.AddModelError("ActualCutting.CuttingPlanId", "You are not authorized to record cuttings for this Cutting Plan's Area.");
 
+            // Phase 1: the supervisor must be eligible for the Mother Plant's Area.
+            if (plan != null)
+            {
+                var supervisorError = await _supervisors.ValidateAsync(
+                    SupervisorKind.ProductionArea, await _areaScope.ResolveAreaIdAsync(plan.MotherPlantId), ActualCutting.SupervisorId);
+                if (supervisorError != null)
+                    ModelState.AddModelError("ActualCutting.SupervisorId", supervisorError);
+            }
+
             if (!ModelState.IsValid || plan == null)
             {
                 await LoadDropdownsAsync();
@@ -81,6 +93,7 @@ namespace PlantStockManager.Pages.Production.ActualCutting
             // never trusted from the posted form.
             ActualCutting.MotherPlantId = plan.MotherPlantId;
             ActualCutting.SpeciesId = plan.SpeciesId;
+            ActualCutting.ResponsiblePersonId = null; // Phase 1: Responsible Person retired
             ActualCutting.CreatedBy = User.Identity?.Name ?? "System";
 
             var (success, message, _) = await _actualCuttingRepo.InsertAsync(ActualCutting);
@@ -101,9 +114,8 @@ namespace PlantStockManager.Pages.Production.ActualCutting
         private async Task LoadDropdownsAsync()
         {
             OpenCuttingPlans = await _areaScope.FilterAsync(User, await _cuttingPlanRepo.GetOpenForActualCuttingAsync(), c => (int?)c.MotherPlantId);
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            MotherPlantAreas = await _areaScope.GetAreaMapAsync();
+            Supervisors = await _supervisors.OptionsAsync(SupervisorKind.ProductionArea);
         }
     }
 }

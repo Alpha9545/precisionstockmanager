@@ -40,7 +40,7 @@
 
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Growing Area <span class="text-muted fw-normal">(optional)</span></label>
-                        <select asp-for="SeedSowing.AreaId" id="areaSelect" class="form-select">
+                        <select asp-for="SeedSowing.AreaId" id="areaSelect" class="form-select" data-area-select>
                             <option value="">-- Seed lot's Area (Main Office) --</option>
                             @foreach (var a in Model.Areas)
                             {
@@ -133,22 +133,12 @@
 
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Supervisor <span class="text-muted fw-normal">(approves this batch)</span></label>
-                        <select asp-for="SeedSowing.SupervisorId" class="form-select" required>
+                        <select asp-for="SeedSowing.SupervisorId" class="form-select" required
+                                data-supervisor-area-source="@(Model.AreaScopeEnforced ? "#areaSelect" : null)">
                             <option value="">-- Select supervisor --</option>
                             @foreach (var s in Model.Supervisors)
                             {
-                                <option value="@s.EmployeeID">@s.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="SeedSowing.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
+                                <option value="@s.EmployeeID" data-areas="@s.AreaAttribute">@s.Name</option>
                             }
                         </select>
                     </div>

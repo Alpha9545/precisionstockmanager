@@ -30,16 +30,14 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
     {
         private readonly SeedSowingRepository _seedSowingRepo;
         private readonly ReadyConfirmationRepository _readyConfirmationRepo;
-        private readonly EmployeeRepository _employeeRepo;
         private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
 
         public ConfirmModel(
             SeedSowingRepository seedSowingRepo, ReadyConfirmationRepository readyConfirmationRepo,
-            EmployeeRepository employeeRepo, SeedlingAreaScope areaAccessService)
+            SeedlingAreaScope areaAccessService)
         {
             _seedSowingRepo = seedSowingRepo;
             _readyConfirmationRepo = readyConfirmationRepo;
-            _employeeRepo = employeeRepo;
             _areaAccessService = areaAccessService;
         }
 
@@ -62,12 +60,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
         public IReadOnlyList<string> WastageReasons => DirectSowingRules.WastageReasons;
 
         [BindProperty]
-        public int? ResponsiblePersonId { get; set; }
-
-        [BindProperty]
         public string? Remarks { get; set; }
-
-        public List<Employee> ResponsiblePersons { get; set; } = new();
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -103,7 +96,6 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
 
             SeedSowing = sowing;
             SeedSowingId = sowing.Id;
-            await LoadDropdownsAsync();
             return Page();
         }
 
@@ -142,8 +134,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             {
                 ModelState.AddModelError(string.Empty, error!);
                 SeedSowing = sowing;
-                await LoadDropdownsAsync();
-                return Page();
+                    return Page();
             }
 
             var userIdClaim = User.FindFirst("UserId")?.Value;
@@ -151,14 +142,13 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             var createdBy = User.Identity?.Name ?? "System";
 
             var (success, message, _) = await _readyConfirmationRepo.ConfirmAsync(
-                sowing.Id, ActualReadyTrays, WastageReason, ResponsiblePersonId, Remarks, createdBy, userId);
+                sowing.Id, ActualReadyTrays, WastageReason, responsiblePersonId: null, Remarks, createdBy, userId);
 
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to record the Supervisor Approval.");
                 SeedSowing = sowing;
-                await LoadDropdownsAsync();
-                return Page();
+                    return Page();
             }
 
             TempData["Success"] = $"Batch {sowing.SowingCode} approved: {ActualReadyTrays:N0} trays x {sowing.CavityType} = {seedlings:N0} seedlings added to Ready Stock; wastage {wastage:N0} ({wastagePct:0.00}%). The sowing is now Completed.";
@@ -179,12 +169,6 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
                 sowing.QuantitySown, sowing.NumberOfTrays, sowing.CavityType, sowing.ConfirmedReadyQuantity, sowing.WastageQuantity,
                 trays, DirectSowingRules.WastageReasons[0]);
             return new JsonResult(new { ok, seedlings = ok ? seedlings : (decimal?)null, wastage, wastagePercent = wastagePct, error });
-        }
-
-        private async Task LoadDropdownsAsync()
-        {
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
         }
     }
 }

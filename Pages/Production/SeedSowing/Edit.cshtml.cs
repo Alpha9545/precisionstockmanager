@@ -11,7 +11,6 @@ namespace PlantStockManager.Pages.Production.SeedSowing
     public class EditModel : PageModel
     {
         private readonly SeedSowingRepository _seedSowingRepo;
-        private readonly EmployeeRepository _employeeRepo;
         private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
 
         private readonly UserRoleRepository _userRoleRepo;
@@ -19,12 +18,11 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         // The assigned supervisor can only change while nothing is approved.
         public bool CanChangeSupervisor { get; private set; }
 
-        public EditModel(SeedSowingRepository seedSowingRepo, EmployeeRepository employeeRepo, SeedlingAreaScope areaAccessService,
+        public EditModel(SeedSowingRepository seedSowingRepo, SeedlingAreaScope areaAccessService,
             UserRoleRepository userRoleRepo)
         {
             _userRoleRepo = userRoleRepo;
             _seedSowingRepo = seedSowingRepo;
-            _employeeRepo = employeeRepo;
             _areaAccessService = areaAccessService;
         }
 
@@ -41,7 +39,6 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         [BindProperty]
         public SeedSowingModel SeedSowing { get; set; } = new();
 
-        public List<Employee> ResponsiblePersons { get; set; } = new();
         public List<Employee> Supervisors { get; set; } = new();
 
         public async Task<IActionResult> OnGetAsync(int id)
@@ -124,7 +121,17 @@ namespace PlantStockManager.Pages.Production.SeedSowing
 
             SeedSowing.ModifiedBy = User.Identity?.Name ?? "System";
 
-            var (success, message) = await _seedSowingRepo.UpdateDetailsAsync(SeedSowing);
+            // Phase 1: a changed supervisor must be eligible for the batch's
+            // Area while the seedling Area scope is enforced (the repository
+            // re-checks role, creator and editor rules under lock).
+            var (supervisorOk, supervisorError) = SupervisorRules.ValidateChoice(
+                SeedSowing.SupervisorId, existing.SupervisorId,
+                await _userRoleRepo.GetEligibleSupervisorsAsync(SupervisorKind.Sowing, existing.AreaId, _areaAccessService.IsEnforced),
+                SupervisorKind.Sowing);
+
+            var (success, message) = supervisorOk
+                ? await _seedSowingRepo.UpdateDetailsAsync(SeedSowing, User.GetUserId())
+                : (false, supervisorError);
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to update Sowing.");
@@ -177,12 +184,17 @@ namespace PlantStockManager.Pages.Production.SeedSowing
 
         private async Task LoadDropdownsAsync(SeedSowingModel? existing)
         {
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            // Eligible approvers, never the person who recorded the sowing.
-            Supervisors = (await _userRoleRepo.GetSowingApproversAsync())
+            // Eligible approvers, never the person who recorded the sowing and
+            // never the person editing it (Phase 1: no "reassign to myself,
+            // then approve"; the repository enforces this again under lock).
+            var me = User.GetUserId();
+            Supervisors = (await _userRoleRepo.GetEligibleSupervisorsAsync(SupervisorKind.Sowing, existing?.AreaId, _areaAccessService.IsEnforced))
                 .Where(a => existing?.CreatedById == null || a.EmployeeID != existing.CreatedById)
+                .Where(a => a.EmployeeID != me || a.EmployeeID == existing?.SupervisorId)
                 .ToList();
+            // Keep the stored supervisor selectable (an unchanged value is always accepted).
+            if (existing?.SupervisorId is int currentId && currentId > 0 && !Supervisors.Any(s => s.EmployeeID == currentId))
+                Supervisors.Add(new Employee { EmployeeID = currentId, Name = (existing.SupervisorName ?? "#" + currentId) + " (current)" });
             CanChangeSupervisor = existing != null
                 && DirectSowingRules.CanChangeSupervisor(existing.Status, existing.ConfirmedReadyQuantity, existing.WastageQuantity);
         }

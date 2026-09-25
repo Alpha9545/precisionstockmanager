@@ -23,7 +23,11 @@
                 <dt class="col-sm-5">Destination Area</dt><dd class="col-sm-7">@Model.InternalTransfer.DestinationAreaName</dd>
                 <dt class="col-sm-5">Quantity</dt><dd class="col-sm-7">@Model.InternalTransfer.Quantity.ToString("N2")</dd>
                 <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.InternalTransfer.Status</dd>
-                <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.InternalTransfer.ResponsiblePersonName</dd>
+                @* Responsible Person was removed from data entry (Phase 1); an existing value is kept and shown for history only. *@
+                @if (!string.IsNullOrEmpty(Model.InternalTransfer.ResponsiblePersonName))
+                {
+                    <dt class="col-sm-5">Responsible Person (historical)</dt><dd class="col-sm-7">@Model.InternalTransfer.ResponsiblePersonName</dd>
+                }
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.InternalTransfer.SupervisorName</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.InternalTransfer.Remarks</dd>
                 <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.InternalTransfer.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.InternalTransfer.CreatedBy</dd>

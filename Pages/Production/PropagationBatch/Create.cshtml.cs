@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using PropagationBatchModel = PlantStockManager.Models.PropagationBatch;
 using CuttingDeliveryModel = PlantStockManager.Models.CuttingDelivery;
 
@@ -13,21 +14,21 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
         private readonly PropagationBatchRepository _propagationBatchRepo;
         private readonly CuttingDeliveryRepository _cuttingDeliveryRepo;
         private readonly AreaRepository _areaRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly MotherPlantAreaScope _areaScope;
 
         public CreateModel(
             PropagationBatchRepository propagationBatchRepo,
             CuttingDeliveryRepository cuttingDeliveryRepo,
             AreaRepository areaRepo,
-            EmployeeRepository employeeRepo,
+            SupervisorSelectionService supervisors,
             MotherPlantAreaScope areaScope)
         {
             _areaScope = areaScope;
             _propagationBatchRepo = propagationBatchRepo;
             _cuttingDeliveryRepo = cuttingDeliveryRepo;
             _areaRepo = areaRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
         }
 
         [BindProperty]
@@ -35,8 +36,11 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
 
         public List<CuttingDeliveryModel> OpenCuttingDeliveries { get; set; } = new();
         public List<Area> Areas { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: Production Area supervisors, narrowed to the chosen
+        // propagation Area, or else the delivery's Mother Plant Area.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
+        public IReadOnlyDictionary<int, int?> MotherPlantAreas { get; set; } = new Dictionary<int, int?>();
+        public string AreaOf(int motherPlantId) => MotherPlantAreas.TryGetValue(motherPlantId, out var a) && a.HasValue ? a.Value.ToString() : string.Empty;
 
         public async Task OnGetAsync()
         {
@@ -81,6 +85,16 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
             if (PropagationBatch.AreaId.HasValue && !await _areaScope.CanAccessAsync(User, null, PropagationBatch.AreaId))
                 ModelState.AddModelError("PropagationBatch.AreaId", "You are not authorized to use the selected Area.");
 
+            // Phase 1: the supervisor must be eligible for the batch's Area
+            // (its own Area when chosen, else the Mother Plant's Area).
+            if (delivery != null)
+            {
+                var supervisorError = await _supervisors.ValidateAsync(
+                    SupervisorKind.ProductionArea, await _areaScope.ResolveAreaIdAsync(delivery.MotherPlantId, PropagationBatch.AreaId), PropagationBatch.SupervisorId);
+                if (supervisorError != null)
+                    ModelState.AddModelError("PropagationBatch.SupervisorId", supervisorError);
+            }
+
             if (!ModelState.IsValid || delivery == null)
             {
                 await LoadDropdownsAsync();
@@ -91,6 +105,7 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
             // itself, never trusted from the posted form.
             PropagationBatch.MotherPlantId = delivery.MotherPlantId;
             PropagationBatch.SpeciesId = delivery.SpeciesId;
+            PropagationBatch.ResponsiblePersonId = null; // Phase 1: Responsible Person retired
             PropagationBatch.CreatedBy = User.Identity?.Name ?? "System";
 
             var (success, message, _) = await _propagationBatchRepo.InsertAsync(PropagationBatch);
@@ -112,9 +127,8 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
         {
             OpenCuttingDeliveries = await _areaScope.FilterAsync(User, await _cuttingDeliveryRepo.GetOpenForPropagationAsync(), d => (int?)d.MotherPlantId);
             Areas = await _areaRepo.GetAllAreas();
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            MotherPlantAreas = await _areaScope.GetAreaMapAsync();
+            Supervisors = await _supervisors.OptionsAsync(SupervisorKind.ProductionArea);
         }
     }
 }

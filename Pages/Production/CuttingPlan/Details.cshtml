@@ -20,7 +20,11 @@
                 <dt class="col-sm-5">Planned Quantity</dt><dd class="col-sm-7">@Model.CuttingPlan.PlannedQuantity.ToString("N2")</dd>
                 <dt class="col-sm-5">Cutting Rate</dt><dd class="col-sm-7">@Model.CuttingPlan.CuttingRate.ToString("N4")</dd>
                 <dt class="col-sm-5">Actual Cutting recorded so far</dt><dd class="col-sm-7">@Model.CuttingPlan.ActualCuttingQuantityRecorded.ToString("N2")</dd>
-                <dt class="col-sm-5">Responsible Person</dt><dd class="col-sm-7">@Model.CuttingPlan.ResponsiblePersonName</dd>
+                @* Responsible Person was removed from data entry (Phase 1); an existing value is kept and shown for history only. *@
+                @if (!string.IsNullOrEmpty(Model.CuttingPlan.ResponsiblePersonName))
+                {
+                    <dt class="col-sm-5">Responsible Person (historical)</dt><dd class="col-sm-7">@Model.CuttingPlan.ResponsiblePersonName</dd>
+                }
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.CuttingPlan.SupervisorName</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.CuttingPlan.Remarks</dd>
                 <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.CuttingPlan.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.CuttingPlan.CreatedBy</dd>

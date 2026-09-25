@@ -26,7 +26,6 @@ namespace PlantStockManager.Pages.Production.SeedSowing
     {
         private readonly SeedSowingRepository _seedSowingRepo;
         private readonly SeedStockRepository _seedStockRepo;
-        private readonly EmployeeRepository _employeeRepo;
         private readonly AreaRepository _areaRepo;
         private readonly PolyhouseRepository _polyhouseRepo;
         private readonly PlantTypeRepository _plantTypeRepo;
@@ -36,7 +35,6 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         public CreateModel(
             SeedSowingRepository seedSowingRepo,
             SeedStockRepository seedStockRepo,
-            EmployeeRepository employeeRepo,
             AreaRepository areaRepo,
             PolyhouseRepository polyhouseRepo,
             PlantTypeRepository plantTypeRepo,
@@ -47,7 +45,6 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             _userRoleRepo = userRoleRepo;
             _seedSowingRepo = seedSowingRepo;
             _seedStockRepo = seedStockRepo;
-            _employeeRepo = employeeRepo;
             _areaRepo = areaRepo;
             _polyhouseRepo = polyhouseRepo;
             _plantTypeRepo = plantTypeRepo;
@@ -66,8 +63,10 @@ namespace PlantStockManager.Pages.Production.SeedSowing
 
         public List<Area> Areas { get; set; } = new();
         public List<PlantType> PlantTypes { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
+        // Phase 1: sowing approvers with their Areas; narrowed to the chosen
+        // growing Area only while the seedling Area scope is enforced.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
+        public bool AreaScopeEnforced => _areaAccessService.IsEnforced;
         public IReadOnlyList<string> CavityTypes => DirectSowingRules.CavityTypes;
 
         public async Task OnGetAsync()
@@ -166,7 +165,11 @@ namespace PlantStockManager.Pages.Production.SeedSowing
 
             // The supervisor who will approve this batch (re-checked in the
             // repository inside the save transaction).
-            var approverIds = (await _userRoleRepo.GetSowingApproversAsync()).Select(a => a.EmployeeID).ToList();
+            // Phase 1: when the seedling Area scope is enforced and a growing
+            // Area is chosen, the approver must be eligible for that Area.
+            var approverIds = (await _userRoleRepo.GetEligibleSupervisorsAsync(
+                    SupervisorKind.Sowing, SeedSowing.AreaId > 0 ? SeedSowing.AreaId : null, _areaAccessService.IsEnforced))
+                .Select(a => a.EmployeeID).ToList();
             var (supervisorOk, supervisorError) = DirectSowingRules.ValidateSupervisorAssignment(
                 SeedSowing.SupervisorId, User.GetUserId(), approverIds);
             if (!supervisorOk)
@@ -183,6 +186,7 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 return Page();
             }
 
+            SeedSowing.ResponsiblePersonId = null;   // Phase 1: no longer entered
             SeedSowing.CreatedBy = User.Identity?.Name ?? "System";
             var userId = User.GetUserId();
             SeedSowing.CreatedById = userId;   // used by the self-approval rule
@@ -210,12 +214,11 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 .ToList();
 
             PlantTypes = await _plantTypeRepo.GetAllPlantTypes();
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
             // Supervisor = who will approve: users who can approve sowings,
             // never the person recording this one.
             var me = User.GetUserId();
-            Supervisors = (await _userRoleRepo.GetSowingApproversAsync()).Where(a => a.EmployeeID != me).ToList();
-            ResponsiblePersons = activeUsers;
+            Supervisors = SupervisorRules.Options(
+                await _userRoleRepo.GetSupervisorCandidatesAsync(SupervisorKind.Sowing), me.HasValue ? new[] { me.Value } : null);
         }
     }
 }

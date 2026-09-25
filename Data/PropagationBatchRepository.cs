@@ -270,7 +270,6 @@ SET AreaId = @AreaId,
     SurvivedQuantity = @SurvivedQuantity,
     LossQuantity = @LossQuantity,
     Status = @Status,
-    ResponsiblePersonId = @ResponsiblePersonId,
     SupervisorId = @SupervisorId,
     Remarks = @Remarks,
     ModifiedDate = SYSUTCDATETIME(),
@@ -284,7 +283,6 @@ WHERE Id = @Id";
                 cmd.Parameters.AddWithValue("@SurvivedQuantity", entry.SurvivedQuantity);
                 cmd.Parameters.AddWithValue("@LossQuantity", entry.LossQuantity);
                 cmd.Parameters.AddWithValue("@Status", entry.Status);
-                cmd.Parameters.AddWithValue("@ResponsiblePersonId", (object?)entry.ResponsiblePersonId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@SupervisorId", (object?)entry.SupervisorId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Remarks", (object?)entry.Remarks ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ModifiedBy", (object?)entry.ModifiedBy ?? DBNull.Value);

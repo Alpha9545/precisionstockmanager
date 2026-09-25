@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using ActualCuttingModel = PlantStockManager.Models.ActualCutting;
 
 namespace PlantStockManager.Pages.Production.ActualCutting
@@ -10,14 +11,14 @@ namespace PlantStockManager.Pages.Production.ActualCutting
     public class EditModel : PageModel
     {
         private readonly ActualCuttingRepository _actualCuttingRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly MotherPlantAreaScope _areaScope;
 
-        public EditModel(ActualCuttingRepository actualCuttingRepo, EmployeeRepository employeeRepo, MotherPlantAreaScope areaScope)
+        public EditModel(ActualCuttingRepository actualCuttingRepo, SupervisorSelectionService supervisors, MotherPlantAreaScope areaScope)
         {
             _areaScope = areaScope;
             _actualCuttingRepo = actualCuttingRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
         }
 
         // The Cutting Plan / Mother Plant / Species linkage is fixed once
@@ -29,8 +30,9 @@ namespace PlantStockManager.Pages.Production.ActualCutting
         [BindProperty]
         public ActualCuttingModel ActualCutting { get; set; } = new();
 
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: Production Area supervisors of the Mother Plant's Area
+        // (plus the stored one).
+        public List<SupervisorOption> Supervisors { get; set; } = new();
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -46,7 +48,7 @@ namespace PlantStockManager.Pages.Production.ActualCutting
             }
 
             ActualCutting = existing;
-            await LoadDropdownsAsync();
+            await LoadDropdownsAsync(existing);
             return Page();
         }
 
@@ -72,7 +74,7 @@ namespace PlantStockManager.Pages.Production.ActualCutting
             if (existing == null)
             {
                 ModelState.AddModelError(string.Empty, "Actual Cutting record not found.");
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(null);
                 return Page();
             }
             // F1: re-check Area scope against the STORED record (the posted
@@ -86,12 +88,19 @@ namespace PlantStockManager.Pages.Production.ActualCutting
             ActualCutting.MotherPlantId = existing.MotherPlantId;
             ActualCutting.SpeciesId = existing.SpeciesId;
 
+            // Phase 1: the supervisor must be eligible for the Mother Plant's
+            // Area; the stored supervisor is kept when unchanged.
+            var supervisorError = await _supervisors.ValidateAsync(
+                SupervisorKind.ProductionArea, await _areaScope.ResolveAreaIdAsync(existing.MotherPlantId), ActualCutting.SupervisorId, existing.SupervisorId);
+            if (supervisorError != null)
+                ModelState.AddModelError("ActualCutting.SupervisorId", supervisorError);
+
             if (!ModelState.IsValid)
             {
                 ActualCutting.CuttingPlanNumber = existing.CuttingPlanNumber;
                 ActualCutting.MotherPlantCode = existing.MotherPlantCode;
                 ActualCutting.SpeciesName = existing.SpeciesName;
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
@@ -104,7 +113,7 @@ namespace PlantStockManager.Pages.Production.ActualCutting
                 ActualCutting.CuttingPlanNumber = existing.CuttingPlanNumber;
                 ActualCutting.MotherPlantCode = existing.MotherPlantCode;
                 ActualCutting.SpeciesName = existing.SpeciesName;
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
@@ -112,11 +121,12 @@ namespace PlantStockManager.Pages.Production.ActualCutting
             return RedirectToPage("/Production/ActualCutting/Index");
         }
 
-        private async Task LoadDropdownsAsync()
+        private async Task LoadDropdownsAsync(ActualCuttingModel? existing)
         {
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = existing == null
+                ? new List<SupervisorOption>()
+                : await _supervisors.ForKindAsync(SupervisorKind.ProductionArea,
+                    await _areaScope.ResolveAreaIdAsync(existing.MotherPlantId), existing.SupervisorId, existing.SupervisorName);
         }
     }
 }

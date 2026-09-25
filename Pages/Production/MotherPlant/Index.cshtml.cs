@@ -11,29 +11,24 @@ namespace PlantStockManager.Pages.Production.MotherPlant
     {
         private readonly MotherPlantRepository _motherPlantRepo;
         private readonly PolyhouseRepository _polyhouseRepo;
-        private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccessService;
 
         public IndexModel(
             MotherPlantRepository motherPlantRepo,
             PolyhouseRepository polyhouseRepo,
-            EmployeeRepository employeeRepo,
             AreaAccessService areaAccessService)
         {
             _motherPlantRepo = motherPlantRepo;
             _polyhouseRepo = polyhouseRepo;
-            _employeeRepo = employeeRepo;
             _areaAccessService = areaAccessService;
         }
 
         public List<MotherPlantModel> MotherPlants { get; set; } = new();
         public List<Polyhouse> Polyhouses { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
 
         [BindProperty(SupportsGet = true)] public int? PolyhouseId { get; set; }
         [BindProperty(SupportsGet = true)] public int? SpeciesId { get; set; }
         [BindProperty(SupportsGet = true)] public string? Status { get; set; }
-        [BindProperty(SupportsGet = true)] public int? ResponsiblePersonId { get; set; }
 
         // Simple dashboard counters over the current (filtered) result set.
         public int ActiveBatchCount => MotherPlants.Count(m => m.Status == "Active");
@@ -42,7 +37,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
 
         public async Task OnGetAsync()
         {
-            var all = await _motherPlantRepo.GetAllAsync(PolyhouseId, SpeciesId, Status, ResponsiblePersonId);
+            var all = await _motherPlantRepo.GetAllAsync(PolyhouseId, SpeciesId, Status);
 
             // Phase 17/B: in-memory post-filter, not a repository change --
             // GetAllAsync is also called by CuttingPlan Create/Edit and the
@@ -56,7 +51,6 @@ namespace PlantStockManager.Pages.Production.MotherPlant
                 : all.Where(m => _areaAccessService.CanAccessArea(User, m.AreaId)).ToList();
 
             Polyhouses = await _polyhouseRepo.GetAllPolyhouses();
-            ResponsiblePersons = await _employeeRepo.GetAllActiveUsers();
         }
     }
 }

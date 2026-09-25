@@ -68,6 +68,7 @@ builder.Services.AddScoped<AreaAccessService>();
 // so those pages can use AreaAccessService (Authorization/MotherPlantAreaScope.cs).
 builder.Services.AddScoped<MotherPlantAreaScope>();
 builder.Services.AddScoped<AdministrativeAccessGuard>(); // Phase A: user/role anti-escalation rules
+builder.Services.AddScoped<SupervisorSelectionService>(); // Phase 1: role + Area aware supervisor dropdowns and save-time checks
 // Phase B: Area scope for the seedling workflow pages only (switchable while
 // Polyhouses/Areas are not configured yet). See Authorization/SeedlingAreaScope.cs.
 builder.Services.Configure<SeedlingWorkflowOptions>(builder.Configuration.GetSection(SeedlingWorkflowOptions.SectionName));

@@ -44,7 +44,7 @@
 
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Propagation Area</label>
-                        <select asp-for="PropagationBatch.AreaId" class="form-select">
+                        <select asp-for="PropagationBatch.AreaId" class="form-select" data-area-select>
                             <option value="">-- None --</option>
                             @foreach (var area in Model.Areas)
                             {
@@ -75,23 +75,12 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="PropagationBatch.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
                         <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="PropagationBatch.SupervisorId" class="form-select">
+                        <select asp-for="PropagationBatch.SupervisorId" class="form-select" data-supervisor-area-source="#PropagationBatch_AreaId">
                             <option value="">-- None --</option>
                             @foreach (var s in Model.Supervisors)
                             {
-                                <option value="@s.EmployeeID">@s.Name</option>
+                                <option value="@s.EmployeeID" data-areas="@s.AreaAttribute">@s.Name</option>
                             }
                         </select>
                     </div>

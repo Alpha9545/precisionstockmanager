@@ -11,19 +11,16 @@ namespace PlantStockManager.Pages.Production.LabRequest
     {
         private readonly LabRequestRepository _labRequestRepo;
         private readonly PottedPlantStockRepository _pottedPlantStockRepo;
-        private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccessService;
 
         public CreateModel(
             LabRequestRepository labRequestRepo,
             PottedPlantStockRepository pottedPlantStockRepo,
-            EmployeeRepository employeeRepo,
             AreaAccessService areaAccessService)
         {
             _areaAccessService = areaAccessService;
             _labRequestRepo = labRequestRepo;
             _pottedPlantStockRepo = pottedPlantStockRepo;
-            _employeeRepo = employeeRepo;
         }
 
         // F1: a Lab Request belongs to the Area of the stock pool its sample
@@ -44,7 +41,6 @@ namespace PlantStockManager.Pages.Production.LabRequest
         // Only pools with Available quantity > 0 are offered -- a
         // sample can never exceed what's actually available.
         public List<PlantStockManager.Models.PottedPlantStock> StockPools { get; set; } = new();
-        public List<Employee> PersonOptions { get; set; } = new();
 
         public async Task OnGetAsync()
         {
@@ -83,6 +79,7 @@ namespace PlantStockManager.Pages.Production.LabRequest
                 return Page();
             }
 
+            Request.ResponsiblePersonId = null; // Phase 1: Responsible Person retired
             Request.CreatedBy = User.Identity?.Name ?? "System";
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
@@ -103,7 +100,6 @@ namespace PlantStockManager.Pages.Production.LabRequest
         {
             var allStock = await _pottedPlantStockRepo.GetAllAsync();
             StockPools = allStock.Where(s => s.AvailableQuantity > 0 && CanAccessLabRequest(s.AreaId, write: true)).ToList(); // F1
-            PersonOptions = await _employeeRepo.GetAllActiveUsers();
         }
     }
 }

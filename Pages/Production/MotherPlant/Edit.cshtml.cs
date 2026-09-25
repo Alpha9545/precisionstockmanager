@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using MotherPlantModel = PlantStockManager.Models.MotherPlant;
 
 namespace PlantStockManager.Pages.Production.MotherPlant
@@ -14,7 +15,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
         private readonly PlantTypeRepository _plantTypeRepo;
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
         private readonly AreaRepository _areaRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly AreaAccessService _areaAccessService;
 
         public EditModel(
@@ -23,7 +24,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             PlantTypeRepository plantTypeRepo,
             PlantSpeciesRepository plantSpeciesRepo,
             AreaRepository areaRepo,
-            EmployeeRepository employeeRepo,
+            SupervisorSelectionService supervisors,
             AreaAccessService areaAccessService)
         {
             _motherPlantRepo = motherPlantRepo;
@@ -31,7 +32,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             _plantTypeRepo = plantTypeRepo;
             _plantSpeciesRepo = plantSpeciesRepo;
             _areaRepo = areaRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
             _areaAccessService = areaAccessService;
         }
 
@@ -48,8 +49,12 @@ namespace PlantStockManager.Pages.Production.MotherPlant
         public List<PlantType> PlantTypes { get; set; } = new();
         public List<PlantSpecies> SpeciesForSelectedType { get; set; } = new();
         public List<Area> Areas { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: Production Area supervisors only (narrowed to the chosen Area).
+        public List<SupervisorOption> Supervisors { get; set; } = new();
+
+        // The stored supervisor (kept selectable even if no longer eligible).
+        private int? _currentSupervisorId;
+        private string? _currentSupervisorName;
 
         public decimal PreviewExpectedCuttingQuantity =>
             MotherPlantModel.CalculateExpectedCuttingQuantity(MotherPlant.MotherPlantQuantity, MotherPlant.CuttingRate);
@@ -74,6 +79,8 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             }
 
             MotherPlant = existing;
+            _currentSupervisorId = existing.SupervisorId;
+            _currentSupervisorName = existing.SupervisorName;
             SelectedPlantTypeId = await _plantSpeciesRepo.GetPlantTypeIdBySpeciesId(existing.SpeciesId);
             await LoadDropdownsAsync(SelectedPlantTypeId, existing.PolyhouseId);
             return Page();
@@ -113,6 +120,8 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             // else's record). Both the existing and the submitted Area
             // must be ones this user can access.
             var existingForAuth = await _motherPlantRepo.GetByIdAsync(MotherPlant.Id);
+            _currentSupervisorId = existingForAuth?.SupervisorId;
+            _currentSupervisorName = existingForAuth?.SupervisorName;
             if (existingForAuth == null)
             {
                 ModelState.AddModelError(string.Empty, "Mother Plant batch not found.");
@@ -137,6 +146,13 @@ namespace PlantStockManager.Pages.Production.MotherPlant
                     ModelState.AddModelError("MotherPlant.AreaId", "You are not authorized to move this record to the selected Area.");
                 }
             }
+
+            // Phase 1: the supervisor must be an eligible Production Area
+            // supervisor for this Area; an unchanged value is always kept.
+            var supervisorError = await _supervisors.ValidateAsync(
+                SupervisorKind.ProductionArea, MotherPlant.AreaId, MotherPlant.SupervisorId, existingForAuth?.SupervisorId);
+            if (supervisorError != null)
+                ModelState.AddModelError("MotherPlant.SupervisorId", supervisorError);
 
             if (!ModelState.IsValid)
             {
@@ -168,9 +184,8 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             Areas = polyhouseId > 0
                 ? await _areaRepo.GetAreasByPolyhouseId(polyhouseId)
                 : new List<Area>();
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = SupervisorRules.IncludeCurrent(
+                await _supervisors.OptionsAsync(SupervisorKind.ProductionArea), _currentSupervisorId, _currentSupervisorName);
         }
     }
 }

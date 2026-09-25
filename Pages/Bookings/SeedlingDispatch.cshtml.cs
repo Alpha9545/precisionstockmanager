@@ -20,13 +20,11 @@ namespace PlantStockManager.Pages.Bookings
     public class SeedlingDispatchModel : PageModel
     {
         private readonly SeedlingFulfilmentRepository _repo;
-        private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccess;
 
-        public SeedlingDispatchModel(SeedlingFulfilmentRepository repo, EmployeeRepository employeeRepo, AreaAccessService areaAccess)
+        public SeedlingDispatchModel(SeedlingFulfilmentRepository repo, AreaAccessService areaAccess)
         {
             _repo = repo;
-            _employeeRepo = employeeRepo;
             _areaAccess = areaAccess;
         }
 
@@ -36,12 +34,10 @@ namespace PlantStockManager.Pages.Bookings
         public SeedlingBookingSummary? Booking { get; set; }
         public List<BookingBatchAllocation> Allocations { get; set; } = new();
         public List<ReadyBatchOption> BatchOptions { get; set; } = new();
-        public List<Employee> Staff { get; set; } = new();
 
         // Dispatch
         [BindProperty] public List<DispatchLineInput> Lines { get; set; } = new();
         [BindProperty] public DateTime DispatchDate { get; set; } = DateTime.Today;
-        [BindProperty] public int? ResponsiblePersonId { get; set; }
         [BindProperty] public string? Remarks { get; set; }
 
         // Allocate / substitute
@@ -76,7 +72,7 @@ namespace PlantStockManager.Pages.Bookings
         public async Task<IActionResult> OnPostDispatchAsync()
         {
             var lines = Lines.Where(l => l.Quantity != 0).Select(l => (l.AllocationId, (decimal)l.Quantity)).ToList();
-            var (ok, message) = await _repo.DispatchAsync(Id, lines, DispatchDate, ResponsiblePersonId, Remarks, Actor, CanAccessArea);
+            var (ok, message) = await _repo.DispatchAsync(Id, lines, DispatchDate, null /* Phase 1: Responsible Person retired */, Remarks, Actor, CanAccessArea);
             TempData[ok ? "Success" : "Error"] = message;
             return RedirectToPage(new { id = Id });
         }
@@ -103,7 +99,6 @@ namespace PlantStockManager.Pages.Bookings
             BatchOptions = (await _repo.GetBatchOptionsAsync(Booking.PlantId))
                 .Where(o => _areaAccess.CanAccessArea(User, o.AreaId))
                 .ToList();
-            Staff = await _employeeRepo.GetAllActiveUsers();
             Lines = Allocations.Where(a => a.Status == "Active" && a.OpenQuantity > 0)
                 .Select(a => new DispatchLineInput { AllocationId = a.Id, Quantity = 0 }).ToList();
             return true;

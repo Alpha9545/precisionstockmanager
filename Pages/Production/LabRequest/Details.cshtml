@@ -30,7 +30,11 @@
                     <dt class="col-sm-5">Received Quantity</dt><dd class="col-sm-7">@Model.Request.ReceivedQuantity!.Value.ToString("N2")</dd>
                     <dt class="col-sm-5">Result Notes</dt><dd class="col-sm-7">@Model.Request.ResultNotes</dd>
                 }
-                <dt class="col-sm-5">Responsible Person</dt><dd class="col-sm-7">@(Model.Request.ResponsiblePersonName ?? "-")</dd>
+                @* Responsible Person was removed from data entry (Phase 1); an existing value is kept and shown for history only. *@
+                @if (!string.IsNullOrEmpty(Model.Request.ResponsiblePersonName))
+                {
+                    <dt class="col-sm-5">Responsible Person (historical)</dt><dd class="col-sm-7">@Model.Request.ResponsiblePersonName</dd>
+                }
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.Request.Remarks</dd>
                 <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.Request.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.Request.CreatedBy</dd>
                 @if (Model.Request.ModifiedDate.HasValue)

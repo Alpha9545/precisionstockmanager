@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using CuttingPlanModel = PlantStockManager.Models.CuttingPlan;
 using MotherPlantModel = PlantStockManager.Models.MotherPlant;
 
@@ -12,19 +13,19 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
     {
         private readonly CuttingPlanRepository _cuttingPlanRepo;
         private readonly MotherPlantRepository _motherPlantRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly MotherPlantAreaScope _areaScope;
 
         public EditModel(
             CuttingPlanRepository cuttingPlanRepo,
             MotherPlantRepository motherPlantRepo,
-            EmployeeRepository employeeRepo,
+            SupervisorSelectionService supervisors,
             MotherPlantAreaScope areaScope)
         {
             _areaScope = areaScope;
             _cuttingPlanRepo = cuttingPlanRepo;
             _motherPlantRepo = motherPlantRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
         }
 
         [BindProperty]
@@ -35,8 +36,12 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
         // current selection; other choices are still restricted to Active
         // batches.
         public List<MotherPlantModel> SelectableMotherPlants { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: Production Area supervisors (plus the stored one),
+        // narrowed client-side to the chosen Mother Plant's Area.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
+
+        private int? _currentSupervisorId;
+        private string? _currentSupervisorName;
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -52,6 +57,8 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
             }
 
             CuttingPlan = existing;
+            _currentSupervisorId = existing.SupervisorId;
+            _currentSupervisorName = existing.SupervisorName;
             await LoadDropdownsAsync(existing.MotherPlantId);
             return Page();
         }
@@ -79,6 +86,8 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
                 TempData["Error"] = "You are not authorized to edit this Cutting Plan record.";
                 return RedirectToPage("/Production/CuttingPlan/Index");
             }
+            _currentSupervisorId = existingPlan.SupervisorId;
+            _currentSupervisorName = existingPlan.SupervisorName;
 
             MotherPlantModel? motherPlant = null;
             if (CuttingPlan.MotherPlantId > 0)
@@ -92,6 +101,16 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
                 {
                     ModelState.AddModelError("CuttingPlan.MotherPlantId", "You are not authorized to plan cuttings for this Mother Plant's Area.");
                 }
+            }
+
+            // Phase 1: the supervisor must be eligible for the Mother Plant's
+            // Area; the stored supervisor is kept when unchanged.
+            if (motherPlant != null)
+            {
+                var supervisorError = await _supervisors.ValidateAsync(
+                    SupervisorKind.ProductionArea, motherPlant.AreaId, CuttingPlan.SupervisorId, existingPlan.SupervisorId);
+                if (supervisorError != null)
+                    ModelState.AddModelError("CuttingPlan.SupervisorId", supervisorError);
             }
 
             if (!ModelState.IsValid || motherPlant == null)
@@ -130,9 +149,8 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
                 .Union(active.Where(m => m.Id == currentMotherPlantId))
                 .ToList();
 
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = SupervisorRules.IncludeCurrent(
+                await _supervisors.OptionsAsync(SupervisorKind.ProductionArea), _currentSupervisorId, _currentSupervisorName);
         }
     }
 }

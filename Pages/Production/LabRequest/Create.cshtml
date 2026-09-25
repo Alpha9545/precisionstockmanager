@@ -54,17 +54,6 @@
                         <label class="form-label fw-bold">Expected Result Date</label>
                         <input type="date" asp-for="Request.ExpectedResultDate" class="form-control" />
                     </div>
-                    <div class="col-md-4">
-                        <label class="form-label fw-bold">Responsible Person</label>
-                        <select asp-for="Request.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var e in Model.PersonOptions)
-                            {
-                                <option value="@e.EmployeeID">@e.Name</option>
-                            }
-                        </select>
-                    </div>
-
                     <div class="col-12">
                         <label class="form-label fw-bold">Remarks</label>
                         <textarea asp-for="Request.Remarks" class="form-control" rows="2"></textarea>

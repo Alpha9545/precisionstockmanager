@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 // Alias required: Pages/Production/InternalTransfer/ makes "InternalTransfer"
 // a sibling namespace under PlantStockManager.Pages.Production, which
 // shadows the bare Models.InternalTransfer type (CS0118). Same fix already
@@ -22,20 +23,22 @@ namespace PlantStockManager.Pages.Production.CuttingStock
     {
         private readonly InternalTransferRepository _internalTransferRepo;
         private readonly AreaRepository _areaRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly AreaAccessService _areaAccessService;
 
-        public TransplantModel(InternalTransferRepository internalTransferRepo, AreaRepository areaRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
+        public TransplantModel(InternalTransferRepository internalTransferRepo, AreaRepository areaRepo, SupervisorSelectionService supervisors, AreaAccessService areaAccessService)
         {
             _areaAccessService = areaAccessService;
             _internalTransferRepo = internalTransferRepo;
             _areaRepo = areaRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
         }
 
         public InternalTransferModel? Transfer { get; set; }
         public List<Area> DestinationAreas { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: supervisors of every Area kind; site.js shows only those
+        // who may supervise the chosen destination Area (re-checked on save).
+        public List<KindedSupervisorOption> Supervisors { get; set; } = new();
 
         [BindProperty]
         public int DestinationPolyhouseAreaId { get; set; }
@@ -109,8 +112,14 @@ namespace PlantStockManager.Pages.Production.CuttingStock
                 await LoadDropdownsAsync(Transfer);
                 if (!DestinationAreas.Any(a => a.Id == DestinationPolyhouseAreaId))
                     ModelState.AddModelError(nameof(DestinationPolyhouseAreaId), "Select a valid Destination Polyhouse.");
-                if (!Supervisors.Any(s => s.EmployeeID == DestinationSupervisorId))
-                    ModelState.AddModelError(nameof(DestinationSupervisorId), "Select a valid Destination Supervisor.");
+                else
+                {
+                    // Phase 1: must be an eligible supervisor of the destination Area.
+                    var supervisorError = await _supervisors.ValidateForAreaAsync(
+                        DestinationPolyhouseAreaId, SupervisorKind.ProductionArea, DestinationSupervisorId, required: true);
+                    if (supervisorError != null)
+                        ModelState.AddModelError(nameof(DestinationSupervisorId), supervisorError);
+                }
             }
 
             if (!ModelState.IsValid)
@@ -145,7 +154,7 @@ namespace PlantStockManager.Pages.Production.CuttingStock
             // are excluded by this same condition, so no separate
             // AreaType check is needed.
             DestinationAreas = allAreas.Where(a => a.PolyhouseId.HasValue && a.Id != transfer.SourceAreaId).ToList();
-            Supervisors = await _employeeRepo.GetAllActiveUsers();
+            Supervisors = await _supervisors.AllAreaKindOptionsAsync();
         }
     }
 }

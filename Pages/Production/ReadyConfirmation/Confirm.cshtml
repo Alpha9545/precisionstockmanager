@@ -82,17 +82,6 @@
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-4">
                         <label class="form-label fw-bold">Remarks</label>
                         <textarea asp-for="Remarks" class="form-control" rows="1"></textarea>
                     </div>

@@ -44,7 +44,7 @@
                             <option value="">-- Select --</option>
                             @foreach (var cs in Model.AvailableCuttingStocks)
                             {
-                                <option value="@cs.Id" data-areaid="@cs.AreaId" data-available="@cs.AvailableQuantity.ToString("0.####")">
+                                <option value="@cs.Id" data-areaid="@cs.AreaId" data-area-id="@cs.AreaId" data-area-kind="@PlantStockManager.Services.SupervisorRules.KindKeyForAreaType(cs.AreaType)" data-available="@cs.AvailableQuantity.ToString("0.####")">
                                     @cs.SpeciesName &mdash; @cs.AreaName (@(cs.GrowingPartnerName ?? "Internal")) &mdash; Available @cs.AvailableQuantity.ToString("N2")
                                 </option>
                             }
@@ -88,23 +88,12 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="PotProduction.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="PotProduction.SupervisorId" class="form-select">
+                        <label class="form-label fw-bold">Supervisor <span class="text-muted fw-normal">(of the cutting stock's Area)</span></label>
+                        <select asp-for="PotProduction.SupervisorId" class="form-select" data-supervisor-area-source="#csSelect">
                             <option value="">-- None --</option>
                             @foreach (var s in Model.Supervisors)
                             {
-                                <option value="@s.EmployeeID">@s.Name</option>
+                                <option value="@s.Option.EmployeeID" data-kind="@s.KindKey" data-areas="@s.Option.AreaAttribute">@s.Option.Name</option>
                             }
                         </select>
                     </div>

@@ -22,7 +22,11 @@
                 <dt class="col-sm-5">Quantity Planted</dt><dd class="col-sm-7">@Model.PropagationBatch.Quantity.ToString("N2")</dd>
                 <dt class="col-sm-5">Survived Quantity</dt><dd class="col-sm-7">@Model.PropagationBatch.SurvivedQuantity.ToString("N2")</dd>
                 <dt class="col-sm-5">Loss Quantity</dt><dd class="col-sm-7">@Model.PropagationBatch.LossQuantity.ToString("N2")</dd>
-                <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.PropagationBatch.ResponsiblePersonName</dd>
+                @* Responsible Person was removed from data entry (Phase 1); an existing value is kept and shown for history only. *@
+                @if (!string.IsNullOrEmpty(Model.PropagationBatch.ResponsiblePersonName))
+                {
+                    <dt class="col-sm-5">Responsible Person (historical)</dt><dd class="col-sm-7">@Model.PropagationBatch.ResponsiblePersonName</dd>
+                }
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.PropagationBatch.SupervisorName</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.PropagationBatch.Remarks</dd>
                 <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.PropagationBatch.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.PropagationBatch.CreatedBy</dd>

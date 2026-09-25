@@ -15,7 +15,11 @@
                 <dt class="col-sm-5">Polyhouse</dt><dd class="col-sm-7">@Model.MotherPlant.PolyhouseName</dd>
                 <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@Model.MotherPlant.AreaName</dd>
                 <dt class="col-sm-5">Variety</dt><dd class="col-sm-7">@Model.MotherPlant.SpeciesName (@Model.MotherPlant.PlantTypeName)</dd>
-                <dt class="col-sm-5">Responsible Person</dt><dd class="col-sm-7">@Model.MotherPlant.ResponsiblePersonName</dd>
+                @* Responsible Person was removed from data entry (Phase 1); an existing value is kept and shown for history only. *@
+                @if (!string.IsNullOrEmpty(Model.MotherPlant.ResponsiblePersonName))
+                {
+                    <dt class="col-sm-5">Responsible Person (historical)</dt><dd class="col-sm-7">@Model.MotherPlant.ResponsiblePersonName</dd>
+                }
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.MotherPlant.SupervisorName</dd>
                 <dt class="col-sm-5">Planting Date</dt><dd class="col-sm-7">@Model.MotherPlant.PlantingDate.ToString("dd/MM/yyyy")</dd>
                 <dt class="col-sm-5">Mother Plant Quantity</dt><dd class="col-sm-7">@Model.MotherPlant.MotherPlantQuantity.ToString("N2")</dd>

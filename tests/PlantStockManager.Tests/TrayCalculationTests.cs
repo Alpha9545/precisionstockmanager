@@ -147,7 +147,7 @@ namespace PlantStockManager.Tests
         [InlineData(500, "10 Cavity")]
         public void PagePreview_MatchesServerCalculation(decimal quantity, string cavityType)
         {
-            var page = new CreateModel(null!, null!, null!, null!, null!, null!, null!, null!, null!);
+            var page = new CreateModel(null!, null!, null!, null!, null!, null!, null!, null!);
             var json = Assert.IsType<JsonResult>(page.OnGetTrayCalculation(quantity, cavityType));
             object? Prop(string name) => json.Value!.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance)!.GetValue(json.Value);
 

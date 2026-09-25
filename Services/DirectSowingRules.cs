@@ -107,6 +107,21 @@ namespace PlantStockManager.Services
             return (true, null);
         }
 
+        // Phase 1 (F2): cancelling an approval re-opens the batch and removes
+        // Ready Stock, so it is limited exactly like approving: only the
+        // sowing's assigned supervisor (no admin bypass, no other approver).
+        public static (bool Ok, string? Error) CanCancelApproval(int? assignedSupervisorId, int? userId)
+        {
+            if (!userId.HasValue)
+                return (false, "Your user could not be identified.");
+            if (!assignedSupervisorId.HasValue || assignedSupervisorId.Value != userId.Value)
+                return (false, NotAssignedCancelMessage);
+            return (true, null);
+        }
+
+        public const string NotAssignedCancelMessage =
+            "Only the supervisor assigned to this sowing can cancel its approval.";
+
         public const string NoSupervisorMessage =
             "No supervisor is assigned to this sowing. Assign its supervisor (Direct Sowing > Edit) before it can be approved.";
         public const string NotAssignedMessage =
@@ -126,6 +141,21 @@ namespace PlantStockManager.Services
                 return (false, "The selected supervisor is not an active user who can approve sowings.");
             return (true, null);
         }
+
+        // Phase 1 (closes the "reassign, then approve" bypass): whoever edits
+        // a sowing can never make THEMSELVES its supervisor -- otherwise any
+        // user holding Sowing.Enter and ReadyStock.Confirm (or a System
+        // Administrator) could take over another person's sowing and approve it.
+        public static (bool Ok, string? Error) ValidateSupervisorChange(
+            int? newSupervisorId, int? createdById, int? editorId, IReadOnlyCollection<int> eligibleSupervisorIds)
+        {
+            if (editorId.HasValue && newSupervisorId.HasValue && newSupervisorId.Value == editorId.Value)
+                return (false, EditorCannotBeSupervisorMessage);
+            return ValidateSupervisorAssignment(newSupervisorId, createdById, eligibleSupervisorIds);
+        }
+
+        public const string EditorCannotBeSupervisorMessage =
+            "You cannot assign yourself as the supervisor of a sowing (you could then approve it). Choose another Sowing Supervisor.";
 
         // The supervisor can be changed only while nothing has been approved.
         public static bool CanChangeSupervisor(string? status, decimal approvedReady, decimal approvedWastage)

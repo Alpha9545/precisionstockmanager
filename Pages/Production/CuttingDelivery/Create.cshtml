@@ -39,7 +39,7 @@
                             @foreach (var ac in Model.OpenActualCuttings)
                             {
                                 var remaining = ac.GoodQuantity - ac.DeliveredQuantityRecorded;
-                                <option value="@ac.Id" data-remaining="@remaining.ToString("0.####")">
+                                <option value="@ac.Id" data-area-id="@Model.AreaOf(ac.MotherPlantId)" data-remaining="@remaining.ToString("0.####")">
                                     @ac.ActualCuttingCode &mdash; @ac.MotherPlantCode / @ac.SpeciesName (Good @ac.GoodQuantity.ToString("N2"), Remaining @remaining.ToString("N2"))
                                 </option>
                             }
@@ -86,23 +86,12 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="CuttingDelivery.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
                         <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="CuttingDelivery.SupervisorId" class="form-select">
+                        <select asp-for="CuttingDelivery.SupervisorId" class="form-select" data-supervisor-area-source="#acSelect">
                             <option value="">-- None --</option>
                             @foreach (var s in Model.Supervisors)
                             {
-                                <option value="@s.EmployeeID">@s.Name</option>
+                                <option value="@s.EmployeeID" data-areas="@s.AreaAttribute">@s.Name</option>
                             }
                         </select>
                     </div>

@@ -56,6 +56,17 @@ namespace PlantStockManager.Authorization
             return motherPlant != null && _areaAccessService.CanAccessArea(user, motherPlant.AreaId);
         }
 
+        // Phase 1: the Area a record belongs to (same rule as CanAccess):
+        // its own Area when set, else its Mother Plant's Area.
+        public async Task<int?> ResolveAreaIdAsync(int? motherPlantId, int? ownAreaId = null)
+        {
+            if (ownAreaId.HasValue)
+                return ownAreaId;
+            if (!motherPlantId.HasValue)
+                return null;
+            return (await _motherPlantRepo.GetByIdAsync(motherPlantId.Value))?.AreaId;
+        }
+
         public async Task<List<T>> FilterAsync<T>(ClaimsPrincipal user, IEnumerable<T> items, Func<T, int?> motherPlantIdSelector, Func<T, int?>? ownAreaSelector = null)
         {
             if (_areaAccessService.HasFullAreaAccess(user))

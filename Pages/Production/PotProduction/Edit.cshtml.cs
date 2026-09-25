@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using PotProductionModel = PlantStockManager.Models.PotProduction;
 
 namespace PlantStockManager.Pages.Production.PotProduction
@@ -10,13 +11,13 @@ namespace PlantStockManager.Pages.Production.PotProduction
     public class EditModel : PageModel
     {
         private readonly PotProductionRepository _potProductionRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly AreaAccessService _areaAccessService;
 
-        public EditModel(PotProductionRepository potProductionRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
+        public EditModel(PotProductionRepository potProductionRepo, SupervisorSelectionService supervisors, AreaAccessService areaAccessService)
         {
             _potProductionRepo = potProductionRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
             _areaAccessService = areaAccessService;
         }
 
@@ -29,8 +30,8 @@ namespace PlantStockManager.Pages.Production.PotProduction
         [BindProperty]
         public PotProductionModel PotProduction { get; set; } = new();
 
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: supervisors of this record's Area, plus the current one.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -48,7 +49,7 @@ namespace PlantStockManager.Pages.Production.PotProduction
             }
 
             PotProduction = existing;
-            await LoadDropdownsAsync();
+            await LoadDropdownsAsync(existing);
             return Page();
         }
 
@@ -67,7 +68,7 @@ namespace PlantStockManager.Pages.Production.PotProduction
             if (existing == null)
             {
                 ModelState.AddModelError(string.Empty, "Pot Production record not found.");
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
@@ -85,7 +86,17 @@ namespace PlantStockManager.Pages.Production.PotProduction
             {
                 ModelState.AddModelError(string.Empty, "This Pot Production record is already Cancelled and cannot be edited further.");
                 PotProduction = existing;
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
+                return Page();
+            }
+
+            var supervisorError = await _supervisors.ValidateForAreaAsync(
+                existing.AreaId, SupervisorKind.ProductionArea, PotProduction.SupervisorId, existing.SupervisorId);
+            if (supervisorError != null)
+            {
+                ModelState.AddModelError("PotProduction.SupervisorId", supervisorError);
+                PotProduction = existing;
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
@@ -102,7 +113,7 @@ namespace PlantStockManager.Pages.Production.PotProduction
                 PotProduction.PotSize = existing.PotSize;
                 PotProduction.Quantity = existing.Quantity;
                 PotProduction.Status = existing.Status;
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
@@ -142,11 +153,11 @@ namespace PlantStockManager.Pages.Production.PotProduction
             return RedirectToPage("/Production/PotProduction/Index");
         }
 
-        private async Task LoadDropdownsAsync()
+        private async Task LoadDropdownsAsync(PotProductionModel? existing)
         {
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = existing == null
+                ? new List<SupervisorOption>()
+                : await _supervisors.ForAreaAsync(existing.AreaId, SupervisorKind.ProductionArea, existing.SupervisorId, existing.SupervisorName);
         }
     }
 }

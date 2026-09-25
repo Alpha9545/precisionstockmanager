@@ -121,12 +121,13 @@ namespace PlantStockManager.Tests
         // ---- The browser cannot supply seedlings, wastage or cavity ---------
 
         [Fact]
-        public void ApprovalPage_BindsOnlyTraysReasonResponsibleAndRemarks()
+        public void ApprovalPage_BindsOnlyTraysReasonAndRemarks()
         {
             var bound = typeof(ConfirmModel).GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.GetCustomAttribute<BindPropertyAttribute>() != null)
                 .Select(p => p.Name).OrderBy(n => n).ToArray();
-            Assert.Equal(new[] { "ActualReadyTrays", "Remarks", "ResponsiblePersonId", "SeedSowingId", "WastageReason" }, bound);
+            // Phase 1: Responsible Person removed from the approval form.
+            Assert.Equal(new[] { "ActualReadyTrays", "Remarks", "SeedSowingId", "WastageReason" }, bound);
         }
 
         [Fact]

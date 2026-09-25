@@ -1,5 +1,16 @@
 @page
 @model PlantStockManager.Pages.Admin.AreaModel
+@functions {
+    // Q2: stored AreaType values are unchanged; Kunjir/Kiran are shown as Production Areas.
+    static string AreaTypeLabel(string areaType) => areaType switch
+    {
+        "MotherPlant" => "Mother Plant (Production Area)",
+        "Kunjir" => "Production Area - Kunjir",
+        "Kiran" => "Production Area - Kiran",
+        "MainOffice" => "Main Office",
+        _ => areaType
+    };
+}
 @{
     ViewData["Title"] = "Manage Areas";
 }
@@ -24,11 +35,11 @@
         <div class="row g-2 align-items-end">
             <div class="col-md-2">
                 <label class="form-label fw-bold">Area Type</label>
-                <select asp-for="NewArea.AreaType" class="form-select">
+                <select asp-for="NewArea.AreaType" class="form-select" id="newAreaType">
                     <option value="">-- Plain / Legacy --</option>
                     @foreach (var t in Model.AreaTypes)
                     {
-                        <option value="@t">@t</option>
+                        <option value="@t">@AreaTypeLabel(t)</option>
                     }
                 </select>
             </div>
@@ -52,11 +63,13 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label fw-bold">Supervisor</label>
-                <select asp-for="NewArea.SupervisorId" class="form-select">
+                @* Phase 1 (D-3): only supervisors of the chosen Area Type; a new Area
+                   has no assigned users yet, so only all-Area supervisors apply. *@
+                <select asp-for="NewArea.SupervisorId" class="form-select" id="newSupervisorId">
                     <option value="">-- None --</option>
                     @foreach (var s in Model.Supervisors)
                     {
-                        <option value="@s.EmployeeID">@s.Name</option>
+                        <option value="@s.Option.EmployeeID" data-kind="@s.KindKey" data-areas="@s.Option.AreaAttribute">@s.Option.Name</option>
                     }
                 </select>
             </div>
@@ -112,7 +125,7 @@
             @foreach (var area in Model.Areas)
             {
                 <tr>
-                    <td>@(area.AreaType ?? "-")</td>
+                    <td>@(area.AreaType == null ? "-" : AreaTypeLabel(area.AreaType))</td>
                     <td>@(area.PolyhouseName ?? "-")</td>
                     <td>@area.Name</td>
                     <td>@area.AreaCode</td>
@@ -123,7 +136,7 @@
                     <td>@(area.IsActive ? "Active" : "Inactive")</td>
                     <td>
                         <button class="btn btn-warning btn-sm"
-                                onclick="openEditModal(@area.Id, '@(area.PolyhouseId?.ToString() ?? "")', '@area.Name', '@area.AreaCode', '@(area.AreaSize?.ToString() ?? "")', '@area.AreaUnit', '@(area.Capacity?.ToString() ?? "")', '@area.CapacityUnit', @(area.IsActive ? "true" : "false"), '@(area.AreaType ?? "")', '@(area.SupervisorId?.ToString() ?? "")', '@(area.Location ?? "")', '@(area.Remarks ?? "")', '@(area.GrowingPartnerId?.ToString() ?? "")')">
+                                onclick="openEditModal(@area.Id, '@(area.PolyhouseId?.ToString() ?? "")', '@area.Name', '@area.AreaCode', '@(area.AreaSize?.ToString() ?? "")', '@area.AreaUnit', '@(area.Capacity?.ToString() ?? "")', '@area.CapacityUnit', @(area.IsActive ? "true" : "false"), '@(area.AreaType ?? "")', '@(area.SupervisorId?.ToString() ?? "")', '@(area.Location ?? "")', '@(area.Remarks ?? "")', '@(area.GrowingPartnerId?.ToString() ?? "")', @System.Text.Json.JsonSerializer.Serialize(area.SupervisorName ?? ""))">
                             Edit
                         </button>
                     </td>
@@ -150,7 +163,7 @@
                             <option value="">-- Plain / Legacy --</option>
                             @foreach (var t in Model.AreaTypes)
                             {
-                                <option value="@t">@t</option>
+                                <option value="@t">@AreaTypeLabel(t)</option>
                             }
                         </select>
                     </div>
@@ -178,7 +191,7 @@
                             <option value="">-- None --</option>
                             @foreach (var s in Model.Supervisors)
                             {
-                                <option value="@s.EmployeeID">@s.Name</option>
+                                <option value="@s.Option.EmployeeID" data-kind="@s.KindKey" data-areas="@s.Option.AreaAttribute">@s.Option.Name</option>
                             }
                         </select>
                     </div>
@@ -236,7 +249,43 @@
 
 <!-- JavaScript for Modal -->
 <script>
-    function openEditModal(id, polyhouseId, name, areaCode, areaSize, areaUnit, capacity, capacityUnit, isActive, areaType, supervisorId, location, remarks, growingPartnerId) {
+    // Phase 1 (D-3): narrow a supervisor select to the Area Type's supervisor
+    // kind and to supervisors of that Area ("*" = all-Area). A current
+    // supervisor who is no longer eligible stays selectable, marked (current),
+    // so editing other fields never clears it; the server re-checks on save.
+    var areaTypeKinds = { MotherPlant: "ProductionArea", Kunjir: "ProductionArea", Kiran: "ProductionArea", MainOffice: "MainOffice", Outlet: "Outlet" };
+    function narrowAreaSupervisors(select, areaType, areaId, currentId, currentName) {
+        var kind = areaTypeKinds[areaType] || null;
+        Array.prototype.slice.call(select.querySelectorAll("option[data-current]")).forEach(function (o) { o.remove(); });
+        Array.prototype.forEach.call(select.options, function (o) {
+            if (!o.dataset.kind) return;
+            var ok = !!kind && o.dataset.kind === kind &&
+                     (o.dataset.areas === "*" || (!!areaId && o.dataset.areas.split(",").indexOf(String(areaId)) >= 0));
+            o.hidden = !ok; o.disabled = !ok;
+        });
+        if (currentId) {
+            var match = Array.prototype.some.call(select.options, function (o) { return o.value === String(currentId) && !o.disabled; });
+            if (!match) {
+                var c = new Option((currentName || ("#" + currentId)) + " (current)", currentId);
+                c.dataset.current = "1";
+                select.add(c);
+            }
+        }
+        var sel = select.options[select.selectedIndex];
+        if (sel && sel.disabled) select.value = "";
+    }
+    (function () {
+        var type = document.getElementById("newAreaType"), sup = document.getElementById("newSupervisorId");
+        var run = function () { narrowAreaSupervisors(sup, type.value, 0, null, null); };
+        type.addEventListener("change", run); run();
+        var editType = document.getElementById("editAreaType");
+        editType.addEventListener("change", function () {
+            var s = document.getElementById("editSupervisorId");
+            narrowAreaSupervisors(s, editType.value, document.getElementById("editId").value, s.dataset.currentId, s.dataset.currentName);
+        });
+    })();
+
+    function openEditModal(id, polyhouseId, name, areaCode, areaSize, areaUnit, capacity, capacityUnit, isActive, areaType, supervisorId, location, remarks, growingPartnerId, supervisorName) {
         document.getElementById("editId").value = id;
         document.getElementById("editPolyhouseId").value = polyhouseId;
         document.getElementById("editName").value = name;
@@ -247,7 +296,11 @@
         document.getElementById("editCapacityUnit").value = capacityUnit;
         document.getElementById("editIsActive").checked = isActive;
         document.getElementById("editAreaType").value = areaType;
-        document.getElementById("editSupervisorId").value = supervisorId;
+        var sup = document.getElementById("editSupervisorId");
+        sup.dataset.currentId = supervisorId || "";
+        sup.dataset.currentName = supervisorName || "";
+        narrowAreaSupervisors(sup, areaType, id, supervisorId, supervisorName);
+        sup.value = supervisorId;
         document.getElementById("editLocation").value = location;
         document.getElementById("editRemarks").value = remarks;
         document.getElementById("editGrowingPartnerId").value = growingPartnerId;

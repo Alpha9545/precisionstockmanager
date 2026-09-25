@@ -55,7 +55,6 @@
                     <th>Good</th>
                     <th>Damaged</th>
                     <th>Rejected</th>
-                    <th>Labour</th>
                     <th>Supervisor</th>
                     <th></th>
                 </tr>
@@ -73,7 +72,6 @@
                         <td>@ac.GoodQuantity.ToString("N2")</td>
                         <td>@ac.DamagedQuantity.ToString("N2")</td>
                         <td>@ac.RejectedQuantity.ToString("N2")</td>
-                        <td>@ac.ResponsiblePersonName</td>
                         <td>@ac.SupervisorName</td>
                         <td>
                             <a asp-page="/Production/ActualCutting/Details" asp-route-id="@ac.Id" class="btn btn-sm btn-outline-secondary">View</a>

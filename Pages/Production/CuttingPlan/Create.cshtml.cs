@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using CuttingPlanModel = PlantStockManager.Models.CuttingPlan;
 using MotherPlantModel = PlantStockManager.Models.MotherPlant;
 
@@ -12,19 +13,19 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
     {
         private readonly CuttingPlanRepository _cuttingPlanRepo;
         private readonly MotherPlantRepository _motherPlantRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly MotherPlantAreaScope _areaScope;
 
         public CreateModel(
             CuttingPlanRepository cuttingPlanRepo,
             MotherPlantRepository motherPlantRepo,
-            EmployeeRepository employeeRepo,
+            SupervisorSelectionService supervisors,
             MotherPlantAreaScope areaScope)
         {
             _areaScope = areaScope;
             _cuttingPlanRepo = cuttingPlanRepo;
             _motherPlantRepo = motherPlantRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
         }
 
         [BindProperty]
@@ -33,8 +34,8 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
         // Only Active Mother Plants can be planned against -- a completed
         // or removed batch has nothing left to plan cuttings from.
         public List<MotherPlantModel> ActiveMotherPlants { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: Production Area supervisors, narrowed to the chosen Mother Plant's Area.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
 
         public async Task OnGetAsync()
         {
@@ -74,6 +75,14 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
             if (motherPlant != null && !await _areaScope.CanAccessAsync(User, motherPlant.Id))
                 ModelState.AddModelError("CuttingPlan.MotherPlantId", "You are not authorized to plan cuttings for this Mother Plant's Area.");
 
+            // Phase 1: the supervisor must be eligible for the Mother Plant's Area.
+            if (motherPlant != null)
+            {
+                var supervisorError = await _supervisors.ValidateAsync(SupervisorKind.ProductionArea, motherPlant.AreaId, CuttingPlan.SupervisorId);
+                if (supervisorError != null)
+                    ModelState.AddModelError("CuttingPlan.SupervisorId", supervisorError);
+            }
+
             if (!ModelState.IsValid || motherPlant == null)
             {
                 await LoadDropdownsAsync();
@@ -84,6 +93,7 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
             // the actual Mother Plant record just loaded above, matching the
             // DB-level CK_CuttingPlans_SpeciesMatchesMotherPlant guarantee.
             CuttingPlan.SpeciesId = motherPlant.SpeciesId;
+            CuttingPlan.ResponsiblePersonId = null; // Phase 1: Responsible Person retired
             CuttingPlan.CreatedBy = User.Identity?.Name ?? "System";
 
             var (success, message, _) = await _cuttingPlanRepo.InsertAsync(CuttingPlan);
@@ -102,9 +112,7 @@ namespace PlantStockManager.Pages.Production.CuttingPlan
         {
             var allMotherPlants = await _motherPlantRepo.GetAllAsync(status: "Active");
             ActiveMotherPlants = await _areaScope.FilterAsync(User, allMotherPlants, m => (int?)m.Id); // F1
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = await _supervisors.OptionsAsync(SupervisorKind.ProductionArea);
         }
     }
 }

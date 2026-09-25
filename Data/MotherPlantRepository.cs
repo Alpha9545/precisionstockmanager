@@ -151,7 +151,6 @@ UPDATE dbo.MotherPlants
 SET PolyhouseId = @PolyhouseId,
     SpeciesId = @SpeciesId,
     AreaId = @AreaId,
-    ResponsiblePersonId = @ResponsiblePersonId,
     SupervisorId = @SupervisorId,
     PlantingDate = @PlantingDate,
     MotherPlantQuantity = @MotherPlantQuantity,
@@ -170,7 +169,6 @@ WHERE Id = @Id";
                 cmd.Parameters.AddWithValue("@PolyhouseId", entry.PolyhouseId);
                 cmd.Parameters.AddWithValue("@SpeciesId", entry.SpeciesId);
                 cmd.Parameters.AddWithValue("@AreaId", (object?)entry.AreaId ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@ResponsiblePersonId", (object?)entry.ResponsiblePersonId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@SupervisorId", (object?)entry.SupervisorId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@PlantingDate", entry.PlantingDate.Date);
                 cmd.Parameters.AddWithValue("@MotherPlantQuantity", entry.MotherPlantQuantity);

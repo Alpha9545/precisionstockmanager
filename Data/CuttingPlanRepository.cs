@@ -203,7 +203,6 @@ SET MotherPlantId = @MotherPlantId,
     PlannedCuttingDate = @PlannedCuttingDate,
     PlannedQuantity = @PlannedQuantity,
     CuttingRate = @CuttingRate,
-    ResponsiblePersonId = @ResponsiblePersonId,
     SupervisorId = @SupervisorId,
     Status = @Status,
     Remarks = @Remarks,
@@ -218,7 +217,6 @@ WHERE Id = @Id";
                 cmd.Parameters.AddWithValue("@PlannedCuttingDate", entry.PlannedCuttingDate.Date);
                 cmd.Parameters.AddWithValue("@PlannedQuantity", entry.PlannedQuantity);
                 cmd.Parameters.AddWithValue("@CuttingRate", entry.CuttingRate);
-                cmd.Parameters.AddWithValue("@ResponsiblePersonId", (object?)entry.ResponsiblePersonId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@SupervisorId", (object?)entry.SupervisorId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Status", entry.Status);
                 cmd.Parameters.AddWithValue("@Remarks", (object?)entry.Remarks ?? DBNull.Value);

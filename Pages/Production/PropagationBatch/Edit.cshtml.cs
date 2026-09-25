@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using PropagationBatchModel = PlantStockManager.Models.PropagationBatch;
 
 namespace PlantStockManager.Pages.Production.PropagationBatch
@@ -11,15 +12,15 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
     {
         private readonly PropagationBatchRepository _propagationBatchRepo;
         private readonly AreaRepository _areaRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly MotherPlantAreaScope _areaScope;
 
-        public EditModel(PropagationBatchRepository propagationBatchRepo, AreaRepository areaRepo, EmployeeRepository employeeRepo, MotherPlantAreaScope areaScope)
+        public EditModel(PropagationBatchRepository propagationBatchRepo, AreaRepository areaRepo, SupervisorSelectionService supervisors, MotherPlantAreaScope areaScope)
         {
             _areaScope = areaScope;
             _propagationBatchRepo = propagationBatchRepo;
             _areaRepo = areaRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
         }
 
         // The Cutting Delivery / Mother Plant / Species linkage and the
@@ -32,8 +33,12 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
         public PropagationBatchModel PropagationBatch { get; set; } = new();
 
         public List<Area> Areas { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: Production Area supervisors (plus the stored one),
+        // narrowed client-side to the chosen Area.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
+
+        private int? _currentSupervisorId;
+        private string? _currentSupervisorName;
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -49,6 +54,8 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
             }
 
             PropagationBatch = existing;
+            _currentSupervisorId = existing.SupervisorId;
+            _currentSupervisorName = existing.SupervisorName;
             await LoadDropdownsAsync();
             return Page();
         }
@@ -89,6 +96,8 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
                 TempData["Error"] = "You are not authorized to edit this Propagation Batch record.";
                 return RedirectToPage("/Production/PropagationBatch/Index");
             }
+            _currentSupervisorId = existing.SupervisorId;
+            _currentSupervisorName = existing.SupervisorName;
             PropagationBatch.CuttingDeliveryId = existing.CuttingDeliveryId;
             PropagationBatch.MotherPlantId = existing.MotherPlantId;
             PropagationBatch.SpeciesId = existing.SpeciesId;
@@ -104,6 +113,14 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
             {
                 ModelState.AddModelError(string.Empty, "Survived + Loss must add up exactly to the batch Quantity before it can move to Ready for Potting or Completed.");
             }
+
+            // Phase 1: the supervisor must be eligible for the batch's Area (its
+            // own Area, else the Mother Plant's); an unchanged value is kept.
+            var supervisorError = await _supervisors.ValidateAsync(
+                SupervisorKind.ProductionArea, await _areaScope.ResolveAreaIdAsync(existing.MotherPlantId, PropagationBatch.AreaId),
+                PropagationBatch.SupervisorId, existing.SupervisorId);
+            if (supervisorError != null)
+                ModelState.AddModelError("PropagationBatch.SupervisorId", supervisorError);
 
             if (!ModelState.IsValid)
             {
@@ -134,9 +151,8 @@ namespace PlantStockManager.Pages.Production.PropagationBatch
         private async Task LoadDropdownsAsync()
         {
             Areas = await _areaRepo.GetAllAreas();
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = SupervisorRules.IncludeCurrent(
+                await _supervisors.OptionsAsync(SupervisorKind.ProductionArea), _currentSupervisorId, _currentSupervisorName);
         }
     }
 }

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
 
 namespace PlantStockManager.Pages.Production.InternalTransfer
@@ -10,13 +11,13 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
     public class EditModel : PageModel
     {
         private readonly InternalTransferRepository _internalTransferRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly AreaAccessService _areaAccessService;
 
-        public EditModel(InternalTransferRepository internalTransferRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
+        public EditModel(InternalTransferRepository internalTransferRepo, SupervisorSelectionService supervisors, AreaAccessService areaAccessService)
         {
             _internalTransferRepo = internalTransferRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
             _areaAccessService = areaAccessService;
         }
 
@@ -47,8 +48,9 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
         [BindProperty]
         public InternalTransferModel InternalTransfer { get; set; } = new();
 
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: supervisors of the transfer's SOURCE Area (its type decides
+        // the kind), plus the current supervisor.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -63,7 +65,7 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
             }
 
             InternalTransfer = existing;
-            await LoadDropdownsAsync();
+            await LoadDropdownsAsync(existing);
             return Page();
         }
 
@@ -83,7 +85,7 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
             if (existing == null)
             {
                 ModelState.AddModelError(string.Empty, "Internal Transfer record not found.");
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
@@ -97,11 +99,21 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
             {
                 ModelState.AddModelError(string.Empty, "This Internal Transfer is already Cancelled and cannot be edited further.");
                 InternalTransfer = existing;
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
             InternalTransfer.ModifiedBy = User.Identity?.Name ?? "System";
+
+            var supervisorError = await _supervisors.ValidateForAreaAsync(
+                existing.SourceAreaId, SupervisorKind.ProductionArea, InternalTransfer.SupervisorId, existing.SupervisorId);
+            if (supervisorError != null)
+            {
+                ModelState.AddModelError("InternalTransfer.SupervisorId", supervisorError);
+                InternalTransfer = existing;
+                await LoadDropdownsAsync(existing);
+                return Page();
+            }
 
             var (success, message) = await _internalTransferRepo.UpdateDetailsAsync(InternalTransfer);
             if (!success)
@@ -116,7 +128,7 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
                 InternalTransfer.DestinationAreaName = existing.DestinationAreaName;
                 InternalTransfer.Quantity = existing.Quantity;
                 InternalTransfer.Status = existing.Status;
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
@@ -157,11 +169,11 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
             return RedirectToPage("/Production/InternalTransfer/Index");
         }
 
-        private async Task LoadDropdownsAsync()
+        private async Task LoadDropdownsAsync(InternalTransferModel? existing)
         {
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = existing == null
+                ? new List<SupervisorOption>()
+                : await _supervisors.ForAreaAsync(existing.SourceAreaId, SupervisorKind.ProductionArea, existing.SupervisorId, existing.SupervisorName);
         }
     }
 }

@@ -55,17 +55,6 @@
 
                 <div class="row g-3">
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="InternalTransfer.ResponsiblePersonId" class="form-select" disabled="@(Model.InternalTransfer.Status == "Cancelled")">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
                         <label class="form-label fw-bold">Supervisor</label>
                         <select asp-for="InternalTransfer.SupervisorId" class="form-select" disabled="@(Model.InternalTransfer.Status == "Cancelled")">
                             <option value="">-- None --</option>

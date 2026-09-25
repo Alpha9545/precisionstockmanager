@@ -43,7 +43,7 @@
                         <th>Available to Send</th>
                         <th>Quantity to Send</th>
                         <th>Send To (Outlet)</th>
-                        <th>Responsible / Supervisor</th>
+                        <th>Supervisor</th>
                         <th>Remarks</th>
                         <th></th>
                     </tr>
@@ -69,13 +69,6 @@
                                         @foreach (var oa in Model.OutletAreas)
                                         {
                                             <option value="@oa.Id">@oa.Name</option>
-                                        }
-                                    </select>
-                                    <select name="responsiblePersonId" class="form-select form-select-sm mb-1">
-                                        <option value="">-- Responsible Person --</option>
-                                        @foreach (var e in Model.ResponsiblePersons)
-                                        {
-                                            <option value="@e.EmployeeID">@e.Name</option>
                                         }
                                     </select>
                                     <select name="supervisorId" class="form-select form-select-sm mb-1">

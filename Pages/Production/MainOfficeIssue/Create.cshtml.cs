@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using PottedPlantStockModel = PlantStockManager.Models.PottedPlantStock;
 using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
 
@@ -26,28 +27,28 @@ namespace PlantStockManager.Pages.Production.MainOfficeIssue
         private readonly PottedPlantStockRepository _pottedPlantStockRepo;
         private readonly InternalTransferRepository _internalTransferRepo;
         private readonly AreaRepository _areaRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly AreaAccessService _areaAccessService;
 
         public CreateModel(
             PottedPlantStockRepository pottedPlantStockRepo,
             InternalTransferRepository internalTransferRepo,
             AreaRepository areaRepo,
-            EmployeeRepository employeeRepo,
+            SupervisorSelectionService supervisors,
             AreaAccessService areaAccessService)
         {
             _pottedPlantStockRepo = pottedPlantStockRepo;
             _internalTransferRepo = internalTransferRepo;
             _areaRepo = areaRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
             _areaAccessService = areaAccessService;
         }
 
         public List<Area> MainOfficeAreas { get; set; } = new();
         public List<Area> PartnerAreas { get; set; } = new();
         public List<PottedPlantStockModel> StockPools { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: supervisors of the selected source Area only.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
         public int? SelectedAreaId { get; set; }
 
         public async Task<IActionResult> OnGetAsync(int? areaId)
@@ -69,7 +70,7 @@ namespace PlantStockManager.Pages.Production.MainOfficeIssue
 
         public async Task<IActionResult> OnPostSendAsync(
             int pottedPlantStockId, decimal quantity, int destinationAreaId,
-            int? responsiblePersonId, int? supervisorId, string? remarks, int? areaId)
+            int? supervisorId, string? remarks, int? areaId)
         {
             if (quantity <= 0)
             {
@@ -94,6 +95,16 @@ namespace PlantStockManager.Pages.Production.MainOfficeIssue
                 return RedirectToPage("/Production/MainOfficeIssue/Create", new { areaId });
             }
 
+            // Phase 1: the supervisor must be a Main Office supervisor of the
+            // stock pool's real Area (never the posted areaId alone).
+            var pool = await _pottedPlantStockRepo.GetByIdAsync(pottedPlantStockId);
+            var supervisorError = await _supervisors.ValidateAsync(SupervisorKind.MainOffice, pool?.AreaId, supervisorId);
+            if (pool == null || supervisorError != null)
+            {
+                TempData["Error"] = pool == null ? "Selected stock pool not found." : supervisorError;
+                return RedirectToPage("/Production/MainOfficeIssue/Create", new { areaId });
+            }
+
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
             var createdBy = User.Identity?.Name ?? "System";
@@ -104,7 +115,6 @@ namespace PlantStockManager.Pages.Production.MainOfficeIssue
                 SourcePottedPlantStockId = pottedPlantStockId,
                 DestinationAreaId = destinationAreaId,
                 Quantity = quantity,
-                ResponsiblePersonId = responsiblePersonId,
                 SupervisorId = supervisorId,
                 Remarks = remarks,
                 CreatedBy = createdBy
@@ -139,9 +149,9 @@ namespace PlantStockManager.Pages.Production.MainOfficeIssue
                     .ToList()
                 : new List<PottedPlantStockModel>();
 
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = areaId.HasValue
+                ? (await _supervisors.OptionsAsync(SupervisorKind.MainOffice)).Where(o => o.CanServe(areaId)).ToList()
+                : new List<SupervisorOption>();
         }
     }
 }

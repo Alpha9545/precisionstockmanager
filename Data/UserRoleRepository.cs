@@ -2,6 +2,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 using PlantStockManager.Authorization;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -23,27 +24,42 @@ namespace PlantStockManager.Data
         // Sowing approval: the users who can be ASSIGNED as a sowing's
         // supervisor = ACTIVE users holding ReadyStock.Confirm through one of
         // their roles, or holding a full-access role (System Administrator,
-        // SecurityOptions). Same sources as the login claims (UserClaimsFactory).
-        // Pass conn/tx to read inside an existing transaction.
+        // SecurityOptions). Unchanged behaviour, now expressed through the
+        // shared supervisor rule (Services/SupervisorRules.cs) with no Area
+        // condition. Pass conn/tx to read inside an existing transaction.
         public async Task<List<Employee>> GetSowingApproversAsync(SqlConnection? conn = null, SqlTransaction? tx = null)
+            => SupervisorRules.Eligible(await GetSupervisorCandidatesAsync(SupervisorKind.Sowing, conn, tx), areaId: null);
+
+        // Phase 1: the eligible supervisors of a kind for an Area (null = no
+        // Area condition). The single source for every supervisor dropdown and
+        // save-time check.
+        public async Task<List<Employee>> GetEligibleSupervisorsAsync(SupervisorKind kind, int? areaId, bool enforceArea = true)
+            => SupervisorRules.Eligible(await GetSupervisorCandidatesAsync(kind), areaId, enforceArea);
+
+        // Every role assignment that could make a user a supervisor of this
+        // kind: the role grants the kind's permission, or the role is a
+        // full-access role. Inactive users are returned too (IsActive = 0) so
+        // the pure rule decides; IsAllAreas marks full-access roles and the
+        // all-Area roles of AreaAccessService.
+        public async Task<List<SupervisorCandidate>> GetSupervisorCandidatesAsync(
+            SupervisorKind kind, SqlConnection? conn = null, SqlTransaction? tx = null)
         {
             var fullAccess = _security.EffectiveFullAccessRoleNames.ToList();
-            var inList = fullAccess.Count == 0 ? "NULL" : string.Join(", ", fullAccess.Select((_, i) => "@F" + i));
+            var fullList = fullAccess.Count == 0 ? "NULL" : string.Join(", ", fullAccess.Select((_, i) => "@F" + i));
+            var allAreaList = string.Join(", ", AreaAccessService.AllAreaRoleNames.Select((_, i) => "@A" + i));
             var sql = $@"
-SELECT u.Id, u.Name, ISNULL(d.DesignationName, '')
-FROM dbo.IMSUsers u
+SELECT u.Id, u.Name, ISNULL(d.DesignationName, ''), CAST(ISNULL(u.IsActive, 0) AS BIT), ur.AreaId,
+       CAST(CASE WHEN COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), ''), r.RoleName) IN ({fullList})
+                   OR COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), ''), r.RoleName) IN ({allAreaList})
+                 THEN 1 ELSE 0 END AS BIT) AS IsAllAreas
+FROM dbo.UserRoles ur
+INNER JOIN dbo.IMSUsers u ON u.Id = ur.UserId
+INNER JOIN dbo.Roles r ON r.Id = ur.RoleId
 LEFT JOIN dbo.Designation d ON d.DesignationID = u.DesignationID
-WHERE u.IsActive = 1
-  AND EXISTS (
-        SELECT 1
-        FROM dbo.UserRoles ur
-        INNER JOIN dbo.Roles r ON r.Id = ur.RoleId
-        WHERE ur.UserId = u.Id
-          AND (COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), ''), r.RoleName) IN ({inList})
-               OR EXISTS (SELECT 1 FROM dbo.RolePermissions rp
-                          INNER JOIN dbo.Permissions p ON p.Id = rp.PermissionId
-                          WHERE rp.RoleId = r.Id AND p.Code = N'ReadyStock.Confirm')))
-ORDER BY u.Name";
+WHERE COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), ''), r.RoleName) IN ({fullList})
+   OR EXISTS (SELECT 1 FROM dbo.RolePermissions rp
+              INNER JOIN dbo.Permissions p ON p.Id = rp.PermissionId
+              WHERE rp.RoleId = r.Id AND p.Code = @Permission)";
 
             var owns = conn == null;
             var c = conn ?? _dbHelper.GetConnection();
@@ -51,12 +67,17 @@ ORDER BY u.Name";
             {
                 if (owns) await c.OpenAsync();
                 using var cmd = new SqlCommand(sql, c, tx);
+                cmd.Parameters.AddWithValue("@Permission", SupervisorRules.PermissionFor(kind));
                 for (var i = 0; i < fullAccess.Count; i++)
                     cmd.Parameters.AddWithValue("@F" + i, fullAccess[i]);
-                var list = new List<Employee>();
+                for (var i = 0; i < AreaAccessService.AllAreaRoleNames.Count; i++)
+                    cmd.Parameters.AddWithValue("@A" + i, AreaAccessService.AllAreaRoleNames[i]);
+                var list = new List<SupervisorCandidate>();
                 using var reader = await cmd.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
-                    list.Add(new Employee { EmployeeID = reader.GetInt32(0), Name = reader.GetString(1), Designation = reader.GetString(2) });
+                    list.Add(new SupervisorCandidate(
+                        reader.GetInt32(0), reader.GetString(1), reader.GetString(2), reader.GetBoolean(3),
+                        reader.IsDBNull(4) ? null : reader.GetInt32(4), reader.GetBoolean(5)));
                 return list;
             }
             finally

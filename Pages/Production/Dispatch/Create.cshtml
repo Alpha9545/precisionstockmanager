@@ -41,6 +41,8 @@
                                         data-species="@b.SpeciesName (@b.PlantTypeName)"
                                         data-potsize="@b.PotSize"
                                         data-area="@(b.AreaName ?? "Unassigned")"
+                                        data-area-id="@b.AreaId"
+                                        data-area-kind="@Model.AreaKindKey(b.AreaId)"
                                         data-remaining="@b.RemainingQuantity.ToString("0.####")">
                                     @b.BookingCode &mdash; @b.CustomerName &mdash; @b.SpeciesName / @b.PotSize (Remaining @b.RemainingQuantity.ToString("N2") of @b.Quantity.ToString("N2"))
                                 </option>
@@ -74,23 +76,12 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Responsible Person</label>
-                        <select asp-for="Dispatch.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var e in Model.PersonOptions)
-                            {
-                                <option value="@e.EmployeeID">@e.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
                         <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="Dispatch.SupervisorId" class="form-select">
+                        <select asp-for="Dispatch.SupervisorId" class="form-select" data-supervisor-area-source="#bookingSelect">
                             <option value="">-- None --</option>
-                            @foreach (var e in Model.PersonOptions)
+                            @foreach (var s in Model.Supervisors)
                             {
-                                <option value="@e.EmployeeID">@e.Name</option>
+                                <option value="@s.Option.EmployeeID" data-kind="@s.KindKey" data-areas="@s.Option.AreaAttribute">@s.Option.Name</option>
                             }
                         </select>
                     </div>

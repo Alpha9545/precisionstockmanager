@@ -35,6 +35,7 @@
                             @foreach (var mp in Model.SelectableMotherPlants)
                             {
                                 <option value="@mp.Id"
+                                        data-area-id="@(mp.AreaId?.ToString() ?? "")"
                                         data-species="@mp.SpeciesName (@mp.PlantTypeName)">
                                     @mp.MotherPlantCode &mdash; @mp.SpeciesName (@mp.PolyhouseName)
                                 </option>
@@ -73,23 +74,12 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Responsible Person</label>
-                        <select asp-for="CuttingPlan.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
                         <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="CuttingPlan.SupervisorId" class="form-select">
+                        <select asp-for="CuttingPlan.SupervisorId" class="form-select" data-supervisor-area-source="#motherPlantSelect">
                             <option value="">-- None --</option>
                             @foreach (var s in Model.Supervisors)
                             {
-                                <option value="@s.EmployeeID">@s.Name</option>
+                                <option value="@s.EmployeeID" data-areas="@s.AreaAttribute">@s.Name</option>
                             }
                         </select>
                     </div>

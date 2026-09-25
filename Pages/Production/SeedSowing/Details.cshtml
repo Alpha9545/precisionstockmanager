@@ -56,7 +56,11 @@
                 <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@(Model.SeedSowing.Status == "Sown" ? "Growing (awaiting Supervisor Approval)" : Model.SeedSowing.Status)</dd>
                 <dt class="col-sm-5">Actual Ready Seedlings</dt><dd class="col-sm-7">@Model.SeedSowing.ConfirmedReadyQuantity.ToString("N0")</dd>
                 <dt class="col-sm-5">Wastage</dt><dd class="col-sm-7">@Model.SeedSowing.WastageQuantity.ToString("N0") (@Model.SeedSowing.WastagePercent.ToString("0.00")%)</dd>
-                <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.SeedSowing.ResponsiblePersonName</dd>
+                @* Responsible Person was removed from data entry (Phase 1); an existing value is kept and shown for history only. *@
+                @if (!string.IsNullOrEmpty(Model.SeedSowing.ResponsiblePersonName))
+                {
+                    <dt class="col-sm-5">Responsible Person (historical)</dt><dd class="col-sm-7">@Model.SeedSowing.ResponsiblePersonName</dd>
+                }
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.SeedSowing.SupervisorName</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.SeedSowing.Remarks</dd>
                 <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.SeedSowing.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.SeedSowing.CreatedBy</dd>

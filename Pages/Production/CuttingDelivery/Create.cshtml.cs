@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using CuttingDeliveryModel = PlantStockManager.Models.CuttingDelivery;
 using ActualCuttingModel = PlantStockManager.Models.ActualCutting;
 
@@ -12,27 +13,29 @@ namespace PlantStockManager.Pages.Production.CuttingDelivery
     {
         private readonly CuttingDeliveryRepository _cuttingDeliveryRepo;
         private readonly ActualCuttingRepository _actualCuttingRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly MotherPlantAreaScope _areaScope;
 
         public CreateModel(
             CuttingDeliveryRepository cuttingDeliveryRepo,
             ActualCuttingRepository actualCuttingRepo,
-            EmployeeRepository employeeRepo,
+            SupervisorSelectionService supervisors,
             MotherPlantAreaScope areaScope)
         {
             _areaScope = areaScope;
             _cuttingDeliveryRepo = cuttingDeliveryRepo;
             _actualCuttingRepo = actualCuttingRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
         }
 
         [BindProperty]
         public CuttingDeliveryModel CuttingDelivery { get; set; } = new();
 
         public List<ActualCuttingModel> OpenActualCuttings { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: Production Area supervisors, narrowed to the chosen record's Mother Plant Area.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
+        public IReadOnlyDictionary<int, int?> MotherPlantAreas { get; set; } = new Dictionary<int, int?>();
+        public string AreaOf(int motherPlantId) => MotherPlantAreas.TryGetValue(motherPlantId, out var a) && a.HasValue ? a.Value.ToString() : string.Empty;
 
         public async Task OnGetAsync()
         {
@@ -68,6 +71,15 @@ namespace PlantStockManager.Pages.Production.CuttingDelivery
             if (actualCutting != null && !await _areaScope.CanAccessAsync(User, actualCutting.MotherPlantId))
                 ModelState.AddModelError("CuttingDelivery.ActualCuttingId", "You are not authorized to record deliveries for this Actual Cutting's Area.");
 
+            // Phase 1: the supervisor must be eligible for the Mother Plant's Area.
+            if (actualCutting != null)
+            {
+                var supervisorError = await _supervisors.ValidateAsync(
+                    SupervisorKind.ProductionArea, await _areaScope.ResolveAreaIdAsync(actualCutting.MotherPlantId), CuttingDelivery.SupervisorId);
+                if (supervisorError != null)
+                    ModelState.AddModelError("CuttingDelivery.SupervisorId", supervisorError);
+            }
+
             if (!ModelState.IsValid || actualCutting == null)
             {
                 await LoadDropdownsAsync();
@@ -78,6 +90,7 @@ namespace PlantStockManager.Pages.Production.CuttingDelivery
             // cutting record itself, never trusted from the posted form.
             CuttingDelivery.MotherPlantId = actualCutting.MotherPlantId;
             CuttingDelivery.SpeciesId = actualCutting.SpeciesId;
+            CuttingDelivery.ResponsiblePersonId = null; // Phase 1: Responsible Person retired
             CuttingDelivery.CreatedBy = User.Identity?.Name ?? "System";
 
             var (success, message, _) = await _cuttingDeliveryRepo.InsertAsync(CuttingDelivery);
@@ -98,9 +111,8 @@ namespace PlantStockManager.Pages.Production.CuttingDelivery
         private async Task LoadDropdownsAsync()
         {
             OpenActualCuttings = await _areaScope.FilterAsync(User, await _actualCuttingRepo.GetOpenForDeliveryAsync(), a => (int?)a.MotherPlantId);
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            MotherPlantAreas = await _areaScope.GetAreaMapAsync();
+            Supervisors = await _supervisors.OptionsAsync(SupervisorKind.ProductionArea);
         }
     }
 }

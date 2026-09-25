@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
 
 namespace PlantStockManager.Pages.Production.InternalTransfer
@@ -13,7 +14,7 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
         private readonly EmptyPotInventoryRepository _emptyPotInventoryRepo;
         private readonly PottedPlantStockRepository _pottedPlantStockRepo;
         private readonly AreaRepository _areaRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly AreaAccessService _areaAccessService;
 
         public CreateModel(
@@ -22,13 +23,13 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
             EmptyPotInventoryRepository emptyPotInventoryRepo,
             PottedPlantStockRepository pottedPlantStockRepo,
             AreaRepository areaRepo,
-            EmployeeRepository employeeRepo)
+            SupervisorSelectionService supervisors)
         {
             _internalTransferRepo = internalTransferRepo;
             _emptyPotInventoryRepo = emptyPotInventoryRepo;
             _pottedPlantStockRepo = pottedPlantStockRepo;
             _areaRepo = areaRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
             _areaAccessService = areaAccessService;
         }
 
@@ -43,8 +44,12 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
         public List<PlantStockManager.Models.EmptyPotInventory> EmptyPotPools { get; set; } = new();
         public List<PlantStockManager.Models.PottedPlantStock> PottedPlantPools { get; set; } = new();
         public List<Area> Areas { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: supervisors of the SOURCE Area's type (Production Area /
+        // Main Office / Outlet) for that Area; narrowed in the browser from the
+        // chosen pool and re-checked on save.
+        public List<KindedSupervisorOption> Supervisors { get; set; } = new();
+        public string? AreaKindKey(int? areaId)
+            => areaId.HasValue ? SupervisorRules.KindKeyForAreaType(Areas.FirstOrDefault(a => a.Id == areaId.Value)?.AreaType) : null;
 
         public async Task OnGetAsync()
         {
@@ -92,6 +97,13 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
                 }
                 if (!sourceFound || !_areaAccessService.CanAccessRequiredArea(User, sourceAreaId))
                     ModelState.AddModelError(string.Empty, "You are not authorized to transfer stock from the selected source.");
+                else
+                {
+                    var kind = await _supervisors.KindForAreaAsync(sourceAreaId, SupervisorKind.ProductionArea);
+                    var supervisorError = await _supervisors.ValidateAsync(kind, sourceAreaId, InternalTransfer.SupervisorId);
+                    if (supervisorError != null)
+                        ModelState.AddModelError("InternalTransfer.SupervisorId", supervisorError);
+                }
             }
 
             if (!ModelState.IsValid)
@@ -117,6 +129,7 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
             else
                 InternalTransfer.SourceEmptyPotInventoryId = null;
 
+            InternalTransfer.ResponsiblePersonId = null;   // Phase 1: no longer entered
             InternalTransfer.CreatedBy = User.Identity?.Name ?? "System";
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
@@ -142,9 +155,7 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
             PottedPlantPools = allPotted.Where(p => p.AreaId.HasValue && p.PhysicalQuantity > 0 && _areaAccessService.CanAccessArea(User, p.AreaId)).ToList();
 
             Areas = await _areaRepo.GetAllAreas();
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = await _supervisors.AllAreaKindOptionsAsync();
         }
     }
 }

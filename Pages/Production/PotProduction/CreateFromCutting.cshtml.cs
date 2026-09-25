@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using PotProductionModel = PlantStockManager.Models.PotProduction;
 // Alias required: Pages/Production/CuttingStock/ makes "CuttingStock" a
 // sibling namespace under PlantStockManager.Pages.Production, which
@@ -24,20 +25,20 @@ namespace PlantStockManager.Pages.Production.PotProduction
         private readonly PotProductionRepository _potProductionRepo;
         private readonly CuttingStockRepository _cuttingStockRepo;
         private readonly EmptyPotInventoryRepository _emptyPotInventoryRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly AreaAccessService _areaAccessService;
 
         public CreateFromCuttingModel(
             PotProductionRepository potProductionRepo,
             CuttingStockRepository cuttingStockRepo,
             EmptyPotInventoryRepository emptyPotInventoryRepo,
-            EmployeeRepository employeeRepo,
+            SupervisorSelectionService supervisors,
             AreaAccessService areaAccessService)
         {
             _potProductionRepo = potProductionRepo;
             _cuttingStockRepo = cuttingStockRepo;
             _emptyPotInventoryRepo = emptyPotInventoryRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
             _areaAccessService = areaAccessService;
         }
 
@@ -46,8 +47,9 @@ namespace PlantStockManager.Pages.Production.PotProduction
 
         public List<CuttingStockModel> AvailableCuttingStocks { get; set; } = new();
         public List<PlantStockManager.Models.EmptyPotInventory> ActivePotSizes { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: supervisors of the source Cutting Stock's Area (narrowed in
+        // the browser from the chosen stock, re-checked on save).
+        public List<KindedSupervisorOption> Supervisors { get; set; } = new();
 
         public async Task OnGetAsync()
         {
@@ -117,6 +119,16 @@ namespace PlantStockManager.Pages.Production.PotProduction
             }
             PotProduction.PotSize = selectedPool.PotSize;
 
+            // Phase 1: supervisor must be eligible for the cutting stock's Area.
+            var supervisorError = await _supervisors.ValidateForAreaAsync(sourceStock.AreaId, SupervisorKind.ProductionArea, PotProduction.SupervisorId);
+            if (supervisorError != null)
+            {
+                ModelState.AddModelError("PotProduction.SupervisorId", supervisorError);
+                await LoadDropdownsAsync();
+                return Page();
+            }
+            PotProduction.ResponsiblePersonId = null;   // Phase 1: no longer entered
+
             PotProduction.CreatedBy = User.Identity?.Name ?? "System";
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
@@ -148,9 +160,7 @@ namespace PlantStockManager.Pages.Production.PotProduction
                 .ToList();
 
             ActivePotSizes = await _emptyPotInventoryRepo.GetAllAsync(activeOnly: true);
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = await _supervisors.AllAreaKindOptionsAsync();
         }
     }
 }

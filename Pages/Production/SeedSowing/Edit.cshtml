@@ -53,17 +53,6 @@
 
                 <div class="row g-3">
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="SeedSowing.ResponsiblePersonId" class="form-select" disabled="@(Model.SeedSowing.Status == "Cancelled")">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
                         <label class="form-label fw-bold">Supervisor <span class="text-muted fw-normal">(approves this batch)</span></label>
                         @if (Model.CanChangeSupervisor)
                         {

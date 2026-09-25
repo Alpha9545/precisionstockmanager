@@ -43,7 +43,7 @@
                             <option value="">-- Select --</option>
                             @foreach (var p in Model.EmptyPotPools)
                             {
-                                <option value="@p.Id">@p.PotSize (@p.AreaName) &mdash; stock: @p.PhysicalQuantity.ToString("N2")</option>
+                                <option value="@p.Id" data-area-id="@p.AreaId" data-area-kind="@Model.AreaKindKey(p.AreaId)">@p.PotSize (@p.AreaName) &mdash; stock: @p.PhysicalQuantity.ToString("N2")</option>
                             }
                         </select>
                         @if (!Model.EmptyPotPools.Any())
@@ -58,7 +58,7 @@
                             <option value="">-- Select --</option>
                             @foreach (var p in Model.PottedPlantPools)
                             {
-                                <option value="@p.Id">@p.SpeciesName (@p.PlantTypeName) &mdash; @p.PotSize (@p.AreaName) &mdash; stock: @p.PhysicalQuantity.ToString("N2") (Available: @p.AvailableQuantity.ToString("N2"))</option>
+                                <option value="@p.Id" data-area-id="@p.AreaId" data-area-kind="@Model.AreaKindKey(p.AreaId)">@p.SpeciesName (@p.PlantTypeName) &mdash; @p.PotSize (@p.AreaName) &mdash; stock: @p.PhysicalQuantity.ToString("N2") (Available: @p.AvailableQuantity.ToString("N2"))</option>
                             }
                         </select>
                         @if (!Model.PottedPlantPools.Any())
@@ -85,23 +85,13 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="InternalTransfer.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="InternalTransfer.SupervisorId" class="form-select">
+                        <label class="form-label fw-bold">Supervisor <span class="text-muted fw-normal">(of the source Area)</span></label>
+                        <select asp-for="InternalTransfer.SupervisorId" class="form-select"
+                                data-supervisor-area-source="#InternalTransfer_SourceEmptyPotInventoryId, #InternalTransfer_SourcePottedPlantStockId">
                             <option value="">-- None --</option>
                             @foreach (var s in Model.Supervisors)
                             {
-                                <option value="@s.EmployeeID">@s.Name</option>
+                                <option value="@s.Option.EmployeeID" data-kind="@s.KindKey" data-areas="@s.Option.AreaAttribute">@s.Option.Name</option>
                             }
                         </select>
                     </div>
@@ -134,7 +124,12 @@
                     $('#pottedPlantSourceRow').show();
                 }
             }
-            $('#stockTypeSelect').on('change', toggleSourceRows);
+            $('#stockTypeSelect').on('change', function () {
+                toggleSourceRows();
+                // Phase 1: clear the now-hidden pool so it cannot steer the
+                // source-Area supervisor list (site.js listens for change).
+                $('#emptyPotSourceRow select, #pottedPlantSourceRow select').filter(':hidden').val('').each(function () { this.dispatchEvent(new Event('change')); });
+            });
             toggleSourceRows();
         });
     </script>

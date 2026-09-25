@@ -258,7 +258,6 @@ SET CuttingDate = @CuttingDate,
     GoodQuantity = @GoodQuantity,
     DamagedQuantity = @DamagedQuantity,
     RejectedQuantity = @RejectedQuantity,
-    ResponsiblePersonId = @ResponsiblePersonId,
     SupervisorId = @SupervisorId,
     Remarks = @Remarks,
     ModifiedDate = SYSUTCDATETIME(),
@@ -272,7 +271,6 @@ WHERE Id = @Id";
                 cmd.Parameters.AddWithValue("@GoodQuantity", entry.GoodQuantity);
                 cmd.Parameters.AddWithValue("@DamagedQuantity", entry.DamagedQuantity);
                 cmd.Parameters.AddWithValue("@RejectedQuantity", entry.RejectedQuantity);
-                cmd.Parameters.AddWithValue("@ResponsiblePersonId", (object?)entry.ResponsiblePersonId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@SupervisorId", (object?)entry.SupervisorId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Remarks", (object?)entry.Remarks ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ModifiedBy", (object?)entry.ModifiedBy ?? DBNull.Value);

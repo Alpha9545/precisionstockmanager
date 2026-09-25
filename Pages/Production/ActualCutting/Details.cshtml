@@ -22,7 +22,11 @@
                 <dt class="col-sm-5">Good Quantity</dt><dd class="col-sm-7">@Model.ActualCutting.GoodQuantity.ToString("N2")</dd>
                 <dt class="col-sm-5">Damaged Quantity</dt><dd class="col-sm-7">@Model.ActualCutting.DamagedQuantity.ToString("N2")</dd>
                 <dt class="col-sm-5">Rejected Quantity</dt><dd class="col-sm-7">@Model.ActualCutting.RejectedQuantity.ToString("N2")</dd>
-                <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.ActualCutting.ResponsiblePersonName</dd>
+                @* Responsible Person was removed from data entry (Phase 1); an existing value is kept and shown for history only. *@
+                @if (!string.IsNullOrEmpty(Model.ActualCutting.ResponsiblePersonName))
+                {
+                    <dt class="col-sm-5">Responsible Person (historical)</dt><dd class="col-sm-7">@Model.ActualCutting.ResponsiblePersonName</dd>
+                }
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.ActualCutting.SupervisorName</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.ActualCutting.Remarks</dd>
                 <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.ActualCutting.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.ActualCutting.CreatedBy</dd>

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using MotherPlantModel = PlantStockManager.Models.MotherPlant;
 
 namespace PlantStockManager.Pages.Production.MotherPlant
@@ -14,7 +15,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
         private readonly PlantTypeRepository _plantTypeRepo;
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
         private readonly AreaRepository _areaRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly AreaAccessService _areaAccessService;
 
         public CreateModel(
@@ -23,7 +24,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             PlantTypeRepository plantTypeRepo,
             PlantSpeciesRepository plantSpeciesRepo,
             AreaRepository areaRepo,
-            EmployeeRepository employeeRepo,
+            SupervisorSelectionService supervisors,
             AreaAccessService areaAccessService)
         {
             _motherPlantRepo = motherPlantRepo;
@@ -31,7 +32,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             _plantTypeRepo = plantTypeRepo;
             _plantSpeciesRepo = plantSpeciesRepo;
             _areaRepo = areaRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
             _areaAccessService = areaAccessService;
         }
 
@@ -41,8 +42,9 @@ namespace PlantStockManager.Pages.Production.MotherPlant
         public List<Polyhouse> Polyhouses { get; set; } = new();
         public List<PlantType> PlantTypes { get; set; } = new();
         public List<Area> Areas { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
+        // Phase 1: Production Area supervisors only, narrowed to the chosen
+        // Area in the browser and re-checked here on save.
+        public List<SupervisorOption> Supervisors { get; set; } = new();
 
         // Server-computed preview shown on the form before saving. The
         // repository recalculates these again on save regardless -- this
@@ -110,6 +112,13 @@ namespace PlantStockManager.Pages.Production.MotherPlant
                 }
             }
 
+            // Phase 1: Responsible Person is no longer entered; the supervisor
+            // must be an eligible Production Area supervisor for this Area.
+            MotherPlant.ResponsiblePersonId = null;
+            var supervisorError = await _supervisors.ValidateAsync(SupervisorKind.ProductionArea, MotherPlant.AreaId, MotherPlant.SupervisorId);
+            if (supervisorError != null)
+                ModelState.AddModelError("MotherPlant.SupervisorId", supervisorError);
+
             if (!ModelState.IsValid)
             {
                 await LoadDropdownsAsync(MotherPlant.PolyhouseId);
@@ -137,9 +146,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             Areas = polyhouseId > 0
                 ? await _areaRepo.GetAreasByPolyhouseId(polyhouseId)
                 : new List<Area>();
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Supervisors = await _supervisors.OptionsAsync(SupervisorKind.ProductionArea);
         }
     }
 }

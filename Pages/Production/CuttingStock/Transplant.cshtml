@@ -42,22 +42,22 @@
             <form method="post">
                 <div class="mb-3">
                     <label class="form-label fw-bold">Destination Polyhouse</label>
-                    <select asp-for="DestinationPolyhouseAreaId" class="form-select" required>
+                    <select asp-for="DestinationPolyhouseAreaId" class="form-select" required data-area-select>
                         <option value="">-- Select Destination Polyhouse --</option>
                         @foreach (var a in Model.DestinationAreas)
                         {
-                            <option value="@a.Id">@a.Name (@a.AreaType)@(a.PolyhouseName != null ? $" — {a.PolyhouseName}" : "")</option>
+                            <option value="@a.Id" data-area-kind="@PlantStockManager.Services.SupervisorRules.KindKeyForAreaType(a.AreaType)">@a.Name (@a.AreaType)@(a.PolyhouseName != null ? $" — {a.PolyhouseName}" : "")</option>
                         }
                     </select>
                 </div>
 
                 <div class="mb-3">
                     <label class="form-label fw-bold">Destination Polyhouse Supervisor</label>
-                    <select asp-for="DestinationSupervisorId" class="form-select" required>
+                    <select asp-for="DestinationSupervisorId" class="form-select" required data-supervisor-area-source="#DestinationPolyhouseAreaId">
                         <option value="">-- Select Supervisor --</option>
                         @foreach (var s in Model.Supervisors)
                         {
-                            <option value="@s.EmployeeID">@s.Name</option>
+                            <option value="@s.Option.EmployeeID" data-kind="@s.KindKey" data-areas="@s.Option.AreaAttribute">@s.Option.Name</option>
                         }
                     </select>
                 </div>

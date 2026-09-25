@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using DispatchModel = PlantStockManager.Models.Dispatch;
 
 namespace PlantStockManager.Pages.Production.Dispatch
@@ -16,13 +17,13 @@ namespace PlantStockManager.Pages.Production.Dispatch
     public class EditModel : PageModel
     {
         private readonly DispatchRepository _dispatchRepo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly SupervisorSelectionService _supervisors;
         private readonly AreaAccessService _areaAccessService;
 
-        public EditModel(DispatchRepository dispatchRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
+        public EditModel(DispatchRepository dispatchRepo, SupervisorSelectionService supervisors, AreaAccessService areaAccessService)
         {
             _dispatchRepo = dispatchRepo;
-            _employeeRepo = employeeRepo;
+            _supervisors = supervisors;
             _areaAccessService = areaAccessService;
         }
 
@@ -35,7 +36,8 @@ namespace PlantStockManager.Pages.Production.Dispatch
         [BindProperty]
         public DispatchModel Dispatch { get; set; } = new();
 
-        public List<Employee> PersonOptions { get; set; } = new();
+        // Phase 1: supervisors eligible for this Dispatch's Area (plus the current one).
+        public List<SupervisorOption> Supervisors { get; set; } = new();
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -50,7 +52,7 @@ namespace PlantStockManager.Pages.Production.Dispatch
             }
 
             Dispatch = existing;
-            await LoadDropdownsAsync();
+            await LoadDropdownsAsync(existing);
             return Page();
         }
 
@@ -69,7 +71,7 @@ namespace PlantStockManager.Pages.Production.Dispatch
             if (existing == null)
             {
                 ModelState.AddModelError(string.Empty, "Dispatch not found.");
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(null);
                 return Page();
             }
 
@@ -83,13 +85,18 @@ namespace PlantStockManager.Pages.Production.Dispatch
             {
                 ModelState.AddModelError(string.Empty, "This Dispatch is already Cancelled and cannot be edited further.");
                 Dispatch = existing;
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
+            var supervisorError = await _supervisors.ValidateForAreaAsync(
+                existing.AreaId, SupervisorKind.ProductionArea, Dispatch.SupervisorId, existing.SupervisorId);
+            if (supervisorError != null)
+                ModelState.AddModelError("Dispatch.SupervisorId", supervisorError);
+
             if (!ModelState.IsValid)
             {
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
@@ -111,7 +118,7 @@ namespace PlantStockManager.Pages.Production.Dispatch
                 Dispatch.Status = existing.Status;
                 Dispatch.BookingCode = existing.BookingCode;
                 Dispatch.CustomerName = existing.CustomerName;
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
@@ -150,9 +157,11 @@ namespace PlantStockManager.Pages.Production.Dispatch
             return RedirectToPage("/Production/Dispatch/Index");
         }
 
-        private async Task LoadDropdownsAsync()
+        private async Task LoadDropdownsAsync(DispatchModel? existing)
         {
-            PersonOptions = await _employeeRepo.GetAllActiveUsers();
+            Supervisors = existing == null
+                ? new List<SupervisorOption>()
+                : await _supervisors.ForAreaAsync(existing.AreaId, SupervisorKind.ProductionArea, existing.SupervisorId, existing.SupervisorName);
         }
     }
 }
