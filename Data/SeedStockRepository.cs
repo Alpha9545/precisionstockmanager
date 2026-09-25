@@ -124,6 +124,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         {
             if (quantity <= 0)
                 return (false, "Quantity to add must be greater than zero.");
+            if (!PlantStockManager.Services.DirectSowingRules.IsWholeNumber(quantity))
+                return (false, "Quantity to add must be a whole number.");
 
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();

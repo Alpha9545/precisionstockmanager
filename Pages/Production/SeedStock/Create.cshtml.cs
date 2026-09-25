@@ -18,7 +18,7 @@ namespace PlantStockManager.Pages.Production.SeedStock
         private readonly PlantTypeRepository _plantTypeRepo;
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
         private readonly SeedSourcesRepository _seedSourcesRepo;
-        private readonly AreaAccessService _areaAccessService;
+        private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
 
         public CreateModel(
             SeedStockRepository seedStockRepo,
@@ -26,7 +26,7 @@ namespace PlantStockManager.Pages.Production.SeedStock
             PlantTypeRepository plantTypeRepo,
             PlantSpeciesRepository plantSpeciesRepo,
             SeedSourcesRepository seedSourcesRepo,
-            AreaAccessService areaAccessService)
+            SeedlingAreaScope areaAccessService)
         {
             _seedStockRepo = seedStockRepo;
             _areaRepo = areaRepo;

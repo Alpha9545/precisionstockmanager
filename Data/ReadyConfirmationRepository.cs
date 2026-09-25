@@ -51,10 +51,10 @@ namespace PlantStockManager.Data
 SELECT
     rc.Id, rc.ConfirmationCode, rc.SeedSowingId, sw.SowingCode, rc.ReadyStockId,
     ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
-    a.Name AS AreaName, COALESCE(sph.Name, ph.Name) AS PolyhouseName,
-    sw.BatchNo, sw.CavityType, sw.SowingDate, sw.ExpectedReadyDate, sw.ReadyStockDays,
+    a.Name AS AreaName, sph.Name AS PolyhouseName,   -- only the Polyhouse actually recorded (optional)
+    sw.BatchNo, sw.CavityType, sw.NumberOfTrays AS SowingTrays, sw.SowingDate, sw.ExpectedReadyDate, sw.ReadyStockDays,
     sw.QuantitySown, sw.ConfirmedReadyQuantity, sw.WastageQuantity AS SowingWastageQuantity,
-    rc.ConfirmedQuantity, rc.WastageQuantity, rc.WastageReason, rc.ApprovedById, ab.Name AS ApprovedByName,
+    rc.ActualTrayQuantity, rc.ConfirmedQuantity, rc.WastageQuantity, rc.WastageReason, rc.ApprovedById, ab.Name AS ApprovedByName,
     rc.ConfirmationDate, rc.Status,
     rc.ResponsiblePersonId, r.Name AS ResponsiblePersonName,
     rc.SupervisorId, sup.Name AS SupervisorName,
@@ -139,12 +139,17 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
         //      again by CK_SeedSowings_CompletedAccounted);
         //   7) commit, or roll everything back.
         // The approver may be a different user from the one who sowed.
+        // Tray-based approval: the supervisor supplies ONLY the Actual Ready
+        // Trays. Cavity, sowing trays and Seeds Used are read from the LOCKED
+        // sowing; Actual Ready Seedlings (= trays x sowing cavity) and Wastage
+        // (= Seeds Used - seedlings) are calculated here. No seedling,
+        // wastage or cavity value is accepted from the caller.
         public async Task<(bool Success, string? Message, int Id)> ConfirmAsync(
-            int seedSowingId, decimal readyQuantity, string? wastageReason, int? responsiblePersonId, int? supervisorId,
+            int seedSowingId, decimal actualReadyTrays, string? wastageReason, int? responsiblePersonId,
             string? remarks, string? createdBy, int? userId)
         {
-            if (readyQuantity < 0)
-                return (false, "Actual Ready Quantity cannot be negative.", 0);
+            if (actualReadyTrays <= 0 || !DirectSowingRules.IsWholeNumber(actualReadyTrays))
+                return (false, "Actual Ready Trays must be a whole number of at least 1.", 0);
 
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
@@ -154,8 +159,8 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
             {
                 // 1) Lock the source Sowing.
                 var lockCmd = new SqlCommand(
-                    "SELECT SpeciesId, AreaId, PolyhouseId, SowingCode, BatchNo, CavityType, SowingDate, QuantitySown, " +
-                    "ConfirmedReadyQuantity, WastageQuantity, Status " +
+                    "SELECT SpeciesId, AreaId, PolyhouseId, SowingCode, BatchNo, CavityType, NumberOfTrays, SowingDate, QuantitySown, " +
+                    "ConfirmedReadyQuantity, WastageQuantity, Status, CreatedById, CreatedBy, SupervisorId " +
                     "FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", seedSowingId);
@@ -164,6 +169,8 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                 string sowingCode, seedLotNo, cavityType, status;
                 DateTime sowingDate;
                 decimal quantitySown, confirmedSoFar, wastedSoFar;
+                int? sowingCreatedById, assignedSupervisorId, sowingTrays;
+                string? sowingCreatedBy;
                 using (var reader = await lockCmd.ExecuteReaderAsync())
                 {
                     if (!await reader.ReadAsync())
@@ -178,11 +185,15 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                     sowingCode = reader.GetString(reader.GetOrdinal("SowingCode"));
                     seedLotNo = reader.GetString(reader.GetOrdinal("BatchNo"));
                     cavityType = reader.GetString(reader.GetOrdinal("CavityType"));
+                    sowingTrays = reader.IsDBNull(reader.GetOrdinal("NumberOfTrays")) ? null : reader.GetInt32(reader.GetOrdinal("NumberOfTrays"));
                     sowingDate = reader.GetDateTime(reader.GetOrdinal("SowingDate"));
                     quantitySown = reader.GetDecimal(reader.GetOrdinal("QuantitySown"));
                     confirmedSoFar = reader.GetDecimal(reader.GetOrdinal("ConfirmedReadyQuantity"));
                     wastedSoFar = reader.GetDecimal(reader.GetOrdinal("WastageQuantity"));
                     status = reader.GetString(reader.GetOrdinal("Status"));
+                    sowingCreatedById = reader.IsDBNull(reader.GetOrdinal("CreatedById")) ? null : reader.GetInt32(reader.GetOrdinal("CreatedById"));
+                    sowingCreatedBy = reader.IsDBNull(reader.GetOrdinal("CreatedBy")) ? null : reader.GetString(reader.GetOrdinal("CreatedBy"));
+                    assignedSupervisorId = reader.IsDBNull(reader.GetOrdinal("SupervisorId")) ? null : reader.GetInt32(reader.GetOrdinal("SupervisorId"));
                 }
 
                 // 2) Eligibility.
@@ -191,10 +202,20 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                     tx.Rollback();
                     return (false, $"This sowing batch is '{status}' and cannot be approved.", 0);
                 }
+                // Approval authority (under the row lock): ONLY the supervisor
+                // assigned to this sowing, and never the person who recorded it.
+                var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
+                    assignedSupervisorId, sowingCreatedById, sowingCreatedBy, userId, createdBy);
+                if (!mayApprove)
+                {
+                    tx.Rollback();
+                    return (false, authorityError, 0);
+                }
 
-                // 3) Ready / Wastage arithmetic (under the lock).
-                var (ok, wastage, error) = DirectSowingRules.ComputeApproval(
-                    quantitySown, confirmedSoFar, wastedSoFar, readyQuantity, wastageReason);
+                // 3) Tray arithmetic (under the lock), always with the SOWING's
+                //    cavity and tray count -- never a value from the browser.
+                var (ok, actualTrays, readyQuantity, wastage, _, error) = DirectSowingRules.ComputeTrayApproval(
+                    quantitySown, sowingTrays, cavityType, confirmedSoFar, wastedSoFar, actualReadyTrays, wastageReason);
                 if (!ok)
                 {
                     tx.Rollback();
@@ -213,22 +234,23 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                 // 5) The approval record.
                 const string insertSql = @"
 INSERT INTO dbo.ReadyConfirmations
-(ConfirmationCode, SeedSowingId, ReadyStockId, ConfirmedQuantity, WastageQuantity, WastageReason, ApprovedById,
+(ConfirmationCode, SeedSowingId, ReadyStockId, ActualTrayQuantity, ConfirmedQuantity, WastageQuantity, WastageReason, ApprovedById,
  ConfirmationDate, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy)
 VALUES
-(@ConfirmationCode, @SeedSowingId, @ReadyStockId, @ConfirmedQuantity, @WastageQuantity, @WastageReason, @ApprovedById,
+(@ConfirmationCode, @SeedSowingId, @ReadyStockId, @ActualTrayQuantity, @ConfirmedQuantity, @WastageQuantity, @WastageReason, @ApprovedById,
  SYSUTCDATETIME(), 'Confirmed', @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 using var cmd = new SqlCommand(insertSql, conn, tx);
                 cmd.Parameters.AddWithValue("@ConfirmationCode", confirmationCode);
                 cmd.Parameters.AddWithValue("@SeedSowingId", seedSowingId);
                 cmd.Parameters.AddWithValue("@ReadyStockId", readyStockId);
-                cmd.Parameters.AddWithValue("@ConfirmedQuantity", readyQuantity);
+                cmd.Parameters.AddWithValue("@ActualTrayQuantity", actualTrays);
+                cmd.Parameters.AddWithValue("@ConfirmedQuantity", readyQuantity);   // = actualTrays x sowing cavity
                 cmd.Parameters.AddWithValue("@WastageQuantity", wastage);
                 cmd.Parameters.AddWithValue("@WastageReason", (object?)reasonToStore ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ApprovedById", (object?)userId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ResponsiblePersonId", (object?)responsiblePersonId ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@SupervisorId", (object?)supervisorId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@SupervisorId", (object?)assignedSupervisorId ?? DBNull.Value);   // the sowing's assigned supervisor
                 cmd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
                 var newId = (int)(await cmd.ExecuteScalarAsync())!;
@@ -269,7 +291,9 @@ WHERE Id = @Id", conn, tx);
             }
             catch (Exception ex)
             {
-                tx.Rollback();
+                // A database backstop (trigger) may already have rolled the
+                // transaction back on the server.
+                try { tx.Rollback(); } catch { }
                 return (false, ex.Message, 0);
             }
         }
@@ -403,6 +427,8 @@ WHERE Id = @Id", conn, tx);
                 ReadyStockDays = reader.IsDBNull(reader.GetOrdinal("ReadyStockDays")) ? null : reader.GetInt32(reader.GetOrdinal("ReadyStockDays")),
                 QuantitySown = reader.GetDecimal(reader.GetOrdinal("QuantitySown")),
                 ConfirmedReadyQuantity = reader.GetDecimal(reader.GetOrdinal("ConfirmedReadyQuantity")),
+                ActualTrayQuantity = reader.IsDBNull(reader.GetOrdinal("ActualTrayQuantity")) ? null : reader.GetInt32(reader.GetOrdinal("ActualTrayQuantity")),
+                SowingTrays = reader.IsDBNull(reader.GetOrdinal("SowingTrays")) ? null : reader.GetInt32(reader.GetOrdinal("SowingTrays")),
                 ConfirmedQuantity = reader.GetDecimal(reader.GetOrdinal("ConfirmedQuantity")),
                 WastageQuantity = reader.GetDecimal(reader.GetOrdinal("WastageQuantity")),
                 WastageReason = reader.IsDBNull(reader.GetOrdinal("WastageReason")) ? null : reader.GetString(reader.GetOrdinal("WastageReason")),

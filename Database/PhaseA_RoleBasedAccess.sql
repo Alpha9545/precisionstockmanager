@@ -145,7 +145,8 @@ INTO #UsersWithoutRole
 FROM dbo.IMSUsers u
 JOIN dbo.Designation d ON d.DesignationID = u.DesignationID
 JOIN dbo.Roles r ON COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), ''), r.RoleName) = d.DesignationName
-WHERE NOT EXISTS (SELECT 1 FROM dbo.UserRoles ur WHERE ur.UserId = u.Id);
+WHERE u.IsActive = 1   -- Step 1: inactive users (0) and unconfirmed users (NULL) get no role
+  AND NOT EXISTS (SELECT 1 FROM dbo.UserRoles ur WHERE ur.UserId = u.Id);
 
 -- 4a) The role itself (AreaId NULL).
 INSERT INTO dbo.UserRoles (UserId, RoleId, AreaId)
@@ -186,9 +187,9 @@ INSERT INTO #DefaultGrants (RoleName, Code) VALUES
     (N'Sowing Operator', N'Sowing.View'),
     (N'Sowing Operator', N'Sowing.Enter'),
     (N'Sowing Operator', N'ReadyStock.View'),
-    (N'Sowing Operator', N'ReadyStock.Confirm'),
+    -- Step 1: no ReadyStock.Confirm (approval belongs to Sowing Supervisor,
+    -- Phase B) and no Booking.Direct (Direct Booking is being retired).
     (N'Sowing Operator', N'SeedStock.View'),
-    (N'Sowing Operator', N'Booking.Direct'),
 
     (N'Booking Executive', N'Dashboard.View'),
     (N'Booking Executive', N'Booking.View'),

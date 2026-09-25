@@ -24,8 +24,8 @@ namespace PlantStockManager.Data
         private const string BaseSelect = @"
 SELECT
     rs.Id, rs.SeedSowingId, sw.SowingCode, rs.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
-    rs.AreaId, a.Name AS AreaName, rs.PolyhouseId, COALESCE(rph.Name, ph.Name) AS PolyhouseName,
-    rs.BatchNo, rs.CavityType, rs.SowingDate, rs.Quantity, rs.FirstConfirmationDate,
+    rs.AreaId, a.Name AS AreaName, rs.PolyhouseId, rph.Name AS PolyhouseName,   -- only the Polyhouse actually recorded (optional)
+    rs.BatchNo, sw.CavityType, sw.NumberOfTrays AS SowingTrays, appr.ReadyTrays, rs.SowingDate, rs.Quantity, rs.FirstConfirmationDate,
     rs.ReservedQuantity, rs.DispatchedQuantity,
     sw.QuantitySown, sw.ConfirmedReadyQuantity, sw.WastageQuantity, sw.Status AS SowingStatus,
     appr.ApprovedByName, appr.ApprovalDate,
@@ -38,12 +38,12 @@ INNER JOIN dbo.Area a ON rs.AreaId = a.Id
 LEFT JOIN dbo.Polyhouses ph ON a.PolyhouseId = ph.Id
 LEFT JOIN dbo.Polyhouses rph ON rs.PolyhouseId = rph.Id
 OUTER APPLY (
-    SELECT TOP 1 u.Name AS ApprovedByName, rc.ConfirmationDate AS ApprovalDate
+    SELECT TOP 1 u.Name AS ApprovedByName, rc.ConfirmationDate AS ApprovalDate, rc.ActualTrayQuantity AS ReadyTrays
     FROM dbo.ReadyConfirmations rc
     LEFT JOIN dbo.IMSUsers u ON u.Id = rc.ApprovedById
     WHERE rc.ReadyStockId = rs.Id AND rc.Status = 'Confirmed'
     ORDER BY rc.ConfirmationDate DESC
-) appr";
+) appr";   // one Confirmed approval per sowing (UX_ReadyConfirmations_OneConfirmedPerSowing)
 
         public async Task<List<ReadyStock>> GetAllAsync()
         {
@@ -347,6 +347,8 @@ ORDER BY t.CreatedAt DESC";
                 ApprovalDate = reader.IsDBNull(reader.GetOrdinal("ApprovalDate")) ? null : reader.GetDateTime(reader.GetOrdinal("ApprovalDate")),
                 BatchNo = reader.GetString(reader.GetOrdinal("BatchNo")),
                 CavityType = reader.GetString(reader.GetOrdinal("CavityType")),
+                SowingTrays = reader.IsDBNull(reader.GetOrdinal("SowingTrays")) ? null : reader.GetInt32(reader.GetOrdinal("SowingTrays")),
+                ReadyTrays = reader.IsDBNull(reader.GetOrdinal("ReadyTrays")) ? null : reader.GetInt32(reader.GetOrdinal("ReadyTrays")),
                 SowingDate = reader.GetDateTime(reader.GetOrdinal("SowingDate")),
                 Quantity = reader.GetDecimal(reader.GetOrdinal("Quantity")),
                 ReservedQuantity = reader.GetDecimal(reader.GetOrdinal("ReservedQuantity")),

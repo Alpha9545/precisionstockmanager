@@ -62,35 +62,11 @@ namespace PlantStockManager.Data
             return employees;
         }
 
-        public async Task<List<Employee>> GetAllEmployeesSowing()
-        {
-            var employees = new List<Employee>();
-            using (var conn = _dbHelper.GetConnection())
-            {
-                await conn.OpenAsync();
-                var cmd = new SqlCommand("select i.id as EmployeeID, i.Name as Name, d.DesignationName from IMSUsers i join Designation d ON i.DesignationID = d.DesignationID  where d.DesignationName = 'Sowing Operator' ORDER BY ID", conn);
-
-                using (var reader = await cmd.ExecuteReaderAsync())
-                {
-                    while (await reader.ReadAsync())
-                    {
-                        employees.Add(new Employee
-                        {
-                            EmployeeID = reader.GetInt32(0),
-                            Name = reader.GetString(1),
-                            Designation = reader.GetString(2)
-                        });
-                    }
-                }
-            }
-            return employees;
-        }
-
 
 
         // General-purpose "any active user" list for new modules (Mother Plant
         // ResponsiblePersonId, etc.) that aren't restricted to one Designation
-        // the way GetAllEmployeesBooking/GetAllEmployeesSowing are. Reuses the
+        // the way GetAllEmployeesBooking is. Reuses the
         // existing IMSUsers/Designation tables -- no new user table.
         public async Task<List<Employee>> GetAllActiveUsers()
         {

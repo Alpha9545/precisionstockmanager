@@ -1,4 +1,6 @@
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Options;
+using PlantStockManager.Authorization;
 using PlantStockManager.Models;
 
 namespace PlantStockManager.Data
@@ -10,10 +12,57 @@ namespace PlantStockManager.Data
     public class UserRoleRepository
     {
         private readonly DatabaseHelper _dbHelper;
+        private readonly SecurityOptions _security;
 
-        public UserRoleRepository(DatabaseHelper dbHelper)
+        public UserRoleRepository(DatabaseHelper dbHelper, IOptions<SecurityOptions> security)
         {
             _dbHelper = dbHelper;
+            _security = security.Value;
+        }
+
+        // Sowing approval: the users who can be ASSIGNED as a sowing's
+        // supervisor = ACTIVE users holding ReadyStock.Confirm through one of
+        // their roles, or holding a full-access role (System Administrator,
+        // SecurityOptions). Same sources as the login claims (UserClaimsFactory).
+        // Pass conn/tx to read inside an existing transaction.
+        public async Task<List<Employee>> GetSowingApproversAsync(SqlConnection? conn = null, SqlTransaction? tx = null)
+        {
+            var fullAccess = _security.EffectiveFullAccessRoleNames.ToList();
+            var inList = fullAccess.Count == 0 ? "NULL" : string.Join(", ", fullAccess.Select((_, i) => "@F" + i));
+            var sql = $@"
+SELECT u.Id, u.Name, ISNULL(d.DesignationName, '')
+FROM dbo.IMSUsers u
+LEFT JOIN dbo.Designation d ON d.DesignationID = u.DesignationID
+WHERE u.IsActive = 1
+  AND EXISTS (
+        SELECT 1
+        FROM dbo.UserRoles ur
+        INNER JOIN dbo.Roles r ON r.Id = ur.RoleId
+        WHERE ur.UserId = u.Id
+          AND (COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), ''), r.RoleName) IN ({inList})
+               OR EXISTS (SELECT 1 FROM dbo.RolePermissions rp
+                          INNER JOIN dbo.Permissions p ON p.Id = rp.PermissionId
+                          WHERE rp.RoleId = r.Id AND p.Code = N'ReadyStock.Confirm')))
+ORDER BY u.Name";
+
+            var owns = conn == null;
+            var c = conn ?? _dbHelper.GetConnection();
+            try
+            {
+                if (owns) await c.OpenAsync();
+                using var cmd = new SqlCommand(sql, c, tx);
+                for (var i = 0; i < fullAccess.Count; i++)
+                    cmd.Parameters.AddWithValue("@F" + i, fullAccess[i]);
+                var list = new List<Employee>();
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                    list.Add(new Employee { EmployeeID = reader.GetInt32(0), Name = reader.GetString(1), Designation = reader.GetString(2) });
+                return list;
+            }
+            finally
+            {
+                if (owns) c.Dispose();
+            }
         }
 
         public async Task<List<UserRoleAssignment>> GetAllAssignmentsAsync()

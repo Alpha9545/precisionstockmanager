@@ -14,9 +14,9 @@ namespace PlantStockManager.Pages.Production.ReadyStock
     public class IndexModel : PageModel
     {
         private readonly ReadyStockRepository _readyStockRepo;
-        private readonly AreaAccessService _areaAccessService;
+        private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
 
-        public IndexModel(ReadyStockRepository readyStockRepo, AreaAccessService areaAccessService)
+        public IndexModel(ReadyStockRepository readyStockRepo, SeedlingAreaScope areaAccessService)
         {
             _readyStockRepo = readyStockRepo;
             _areaAccessService = areaAccessService;

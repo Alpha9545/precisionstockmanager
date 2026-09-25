@@ -12,9 +12,9 @@ namespace PlantStockManager.Pages.Production.SeedSowing
     public class IndexModel : PageModel
     {
         private readonly SeedSowingRepository _seedSowingRepo;
-        private readonly AreaAccessService _areaAccessService;
+        private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
 
-        public IndexModel(SeedSowingRepository seedSowingRepo, AreaAccessService areaAccessService)
+        public IndexModel(SeedSowingRepository seedSowingRepo, SeedlingAreaScope areaAccessService)
         {
             _seedSowingRepo = seedSowingRepo;
             _areaAccessService = areaAccessService;

@@ -18,16 +18,16 @@ namespace PlantStockManager.Pages.Production.ReadyAlerts
     // Deliberately placed under its own Pages/Production/ReadyAlerts/
     // folder (the user's own recommended location) -- distinct both in
     // name and in URL from the pre-existing, untouched legacy
-    // Pages/Data/ReadyStock.cshtml(.cs) (a different report, against the
+    // Pages/Data/ReadyStock.cshtml(.cs) (now removed; it reported the
     // old Inventory/SeedEntries pipeline), mirroring the exact
     // "SeedSowing, never bare Sowing" naming precedent Phase I already
     // set for the identical reason.
     public class IndexModel : PageModel
     {
         private readonly SeedSowingRepository _seedSowingRepo;
-        private readonly AreaAccessService _areaAccessService;
+        private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
 
-        public IndexModel(SeedSowingRepository seedSowingRepo, AreaAccessService areaAccessService)
+        public IndexModel(SeedSowingRepository seedSowingRepo, SeedlingAreaScope areaAccessService)
         {
             _seedSowingRepo = seedSowingRepo;
             _areaAccessService = areaAccessService;

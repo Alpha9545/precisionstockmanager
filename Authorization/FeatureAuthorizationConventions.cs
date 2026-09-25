@@ -76,17 +76,6 @@ namespace PlantStockManager.Authorization
                 ["/Production/SeedStock/Details"] = R("SeedStock.View"),
                 ["/Production/SeedStock/Create"] = R("SeedStock.Enter"),
                 ["/Production/SeedStock/AddStock"] = R("SeedStock.Enter"),
-                ["/Office/SeedBank"] = R("SeedStock.View", "SeedStock.Enter"),
-                ["/Office/SeedBankView"] = R("SeedStock.View"),
-
-                // Seed Issue -- RETIRED in Phase B (sowing consumes Main Office
-                // Seed Stock directly). Create only shows a "retired" notice and
-                // refuses every POST; MyIssues is read-only history; draining
-                // any still-pending issue is a System Administrator task.
-                ["/Production/SeedIssue/Create"] = R("SeedStock.Enter"),
-                ["/Production/SeedIssue/MyIssues"] = R("SeedStock.View"),
-                ["/Production/SeedIssue/PendingReceipts"] = FullAccessOnlyRule,
-                ["/Production/SeedIssue/ConfirmReceipt"] = FullAccessOnlyRule,
 
                 // ---- Sowing / Ready stock ----------------------------------
                 ["/Production/SeedSowing/Index"] = R("Sowing.View"),
@@ -98,19 +87,6 @@ namespace PlantStockManager.Authorization
                 ["/Production/ReadyConfirmation/History"] = R("ReadyStock.View", "ReadyStock.Confirm"),
                 ["/Production/ReadyConfirmation/Confirm"] = R("ReadyStock.Confirm"),   // Phase B: Supervisor Approval
                 ["/Production/ReadyStock/Index"] = R("ReadyStock.View"),               // Phase B: approved Ready Stock
-
-                // Legacy sowing module (SeedEntries / Inventory)
-                ["/SeedEntry/Sowing"] = R("Sowing.Enter"),
-                ["/SeedEntry/EditSowing"] = R("Sowing.Enter"),
-                ["/SeedEntry/SowingToInventory"] = R("Sowing.Enter"),
-                ["/SeedEntry/PlantPhase"] = R("Sowing.Enter"),
-                ["/SeedEntry/GrowthTracker"] = R("Sowing.View", "Sowing.Enter"),
-                // Phase B fix: "/SeedEntry/temp" is the live legacy "Add Plant
-                // Phase" page (stage updates of existing legacy batches), not a
-                // developer page -- same rule as GrowthTracker.
-                ["/SeedEntry/temp"] = R("Sowing.View", "Sowing.Enter"),
-                ["/SeedEntry/Thinning"] = R("Sowing.View"),
-                ["/SeedEntry/Inventory"] = R("Sowing.View|ReadyStock.View", "Sowing.Enter"),
 
                 // ---- Mother plant / cutting --------------------------------
                 ["/Production/MotherPlant/Index"] = R("MotherPlant.View"),
@@ -178,14 +154,9 @@ namespace PlantStockManager.Authorization
                 ["/Production/Dispatch/Create"] = R("Dispatch.Enter|Outlet.Sell"),
                 ["/Production/Dispatch/Edit"] = R("Dispatch.Enter|Outlet.Sell"),
 
-                // Legacy booking module (dbo.Bookings)
+                // Seedling booking (dbo.Bookings): New Booking / Edit Booking
                 ["/Bookings/Book"] = R("Booking.Enter"),
                 ["/Bookings/EditBookingRecords"] = R("Booking.Enter"),
-                ["/Bookings/DirectBooking"] = R("Booking.Direct"),
-                ["/Bookings/DirectBookingList"] = R("Booking.Direct|Booking.View", "Booking.Direct|Booking.Enter"),
-                ["/Bookings/Bookinglist"] = R("Dispatch.View|Booking.View", "Dispatch.Enter|Booking.Enter"),
-                ["/Bookings/FulfillBooking"] = R("Dispatch.Enter"),
-                ["/Bookings/RevertBooking"] = R("Dispatch.Enter"),
                 ["/Bookings/CancleBooking"] = R("Booking.View|Dispatch.View"),
                 ["/Bookings/TotalBookings"] = R("Booking.View|Dispatch.View|Reports.View"),
 
@@ -225,7 +196,6 @@ namespace PlantStockManager.Authorization
                 ["/Data/SowingPlants"] = R("Sowing.View|Reports.View"),
                 ["/Data/MonthWiseSowing"] = R("Sowing.View|Reports.View"),
                 ["/Data/SowingByMonth"] = R("Sowing.View|Reports.View"),
-                ["/Data/ReadyStock"] = R("ReadyStock.View|Reports.View"),
                 ["/Data/StockHistory"] = R("ReadyStock.View|Reports.View"),
                 ["/Data/WastedStock"] = R("ReadyStock.View|Reports.View"),
                 ["/Data/TotalStockSync"] = R("Reports.View|Sowing.View|Booking.View"),

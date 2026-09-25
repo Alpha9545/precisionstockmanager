@@ -35,7 +35,7 @@ namespace PlantStockManager.Models
         public string? ModifiedBy { get; set; }
 
         // Quantity fulfilled through the OLD pipeline (dbo.InventoryTransactions
-        // 'Allocation' rows written by Pages/Bookings/FulfillBooking).
+        // 'Allocation' rows written by the removed legacy FulfillBooking page).
         public decimal LegacyFulfilledQuantity { get; set; }
         public bool HadReservations { get; set; }
 

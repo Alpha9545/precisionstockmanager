@@ -20,11 +20,11 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
     {
         private readonly SeedSowingRepository _seedSowingRepo;
         private readonly ReadyConfirmationRepository _readyConfirmationRepo;
-        private readonly AreaAccessService _areaAccessService;
+        private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
 
         public HistoryModel(
             SeedSowingRepository seedSowingRepo, ReadyConfirmationRepository readyConfirmationRepo,
-            AreaAccessService areaAccessService)
+            SeedlingAreaScope areaAccessService)
         {
             _seedSowingRepo = seedSowingRepo;
             _readyConfirmationRepo = readyConfirmationRepo;

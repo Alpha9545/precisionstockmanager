@@ -57,6 +57,21 @@ namespace PlantStockManager.Models
         public decimal PhysicalQuantity => Quantity - DispatchedQuantity;
         public decimal AvailableQuantity => Quantity - ReservedQuantity - DispatchedQuantity;
 
+        // Tray relationship, inherited from the sowing (CavityType is the
+        // sowing's; FK_ReadyStock_SowingCavity keeps both equal).
+        public int? CavitySize => PlantStockManager.Services.DirectSowingRules.CavityCount(CavityType);
+        public int? SowingTrays { get; set; }
+        // Actual Ready Trays from the tray-based approval (NULL for Ready Stock
+        // approved before the tray rule, e.g. by seedling count).
+        public int? ReadyTrays { get; set; }
+        public decimal WastagePercent => PlantStockManager.Services.DirectSowingRules.WastagePercent(WastageQuantity, QuantitySown);
+        public string Status =>
+            Quantity <= 0 ? "Empty"
+            : DispatchedQuantity >= Quantity ? "Fully dispatched"
+            : AvailableQuantity <= 0 ? "Fully reserved"
+            : ReservedQuantity > 0 || DispatchedQuantity > 0 ? "Partly reserved/dispatched"
+            : "Available";
+
         // Phase B: location + traceability of an approved batch.
         public int? PolyhouseId { get; set; }
         public decimal QuantitySown { get; set; }

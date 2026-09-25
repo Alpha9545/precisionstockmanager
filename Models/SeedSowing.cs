@@ -5,7 +5,7 @@ namespace PlantStockManager.Models
     // header row per sowing action, no confirm/reject workflow, an
     // explicit Cancel to reverse it. Deliberately named "SeedSowing"
     // (never bare "Sowing") to stay clear of the pre-existing, untouched
-    // legacy Models/SowingRecord.cs / Pages/SeedEntry/Sowing.cshtml.
+    // legacy sowing model/page (both removed; dbo.SeedEntries is kept for history).
     public class SeedSowing
     {
         public int Id { get; set; }
@@ -46,6 +46,15 @@ namespace PlantStockManager.Models
         public string CavityType { get; set; } = string.Empty;
         public int? NumberOfTrays { get; set; }
         public decimal QuantitySown { get; set; }
+        // Direct Sowing form input (not a database column): the Seed Quantity
+        // the operator enters. Only the seeds filling complete trays are sown
+        // (QuantitySown = NumberOfTrays x tray size); the rest stay in stock.
+        public decimal SeedQuantity { get; set; }
+        // Seeds left in the seed lot (never sown, never Ready Stock); 0 when
+        // the entered quantity was not recorded (sowings before the tray rule).
+        public decimal RemainingSeeds => SeedQuantity > 0 ? SeedQuantity - QuantitySown : 0;
+        // Wastage % of the seeds sown (derived, never stored).
+        public decimal WastagePercent => PlantStockManager.Services.DirectSowingRules.WastagePercent(WastageQuantity, QuantitySown);
 
         public DateTime SowingDate { get; set; } = DateTime.Today;
 
@@ -83,6 +92,8 @@ namespace PlantStockManager.Models
 
         public DateTime CreatedDate { get; set; }
         public string? CreatedBy { get; set; }
+        // Phase B: id of the user who recorded the sowing (self-approval rule).
+        public int? CreatedById { get; set; }
         public DateTime? ModifiedDate { get; set; }
         public string? ModifiedBy { get; set; }
 

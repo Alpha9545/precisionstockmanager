@@ -26,12 +26,7 @@ builder.Services.AddScoped<SeedEntryRepository>();
 builder.Services.AddScoped<InventoryRepository>();
 builder.Services.AddScoped<BookingRepository>();
 builder.Services.AddScoped<VendorPurchaseRepository>();
-builder.Services.AddScoped<TransactionRepository>();
 builder.Services.AddScoped<EmployeeRepository>();
-builder.Services.AddScoped<InventoryTransactionRepository>();
-// After adding your other repos�
-builder.Services.AddScoped<SeedBankRepository>();
-builder.Services.AddScoped<TransactionRepository>();
 
 // Production module: Mother Plant / Cutting workflow
 builder.Services.AddScoped<AreaRepository>();
@@ -73,6 +68,10 @@ builder.Services.AddScoped<AreaAccessService>();
 // so those pages can use AreaAccessService (Authorization/MotherPlantAreaScope.cs).
 builder.Services.AddScoped<MotherPlantAreaScope>();
 builder.Services.AddScoped<AdministrativeAccessGuard>(); // Phase A: user/role anti-escalation rules
+// Phase B: Area scope for the seedling workflow pages only (switchable while
+// Polyhouses/Areas are not configured yet). See Authorization/SeedlingAreaScope.cs.
+builder.Services.Configure<SeedlingWorkflowOptions>(builder.Configuration.GetSection(SeedlingWorkflowOptions.SectionName));
+builder.Services.AddScoped<SeedlingAreaScope>();
 
 // Main Office -> Polyhouse/Growing Area Seed Issue (Phase 22/Phase H):
 // a wholly new, dedicated Seed Stock domain (Physical/InTransit +
@@ -80,7 +79,8 @@ builder.Services.AddScoped<AdministrativeAccessGuard>(); // Phase A: user/role a
 // StockType on InternalTransferRepository. See
 // Database/Phase22_MainOfficeSeedIssue.sql for the full reasoning.
 builder.Services.AddScoped<SeedStockRepository>();
-builder.Services.AddScoped<SeedIssueRepository>();
+// (SeedIssueRepository removed: the Seed Issue workflow is retired; the
+//  dbo.SeedIssues table is kept and still read by the Management Dashboard.)
 
 // Seed Stock -> Sowing (Phase 23/Phase I): a single-actor production
 // event that consumes dbo.SeedStock, mirroring PotProductionRepository's
@@ -155,12 +155,9 @@ builder.Services.AddRazorPages(options =>
     // replaces the former per-folder AuthorizeFolder/AllowAnonymous
     // conventions and the per-page [Authorize(Policy)] attributes.
     options.Conventions.Add(new FeatureAuthorizationPageConvention());
-})
-// Phase B: the old seed pipeline (Seed Bank / legacy Sowing) is read-only
-// unless LegacySeedPipeline:AllowLegacyWrites is set to true for a
-// transition period. See Services/LegacySeedPipeline.cs.
-.AddMvcOptions(options => options.Filters.Add<LegacySeedPipelineWriteFilter>());
-builder.Services.Configure<LegacySeedPipelineOptions>(builder.Configuration.GetSection(LegacySeedPipelineOptions.SectionName));
+});
+// (The legacy seed pipeline pages and their read-only write filter were
+//  removed: the new Seed Stock -> Direct Sowing workflow is the only one.)
 
 
 

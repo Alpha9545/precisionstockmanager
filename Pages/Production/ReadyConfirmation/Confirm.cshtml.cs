@@ -31,11 +31,11 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
         private readonly SeedSowingRepository _seedSowingRepo;
         private readonly ReadyConfirmationRepository _readyConfirmationRepo;
         private readonly EmployeeRepository _employeeRepo;
-        private readonly AreaAccessService _areaAccessService;
+        private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
 
         public ConfirmModel(
             SeedSowingRepository seedSowingRepo, ReadyConfirmationRepository readyConfirmationRepo,
-            EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
+            EmployeeRepository employeeRepo, SeedlingAreaScope areaAccessService)
         {
             _seedSowingRepo = seedSowingRepo;
             _readyConfirmationRepo = readyConfirmationRepo;
@@ -48,8 +48,12 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
         [BindProperty]
         public int SeedSowingId { get; set; }
 
+        // The supervisor's ONLY quantity input: complete trays actually ready.
+        // Seedlings, wastage and cavity are never posted -- they are derived
+        // on the server from the stored sowing (DirectSowingRules.ComputeTrayApproval).
+        // Bound as decimal so a fractional value is rejected with a clear message.
         [BindProperty]
-        public decimal ReadyQuantity { get; set; }
+        public decimal ActualReadyTrays { get; set; }
 
         // Phase B: required whenever Wastage (= remaining - Ready) > 0.
         [BindProperty]
@@ -61,13 +65,9 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
         public int? ResponsiblePersonId { get; set; }
 
         [BindProperty]
-        public int? SupervisorId { get; set; }
-
-        [BindProperty]
         public string? Remarks { get; set; }
 
         public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -90,6 +90,14 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             if (sowing.RemainingReadyQuantity <= 0)
             {
                 TempData["Error"] = "This sowing batch has already been fully approved.";
+                return RedirectToPage("/Production/ReadyConfirmation/Index");
+            }
+            // Only the supervisor assigned to this sowing (and never its creator).
+            var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
+                sowing.SupervisorId, sowing.CreatedById, sowing.CreatedBy, User.GetUserId(), User.Identity?.Name);
+            if (!mayApprove)
+            {
+                TempData["Error"] = authorityError;
                 return RedirectToPage("/Production/ReadyConfirmation/Index");
             }
 
@@ -116,9 +124,20 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
                 return RedirectToPage("/Production/ReadyConfirmation/Index");
             }
 
-            // Same rule the repository re-applies under lock.
-            var (ok, _, error) = DirectSowingRules.ComputeApproval(
-                sowing.QuantitySown, sowing.ConfirmedReadyQuantity, sowing.WastageQuantity, ReadyQuantity, WastageReason);
+            // Approval authority (the repository re-applies it under lock).
+            var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
+                sowing.SupervisorId, sowing.CreatedById, sowing.CreatedBy, User.GetUserId(), User.Identity?.Name);
+            if (!mayApprove)
+            {
+                TempData["Error"] = authorityError;
+                return RedirectToPage("/Production/ReadyConfirmation/Index");
+            }
+
+            // Same rule the repository re-applies under lock (cavity and trays
+            // from the stored sowing, never from the form).
+            var (ok, _, seedlings, wastage, wastagePct, error) = DirectSowingRules.ComputeTrayApproval(
+                sowing.QuantitySown, sowing.NumberOfTrays, sowing.CavityType, sowing.ConfirmedReadyQuantity, sowing.WastageQuantity,
+                ActualReadyTrays, WastageReason);
             if (!ok)
             {
                 ModelState.AddModelError(string.Empty, error!);
@@ -132,7 +151,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             var createdBy = User.Identity?.Name ?? "System";
 
             var (success, message, _) = await _readyConfirmationRepo.ConfirmAsync(
-                sowing.Id, ReadyQuantity, WastageReason, ResponsiblePersonId, SupervisorId, Remarks, createdBy, userId);
+                sowing.Id, ActualReadyTrays, WastageReason, ResponsiblePersonId, Remarks, createdBy, userId);
 
             if (!success)
             {
@@ -142,16 +161,30 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
                 return Page();
             }
 
-            var wastage = sowing.RemainingReadyQuantity - ReadyQuantity;
-            TempData["Success"] = $"Batch {sowing.SowingCode} approved: {ReadyQuantity:N2} added to Ready Stock, wastage {wastage:N2}. The sowing is now Completed.";
+            TempData["Success"] = $"Batch {sowing.SowingCode} approved: {ActualReadyTrays:N0} trays x {sowing.CavityType} = {seedlings:N0} seedlings added to Ready Stock; wastage {wastage:N0} ({wastagePct:0.00}%). The sowing is now Completed.";
             return RedirectToPage("/Production/ReadyConfirmation/History", new { id = sowing.Id });
+        }
+
+        // Live preview for the approval form. Takes ONLY the sowing id (route)
+        // and a tray count; the cavity, sowing trays and seeds sown are read
+        // from the stored sowing -- the browser cannot supply them.
+        public async Task<JsonResult> OnGetTrayPreviewAsync(int id, decimal trays)
+        {
+            var sowing = await _seedSowingRepo.GetByIdAsync(id);
+            if (sowing == null || !_areaAccessService.CanAccessArea(User, sowing.AreaId))
+                return new JsonResult(new { ok = false, seedlings = (decimal?)null, wastage = 0m, wastagePercent = 0m, error = "Sowing not found." });
+            // The reason does not change the numbers; a valid placeholder keeps
+            // the preview from reporting "reason required" before one is chosen.
+            var (ok, _, seedlings, wastage, wastagePct, error) = DirectSowingRules.ComputeTrayApproval(
+                sowing.QuantitySown, sowing.NumberOfTrays, sowing.CavityType, sowing.ConfirmedReadyQuantity, sowing.WastageQuantity,
+                trays, DirectSowingRules.WastageReasons[0]);
+            return new JsonResult(new { ok, seedlings = ok ? seedlings : (decimal?)null, wastage, wastagePercent = wastagePct, error });
         }
 
         private async Task LoadDropdownsAsync()
         {
             var activeUsers = await _employeeRepo.GetAllActiveUsers();
             ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
         }
     }
 }

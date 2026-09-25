@@ -9,9 +9,9 @@ namespace PlantStockManager.Pages.Production.SeedSowing
     public class DetailsModel : PageModel
     {
         private readonly SeedSowingRepository _seedSowingRepo;
-        private readonly AreaAccessService _areaAccessService;
+        private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
 
-        public DetailsModel(SeedSowingRepository seedSowingRepo, AreaAccessService areaAccessService)
+        public DetailsModel(SeedSowingRepository seedSowingRepo, SeedlingAreaScope areaAccessService)
         {
             _seedSowingRepo = seedSowingRepo;
             _areaAccessService = areaAccessService;

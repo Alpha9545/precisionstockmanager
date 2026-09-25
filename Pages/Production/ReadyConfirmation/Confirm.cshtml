@@ -2,12 +2,14 @@
 @model PlantStockManager.Pages.Production.ReadyConfirmation.ConfirmModel
 @{
     ViewData["Title"] = "Supervisor Approval";
+    var s = Model.SeedSowing;
+    var cavity = PlantStockManager.Services.DirectSowingRules.CavityCount(s.CavityType);
 }
 
 <div class="container mt-4">
-    <div class="card shadow-sm mx-auto" style="max-width: 850px;">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
         <div class="card-header">
-            <h4 class="mb-0">Supervisor Approval &mdash; Batch @Model.SeedSowing.SowingCode</h4>
+            <h4 class="mb-0">Supervisor Approval &mdash; Batch @s.SowingCode</h4>
         </div>
         <div class="card-body">
             @if (!ModelState.IsValid)
@@ -24,44 +26,51 @@
 
             <div class="alert alert-secondary">
                 <div class="row">
-                    <div class="col-md-6"><strong>Variety:</strong> @Model.SeedSowing.SpeciesName (@Model.SeedSowing.PlantTypeName)</div>
-                    <div class="col-md-6"><strong>Area:</strong> @Model.SeedSowing.AreaName</div>
-                    <div class="col-md-6"><strong>Polyhouse:</strong> @(Model.SeedSowing.PolyhouseName ?? "-")</div>
-                    <div class="col-md-6"><strong>Cavity/Tray Type:</strong> @Model.SeedSowing.CavityType</div>
-                    <div class="col-md-6"><strong>Sowing Date:</strong> @Model.SeedSowing.SowingDate.ToString("dd/MM/yyyy")</div>
-                    <div class="col-md-6"><strong>Ready Stock Days:</strong> @(Model.SeedSowing.ReadyStockDays?.ToString() ?? "-")</div>
-                    <div class="col-md-6"><strong>Expected Ready Date:</strong> @(Model.SeedSowing.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated") <span class="text-muted">(read-only, historical)</span></div>
-                    <div class="col-md-6"><strong>Seed Lot:</strong> @(string.IsNullOrEmpty(Model.SeedSowing.BatchNo) ? "-" : Model.SeedSowing.BatchNo)</div>
-                    <div class="col-md-4"><strong>Sown Quantity:</strong> @Model.SeedSowing.QuantitySown.ToString("N2")</div>
-                    <div class="col-md-4"><strong>Already Approved (legacy partial):</strong> @Model.SeedSowing.ConfirmedReadyQuantity.ToString("N2")</div>
-                    <div class="col-md-4"><strong>To account for now:</strong> <span id="remaining" data-value="@Model.SeedSowing.RemainingReadyQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)">@Model.SeedSowing.RemainingReadyQuantity.ToString("N2")</span></div>
-                </div>
-                <div class="small text-muted mt-2">
-                    Expected Ready Date is only an estimate calculated at sowing time. Approval is an explicit, physical
-                    count: Actual Ready + Wastage must equal the quantity sown, and approving closes the batch.
-                    Approved By is recorded as you (@User.Identity?.Name).
+                    <div class="col-md-6"><strong>Variety:</strong> @s.SpeciesName (@s.PlantTypeName)</div>
+                    <div class="col-md-6"><strong>Area / Polyhouse:</strong> @s.AreaName / @(s.PolyhouseName ?? "-")</div>
+                    <div class="col-md-6"><strong>Sowing Date:</strong> @s.SowingDate.ToString("dd/MM/yyyy")</div>
+                    <div class="col-md-6"><strong>Expected Ready Date:</strong> @(s.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</div>
+                    <div class="col-md-6"><strong>Seed Lot:</strong> @(string.IsNullOrEmpty(s.BatchNo) ? "-" : s.BatchNo)</div>
+                    <div class="col-md-6"><strong>Assigned Supervisor:</strong> @(s.SupervisorName ?? "-")</div>
                 </div>
             </div>
+
+            @* The sowing -> approval relationship. Everything here comes from the stored sowing (read-only). *@
+            <h6 class="fw-bold">From the sowing (read-only)</h6>
+            <table class="table table-sm table-bordered align-middle mb-3" style="max-width: 560px;">
+                <tbody>
+                    <tr><th class="w-50">Seed Quantity entered</th><td>@(s.SeedQuantity > 0 ? s.SeedQuantity.ToString("N0") : "not recorded (sowing before the tray rule)")</td></tr>
+                    <tr><th>Cavity (inherited, cannot be changed)</th><td><strong>@s.CavityType</strong></td></tr>
+                    <tr><th>Sowing Trays</th><td>@(s.NumberOfTrays?.ToString("N0") ?? "-")</td></tr>
+                    <tr><th>Seeds Sown (Seeds Used)</th><td id="seedsSown" data-value="@s.QuantitySown.ToString(System.Globalization.CultureInfo.InvariantCulture)">@s.QuantitySown.ToString("N0")</td></tr>
+                </tbody>
+            </table>
 
             <form method="post">
                 <input type="hidden" asp-for="SeedSowingId" />
 
+                <h6 class="fw-bold">Supervisor Approval</h6>
                 <div class="row g-3">
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Actual Ready Quantity <span class="text-danger">*</span></label>
-                        <input type="number" step="0.01" min="0" max="@Model.SeedSowing.RemainingReadyQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)"
-                               asp-for="ReadyQuantity" id="readyQty" class="form-control" required />
-                        <div class="form-text">0 to @Model.SeedSowing.RemainingReadyQuantity.ToString("N2").</div>
+                        <label class="form-label fw-bold">Actual Ready Trays <span class="text-danger">*</span></label>
+                        <input type="number" step="1" min="1" max="@(s.NumberOfTrays ?? 0)" asp-for="ActualReadyTrays"
+                               id="actualTrays" class="form-control" required />
+                        <div class="form-text">Whole trays, 1 to @(s.NumberOfTrays?.ToString("N0") ?? "-"). The only quantity you enter.</div>
+                    </div>
+                    <div class="col-md-8">
+                        @* Calculated by the SERVER (same rule as the save); nothing here is posted. *@
+                        <table class="table table-sm table-bordered mb-0">
+                            <tbody>
+                                <tr><th class="w-50">Actual Ready Seedlings <span class="text-muted fw-normal">= trays &times; @(cavity?.ToString() ?? "?")</span></th><td id="outSeedlings">&ndash;</td></tr>
+                                <tr><th>Wastage <span class="text-muted fw-normal">= seeds sown &minus; ready seedlings</span></th><td id="outWastage">&ndash;</td></tr>
+                                <tr><th>Wastage %</th><td id="outWastagePct">&ndash;</td></tr>
+                            </tbody>
+                        </table>
+                        <div class="text-danger small d-none" id="previewError"></div>
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Wastage Quantity</label>
-                        <input type="text" id="wastagePreview" class="form-control" readonly />
-                        <div class="form-text">Calculated: sown &minus; ready.</div>
-                    </div>
-
-                    <div class="col-md-4">
-                        <label class="form-label fw-bold">Wastage Reason <span class="text-danger" id="reasonStar">*</span></label>
+                        <label class="form-label fw-bold">Wastage Reason <span class="text-danger">*</span></label>
                         <select asp-for="WastageReason" id="wastageReason" class="form-select">
                             <option value="">-- Select --</option>
                             @foreach (var r in Model.WastageReasons)
@@ -72,7 +81,7 @@
                         <div class="form-text">Required when wastage is more than 0.</div>
                     </div>
 
-                    <div class="col-md-6">
+                    <div class="col-md-4">
                         <label class="form-label fw-bold">Labour / Responsible Person</label>
                         <select asp-for="ResponsiblePersonId" class="form-select">
                             <option value="">-- None --</option>
@@ -83,21 +92,15 @@
                         </select>
                     </div>
 
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="SupervisorId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var s in Model.Supervisors)
-                            {
-                                <option value="@s.EmployeeID">@s.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-12">
+                    <div class="col-md-4">
                         <label class="form-label fw-bold">Remarks</label>
-                        <textarea asp-for="Remarks" class="form-control" rows="2"></textarea>
+                        <textarea asp-for="Remarks" class="form-control" rows="1"></textarea>
                     </div>
+                </div>
+
+                <div class="small text-muted mt-3">
+                    Approved By is recorded as you (@User.Identity?.Name). Ready Stock receives exactly the Actual Ready
+                    Seedlings (complete trays &times; the sowing's cavity); approving closes the batch.
                 </div>
 
                 <div class="text-center mt-4">
@@ -112,19 +115,29 @@
 @section Scripts {
     <script>
         (function () {
-            const remaining = parseFloat(document.getElementById('remaining').dataset.value);
-            const ready = document.getElementById('readyQty');
-            const wastage = document.getElementById('wastagePreview');
+            const trays = document.getElementById('actualTrays');
             const reason = document.getElementById('wastageReason');
-            function update() {
-                const r = parseFloat(ready.value);
-                if (isNaN(r)) { wastage.value = ''; reason.required = false; return; }
-                const w = Math.round((remaining - r) * 100) / 100;
-                wastage.value = w < 0 ? 'Ready exceeds sown quantity' : w.toFixed(2);
-                reason.required = w > 0;
+            const err = document.getElementById('previewError');
+            const url = '@Url.Page("/Production/ReadyConfirmation/Confirm", "TrayPreview", new { id = Model.SeedSowing.Id })';
+            function fmt(n) { return Number(n).toLocaleString('en-IN'); }
+            function preview() {
+                ['outSeedlings', 'outWastage', 'outWastagePct'].forEach(i => document.getElementById(i).textContent = '–');
+                err.classList.add('d-none');
+                if (!trays.value) { reason.required = false; return; }
+                fetch(url + '&trays=' + encodeURIComponent(trays.value), { headers: { 'Accept': 'application/json' } })
+                    .then(r => r.json())
+                    .then(r => {
+                        if (r.seedlings !== null) {
+                            document.getElementById('outSeedlings').textContent = fmt(r.seedlings);
+                            document.getElementById('outWastage').textContent = fmt(r.wastage);
+                            document.getElementById('outWastagePct').textContent = r.wastagePercent.toFixed(2) + '%';
+                        }
+                        reason.required = r.wastage > 0;
+                        if (r.error && !r.ok) { err.textContent = r.error; err.classList.remove('d-none'); }
+                    });
             }
-            ready.addEventListener('input', update);
-            update();
+            trays.addEventListener('input', preview);
+            preview();
         })();
     </script>
 }

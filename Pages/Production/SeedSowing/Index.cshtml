@@ -46,11 +46,11 @@
                     <th>Seed Lot</th>
                     <th>Area</th>
                     <th>Polyhouse</th>
-                    <th>Cavity Type</th>
+                    <th>Cavity x Trays</th>
                     <th>Sowing Date</th>
                     <th>Expected Ready</th>
-                    <th>Quantity Sown</th>
-                    <th>Ready</th>
+                    <th>Seeds Used</th>
+                    <th>Ready Seedlings</th>
                     <th>Wastage</th>
                     <th>Status</th>
                     <th></th>
@@ -68,9 +68,9 @@
                         <td>@sw.CavityType@(sw.NumberOfTrays.HasValue ? $" x{sw.NumberOfTrays}" : "")</td>
                         <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
                         <td>@(sw.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "-")</td>
-                        <td>@sw.QuantitySown.ToString("N2")</td>
-                        <td>@sw.ConfirmedReadyQuantity.ToString("N2")</td>
-                        <td>@sw.WastageQuantity.ToString("N2")</td>
+                        <td>@sw.QuantitySown.ToString("N0")</td>
+                        <td>@sw.ConfirmedReadyQuantity.ToString("N0")</td>
+                        <td>@sw.WastageQuantity.ToString("N0")</td>
                         <td>
                             @if (sw.Status == "Cancelled")
                             {

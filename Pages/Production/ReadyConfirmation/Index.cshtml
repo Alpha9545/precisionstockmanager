@@ -38,6 +38,7 @@
                     <th>Sown Qty</th>
                     <th>Approved Qty</th>
                     <th>To Approve</th>
+                    <th>Supervisor</th>
                     <th></th>
                 </tr>
             </thead>
@@ -71,10 +72,20 @@
                         <td>@sw.QuantitySown.ToString("N2")</td>
                         <td>@sw.ConfirmedReadyQuantity.ToString("N2")</td>
                         <td><strong>@sw.RemainingReadyQuantity.ToString("N2")</strong></td>
+                        <td>@(sw.SupervisorName ?? "-")</td>
                         <td>
-                            @if (canApprove)
+                            @{
+                                var (mayApprove, authorityError) = PlantStockManager.Services.DirectSowingRules.CanApprove(
+                                    sw.SupervisorId, sw.CreatedById, sw.CreatedBy,
+                                    PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.GetUserId(User), User.Identity?.Name);
+                            }
+                            @if (canApprove && mayApprove)
                             {
                                 <a asp-page="/Production/ReadyConfirmation/Confirm" asp-route-id="@sw.Id" class="btn btn-sm btn-success">Approve</a>
+                            }
+                            else if (canApprove)
+                            {
+                                <span class="badge bg-secondary" title="@authorityError">@(sw.SupervisorName == null ? "No supervisor assigned" : "Assigned to " + sw.SupervisorName)</span>
                             }
                             <a asp-page="/Production/ReadyConfirmation/History" asp-route-id="@sw.Id" class="btn btn-sm btn-outline-secondary">History</a>
                         </td>
@@ -82,7 +93,7 @@
                 }
                 @if (!Model.EligibleSowings.Any())
                 {
-                    <tr><td colspan="12" class="text-center text-muted">No growing batch is waiting for Supervisor Approval.</td></tr>
+                    <tr><td colspan="13" class="text-center text-muted">No growing batch is waiting for Supervisor Approval.</td></tr>
                 }
             </tbody>
         </table>

@@ -47,13 +47,16 @@
                     <th>Polyhouse</th>
                     <th>Cavity</th>
                     <th>Sowing Date</th>
-                    <th>Sown</th>
-                    <th>Approved Ready</th>
+                    <th>Seeds Sown</th>
+                    <th>Sowing Trays</th>
+                    <th>Ready Trays</th>
+                    <th>Ready Seedlings</th>
                     <th>Wastage</th>
+                    <th>Wastage %</th>
                     <th>Reserved</th>
                     <th>Dispatched</th>
-                    <th>Physical Now</th>
                     <th>Available</th>
+                    <th>Status</th>
                     <th>Approved By</th>
                     <th>Approval Date</th>
                 </tr>
@@ -78,20 +81,23 @@
                         <td>@(r.PolyhouseName ?? "-")</td>
                         <td>@r.CavityType</td>
                         <td>@r.SowingDate.ToString("dd/MM/yyyy")</td>
-                        <td>@r.QuantitySown.ToString("N2")</td>
-                        <td>@r.ApprovedReadyQuantity.ToString("N2")</td>
-                        <td>@r.WastageQuantity.ToString("N2")</td>
+                        <td>@r.QuantitySown.ToString("N0")</td>
+                        <td>@(r.SowingTrays?.ToString("N0") ?? "-")</td>
+                        <td>@(r.ReadyTrays?.ToString("N0") ?? "–")</td>
+                        <td>@r.Quantity.ToString("N0")</td>
+                        <td>@r.WastageQuantity.ToString("N0")</td>
+                        <td>@r.WastagePercent.ToString("0.00")%</td>
                         <td>@r.ReservedQuantity.ToString("N0")</td>
                         <td>@r.DispatchedQuantity.ToString("N0")</td>
-                        <td>@r.PhysicalQuantity.ToString("N0")</td>
                         <td><strong>@r.AvailableQuantity.ToString("N0")</strong></td>
+                        <td>@r.Status</td>
                         <td>@(r.ApprovedByName ?? "-")</td>
                         <td>@(r.ApprovalDate?.ToString("dd/MM/yyyy") ?? "-")</td>
                     </tr>
                 }
                 @if (!Model.Items.Any())
                 {
-                    <tr><td colspan="16" class="text-center text-muted">No approved Ready Stock found.</td></tr>
+                    <tr><td colspan="18" class="text-center text-muted">No approved Ready Stock found.</td></tr>
                 }
             </tbody>
         </table>

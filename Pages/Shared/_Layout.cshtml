@@ -16,7 +16,6 @@
 <body>
 
     @using System.Security.Claims
-    @inject Microsoft.Extensions.Options.IOptionsMonitor<PlantStockManager.Services.LegacySeedPipelineOptions> LegacySeedPipeline
 
     @{
         var isAuthenticated =
@@ -251,17 +250,7 @@
                         </a>
                     </li>
 
-                    <li nav-page="/Data/ReadyStock">
-                        <a asp-page="/Data/ReadyStock">
-                            Ready Stock
-                        </a>
-                    </li>
 
-                    <li nav-page="/SeedEntry/Inventory">
-                        <a asp-page="/SeedEntry/Inventory">
-                            Legacy Stock Sorting
-                        </a>
-                    </li>
 
                     <li nav-page="/Data/StockHistory">
                         <a asp-page="/Data/StockHistory">
@@ -589,13 +578,13 @@
 
                     <li nav-page="/Bookings/Book">
                         <a asp-page="/Bookings/Book">
-                            Legacy Add Booking
+                            New Booking
                         </a>
                     </li>
 
                     <li nav-page="/Bookings/EditBookingRecords">
                         <a asp-page="/Bookings/EditBookingRecords">
-                            Legacy Edit Booking
+                            Edit Booking
                         </a>
                     </li>
 
@@ -613,17 +602,7 @@
                     </li>
 
 
-                    <li nav-page="/Bookings/DirectBooking">
-                        <a asp-page="/Bookings/DirectBooking">
-                            Direct Booking
-                        </a>
-                    </li>
 
-                    <li nav-page="/Bookings/DirectBookingList">
-                        <a asp-page="/Bookings/DirectBookingList">
-                            Direct Booking List
-                        </a>
-                    </li>
 
 
                     <li nav-page="/Data/BookingsRecord">
@@ -645,17 +624,7 @@
                     </li>
 
 
-                    <li nav-page="/Bookings/Bookinglist">
-                        <a asp-page="/Bookings/Bookinglist">
-                            Legacy Fulfill Bookings
-                        </a>
-                    </li>
 
-                    <li nav-page="/Bookings/RevertBooking">
-                        <a asp-page="/Bookings/RevertBooking">
-                            Revert Booking
-                        </a>
-                    </li>
 
                 </ul>
 
@@ -1206,12 +1175,6 @@
                         }
 
 
-                        <a class="btn btn-sm btn-outline-primary"
-                           asp-page="/Account/Profile">
-
-                            Profile
-
-                        </a>
 
 
                         <form asp-page="/Account/Logout"
@@ -1288,16 +1251,6 @@
                                 </li>
 
 
-                                <li>
-
-                                    <a class="dropdown-item small"
-                                       asp-page="/Account/Profile">
-
-                                        Profile
-
-                                    </a>
-
-                                </li>
 
 
                                 <li>
@@ -1367,13 +1320,6 @@
     <div class="main-content">
 
         <main role="main" class="pb-3">
-
-            @* Phase B: the old seed pipeline pages are read-only (Services/LegacySeedPipeline.cs). *@
-            @if (!LegacySeedPipeline.CurrentValue.AllowLegacyWrites
-                 && PlantStockManager.Services.LegacySeedPipelineOptions.IsWriteBlockedPage(ViewContext.RouteData.Values["page"] as string))
-            {
-                <div class="alert alert-warning m-3">@PlantStockManager.Services.LegacySeedPipelineWriteFilter.BlockedMessage</div>
-            }
 
             @RenderBody()
 

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using SeedSowingModel = PlantStockManager.Models.SeedSowing;
 
 namespace PlantStockManager.Pages.Production.SeedSowing
@@ -11,10 +12,17 @@ namespace PlantStockManager.Pages.Production.SeedSowing
     {
         private readonly SeedSowingRepository _seedSowingRepo;
         private readonly EmployeeRepository _employeeRepo;
-        private readonly AreaAccessService _areaAccessService;
+        private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
 
-        public EditModel(SeedSowingRepository seedSowingRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
+        private readonly UserRoleRepository _userRoleRepo;
+
+        // The assigned supervisor can only change while nothing is approved.
+        public bool CanChangeSupervisor { get; private set; }
+
+        public EditModel(SeedSowingRepository seedSowingRepo, EmployeeRepository employeeRepo, SeedlingAreaScope areaAccessService,
+            UserRoleRepository userRoleRepo)
         {
+            _userRoleRepo = userRoleRepo;
             _seedSowingRepo = seedSowingRepo;
             _employeeRepo = employeeRepo;
             _areaAccessService = areaAccessService;
@@ -49,7 +57,7 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             }
 
             SeedSowing = existing;
-            await LoadDropdownsAsync();
+            await LoadDropdownsAsync(existing);
             return Page();
         }
 
@@ -75,7 +83,7 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             if (existing == null)
             {
                 ModelState.AddModelError(string.Empty, "Seed Sowing record not found.");
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(null);
                 return Page();
             }
 
@@ -105,9 +113,14 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             {
                 ModelState.AddModelError(string.Empty, "This Sowing record is already Cancelled and cannot be edited further.");
                 SeedSowing = existing;
-                await LoadDropdownsAsync();
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
+
+            // Once approved, the supervisor is fixed (the repository enforces
+            // this too); keep the stored value whatever the form sent.
+            if (!DirectSowingRules.CanChangeSupervisor(existing.Status, existing.ConfirmedReadyQuantity, existing.WastageQuantity))
+                SeedSowing.SupervisorId = existing.SupervisorId;
 
             SeedSowing.ModifiedBy = User.Identity?.Name ?? "System";
 
@@ -123,7 +136,10 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 SeedSowing.Status = existing.Status;
                 SeedSowing.ExpectedReadyDate = existing.ExpectedReadyDate;
                 SeedSowing.ReadyStockDays = existing.ReadyStockDays;
-                await LoadDropdownsAsync();
+                SeedSowing.ConfirmedReadyQuantity = existing.ConfirmedReadyQuantity;
+                SeedSowing.WastageQuantity = existing.WastageQuantity;
+                SeedSowing.SupervisorName = existing.SupervisorName;
+                await LoadDropdownsAsync(existing);
                 return Page();
             }
 
@@ -159,11 +175,16 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             return RedirectToPage("/Production/SeedSowing/Index");
         }
 
-        private async Task LoadDropdownsAsync()
+        private async Task LoadDropdownsAsync(SeedSowingModel? existing)
         {
             var activeUsers = await _employeeRepo.GetAllActiveUsers();
             ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            // Eligible approvers, never the person who recorded the sowing.
+            Supervisors = (await _userRoleRepo.GetSowingApproversAsync())
+                .Where(a => existing?.CreatedById == null || a.EmployeeID != existing.CreatedById)
+                .ToList();
+            CanChangeSupervisor = existing != null
+                && DirectSowingRules.CanChangeSupervisor(existing.Status, existing.ConfirmedReadyQuantity, existing.WastageQuantity);
         }
     }
 }

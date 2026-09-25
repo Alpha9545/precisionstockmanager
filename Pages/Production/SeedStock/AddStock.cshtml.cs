@@ -14,9 +14,9 @@ namespace PlantStockManager.Pages.Production.SeedStock
     public class AddStockModel : PageModel
     {
         private readonly SeedStockRepository _seedStockRepo;
-        private readonly AreaAccessService _areaAccessService;
+        private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
 
-        public AddStockModel(SeedStockRepository seedStockRepo, AreaAccessService areaAccessService)
+        public AddStockModel(SeedStockRepository seedStockRepo, SeedlingAreaScope areaAccessService)
         {
             _seedStockRepo = seedStockRepo;
             _areaAccessService = areaAccessService;
@@ -59,6 +59,8 @@ namespace PlantStockManager.Pages.Production.SeedStock
 
             if (Quantity <= 0)
                 ModelState.AddModelError(nameof(Quantity), "Quantity to add must be greater than zero.");
+            else if (!PlantStockManager.Services.DirectSowingRules.IsWholeNumber(Quantity))
+                ModelState.AddModelError(nameof(Quantity), "Quantity to add must be a whole number.");
 
             if (!ModelState.IsValid)
                 return Page();
@@ -73,7 +75,7 @@ namespace PlantStockManager.Pages.Production.SeedStock
                 return Page();
             }
 
-            TempData["Success"] = $"Added {Quantity:N2} to '{SeedStock.SpeciesName}' at {SeedStock.AreaName}.";
+            TempData["Success"] = $"Added {Quantity:N0} to '{SeedStock.SpeciesName}' at {SeedStock.AreaName}.";
             return RedirectToPage("/Production/SeedStock/Details", new { id });
         }
     }

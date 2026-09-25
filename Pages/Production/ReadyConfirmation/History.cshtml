@@ -45,8 +45,10 @@
                 <tr>
                     <th>Approval Code</th>
                     <th>Approval Date</th>
-                    <th>Actual Ready</th>
+                    <th>Actual Ready Trays</th>
+                    <th>Actual Ready Seedlings</th>
                     <th>Wastage</th>
+                    <th>Wastage %</th>
                     <th>Wastage Reason</th>
                     <th>Approved By</th>
                     <th>Status</th>
@@ -62,8 +64,10 @@
                     <tr>
                         <td>@rc.ConfirmationCode</td>
                         <td>@rc.ConfirmationDate.ToString("dd/MM/yyyy HH:mm")</td>
-                        <td>@rc.ConfirmedQuantity.ToString("N2")</td>
-                        <td>@rc.WastageQuantity.ToString("N2")</td>
+                        <td>@(rc.ActualTrayQuantity?.ToString("N0") ?? "–")</td>
+                        <td>@rc.ConfirmedQuantity.ToString("N0")</td>
+                        <td>@rc.WastageQuantity.ToString("N0")</td>
+                        <td>@rc.WastagePercent.ToString("0.00")%</td>
                         <td>@(rc.WastageReason ?? "-")</td>
                         <td>@(rc.ApprovedByName ?? rc.CreatedBy ?? "-")</td>
                         <td>
@@ -92,7 +96,7 @@
                 }
                 @if (!Model.Confirmations.Any())
                 {
-                    <tr><td colspan="11" class="text-center text-muted">No approval recorded yet for this batch.</td></tr>
+                    <tr><td colspan="13" class="text-center text-muted">No approval recorded yet for this batch.</td></tr>
                 }
             </tbody>
         </table>

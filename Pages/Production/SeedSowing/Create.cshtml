@@ -39,9 +39,9 @@
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Area (site)</label>
-                        <select asp-for="SeedSowing.AreaId" id="areaSelect" class="form-select" required>
-                            <option value="">-- Select Area --</option>
+                        <label class="form-label fw-bold">Growing Area <span class="text-muted fw-normal">(optional)</span></label>
+                        <select asp-for="SeedSowing.AreaId" id="areaSelect" class="form-select">
+                            <option value="">-- Seed lot's Area (Main Office) --</option>
                             @foreach (var a in Model.Areas)
                             {
                                 <option value="@a.Id">@a.Name</option>
@@ -50,10 +50,10 @@
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Polyhouse</label>
-                        <select asp-for="SeedSowing.PolyhouseId" id="polyhouseSelect" class="form-select" required
+                        <label class="form-label fw-bold">Polyhouse <span class="text-muted fw-normal">(optional)</span></label>
+                        <select asp-for="SeedSowing.PolyhouseId" id="polyhouseSelect" class="form-select"
                                 data-selected="@Model.SeedSowing.PolyhouseId">
-                            <option value="">-- Select Area first --</option>
+                            <option value="">-- No Polyhouse --</option>
                         </select>
                     </div>
 
@@ -98,13 +98,13 @@
 
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Seed Quantity</label>
-                        <input type="number" step="0.01" min="0.01" asp-for="SeedSowing.QuantitySown" id="quantityInput" class="form-control" required />
+                        <input type="number" step="1" min="1" asp-for="SeedSowing.SeedQuantity" id="quantityInput" class="form-control" required />
                         <div class="text-danger small d-none" id="quantityWarning">Quantity exceeds the available seed stock.</div>
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Cavity</label>
-                        <select asp-for="SeedSowing.CavityType" class="form-select" required>
+                        <label class="form-label fw-bold">Tray Size</label>
+                        <select asp-for="SeedSowing.CavityType" id="cavitySelect" class="form-select" required>
                             <option value="">-- Select --</option>
                             @foreach (var ct in Model.CavityTypes)
                             {
@@ -113,15 +113,28 @@
                         </select>
                     </div>
 
+                    @* Calculated -- never typed and never posted: the server recalculates
+                       FLOOR(Seed Quantity / Tray Size) when saving. *@
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Tray Count</label>
-                        <input type="number" step="1" min="1" asp-for="SeedSowing.NumberOfTrays" class="form-control" />
+                        <label class="form-label fw-bold">No. of Complete Trays</label>
+                        <input type="text" id="traysOut" class="form-control" readonly placeholder="calculated" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Seeds Used (sown &amp; deducted)</label>
+                        <input type="text" id="seedsUsedOut" class="form-control" readonly placeholder="calculated" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Remaining Seeds (stay in stock)</label>
+                        <input type="text" id="remainingSeedsOut" class="form-control" readonly placeholder="calculated" />
+                    </div>
+                    <div class="col-12">
+                        <div class="text-danger small d-none" id="trayError"></div>
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="SeedSowing.SupervisorId" class="form-select">
-                            <option value="">-- None --</option>
+                        <label class="form-label fw-bold">Supervisor <span class="text-muted fw-normal">(approves this batch)</span></label>
+                        <select asp-for="SeedSowing.SupervisorId" class="form-select" required>
+                            <option value="">-- Select supervisor --</option>
                             @foreach (var s in Model.Supervisors)
                             {
                                 <option value="@s.EmployeeID">@s.Name</option>
@@ -177,9 +190,9 @@
             function loadPolyhouses() {
                 const areaId = $('#areaSelect').val();
                 const $ph = $('#polyhouseSelect');
-                if (!areaId) { fill($ph, [], '-- Select Area first --', x => x.name); return; }
-                $.getJSON(handlerUrl, { handler: 'Polyhouses', areaId: areaId }, function (list) {
-                    fill($ph, list, list.length ? '-- Select Polyhouse --' : '-- No Polyhouse in this Area --', x => x.name);
+                // Polyhouse is optional: the Area's Polyhouses plus those with no Area yet.
+                $.getJSON(handlerUrl, { handler: 'Polyhouses', areaId: areaId || 0 }, function (list) {
+                    fill($ph, list, '-- No Polyhouse --', x => x.name);
                 });
             }
 
@@ -247,10 +260,32 @@
             $('#varietySelect').on('change', onVarietyChange);
             $('#seedLotSelect').on('change', onLotChange);
             $('#quantityInput').on('input', checkQuantity);
+
+            // Live tray preview from the server (same calculation as the save).
+            function calcTrays() {
+                const q = $('#quantityInput').val();
+                const c = $('#cavitySelect').val();
+                const $err = $('#trayError');
+                $('#traysOut, #seedsUsedOut, #remainingSeedsOut').val('');
+                $err.addClass('d-none').text('');
+                if (!q || !c) return;
+                $.getJSON(handlerUrl, { handler: 'TrayCalculation', quantity: q, cavityType: c }, function (r) {
+                    if (r.ok) {
+                        $('#traysOut').val(r.trays);
+                        $('#seedsUsedOut').val(r.seedsUsed);
+                        $('#remainingSeedsOut').val(r.remainingSeeds);
+                    }
+                    const msg = !r.wholeNumber ? 'Seed Quantity must be a whole number.' : (r.ok ? '' : r.error);
+                    if (msg) $err.removeClass('d-none').text(msg);
+                });
+            }
+            $('#quantityInput').on('input', calcTrays);
+            $('#cavitySelect').on('change', calcTrays);
+            calcTrays();
             $('#sowingDate').on('change', updateExpected);
 
             // Re-populate dependent lists after a failed POST.
-            if ($('#areaSelect').val()) loadPolyhouses();
+            loadPolyhouses();
             if ($('#plantTypeSelect').val()) loadVarieties();
         });
     </script>

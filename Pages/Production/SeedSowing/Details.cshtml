@@ -27,9 +27,11 @@
                 <dt class="col-sm-5">Seed Source</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedSourceName ?? "-")</dd>
                 <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@Model.SeedSowing.AreaName @(Model.SeedSowing.GrowingPartnerName != null ? $"({Model.SeedSowing.GrowingPartnerName})" : "")</dd>
                 <dt class="col-sm-5">Polyhouse</dt><dd class="col-sm-7">@(Model.SeedSowing.PolyhouseName ?? "-")</dd>
-                <dt class="col-sm-5">Cavity/Tray Type</dt><dd class="col-sm-7">@Model.SeedSowing.CavityType</dd>
-                <dt class="col-sm-5">Number of Trays</dt><dd class="col-sm-7">@(Model.SeedSowing.NumberOfTrays?.ToString() ?? "-")</dd>
-                <dt class="col-sm-5">Quantity Sown</dt><dd class="col-sm-7">@Model.SeedSowing.QuantitySown.ToString("N2")</dd>
+                <dt class="col-sm-5">Seed Quantity entered</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedQuantity > 0 ? Model.SeedSowing.SeedQuantity.ToString("N0") : "not recorded (before the tray rule)")</dd>
+                <dt class="col-sm-5">Tray Cavity</dt><dd class="col-sm-7">@Model.SeedSowing.CavityType</dd>
+                <dt class="col-sm-5">Complete Trays</dt><dd class="col-sm-7">@(Model.SeedSowing.NumberOfTrays?.ToString("N0") ?? "-")</dd>
+                <dt class="col-sm-5">Seeds Used (sown)</dt><dd class="col-sm-7">@Model.SeedSowing.QuantitySown.ToString("N0")</dd>
+                <dt class="col-sm-5">Remaining Seeds (stay in the seed lot)</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedQuantity > 0 ? Model.SeedSowing.RemainingSeeds.ToString("N0") : "-")</dd>
                 <dt class="col-sm-5">Sowing Date</dt><dd class="col-sm-7">@Model.SeedSowing.SowingDate.ToString("dd/MM/yyyy")</dd>
                 <dt class="col-sm-5">Ready Stock Days</dt><dd class="col-sm-7">@(Model.SeedSowing.ReadyStockDays?.ToString() ?? "-")</dd>
                 <dt class="col-sm-5">Expected Ready Date</dt><dd class="col-sm-7">@(Model.SeedSowing.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</dd>
@@ -52,8 +54,8 @@
                     }
                 </dd>
                 <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@(Model.SeedSowing.Status == "Sown" ? "Growing (awaiting Supervisor Approval)" : Model.SeedSowing.Status)</dd>
-                <dt class="col-sm-5">Approved Ready Quantity</dt><dd class="col-sm-7">@Model.SeedSowing.ConfirmedReadyQuantity.ToString("N2")</dd>
-                <dt class="col-sm-5">Wastage Quantity</dt><dd class="col-sm-7">@Model.SeedSowing.WastageQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Actual Ready Seedlings</dt><dd class="col-sm-7">@Model.SeedSowing.ConfirmedReadyQuantity.ToString("N0")</dd>
+                <dt class="col-sm-5">Wastage</dt><dd class="col-sm-7">@Model.SeedSowing.WastageQuantity.ToString("N0") (@Model.SeedSowing.WastagePercent.ToString("0.00")%)</dd>
                 <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.SeedSowing.ResponsiblePersonName</dd>
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.SeedSowing.SupervisorName</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.SeedSowing.Remarks</dd>

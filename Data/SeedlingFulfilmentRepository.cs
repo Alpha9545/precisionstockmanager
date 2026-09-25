@@ -25,8 +25,9 @@ namespace PlantStockManager.Data
     // constraints (Reserved + Dispatched <= Quantity, etc.) are the backstop.
     // A deadlock victim (SQL error 1205) is retried up to twice.
     //
-    // Old pipeline: a booking fulfilled through Pages/Bookings/FulfillBooking
-    // (dbo.Inventory) is never mixed with Ready Stock (FulfilmentSource).
+    // Old pipeline: bookings that were fulfilled through the REMOVED legacy
+    // Inventory page (FulfillBooking; InventoryTransactions 'Allocation' rows)
+    // are recognised as legacy (IsLegacy) and never mixed with Ready Stock.
     // ========================================================================
     public class SeedlingFulfilmentRepository
     {
@@ -702,43 +703,6 @@ WHERE Id = @Id", conn, tx);
                     ? $"Dispatch {code}: {total:N0} plants. The booking is fully dispatched and Completed."
                     : $"Dispatch {code}: {total:N0} plants. {b.Quantity - newDispatched:N0} still to dispatch.");
             });
-
-        // ------------------------------------------------------------------
-        // Legacy pipeline guards (used by Pages/Bookings/FulfillBooking and
-        // RevertBooking). Returns null when the old fulfilment may proceed.
-        // ------------------------------------------------------------------
-        public async Task<string?> GetLegacyFulfilmentBlockReasonAsync(int bookingId)
-        {
-            using var conn = _dbHelper.GetConnection();
-            await conn.OpenAsync();
-            var cmd = new SqlCommand(@"
-SELECT b.FulfilmentSource, b.ReservedQuantity, b.DispatchedQuantity,
-       (SELECT COUNT(*) FROM dbo.BookingBatchAllocations a WHERE a.BookingId = b.Id AND a.Status = 'Active')
-FROM dbo.Bookings b WHERE b.Id = @Id", conn);
-            cmd.Parameters.AddWithValue("@Id", bookingId);
-            using var r = await cmd.ExecuteReaderAsync();
-            if (!await r.ReadAsync()) return "Booking not found.";
-            var source = r.IsDBNull(0) ? null : r.GetString(0);
-            if (source == SeedlingBookingRules.SourceReadyStock || r.GetDecimal(1) > 0 || r.GetDecimal(2) > 0 || r.GetInt32(3) > 0)
-                return "This booking is being fulfilled from Ready Stock (reserved or dispatched). It cannot also be fulfilled from the legacy Inventory. Use Booking Fulfilment instead.";
-            return null;
-        }
-
-        public async Task MarkLegacyFulfilledAsync(SqlConnection conn, SqlTransaction tx, int bookingId)
-        {
-            var cmd = new SqlCommand("UPDATE dbo.Bookings SET FulfilmentSource = 'Legacy' WHERE Id = @Id AND FulfilmentSource IS NULL", conn, tx);
-            cmd.Parameters.AddWithValue("@Id", bookingId);
-            await cmd.ExecuteNonQueryAsync();
-        }
-
-        public async Task ClearLegacySourceAsync(int bookingId)
-        {
-            using var conn = _dbHelper.GetConnection();
-            await conn.OpenAsync();
-            var cmd = new SqlCommand("UPDATE dbo.Bookings SET FulfilmentSource = NULL WHERE Id = @Id AND FulfilmentSource = 'Legacy'", conn);
-            cmd.Parameters.AddWithValue("@Id", bookingId);
-            await cmd.ExecuteNonQueryAsync();
-        }
 
         // ------------------------------------------------------------------
         // Reads

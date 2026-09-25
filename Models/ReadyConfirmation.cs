@@ -26,6 +26,16 @@ namespace PlantStockManager.Models
         // ReadyConfirmationRepository.ConfirmAsync.
         public decimal ConfirmedQuantity { get; set; }
 
+        // Tray-based approval: the supervisor's Actual Ready Trays (NULL for
+        // approvals recorded before the tray rule). ConfirmedQuantity =
+        // ActualTrayQuantity x the sowing's cavity (enforced by
+        // TR_ReadyConfirmations_TrayQuantity).
+        public int? ActualTrayQuantity { get; set; }
+        public int? SowingTrays { get; set; }
+
+        // Wastage % of the seeds sown (derived, never stored).
+        public decimal WastagePercent => PlantStockManager.Services.DirectSowingRules.WastagePercent(WastageQuantity, QuantitySown ?? 0);
+
         // Phase B -- Supervisor Approval: wastage recorded with this
         // approval (Sown - Ready), its reason, and who approved it.
         public decimal WastageQuantity { get; set; }

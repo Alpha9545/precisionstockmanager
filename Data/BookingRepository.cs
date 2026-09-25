@@ -444,42 +444,6 @@ WHERE Id = @BookingId;", conn, tx);
         // cancelled instead (SeedlingFulfilmentRepository.CancelAsync), which
         // keeps the history and releases any reservation.
 
-        public async Task<Booking?> GetBookingById(int id)
-        {
-            using var conn = _dbHelper.GetConnection();
-            await conn.OpenAsync();
-
-            var query = "SELECT * FROM Bookings WHERE Id = @Id";
-            using var cmd = new SqlCommand(query, conn);
-            cmd.Parameters.AddWithValue("@Id", id);
-
-            using var reader = await cmd.ExecuteReaderAsync();
-            if (await reader.ReadAsync())
-            {
-                return new Booking
-                {
-                    Id = reader.GetInt32(0),
-                    CustomerName = reader["CustomerName"].ToString(),
-                    Quantity = reader.GetInt32(reader.GetOrdinal("Quantity")),
-                    Status = reader["Status"].ToString()
-                };
-            }
-            return null;
-        }
-
-        public async Task UpdateStatus(int id, string status)
-        {
-            using var conn = _dbHelper.GetConnection();
-            await conn.OpenAsync();
-
-            var query = "UPDATE Bookings SET Status = @Status WHERE Id = @Id";
-            using var cmd = new SqlCommand(query, conn);
-            cmd.Parameters.AddWithValue("@Status", status);
-            cmd.Parameters.AddWithValue("@Id", id);
-
-            await cmd.ExecuteNonQueryAsync();
-        }
-
         public async Task<List<State>> GetAllStatesAsync()
         {
             var list = new List<State>();

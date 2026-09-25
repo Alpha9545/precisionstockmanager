@@ -64,14 +64,24 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="SeedSowing.SupervisorId" class="form-select" disabled="@(Model.SeedSowing.Status == "Cancelled")">
-                            <option value="">-- None --</option>
-                            @foreach (var s in Model.Supervisors)
-                            {
-                                <option value="@s.EmployeeID">@s.Name</option>
-                            }
-                        </select>
+                        <label class="form-label fw-bold">Supervisor <span class="text-muted fw-normal">(approves this batch)</span></label>
+                        @if (Model.CanChangeSupervisor)
+                        {
+                            <select asp-for="SeedSowing.SupervisorId" class="form-select" required>
+                                <option value="">-- Select supervisor --</option>
+                                @foreach (var s in Model.Supervisors)
+                                {
+                                    <option value="@s.EmployeeID">@s.Name</option>
+                                }
+                            </select>
+                        }
+                        else
+                        {
+                            @* Approved or cancelled: the assigned supervisor is fixed. *@
+                            <input type="hidden" asp-for="SeedSowing.SupervisorId" />
+                            <input type="text" class="form-control" readonly value="@(Model.SeedSowing.SupervisorName ?? "-")" />
+                            <div class="form-text">Fixed after approval.</div>
+                        }
                     </div>
 
                     <div class="col-12">
