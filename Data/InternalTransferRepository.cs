@@ -19,6 +19,7 @@ namespace PlantStockManager.Data
         private readonly EmptyPotInventoryRepository _emptyPotInventoryRepo;
         private readonly PottedPlantStockRepository _pottedPlantStockRepo;
         private readonly CuttingStockRepository _cuttingStockRepo;
+        private readonly ReadyStockRepository _readyStockRepo;
         // Phase 18 (Phase C): needed only to re-verify, server-side, that a
         // 'MainOfficeIssue' transfer's source is a genuine Main Office Area
         // and its destination is an active, Growing-Partner-linked Area --
@@ -33,6 +34,7 @@ namespace PlantStockManager.Data
             EmptyPotInventoryRepository emptyPotInventoryRepo,
             PottedPlantStockRepository pottedPlantStockRepo,
             CuttingStockRepository cuttingStockRepo,
+            ReadyStockRepository readyStockRepo,
             AreaRepository areaRepo)
         {
             _dbHelper = dbHelper;
@@ -40,6 +42,7 @@ namespace PlantStockManager.Data
             _emptyPotInventoryRepo = emptyPotInventoryRepo;
             _pottedPlantStockRepo = pottedPlantStockRepo;
             _cuttingStockRepo = cuttingStockRepo;
+            _readyStockRepo = readyStockRepo;
             _areaRepo = areaRepo;
         }
 
@@ -321,6 +324,67 @@ ORDER BY t.CreatedDate ASC";
                     entry.Id = newId;
                     return (true, null, newId);
                 }
+                else if (entry.StockType == "ReadyStock")
+                {
+                    if (!entry.SourceReadyStockId.HasValue)
+                    {
+                        tx.Rollback();
+                        return (false, "Source Ready Stock batch is required.", 0);
+                    }
+
+                    var rsLockCmd = new SqlCommand(
+                        "SELECT AreaId, Quantity, ReservedQuantity, DispatchedQuantity FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                        conn, tx);
+                    rsLockCmd.Parameters.AddWithValue("@Id", entry.SourceReadyStockId.Value);
+                    int rsAreaId; decimal rsQuantity, rsReserved, rsDispatched;
+                    using (var rsReader = await rsLockCmd.ExecuteReaderAsync())
+                    {
+                        if (!await rsReader.ReadAsync())
+                        {
+                            rsReader.Close();
+                            tx.Rollback();
+                            return (false, "Source Ready Stock batch not found.", 0);
+                        }
+                        rsAreaId = rsReader.GetInt32(0);
+                        rsQuantity = rsReader.GetDecimal(1);
+                        rsReserved = rsReader.GetDecimal(2);
+                        rsDispatched = rsReader.GetDecimal(3);
+                    }
+                    entry.SourceAreaId = rsAreaId;
+
+                    var (rsOk, rsError) = PlantStockManager.Services.ReadyStockTransferRules.ValidateTransfer(
+                        entry.Quantity, rsQuantity, rsReserved, rsDispatched, rsAreaId, entry.DestinationAreaId);
+                    if (!rsOk)
+                    {
+                        tx.Rollback();
+                        return (false, rsError, 0);
+                    }
+
+                    var rsNewId = await InsertHeaderAsync(conn, tx, entry, userId);
+
+                    var moveAreaCmd = new SqlCommand(
+                        "UPDATE dbo.ReadyStock SET AreaId = @Dest, ModifiedBy = @ModifiedBy, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id",
+                        conn, tx);
+                    moveAreaCmd.Parameters.AddWithValue("@Dest", entry.DestinationAreaId!.Value);
+                    moveAreaCmd.Parameters.AddWithValue("@ModifiedBy", (object?)entry.CreatedBy ?? DBNull.Value);
+                    moveAreaCmd.Parameters.AddWithValue("@Id", entry.SourceReadyStockId.Value);
+                    await moveAreaCmd.ExecuteNonQueryAsync();
+
+                    // The whole batch relocates -- Quantity itself doesn't
+                    // change (delta 0), only where it physically sits; the
+                    // ledger row exists purely as a traceable history entry.
+                    var (rsTxOk, rsTxMessage) = await _readyStockRepo.RecordTransactionAsync(
+                        conn, tx, entry.SourceReadyStockId.Value, 0, "Transfer", "InternalTransfer", rsNewId, userId, entry.Remarks);
+                    if (!rsTxOk)
+                    {
+                        tx.Rollback();
+                        return (false, rsTxMessage, 0);
+                    }
+
+                    tx.Commit();
+                    entry.Id = rsNewId;
+                    return (true, null, rsNewId);
+                }
                 else if (entry.StockType == "Cutting")
                 {
                     if (!entry.SourceCuttingStockId.HasValue)
@@ -393,10 +457,10 @@ ORDER BY t.CreatedDate ASC";
 
             const string insertSql = @"
 INSERT INTO dbo.InternalTransfers
-(TransferCode, StockType, SourceEmptyPotInventoryId, SourcePottedPlantStockId, SourceCuttingStockId, SourceAreaId,
+(TransferCode, StockType, SourceEmptyPotInventoryId, SourcePottedPlantStockId, SourceCuttingStockId, SourceReadyStockId, SourceAreaId,
  DestinationAreaId, PendingConfirmationAreaId, Quantity, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy)
 VALUES
-(@TransferCode, @StockType, @SourceEmptyPotInventoryId, @SourcePottedPlantStockId, @SourceCuttingStockId, @SourceAreaId,
+(@TransferCode, @StockType, @SourceEmptyPotInventoryId, @SourcePottedPlantStockId, @SourceCuttingStockId, @SourceReadyStockId, @SourceAreaId,
  @DestinationAreaId, @PendingConfirmationAreaId, @Quantity, @Status, @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
@@ -406,6 +470,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             cmd.Parameters.AddWithValue("@SourceEmptyPotInventoryId", (object?)entry.SourceEmptyPotInventoryId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@SourcePottedPlantStockId", (object?)entry.SourcePottedPlantStockId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@SourceCuttingStockId", (object?)entry.SourceCuttingStockId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@SourceReadyStockId", (object?)entry.SourceReadyStockId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@SourceAreaId", entry.SourceAreaId);
             cmd.Parameters.AddWithValue("@DestinationAreaId", (object?)entry.DestinationAreaId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@PendingConfirmationAreaId", (object?)entry.PendingConfirmationAreaId ?? DBNull.Value);

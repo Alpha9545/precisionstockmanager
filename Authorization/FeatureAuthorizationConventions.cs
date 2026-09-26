@@ -87,6 +87,7 @@ namespace PlantStockManager.Authorization
                 ["/Production/ReadyConfirmation/History"] = R("ReadyStock.View", "ReadyStock.Confirm"),
                 ["/Production/ReadyConfirmation/Confirm"] = R("ReadyStock.Confirm"),   // Phase B: Supervisor Approval
                 ["/Production/ReadyStock/Index"] = R("ReadyStock.View"),               // Phase B: approved Ready Stock
+                ["/Production/ReadyStock/Move"] = R("InternalTransfer.Enter|MainOffice.Confirm"),   // Phase D: send trays to Main Office/Outlet
 
                 // ---- Mother plant / cutting --------------------------------
                 ["/Production/MotherPlant/Index"] = R("MotherPlant.View"),

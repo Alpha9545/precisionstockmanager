@@ -56,6 +56,8 @@ The Reporting/Dashboard phase (`Pages/Production/Dashboard/Index`) added **no** 
     * **Complete loss:** a pot batch can be closed with 0 ready plants (status `Lost`, loss reason mandatory, nothing added to Potted Plant Stock); READY / Lost is re-checked against the confirmer's current Mother Plant Supervisor role for the Area.
     * **Area → Polyhouse:** `Polyhouses.AreaId` is the only link. The old `Area.PolyhouseId` values are copied once (only unambiguous ones); the column becomes NULLable (FK + 3 indexes dropped and recreated identically) and `TR_Area_PolyhouseIdRetired` stops new values being written. Nothing is dropped.
     * **Roles (created with no users):** Main Office Store Keeper, Purchase Officer, Pot Production Operator, Outlet Sales, each with only the permissions its job needs. No existing role is changed.
+    * **Ready Stock → Main Office / Outlet:** new `InternalTransfers.SourceReadyStockId` + `FK_InternalTransfers_ReadyStock`; `CK_InternalTransfers_StockType` and `CK_InternalTransfers_SourceMatchesStockType` recreated to add `'ReadyStock'`; `CK_ReadyStockTx_Type` recreated to add `'Transfer'`. A batch (one row per `SeedSowingId`) moves as a whole to another Area — never split — the same immediate, no-confirmation shape `'PottedPlant'` already has; only allowed before anything is reserved or dispatched from it (checked by the application under the row lock, not a DB trigger).
+    * **Mother Plant Supervisor** is granted `InternalTransfer.Enter` — the Send/Move screens already required it, but the role had never actually been given it.
     **The application code of this branch needs these objects — deploy the code and this script together.**
 
 ## Verifying a run

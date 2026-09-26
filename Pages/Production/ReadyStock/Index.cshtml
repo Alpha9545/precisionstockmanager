@@ -5,6 +5,7 @@
     ViewData["Title"] = "Ready Stock";
     var canSeeSowing = await FeatureAccess.CanAccessPageAsync(User, "/Production/SeedSowing/Details");
     var canSeeApproval = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyConfirmation/Index");
+    var canMove = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyStock/Move");
 }
 
 <div class="container-fluid mt-4">
@@ -59,6 +60,7 @@
                     <th>Status</th>
                     <th>Approved By</th>
                     <th>Approval Date</th>
+                    <th></th>
                 </tr>
             </thead>
             <tbody>
@@ -93,11 +95,17 @@
                         <td>@r.Status</td>
                         <td>@(r.ApprovedByName ?? "-")</td>
                         <td>@(r.ApprovalDate?.ToString("dd/MM/yyyy") ?? "-")</td>
+                        <td class="text-nowrap">
+                            @if (canMove && r.AvailableQuantity > 0 && r.ReservedQuantity == 0 && r.DispatchedQuantity == 0)
+                            {
+                                <a asp-page="/Production/ReadyStock/Move" asp-route-id="@r.Id" class="btn btn-sm btn-outline-primary">Send</a>
+                            }
+                        </td>
                     </tr>
                 }
                 @if (!Model.Items.Any())
                 {
-                    <tr><td colspan="18" class="text-center text-muted">No approved Ready Stock found.</td></tr>
+                    <tr><td colspan="19" class="text-center text-muted">No approved Ready Stock found.</td></tr>
                 }
             </tbody>
         </table>

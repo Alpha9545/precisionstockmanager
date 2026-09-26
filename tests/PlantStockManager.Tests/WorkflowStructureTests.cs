@@ -130,6 +130,18 @@ namespace PlantStockManager.Tests
         }
 
         [Fact]
+        public void ReadyStockMove_ToMainOfficeOrOutlet_TakesOnlyDestinationAndQuantity()
+        {
+            // Same permission-gated, no-confirmation shape as PottedPlantStock/Move
+            var bound = typeof(PlantStockManager.Pages.Production.ReadyStock.MoveModel)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.GetCustomAttribute<BindPropertyAttribute>() != null)
+                .Select(p => p.Name).OrderBy(n => n).ToArray();
+            Assert.Equal(new[] { "Destination", "DestinationAreaId", "Quantity", "Remarks" }, bound);
+            Assert.Equal("InternalTransfer.Enter|MainOffice.Confirm", PlantStockManager.Pages.Production.ReadyStock.MoveModel.TransferPolicy);
+        }
+
+        [Fact]
         public void Area_HasNoPolyhouseLink_PolyhouseHasTheArea()
         {
             // one Area <-> Polyhouse relationship: Polyhouse.AreaId

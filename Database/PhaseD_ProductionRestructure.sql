@@ -46,6 +46,12 @@
 --   Roles (created with no users): Main Office Store Keeper, Purchase
 --     Officer, Pot Production Operator, Outlet Sales
 --   Pot batches can be closed as a complete loss (status Lost, reason required)
+--   Ready Stock (seedling trays), like Potted Plant Stock, can be sent to
+--     Main Office or an Outlet (new InternalTransfers StockType 'ReadyStock',
+--     one whole sowing batch at a time, only before it has any reservation
+--     or dispatch against it)
+--   Mother Plant Supervisor is granted InternalTransfer.Enter, so the
+--     Send/Move screens it was already restricted by actually work for it
 --
 -- Existing data: the historical sowing (4,000 seeds / 166 trays / 24 Cavity)
 -- and every other existing row keep their values. New CHECKs are only added
@@ -737,4 +743,70 @@ FROM dbo.RolePermissions rp
 INNER JOIN dbo.Roles r ON r.Id = rp.RoleId
 INNER JOIN dbo.Permissions p ON p.Id = rp.PermissionId
 INNER JOIN @RemovedGrants g ON g.RoleName = COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) AND g.Code = p.Code;
+GO
+
+-- ============================================================================
+-- 12. Ready Stock (seedling trays) can be sent to Main Office or an Outlet,
+--     the same way Potted Plant Stock already can (dbo.InternalTransfers,
+--     new StockType 'ReadyStock'). A batch is one sowing's trays
+--     (UQ_ReadyStock_SeedSowing is one row per SeedSowingId, so it moves as
+--     a whole batch, not split) -- allowed only before anything has been
+--     reserved or dispatched from it (enforced by the application under the
+--     row lock, mirroring every other Phase D rule).
+-- ============================================================================
+IF COL_LENGTH('dbo.InternalTransfers', 'SourceReadyStockId') IS NULL
+BEGIN
+    ALTER TABLE dbo.InternalTransfers ADD SourceReadyStockId INT NULL;
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = 'FK_InternalTransfers_ReadyStock')
+BEGIN
+    ALTER TABLE dbo.InternalTransfers WITH CHECK
+        ADD CONSTRAINT FK_InternalTransfers_ReadyStock FOREIGN KEY (SourceReadyStockId) REFERENCES dbo.ReadyStock (Id);
+END
+GO
+
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_InternalTransfers_StockType')
+    ALTER TABLE dbo.InternalTransfers DROP CONSTRAINT CK_InternalTransfers_StockType;
+ALTER TABLE dbo.InternalTransfers WITH CHECK ADD CONSTRAINT CK_InternalTransfers_StockType
+    CHECK (StockType IN (N'EmptyPot', N'PottedPlant', N'Cutting', N'MainOfficeIssue', N'GrowingPartnerToOutlet', N'ReadyStock'));
+GO
+
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_InternalTransfers_SourceMatchesStockType')
+    ALTER TABLE dbo.InternalTransfers DROP CONSTRAINT CK_InternalTransfers_SourceMatchesStockType;
+ALTER TABLE dbo.InternalTransfers WITH CHECK ADD CONSTRAINT CK_InternalTransfers_SourceMatchesStockType
+    CHECK (
+        (StockType = N'EmptyPot' AND SourceEmptyPotInventoryId IS NOT NULL AND SourcePottedPlantStockId IS NULL AND SourceCuttingStockId IS NULL AND SourceReadyStockId IS NULL)
+     OR (StockType = N'PottedPlant' AND SourcePottedPlantStockId IS NOT NULL AND SourceEmptyPotInventoryId IS NULL AND SourceCuttingStockId IS NULL AND SourceReadyStockId IS NULL)
+     OR (StockType = N'Cutting' AND SourceCuttingStockId IS NOT NULL AND SourceEmptyPotInventoryId IS NULL AND SourcePottedPlantStockId IS NULL AND SourceReadyStockId IS NULL)
+     OR (StockType = N'MainOfficeIssue' AND SourcePottedPlantStockId IS NOT NULL AND SourceEmptyPotInventoryId IS NULL AND SourceCuttingStockId IS NULL AND SourceReadyStockId IS NULL)
+     OR (StockType = N'GrowingPartnerToOutlet' AND SourcePottedPlantStockId IS NOT NULL AND SourceEmptyPotInventoryId IS NULL AND SourceCuttingStockId IS NULL AND SourceReadyStockId IS NULL)
+     OR (StockType = N'ReadyStock' AND SourceReadyStockId IS NOT NULL AND SourceEmptyPotInventoryId IS NULL AND SourcePottedPlantStockId IS NULL AND SourceCuttingStockId IS NULL)
+    );
+GO
+
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_ReadyStockTx_Type')
+    ALTER TABLE dbo.ReadyStockTransactions DROP CONSTRAINT CK_ReadyStockTx_Type;
+ALTER TABLE dbo.ReadyStockTransactions WITH CHECK ADD CONSTRAINT CK_ReadyStockTx_Type
+    CHECK (TransactionType IN (N'Dispatch', N'ReservationRelease', N'Reservation', N'ReversalRemoval', N'Confirmed', N'Transfer'));
+GO
+
+-- ============================================================================
+-- 13. Mother Plant Supervisor can actually USE the Send/Move screens
+-- ============================================================================
+-- Mother-Plant-Area-held Potted Plant Stock and Ready Stock both need to be
+-- sendable to Main Office or an Outlet by the Mother Plant Supervisor of
+-- that Area (the pages already existed and already checked this
+-- permission; the role itself was simply never granted it).
+IF NOT EXISTS (SELECT 1 FROM dbo.RolePermissions rp
+               INNER JOIN dbo.Roles r ON r.Id = rp.RoleId
+               INNER JOIN dbo.Permissions p ON p.Id = rp.PermissionId
+               WHERE COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) = N'Mother Plant Supervisor' AND p.Code = N'InternalTransfer.Enter')
+BEGIN
+    INSERT INTO dbo.RolePermissions (RoleId, PermissionId)
+    SELECT r.Id, p.Id
+    FROM dbo.Roles r, dbo.Permissions p
+    WHERE COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) = N'Mother Plant Supervisor' AND p.Code = N'InternalTransfer.Enter';
+END
 GO

@@ -5,22 +5,27 @@ namespace PlantStockManager.Models
         public int Id { get; set; }
         public string TransferCode { get; set; } = string.Empty;
 
-        // 'EmptyPot' | 'PottedPlant' | 'Cutting' | 'MainOfficeIssue' (Phase 18/
-        // Phase C -- Main Office issuing Potted Plant starter material to a
-        // Growing Partner Area; distinct from the immediate, no-confirmation
-        // 'PottedPlant' transfer other Areas already use) |
-        // 'GrowingPartnerToOutlet' (Phase 20/Phase F -- a Growing Partner
-        // Area sending Potted Plant stock to an Outlet Area; the mirror
-        // image of 'MainOfficeIssue' -- same single-step send/confirm-with-
-        // discrepancy shape, but source must be Growing-Partner-linked and
-        // destination must be AreaType='Outlet', the opposite of
-        // MainOfficeIssue's own source/destination rule).
+        // 'EmptyPot' | 'PottedPlant' | 'Cutting' | 'ReadyStock' (Phase D --
+        // seedling trays sent to Main Office or an Outlet, one whole sowing
+        // batch at a time, the same immediate/no-confirmation shape as
+        // 'PottedPlant') | 'MainOfficeIssue' (Phase 18/Phase C -- Main Office
+        // issuing Potted Plant starter material to a Growing Partner Area;
+        // distinct from the immediate, no-confirmation 'PottedPlant'
+        // transfer other Areas already use) | 'GrowingPartnerToOutlet'
+        // (Phase 20/Phase F -- a Growing Partner Area sending Potted Plant
+        // stock to an Outlet Area; the mirror image of 'MainOfficeIssue' --
+        // same single-step send/confirm-with-discrepancy shape, but source
+        // must be Growing-Partner-linked and destination must be
+        // AreaType='Outlet', the opposite of MainOfficeIssue's own
+        // source/destination rule). The last two are retired (Growing
+        // Partner is unused) but kept for historical rows.
         public string StockType { get; set; } = string.Empty;
 
-        // Exactly one of these three is populated, matching StockType.
+        // Exactly one of these four is populated, matching StockType.
         public int? SourceEmptyPotInventoryId { get; set; }
         public int? SourcePottedPlantStockId { get; set; }
         public int? SourceCuttingStockId { get; set; }
+        public int? SourceReadyStockId { get; set; }
         public int SourceAreaId { get; set; }
 
         // Nullable as of Phase 15: for StockType = 'Cutting', the
