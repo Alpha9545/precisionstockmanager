@@ -1,0 +1,131 @@
+@page
+@model PlantStockManager.Pages.Production.SeedStock.AddSeedStockModel
+@{
+    ViewData["Title"] = "Add Seed Stock";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 820px;">
+        <div class="card-header">
+            <h4 class="mb-0">Add Seed Stock</h4>
+            <small class="text-muted">Record seed received into stock.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <form method="post">
+                @if (Model.Areas.Count > 1)
+                {
+                    <div class="row g-3 mb-1">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Received At</label>
+                            <select asp-for="AreaId" class="form-select" required>
+                                <option value="">-- Select Area --</option>
+                                @foreach (var a in Model.Areas)
+                                {
+                                    <option value="@a.Id">@a.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <input type="hidden" asp-for="AreaId" />
+                }
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Species</label>
+                        <select id="plantTypeSelect" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var pt in Model.PlantTypes)
+                            {
+                                <option value="@pt.Id">@pt.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Seed / Variety</label>
+                        <select asp-for="SpeciesId" id="varietySelect" class="form-select" required data-searchable>
+                            <option value="">-- Select Species first --</option>
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Source</label>
+                        <select asp-for="SeedSourceId" class="form-select">
+                            <option value="">-- None --</option>
+                            @foreach (var s in Model.SeedSources)
+                            {
+                                <option value="@s.Id">@s.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Batch No</label>
+                        <input asp-for="BatchNo" class="form-control" placeholder="e.g. LOT-2026-01" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Unit</label>
+                        <input asp-for="Unit" class="form-control" />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Quantity</label>
+                        <input asp-for="Quantity" type="number" step="1" min="1" class="form-control" required />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Received On</label>
+                        <input asp-for="ReceivedOn" type="datetime-local" class="form-control" required />
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Notes <span class="text-muted fw-normal">(optional)</span></label>
+                        <textarea asp-for="Notes" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/SeedStock/Index" class="btn btn-secondary me-2">Cancel</a>
+                    <button type="submit" class="btn btn-success">Add Seed Stock</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.getElementById('plantTypeSelect').addEventListener('change', function () {
+            var plantTypeId = this.value;
+            var varietySelect = document.getElementById('varietySelect');
+            varietySelect.innerHTML = '<option value="">-- Loading... --</option>';
+            if (!plantTypeId) {
+                varietySelect.innerHTML = '<option value="">-- Select Species first --</option>';
+                return;
+            }
+            fetch('?handler=Species&plantTypeId=' + plantTypeId)
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    varietySelect.innerHTML = '<option value="">-- Select Seed / Variety --</option>';
+                    data.forEach(function (s) {
+                        var opt = document.createElement('option');
+                        opt.value = s.id;
+                        opt.text = s.name;
+                        varietySelect.appendChild(opt);
+                    });
+                });
+        });
+    </script>
+}

@@ -74,6 +74,7 @@ namespace PlantStockManager.Authorization
                 ["/Production/SeedStock/Details"] = R("SeedStock.View"),
                 ["/Production/SeedStock/Create"] = R("SeedStock.Enter"),
                 ["/Production/SeedStock/AddStock"] = R("SeedStock.Enter"),
+                ["/Production/SeedStock/AddSeedStock"] = R("SeedStock.Enter"),   // simplified single-page receipt form
 
                 // ---- Sowing / Ready stock ----------------------------------
                 ["/Production/SeedSowing/Index"] = R("Sowing.View"),

@@ -810,3 +810,24 @@ BEGIN
     WHERE COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) = N'Mother Plant Supervisor' AND p.Code = N'InternalTransfer.Enter';
 END
 GO
+
+-- ============================================================================
+-- 14. Main Office Store Keeper can use the simplified Add Seed Stock page
+-- ============================================================================
+-- The role and the SeedStock.Enter permission both already existed (this
+-- role's other grants above, and SeedStock.Enter from the Seed Stock phase);
+-- Main Office Store Keeper was simply never granted it, so the page
+-- (Pages/Production/SeedStock/AddSeedStock) was unreachable for every real
+-- user. Recorded here for reproducibility -- already applied directly to
+-- PlantsIMS2_Test on 2026-09-26.
+IF NOT EXISTS (SELECT 1 FROM dbo.RolePermissions rp
+               INNER JOIN dbo.Roles r ON r.Id = rp.RoleId
+               INNER JOIN dbo.Permissions p ON p.Id = rp.PermissionId
+               WHERE COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) = N'Main Office Store Keeper' AND p.Code = N'SeedStock.Enter')
+BEGIN
+    INSERT INTO dbo.RolePermissions (RoleId, PermissionId)
+    SELECT r.Id, p.Id
+    FROM dbo.Roles r, dbo.Permissions p
+    WHERE COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) = N'Main Office Store Keeper' AND p.Code = N'SeedStock.Enter';
+END
+GO

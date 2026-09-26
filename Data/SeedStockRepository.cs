@@ -186,8 +186,11 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         // BatchNo) -- called under the caller's own transaction, while
         // the source row is already locked, mirroring
         // PottedPlantStockRepository.GetOrCreateLockedAsync exactly.
+        // unit is only used the FIRST time a pool is created for this
+        // (Species, Area, BatchNo); an existing pool's Unit is never
+        // overwritten by a later receipt.
         public async Task<int> GetOrCreateLockedAsync(
-            SqlConnection conn, SqlTransaction tx, int speciesId, int areaId, string batchNo, int? seedSourceId, string? createdBy)
+            SqlConnection conn, SqlTransaction tx, int speciesId, int areaId, string batchNo, int? seedSourceId, string? createdBy, string unit = "pcs")
         {
             batchNo ??= string.Empty;
 
@@ -205,24 +208,90 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             const string insertSql = @"
 INSERT INTO dbo.SeedStock (SpeciesId, AreaId, BatchNo, SeedSourceId, Unit, PhysicalQuantity, InTransitQuantity, CreatedDate, CreatedBy)
-VALUES (@SpeciesId, @AreaId, @BatchNo, @SeedSourceId, 'pcs', 0, 0, SYSUTCDATETIME(), @CreatedBy);
+VALUES (@SpeciesId, @AreaId, @BatchNo, @SeedSourceId, @Unit, 0, 0, SYSUTCDATETIME(), @CreatedBy);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
             var insertCmd = new SqlCommand(insertSql, conn, tx);
             insertCmd.Parameters.AddWithValue("@SpeciesId", speciesId);
             insertCmd.Parameters.AddWithValue("@AreaId", areaId);
             insertCmd.Parameters.AddWithValue("@BatchNo", batchNo);
             insertCmd.Parameters.AddWithValue("@SeedSourceId", (object?)seedSourceId ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue("@Unit", string.IsNullOrWhiteSpace(unit) ? "pcs" : unit);
             insertCmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
             return (int)await insertCmd.ExecuteScalarAsync();
+        }
+
+        // Combined "receive new seed stock" for a simple, single-page nursery
+        // workflow: finds-or-creates the (Species, Area, BatchNo) pool and
+        // credits it with a 'StockIn' ledger entry, in ONE atomic transaction.
+        // Composes the two existing primitives above exactly the way
+        // CuttingProductionRepository.InsertAsync already composes
+        // CuttingStockRepository.GetOrCreateLockedAsync + RecordTransactionAsync --
+        // never a second, independent stock system.
+        public async Task<(bool Success, string? Message, int SeedStockId)> ReceiveAsync(
+            int speciesId, int areaId, string? batchNo, int? seedSourceId, string unit,
+            decimal quantity, DateTime receivedOn, string? notes, int? userId, string? createdBy)
+        {
+            if (speciesId <= 0)
+                return (false, "Seed / Variety is required.", 0);
+            if (areaId <= 0)
+                return (false, "Area is required.", 0);
+            if (quantity <= 0)
+                return (false, "Quantity must be greater than zero.", 0);
+            if (!PlantStockManager.Services.DirectSowingRules.IsWholeNumber(quantity))
+                return (false, "Quantity must be a whole number.", 0);
+            if (receivedOn.Date > DateTime.Today)
+                return (false, "Received On cannot be in the future.", 0);
+
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+
+            // Same "seed is received only at an active Main Office Area" rule
+            // InsertAsync already enforces -- Direct Sowing's single operational source.
+            using (var areaCmd = new SqlCommand("SELECT AreaType, IsActive FROM dbo.Area WHERE Id = @AreaId", conn))
+            {
+                areaCmd.Parameters.AddWithValue("@AreaId", areaId);
+                using var areaReader = await areaCmd.ExecuteReaderAsync();
+                if (!await areaReader.ReadAsync()
+                    || !PlantStockManager.Services.DirectSowingRules.IsMainOfficeSeedLocation(
+                           areaReader.IsDBNull(0) ? null : areaReader.GetString(0), areaReader.GetBoolean(1)))
+                    return (false, "Seed Stock can only be received at an active Main Office Area.", 0);
+            }
+
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                var seedStockId = await GetOrCreateLockedAsync(conn, tx, speciesId, areaId, batchNo ?? string.Empty, seedSourceId, createdBy, unit);
+
+                var (success, message) = await RecordTransactionAsync(
+                    conn, tx, seedStockId, quantity, "StockIn", "SeedStock", seedStockId, userId, notes, receivedOn);
+                if (!success)
+                {
+                    tx.Rollback();
+                    return (false, message, 0);
+                }
+
+                tx.Commit();
+                return (true, null, seedStockId);
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { }
+                return (false, ex.Message, 0);
+            }
         }
 
         // Records a signed stock movement and writes the matching
         // ledger row in the SAME transaction -- PhysicalQuantity is
         // never changed any other way. Enforces PhysicalQuantity >= 0
         // under lock. Mirrors PottedPlantStockRepository.RecordTransactionAsync.
+        // transactionDate: the business date the movement actually happened
+        // (e.g. "Received On" for a manual receipt) -- defaults to now, same
+        // as every existing caller already got before this parameter existed.
+        // CreatedAt (the row's own audit timestamp) is always "now" regardless.
         public async Task<(bool Success, string? Message)> RecordTransactionAsync(
             SqlConnection conn, SqlTransaction tx, int seedStockId, decimal quantityDelta,
-            string transactionType, string? referenceType, int? referenceId, int? userId, string? remarks)
+            string transactionType, string? referenceType, int? referenceId, int? userId, string? remarks,
+            DateTime? transactionDate = null)
         {
             var lockCmd = new SqlCommand("SELECT PhysicalQuantity FROM dbo.SeedStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
             lockCmd.Parameters.AddWithValue("@Id", seedStockId);
@@ -246,9 +315,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 INSERT INTO dbo.SeedStockTransactions
 (SeedStockId, TransactionDate, TransactionType, ReferenceType, ReferenceId, Quantity, BeforeQuantity, UserId, Remarks, CreatedAt)
 VALUES
-(@SeedStockId, SYSUTCDATETIME(), @TransactionType, @ReferenceType, @ReferenceId, @Quantity, @BeforeQuantity, @UserId, @Remarks, SYSUTCDATETIME());";
+(@SeedStockId, @TransactionDate, @TransactionType, @ReferenceType, @ReferenceId, @Quantity, @BeforeQuantity, @UserId, @Remarks, SYSUTCDATETIME());";
             var insertTxCmd = new SqlCommand(insertTxSql, conn, tx);
             insertTxCmd.Parameters.AddWithValue("@SeedStockId", seedStockId);
+            insertTxCmd.Parameters.AddWithValue("@TransactionDate", transactionDate ?? DateTime.UtcNow);
             insertTxCmd.Parameters.AddWithValue("@TransactionType", transactionType);
             insertTxCmd.Parameters.AddWithValue("@ReferenceType", (object?)referenceType ?? DBNull.Value);
             insertTxCmd.Parameters.AddWithValue("@ReferenceId", (object?)referenceId ?? DBNull.Value);
