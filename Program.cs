@@ -54,7 +54,6 @@ builder.Services.AddScoped<DispatchRepository>(); // Phase 10
 builder.Services.AddScoped<VendorRepository>(); // Phase 11
 builder.Services.AddScoped<PurchaseOrderRepository>(); // Phase 11
 builder.Services.AddScoped<LabRequestRepository>(); // Phase 12
-builder.Services.AddScoped<LabourLogRepository>(); // Phase 13
 
 // Role/permission foundation (Phase 14)
 builder.Services.AddScoped<RoleRepository>();

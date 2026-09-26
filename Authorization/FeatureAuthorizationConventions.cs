@@ -163,10 +163,6 @@ namespace PlantStockManager.Authorization
                 ["/Production/LabRequest/Details"] = R("Lab.View", "Lab.Enter"),
                 ["/Production/LabRequest/Create"] = R("Lab.Enter"),
                 ["/Production/LabRequest/Result"] = R("Lab.Enter"),
-                ["/Production/LabourLog/Index"] = R("Labour.View"),
-                ["/Production/LabourLog/Details"] = R("Labour.View"),
-                ["/Production/LabourLog/Create"] = R("Labour.Enter"),
-                ["/Production/LabourLog/Edit"] = R("Labour.Enter"),
 
                 // ---- Fertilizer --------------------------------------------
                 ["/Fertilizer/Stock"] = R("Fertilizer.View", "Fertilizer.Enter"),
