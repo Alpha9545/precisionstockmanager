@@ -13,12 +13,10 @@ namespace PlantStockManager.Pages.Data
         private readonly BookingRepository _bookingRepository;
         private readonly PlantTypeRepository _plantTypeRepository;
         private readonly PlantSpeciesRepository _plantSpeciesRepository;
-        private readonly EmployeeRepository _employeeRepo;
 
         public List<Booking> Bookings { get; set; } = new();
         public List<PlantType> PlantTypes { get; set; } = new();
         public List<PlantSpecies> PlantSpecies { get; set; } = new();
-        public List<Employee> Employees { get; set; } = new();
 
         [BindProperty(SupportsGet = true)]
         public int? SelectedPlantType { get; set; }
@@ -38,13 +36,11 @@ namespace PlantStockManager.Pages.Data
         public BookingsRecordModel(
             BookingRepository bookingRepository,
             PlantTypeRepository plantTypeRepository,
-            PlantSpeciesRepository plantSpeciesRepository,
-            EmployeeRepository employeeRepo)
+            PlantSpeciesRepository plantSpeciesRepository)
         {
             _bookingRepository = bookingRepository;
             _plantTypeRepository = plantTypeRepository;
             _plantSpeciesRepository = plantSpeciesRepository;
-            _employeeRepo = employeeRepo;
         }
 
         [BindProperty]
@@ -69,7 +65,6 @@ namespace PlantStockManager.Pages.Data
             }
 
             PlantTypes = await _plantTypeRepository.GetAllPlantTypes();
-            Employees = await _employeeRepo.GetAllEmployees(); // Fetch employees for dropdown
 
 
             if (SelectedPlantType.HasValue)

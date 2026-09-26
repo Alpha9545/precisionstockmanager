@@ -9,8 +9,12 @@ namespace PlantStockManager.Data
     //   Pot batch                 pots produced - ready pots                 (PotProductionBatches, Ready or Lost)
     //   Pot batch unused cuttings allocated - potted, recorded as wastage    (PotProductionBatches, Ready or Lost)
     //   Potted plant stock        'Wastage' ledger entries                   (PottedPlantStockTransactions)
-    // Seeds or cuttings left over below one complete tray stay in stock and
-    // are never wastage.
+    //   Ready tray stock          'Wastage' ledger entries                   (ReadyStockTransactions, incl. Outlet tray wastage)
+    //   Seed lot                  'Wastage' ledger entries                   (SeedStockTransactions -- the automatic
+    //                                                                         sub-tray remainder waste at sowing, plus
+    //                                                                         any other Seed Stock wastage)
+    // Cuttings left over below one complete tray still stay in stock and are
+    // never wastage (unchanged, Cutting-sourced sowing only).
     public class WastageRepository
     {
         private readonly DatabaseHelper _dbHelper;
@@ -121,6 +125,20 @@ SELECT * FROM (
     INNER JOIN dbo.PlantSpecies ps ON ps.Id = r.SpeciesId
     INNER JOIN dbo.PlantTypes pt ON pt.Id = ps.PlantTypeId
     LEFT JOIN dbo.Area a ON a.Id = r.AreaId
+    LEFT JOIN dbo.IMSUsers u ON u.Id = t.UserId
+    WHERE t.TransactionType = 'Wastage'
+
+    UNION ALL
+    SELECT CAST(t.TransactionDate AS date), N'Seed lot', N'Seed',
+           RTRIM(ps.Name), pt.Name, ps.Color, NULL, NULL,
+           ss.AreaId, a.Name, -t.Quantity, NULL,
+           t.Remarks, sw.SowingCode, u.Name, NULL
+    FROM dbo.SeedStockTransactions t
+    INNER JOIN dbo.SeedStock ss ON ss.Id = t.SeedStockId
+    INNER JOIN dbo.PlantSpecies ps ON ps.Id = ss.SpeciesId
+    INNER JOIN dbo.PlantTypes pt ON pt.Id = ps.PlantTypeId
+    LEFT JOIN dbo.Area a ON a.Id = ss.AreaId
+    LEFT JOIN dbo.SeedSowings sw ON t.ReferenceType = 'SeedSowing' AND sw.Id = t.ReferenceId
     LEFT JOIN dbo.IMSUsers u ON u.Id = t.UserId
     WHERE t.TransactionType = 'Wastage'
 ) w

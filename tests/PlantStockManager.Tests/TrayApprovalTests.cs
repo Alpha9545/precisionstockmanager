@@ -58,11 +58,16 @@ namespace PlantStockManager.Tests
         }
 
         [Fact]
-        public void MoreTraysThanSown_IsRefused()
+        public void MoreTraysThanSown_IsAcceptedWithZeroWastage()
         {
+            // Business rule change: 143 actual trays against 142 sown is a
+            // legitimate overage (e.g. the sowing under-counted trays) --
+            // accepted, 143 x 102 = 14,586 seedlings, zero wastage.
             var r = DirectSowingRules.ComputeTrayApproval(SeedsUsed, SowingTrays, Cavity, 0, 0, 143, null);
-            Assert.False(r.Ok);
-            Assert.Contains("cannot exceed the 142 trays sown", r.Error);
+            Assert.True(r.Ok, r.Error);
+            Assert.Equal(143, r.ActualTrays);
+            Assert.Equal(14586, r.ActualSeedlings);
+            Assert.Equal(0, r.Wastage);
         }
 
         [Theory]

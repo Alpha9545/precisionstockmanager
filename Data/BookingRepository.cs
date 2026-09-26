@@ -205,6 +205,13 @@ VALUES (@BookingId, @TransactionType, @Quantity, GETDATE(), @UpdatedBy, GETDATE(
         //        return bookings;
         //    }
 
+        // userId: unused. It used to silently restrict every user except Id 1 to
+        // only their own BookedById rows -- dbo.Bookings has no Area scoping, so
+        // that arbitrary per-user filter (not the page's own Booking.View/
+        // Booking.Direct/Dispatch.View/Reports.View authorization) was hiding
+        // this global report's rows from every ordinary user. Removed; kept in
+        // the signature to avoid touching every call site for a parameter that
+        // may still be wired up for a future, genuinely Area-scoped filter.
         public async Task<List<Booking>> GetBookingRecords(int? plantTypeId, int? speciesId, int month, int year, string status, int? userId)
         {
             var bookings = new List<Booking>();
@@ -251,11 +258,6 @@ WHERE YEAR(b.DeliveryDate) = @Year
                 if (speciesId.HasValue) sql += "  AND b.SpeciesId = @SpeciesId";
                 if (month > 0) sql += "  AND MONTH(b.DeliveryDate) = @Month";
 
-                // Special user-based filter: if the logged-in user is 14 or 15, restrict to that booking id
-                if (userId.HasValue && (userId.Value != 1))
-                {
-                    sql += "  AND b.BookedById = @BookingIdForUser";
-                }
                 sql += " ORDER BY b.DeliveryDate;";
 
                 using var cmd = new SqlCommand(sql, conn);
@@ -264,7 +266,6 @@ WHERE YEAR(b.DeliveryDate) = @Year
                 if (plantTypeId.HasValue) cmd.Parameters.AddWithValue("@PlantTypeId", plantTypeId.Value);
                 if (speciesId.HasValue) cmd.Parameters.AddWithValue("@SpeciesId", speciesId.Value);
                 if (month > 0) cmd.Parameters.AddWithValue("@Month", month);
-                if (userId.HasValue && (userId.Value != 1)) cmd.Parameters.AddWithValue("@BookingIdForUser", userId);
                 using var r = await cmd.ExecuteReaderAsync();
 
                 // Resolve ordinals once

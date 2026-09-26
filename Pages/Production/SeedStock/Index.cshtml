@@ -8,6 +8,12 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="mb-0">Seed Stock</h4>
         <div>
+            <a asp-page="/Production/SeedStock/Index" asp-page-handler="ExportPdf"
+               asp-route-search="@Model.Search" asp-route-plantTypeId="@Model.PlantTypeId" asp-route-seedSourceId="@Model.SeedSourceId" asp-route-onlyAvailable="@Model.OnlyAvailable"
+               class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener">Print</a>
+            <a asp-page="/Production/SeedStock/Index" asp-page-handler="ExportExcel"
+               asp-route-search="@Model.Search" asp-route-plantTypeId="@Model.PlantTypeId" asp-route-seedSourceId="@Model.SeedSourceId" asp-route-onlyAvailable="@Model.OnlyAvailable"
+               class="btn btn-outline-secondary btn-sm">Export Excel</a>
             <a asp-page="/Production/SeedStock/Create" class="btn btn-outline-primary btn-sm">New Species/Area/Lot Pool</a>
         </div>
     </div>

@@ -147,7 +147,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             if (MotherPlant.AreaId.HasValue)
             {
                 var area = await _areaRepo.GetAreaById(MotherPlant.AreaId.Value);
-                var polyhouse = await _polyhouseRepo.GetByIdAsync(MotherPlant.AreaId ?? 0);
+                var polyhouse = await _polyhouseRepo.GetByIdAsync(MotherPlant.PolyhouseId);
                 if (area == null || polyhouse == null || polyhouse.AreaId != MotherPlant.AreaId)
                 {
                     ModelState.AddModelError("MotherPlant.PolyhouseId", "Choose a Polyhouse of the selected Area (assign Polyhouses to Areas in Admin > Polyhouses).");

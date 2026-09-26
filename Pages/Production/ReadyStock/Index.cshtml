@@ -11,10 +11,18 @@
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">Ready Stock <small class="text-muted fs-6">(supervisor-approved batches)</small></h2>
-        @if (canSeeApproval)
-        {
-            <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-outline-secondary">Supervisor Approval</a>
-        }
+        <div>
+            <a asp-page="/Production/ReadyStock/Index" asp-page-handler="ExportPdf"
+               asp-route-Search="@Model.Search" asp-route-IncludeEmpty="@Model.IncludeEmpty"
+               class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener">Print</a>
+            <a asp-page="/Production/ReadyStock/Index" asp-page-handler="ExportExcel"
+               asp-route-Search="@Model.Search" asp-route-IncludeEmpty="@Model.IncludeEmpty"
+               class="btn btn-outline-secondary btn-sm">Export Excel</a>
+            @if (canSeeApproval)
+            {
+                <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-outline-secondary">Supervisor Approval</a>
+            }
+        </div>
     </div>
 
     <form method="get" class="row g-2 mb-3">

@@ -223,8 +223,10 @@ namespace PlantStockManager.Services
                 return (false, 0, 0, 0, 0, "Actual Ready Trays must be a whole number of complete trays.");
             if (!sowingTrays.HasValue || sowingTrays.Value < 1)
                 return (false, 0, 0, 0, 0, "The sowing has no tray quantity recorded; it cannot be approved by trays.");
-            if (actualTrays > sowingTrays.Value)
-                return (false, 0, 0, 0, 0, $"Actual Ready Trays ({actualTrays:N0}) cannot exceed the {sowingTrays.Value:N0} trays sown.");
+            // A higher actual count than originally sown/estimated is a
+            // legitimate business outcome (e.g. germination undercounted) and
+            // is allowed -- ComputeApproval below closes the batch with zero
+            // wastage in that case rather than a negative one.
 
             var trays = (int)actualTrays;
             var seedlings = trays * (decimal)cavity.Value;
@@ -249,15 +251,18 @@ namespace PlantStockManager.Services
             var remaining = quantitySown - alreadyReady - alreadyWasted;
             if (remaining <= 0)
                 return (false, 0, "This sowing has already been fully approved.");
-            if (readyNow > remaining)
-                return (false, 0, $"Actual Ready Quantity ({readyNow:N2}) cannot exceed the sown quantity still to be approved ({remaining:N2}).");
-            var wastage = remaining - readyNow;
+            // Actual Ready may legitimately exceed what was still expected
+            // (e.g. the original sowing count under-estimated the batch) --
+            // that closes the batch with zero wastage, never negative.
+            // Only an actual count BELOW what was expected is still wastage,
+            // and still needs the same Wastage Reason it always did.
+            var wastage = readyNow >= remaining ? 0 : remaining - readyNow;
             if (wastage > 0 && !IsValidWastageReason(wastageReason))
                 return (false, wastage, $"A Wastage Reason is required when wastage is {wastage:N2} (one of: {string.Join(", ", WastageReasons)}).");
             if (wastage == 0 && !string.IsNullOrWhiteSpace(wastageReason) && !IsValidWastageReason(wastageReason))
                 return (false, 0, "Invalid Wastage Reason.");
-            if (alreadyReady + readyNow + alreadyWasted + wastage != quantitySown)
-                return (false, wastage, "Ready + Wastage must equal the Sown Quantity.");
+            if (alreadyReady + readyNow + alreadyWasted + wastage < quantitySown)
+                return (false, wastage, "Ready + Wastage must account for at least the Sown Quantity.");
             return (true, wastage, null);
         }
     }

@@ -271,7 +271,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 // 6) Close the batch.
                 var newReady = confirmedSoFar + readyQuantity;
                 var newWastage = wastedSoFar + wastage;
-                var newStatus = newReady + newWastage == quantitySown ? "Completed" : "Sown";
+                // >= (not ==): an approval can now legitimately push Ready
+                // above QuantitySown (Wastage stays 0 in that case), so the
+                // batch must still close instead of getting stuck "Sown".
+                var newStatus = newReady + newWastage >= quantitySown ? "Completed" : "Sown";
                 var updateSowingCmd = new SqlCommand(@"
 UPDATE dbo.SeedSowings
 SET ConfirmedReadyQuantity = @Ready, WastageQuantity = @Wastage, Status = @Status,

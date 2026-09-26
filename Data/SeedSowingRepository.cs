@@ -478,15 +478,35 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
                 var newId = (int)(await cmd.ExecuteScalarAsync())!;
 
-                // 6) Consume ONLY the seeds sown in complete trays ('Sown'
-                // ledger entry = -QuantitySown); the remaining seeds stay in
-                // the lot. The ledger/CHECK constraints refuse a negative balance.
+                // 6) Consume the seeds sown in complete trays ('Sown' ledger
+                // entry = -QuantitySown). The ledger/CHECK constraints refuse
+                // a negative balance.
                 var (success, message) = await _seedStockRepo.RecordTransactionAsync(
                     conn, tx, entry.SourceSeedStockId, -entry.QuantitySown, "Sown", "SeedSowing", newId, userId, entry.Remarks);
                 if (!success)
                 {
                     tx.Rollback();
                     return (false, message, 0);
+                }
+
+                // 6b) The sub-tray remainder (SeedQuantity - QuantitySown, always
+                // less than one tray) is no longer left in the lot: it is wasted
+                // automatically, in the same transaction, with no reason prompt
+                // (the business decision the user approved for this workflow --
+                // manual wastage elsewhere keeps its own reason requirement,
+                // untouched). Skipped entirely when the quantity divided evenly
+                // into whole trays, so no zero-quantity waste row is ever created.
+                var seedRemainder = entry.SeedQuantity - entry.QuantitySown;
+                if (seedRemainder > 0)
+                {
+                    var (wasteOk, wasteMessage) = await _seedStockRepo.RecordTransactionAsync(
+                        conn, tx, entry.SourceSeedStockId, -seedRemainder, "Wastage", "SeedSowing", newId, userId,
+                        "Automatic: sub-tray remainder wasted at sowing");
+                    if (!wasteOk)
+                    {
+                        tx.Rollback();
+                        return (false, wasteMessage, 0);
+                    }
                 }
 
                 tx.Commit();

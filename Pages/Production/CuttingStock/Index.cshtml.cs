@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
+using PlantStockManager.Services;
 using CuttingStockModel = PlantStockManager.Models.CuttingStock;
 
 namespace PlantStockManager.Pages.Production.CuttingStock
@@ -28,6 +30,11 @@ namespace PlantStockManager.Pages.Production.CuttingStock
         {
             Search = search;
             ShowEmpty = showEmpty;
+            Stock = await LoadFilteredAsync(search, showEmpty);
+        }
+
+        private async Task<List<CuttingStockModel>> LoadFilteredAsync(string? search, bool showEmpty)
+        {
             var all = _areaAccess.FilterByArea(User, await _cuttingStockRepo.GetAllAsync(), s => (int?)s.AreaId);
             if (!showEmpty)
                 all = all.Where(s => s.PhysicalQuantity > 0).ToList();
@@ -39,7 +46,32 @@ namespace PlantStockManager.Pages.Production.CuttingStock
                                      || (s.SpeciesColor ?? "").Contains(t, StringComparison.OrdinalIgnoreCase)
                                      || (s.AreaName ?? "").Contains(t, StringComparison.OrdinalIgnoreCase)).ToList();
             }
-            Stock = all;
+            return all;
+        }
+
+        private static readonly string[] ExportHeaders =
+            { "Species", "Plant Type", "Area", "Physical Qty", "In Transit", "Available Qty" };
+
+        private static IReadOnlyList<object?> Row(CuttingStockModel s) => new object?[]
+            { s.SpeciesName, s.PlantTypeName, s.AreaName, s.PhysicalQuantity, s.InTransitQuantity, s.AvailableQuantity };
+
+        public async Task<IActionResult> OnGetExportExcelAsync(string? search, bool showEmpty = false)
+        {
+            var list = await LoadFilteredAsync(search, showEmpty);
+            var bytes = ExportHelper.BuildExcel("Cutting Stock", ExportHeaders, list.Select(Row));
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"CuttingStock_{DateTime.Now:yyyyMMdd_HHmm}.xlsx");
+        }
+
+        public async Task<IActionResult> OnGetExportPdfAsync(string? search, bool showEmpty = false)
+        {
+            var list = await LoadFilteredAsync(search, showEmpty);
+            var rows = list.Select(s => (IReadOnlyList<string>)new[]
+            {
+                s.SpeciesName ?? "", s.PlantTypeName ?? "", s.AreaName ?? "",
+                s.PhysicalQuantity.ToString("N0"), s.InTransitQuantity.ToString("N0"), s.AvailableQuantity.ToString("N0")
+            });
+            var bytes = ExportHelper.BuildPdf("Cutting Stock", ExportHeaders, rows);
+            return File(bytes, "application/pdf", $"CuttingStock_{DateTime.Now:yyyyMMdd_HHmm}.pdf");
         }
     }
 }

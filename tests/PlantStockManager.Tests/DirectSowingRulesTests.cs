@@ -86,11 +86,11 @@ namespace PlantStockManager.Tests
         }
 
         [Fact]
-        public void Approval_ReadyAboveSown_IsRefused()
+        public void Approval_ReadyAboveSown_IsAcceptedWithZeroWastage()
         {
-            var (ok, _, error) = DirectSowingRules.ComputeApproval(500, 0, 0, 501, null);
-            Assert.False(ok);
-            Assert.Contains("cannot exceed", error);
+            var (ok, wastage, error) = DirectSowingRules.ComputeApproval(500, 0, 0, 501, null);
+            Assert.True(ok, error);
+            Assert.Equal(0, wastage);
         }
 
         [Fact]

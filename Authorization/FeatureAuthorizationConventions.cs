@@ -60,7 +60,6 @@ namespace PlantStockManager.Authorization
 
                 // ---- Administration ----------------------------------------
                 ["/Admin/Users"] = R("Admin.ManageUsers"),
-                ["/Admin/Employee"] = R("Admin.ManageUsers"),
                 ["/Admin/UserRoles"] = R("Admin.ManageUsers"),
                 ["/Admin/Roles"] = R("Admin.ManageRoles"),
                 ["/Admin/Area"] = R("Admin.ManageAreas"),

@@ -154,12 +154,23 @@ namespace PlantStockManager.Tests
             => Assert.False(DirectSowingRules.ComputeApproval(4000, 3700, 300, 1, null).Ok);
 
         [Theory]
-        [InlineData(4001, "Disease")]   // more than sown
         [InlineData(-1, null)]          // negative
         [InlineData(3700.5, "Disease")] // fractional plants
         [InlineData(3700, null)]        // wastage 300 without a reason
         [InlineData(3700, "Rain")]      // unknown reason
         public void InvalidApprovalQuantities_AreRefused(decimal ready, string? reason)
             => Assert.False(DirectSowingRules.ComputeApproval(4000, 0, 0, ready, reason).Ok);
+
+        // Business rule change: an actual count ABOVE what was sown/estimated
+        // is now accepted (e.g. the original count under-stated the batch) --
+        // it closes with zero wastage, never negative, and never requires a
+        // reason (there is nothing to explain: nothing was lost).
+        [Fact]
+        public void ApprovalAboveSown_IsAcceptedWithZeroWastage()
+        {
+            var (ok, wastage, error) = DirectSowingRules.ComputeApproval(4000, 0, 0, 4001, null);
+            Assert.True(ok, error);
+            Assert.Equal(0, wastage);
+        }
     }
 }

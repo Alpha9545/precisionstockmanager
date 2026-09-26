@@ -1,6 +1,8 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
+using PlantStockManager.Services;
 using SeedStockModel = PlantStockManager.Models.SeedStock;
 
 namespace PlantStockManager.Pages.Production.SeedStock
@@ -52,10 +54,42 @@ namespace PlantStockManager.Pages.Production.SeedStock
             OnlyAvailable = onlyAvailable;
             PlantTypes = await _plantTypeRepo.GetAllPlantTypes();
             SeedSources = await _seedSourceRepo.GetAllSeedSources();
+            SeedStocks = await LoadFilteredAsync(search, plantTypeId, seedSourceId, onlyAvailable);
+        }
+
+        // Exactly the same query + Area-scope filter OnGetAsync uses -- an
+        // export can never show more than the on-screen list would.
+        private async Task<List<SeedStockModel>> LoadFilteredAsync(string? search, int? plantTypeId, int? seedSourceId, bool onlyAvailable)
+        {
             var all = await _seedStockRepo.SearchAsync(search, plantTypeId, seedSourceId, onlyAvailable, max: 1000);
-            SeedStocks = _areaAccessService.HasFullAreaAccess(User)
+            return _areaAccessService.HasFullAreaAccess(User)
                 ? all
                 : all.Where(s => _areaAccessService.CanAccessArea(User, s.AreaId)).ToList();
+        }
+
+        private static readonly string[] ExportHeaders =
+            { "Species", "Plant Type", "Area", "Batch No.", "Seed Source", "Unit", "Physical Qty", "In Transit", "Available Qty" };
+
+        private static IReadOnlyList<object?> Row(SeedStockModel s) => new object?[]
+            { s.SpeciesName, s.PlantTypeName, s.AreaName, s.BatchNo, s.SeedSourceName, s.Unit, s.PhysicalQuantity, s.InTransitQuantity, s.AvailableQuantity };
+
+        public async Task<IActionResult> OnGetExportExcelAsync(string? search, int? plantTypeId, int? seedSourceId, bool onlyAvailable = false)
+        {
+            var list = await LoadFilteredAsync(search, plantTypeId, seedSourceId, onlyAvailable);
+            var bytes = ExportHelper.BuildExcel("Seed Stock", ExportHeaders, list.Select(Row));
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"SeedStock_{DateTime.Now:yyyyMMdd_HHmm}.xlsx");
+        }
+
+        public async Task<IActionResult> OnGetExportPdfAsync(string? search, int? plantTypeId, int? seedSourceId, bool onlyAvailable = false)
+        {
+            var list = await LoadFilteredAsync(search, plantTypeId, seedSourceId, onlyAvailable);
+            var rows = list.Select(s => (IReadOnlyList<string>)new[]
+            {
+                s.SpeciesName ?? "", s.PlantTypeName ?? "", s.AreaName ?? "", s.BatchNo ?? "",
+                s.SeedSourceName ?? "", s.Unit ?? "", s.PhysicalQuantity.ToString("N0"), s.InTransitQuantity.ToString("N0"), s.AvailableQuantity.ToString("N0")
+            });
+            var bytes = ExportHelper.BuildPdf("Seed Stock", ExportHeaders, rows);
+            return File(bytes, "application/pdf", $"SeedStock_{DateTime.Now:yyyyMMdd_HHmm}.pdf");
         }
     }
 }
