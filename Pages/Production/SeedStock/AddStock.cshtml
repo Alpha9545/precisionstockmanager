@@ -8,6 +8,9 @@
     <div class="card shadow-sm mx-auto" style="max-width: 600px;">
         <div class="card-header">
             <h4 class="mb-0">Add Stock &mdash; @Model.SeedStock?.SpeciesName @@ @Model.SeedStock?.AreaName</h4>
+            <small class="text-muted">
+                Lot: @(string.IsNullOrEmpty(Model.SeedStock?.BatchNo) ? "(no lot no.)" : Model.SeedStock!.BatchNo)
+            </small>
         </div>
         <div class="card-body">
             @if (!ModelState.IsValid)
@@ -22,7 +25,14 @@
                 </div>
             }
 
-            <p>Current Physical Quantity: <strong>@Model.SeedStock?.PhysicalQuantity.ToString("N2")</strong> @Model.SeedStock?.Unit</p>
+            @* Stock balance visible before issuing/sowing (Phase 9): Physical AND
+               Available (Physical - InTransit) shown together, so it's clear
+               whether some of this lot is already committed elsewhere. *@
+            <div class="row g-3 mb-2">
+                <div class="col-md-4"><span class="text-muted small">Physical</span><div class="fs-5 fw-bold">@Model.SeedStock?.PhysicalQuantity.ToString("N2") @Model.SeedStock?.Unit</div></div>
+                <div class="col-md-4"><span class="text-muted small">In Transit</span><div class="fs-5 fw-bold">@Model.SeedStock?.InTransitQuantity.ToString("N2") @Model.SeedStock?.Unit</div></div>
+                <div class="col-md-4"><span class="text-muted small">Available</span><div class="fs-5 fw-bold text-success">@Model.SeedStock?.AvailableQuantity.ToString("N2") @Model.SeedStock?.Unit</div></div>
+            </div>
 
             <form method="post">
                 <div class="mb-3">

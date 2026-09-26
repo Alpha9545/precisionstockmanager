@@ -32,11 +32,17 @@
                     </select>
                 </div>
 
-                <div class="mb-3">
+                <div class="mb-3 position-relative">
                     <label class="form-label fw-bold">Species/Variety</label>
-                    <select asp-for="SeedStock.SpeciesId" id="speciesSelect" class="form-select">
-                        <option value="">-- Select Plant Type first --</option>
-                    </select>
+                    <input type="hidden" asp-for="SeedStock.SpeciesId" id="speciesId" />
+                    <input type="text" id="speciesSearchInput" class="form-control" autocomplete="off"
+                           value="@Model.SelectedSpeciesName" placeholder="Type at least 2 letters to search a variety by name..." />
+                    <div id="speciesResults" class="list-group position-absolute w-100 d-none"
+                         style="z-index: 20; max-height: 260px; overflow-y: auto;"></div>
+                    <div class="form-text">
+                        Optionally pick a Plant Type above first to narrow the search; results are limited to the
+                        closest 30 matches, so keep typing to narrow further among 1,000+ varieties.
+                    </div>
                 </div>
 
                 <div class="mb-3">
@@ -82,25 +88,68 @@
 
 @section Scripts {
     <script>
-        document.getElementById('plantTypeSelect').addEventListener('change', function () {
-            var plantTypeId = this.value;
-            var speciesSelect = document.getElementById('speciesSelect');
-            speciesSelect.innerHTML = '<option value="">-- Loading... --</option>';
-            if (!plantTypeId) {
-                speciesSelect.innerHTML = '<option value="">-- Select Plant Type first --</option>';
-                return;
+        // Phase 9 (Seed Stock Usability): a small, self-contained
+        // search-as-you-type widget over PlantSpeciesRepository.SearchAsync
+        // -- never renders 1,000+ options into a <select>. Plant Type
+        // remains an optional narrowing filter, exactly as before.
+        $(function () {
+            const handlerUrl = '@Url.Page("/Production/SeedStock/Create")';
+            let debounceTimer = null;
+
+            function currentPlantTypeId() {
+                return $('#plantTypeSelect').val() || '';
             }
-            fetch('?handler=Species&plantTypeId=' + plantTypeId)
-                .then(r => r.json())
-                .then(data => {
-                    speciesSelect.innerHTML = '<option value="">-- Select Species --</option>';
-                    data.forEach(function (s) {
-                        var opt = document.createElement('option');
-                        opt.value = s.id;
-                        opt.text = s.name;
-                        speciesSelect.appendChild(opt);
+
+            function selectSpecies(id, name) {
+                $('#speciesId').val(id);
+                $('#speciesSearchInput').val(name);
+                $('#speciesResults').addClass('d-none').empty();
+            }
+
+            function clearSelection() {
+                $('#speciesId').val('');
+            }
+
+            function renderResults(list) {
+                const $results = $('#speciesResults');
+                $results.empty();
+                if (!list.length) {
+                    $results.append($('<div class="list-group-item text-muted"></div>').text('No matching variety found.'));
+                } else {
+                    list.forEach(function (s) {
+                        const label = s.scientificName ? (s.name + ' (' + s.scientificName + ')') : s.name;
+                        const $item = $('<button type="button" class="list-group-item list-group-item-action"></button>').text(label);
+                        $item.on('click', function () { selectSpecies(s.id, s.name); });
+                        $results.append($item);
                     });
-                });
+                }
+                $results.removeClass('d-none');
+            }
+
+            function search() {
+                const q = $('#speciesSearchInput').val().trim();
+                clearSelection();
+                if (q.length < 2) {
+                    $('#speciesResults').addClass('d-none').empty();
+                    return;
+                }
+                $.getJSON(handlerUrl, { handler: 'SearchSpecies', q: q, plantTypeId: currentPlantTypeId() || null }, renderResults);
+            }
+
+            $('#speciesSearchInput').on('input', function () {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(search, 250);
+            });
+            $('#plantTypeSelect').on('change', function () {
+                // Re-narrow the current search text (if any) to the newly
+                // chosen Plant Type; does not itself load a species list.
+                if ($('#speciesSearchInput').val().trim().length >= 2) search();
+            });
+            $(document).on('click', function (e) {
+                if (!$(e.target).closest('#speciesSearchInput, #speciesResults').length) {
+                    $('#speciesResults').addClass('d-none');
+                }
+            });
         });
     </script>
 }

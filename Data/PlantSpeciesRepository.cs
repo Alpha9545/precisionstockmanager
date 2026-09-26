@@ -61,6 +61,51 @@ namespace PlantStockManager.Data
             return speciesList;
         }
 
+        // Phase 9 (Seed Stock Usability): a fast, capped name search over
+        // PlantSpecies for stock-entry pages with 1,000+ varieties --
+        // never loads every row (unlike GetAllAsync/GetSpeciesByPlantType
+        // above, both still used unchanged by their own existing
+        // callers). Optionally narrowed by plantTypeId (the same "Plant
+        // Type first" filter those pages already offer) and/or a name/
+        // scientific-name substring; always capped at `limit` rows so a
+        // broad or empty query can never return the whole table. Reused
+        // by both Pages/Production/SeedStock/Create.cshtml.cs and
+        // Pages/Production/SeedSowing/Create.cshtml.cs so their two
+        // variety-search boxes can never silently drift apart.
+        public async Task<List<PlantSpecies>> SearchAsync(string? query, int? plantTypeId = null, int limit = 30)
+        {
+            var speciesList = new List<PlantSpecies>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+
+            const string sql = @"
+SELECT TOP (@Limit) Id, PlantTypeId, Name, ScientificName, ReadyStockDays
+FROM PlantSpecies
+WHERE (@PlantTypeId IS NULL OR PlantTypeId = @PlantTypeId)
+  AND (@Query IS NULL OR Name LIKE @Query OR ScientificName LIKE @Query)
+ORDER BY Name";
+
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@Limit", limit > 0 ? limit : 30);
+            cmd.Parameters.AddWithValue("@PlantTypeId", (object?)plantTypeId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Query", string.IsNullOrWhiteSpace(query) ? (object)DBNull.Value : $"%{query.Trim()}%");
+
+            using var reader = await cmd.ExecuteReaderAsync();
+            var readyStockDaysOrdinal = reader.GetOrdinal("ReadyStockDays");
+            while (await reader.ReadAsync())
+            {
+                speciesList.Add(new PlantSpecies
+                {
+                    Id = reader.GetInt32(0),
+                    PlantTypeId = reader.GetInt32(1),
+                    Name = reader.GetString(2),
+                    ScientificName = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    ReadyStockDays = reader.IsDBNull(readyStockDaysOrdinal) ? (int?)null : reader.GetInt32(readyStockDaysOrdinal)
+                });
+            }
+            return speciesList;
+        }
+
         public async Task<List<PlantSpecies>> GetSpeciesByPlantType(int plantTypeId)
         {
             var speciesList = new List<PlantSpecies>();

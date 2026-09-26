@@ -43,15 +43,26 @@ namespace PlantStockManager.Pages.Production.SeedStock
         public List<PlantType> PlantTypes { get; set; } = new();
         public List<SeedSource> SeedSources { get; set; } = new();
 
+        // Phase 9: re-displayed in the search box after a failed POST, so
+        // the user's already-made variety choice isn't silently lost just
+        // because the search box itself has no server-rendered options.
+        public string? SelectedSpeciesName { get; set; }
+
         public async Task OnGetAsync()
         {
             await LoadDropdownsAsync();
         }
 
-        public async Task<JsonResult> OnGetSpeciesAsync(int plantTypeId)
+        // Phase 9 (Seed Stock Usability): a fast, capped variety search --
+        // never renders 1,000+ options into one <select>. plantTypeId is
+        // an OPTIONAL narrowing filter (Plant Type chosen first, same as
+        // before); q is the free-text name search typed into the box.
+        // Always capped (PlantSpeciesRepository.SearchAsync's own limit)
+        // so a broad/empty query never returns the whole table.
+        public async Task<JsonResult> OnGetSearchSpeciesAsync(string? q, int? plantTypeId)
         {
-            var species = await _plantSpeciesRepo.GetSpeciesByPlantType(plantTypeId);
-            return new JsonResult(species.Select(s => new { id = s.Id, name = s.Name }));
+            var species = await _plantSpeciesRepo.SearchAsync(q, plantTypeId);
+            return new JsonResult(species.Select(s => new { id = s.Id, name = s.Name, scientificName = s.ScientificName }));
         }
 
         public async Task<IActionResult> OnPostAsync()
@@ -68,6 +79,8 @@ namespace PlantStockManager.Pages.Production.SeedStock
             if (!ModelState.IsValid)
             {
                 await LoadDropdownsAsync();
+                if (SeedStock.SpeciesId > 0)
+                    SelectedSpeciesName = (await _plantSpeciesRepo.GetByIdAsync(SeedStock.SpeciesId))?.Name;
                 return Page();
             }
 

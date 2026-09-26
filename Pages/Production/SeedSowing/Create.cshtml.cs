@@ -69,6 +69,14 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         public bool AreaScopeEnforced => _areaAccessService.IsEnforced;
         public IReadOnlyList<string> CavityTypes => DirectSowingRules.CavityTypes;
 
+        // Phase 9: re-displayed in the Variety search box after a failed
+        // POST, so the user's already-made choice isn't silently lost
+        // just because the search box itself has no server-rendered
+        // options (same reasoning as SeedStock/Create.cshtml.cs's own
+        // SelectedSpeciesName).
+        public string? SelectedSpeciesName { get; set; }
+        public int? SelectedSpeciesGrowingDays { get; set; }
+
         public async Task OnGetAsync()
         {
             SeedSowing.SowingDate = DateTime.Today;
@@ -107,10 +115,17 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             });
         }
 
-        // Varieties of a Species, with their growing days.
-        public async Task<JsonResult> OnGetVarietiesAsync(int plantTypeId)
+        // Phase 9 (Seed Stock Usability): fast, capped variety search
+        // within the chosen Species (PlantType) -- never renders 1,000+
+        // varieties into one <select>. q is optional; an empty/short q
+        // still returns up to PlantSpeciesRepository.SearchAsync's own
+        // capped default so the box isn't empty the moment a Plant Type
+        // is chosen, but a large Plant Type still needs typing to narrow
+        // further, exactly like Pages/Production/SeedStock/Create.cshtml.cs's
+        // own search box (same shared repository method).
+        public async Task<JsonResult> OnGetVarietiesAsync(int plantTypeId, string? q = null)
         {
-            var list = await _plantSpeciesRepo.GetSpeciesByPlantType(plantTypeId);
+            var list = await _plantSpeciesRepo.SearchAsync(q, plantTypeId);
             return new JsonResult(list.Select(v => new { id = v.Id, name = v.Name.Trim(), growingDays = v.ReadyStockDays }));
         }
 
@@ -183,6 +198,12 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             if (!ModelState.IsValid)
             {
                 await LoadDropdownsAsync();
+                if (SeedSowing.SpeciesId > 0)
+                {
+                    var species = await _plantSpeciesRepo.GetByIdAsync(SeedSowing.SpeciesId);
+                    SelectedSpeciesName = species?.Name;
+                    SelectedSpeciesGrowingDays = species?.ReadyStockDays;
+                }
                 return Page();
             }
 

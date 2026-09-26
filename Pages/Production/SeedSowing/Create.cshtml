@@ -68,12 +68,14 @@
                         </select>
                     </div>
 
-                    <div class="col-md-4">
+                    <div class="col-md-4 position-relative">
                         <label class="form-label fw-bold">Variety</label>
-                        <select asp-for="SeedSowing.SpeciesId" id="varietySelect" class="form-select" required
-                                data-selected="@(Model.SeedSowing.SpeciesId > 0 ? Model.SeedSowing.SpeciesId.ToString() : "")">
-                            <option value="">-- Select Species first --</option>
-                        </select>
+                        <input type="hidden" asp-for="SeedSowing.SpeciesId" id="varietySelect"
+                               data-name="@Model.SelectedSpeciesName" data-days="@Model.SelectedSpeciesGrowingDays" />
+                        <input type="text" id="varietySearchInput" class="form-control" autocomplete="off" disabled
+                               placeholder="-- Select Species first --" />
+                        <div id="varietyResults" class="list-group position-absolute w-100 d-none"
+                             style="z-index: 20; max-height: 260px; overflow-y: auto;"></div>
                         <div class="form-text" id="growingDaysInfo"></div>
                     </div>
 
@@ -164,6 +166,7 @@
             const handlerUrl = '@Url.Page("/Production/SeedSowing/Create")';
             let growingDays = null;
             let available = null;
+            let varietyDebounce = null;
 
             function fill($select, items, placeholder, textFn, dataFn) {
                 const selected = String($select.data('selected') || '');
@@ -186,28 +189,65 @@
                 });
             }
 
-            function loadVarieties() {
-                const typeId = $('#plantTypeSelect').val();
-                const $v = $('#varietySelect');
-                if (!typeId) { fill($v, [], '-- Select Species first --', x => x.name); onVarietyChange(); return; }
-                $.getJSON(handlerUrl, { handler: 'Varieties', plantTypeId: typeId }, function (list) {
-                    fill($v, list, '-- Select Variety --',
-                        x => x.name + (x.growingDays ? ' (' + x.growingDays + ' days)' : ' (growing days not set)'),
-                        ($o, x) => $o.attr('data-days', x.growingDays || ''));
-                    onVarietyChange();
-                });
-            }
-
-            function onVarietyChange() {
-                const $opt = $('#varietySelect option:selected');
-                const days = parseInt($opt.attr('data-days'), 10);
-                growingDays = isNaN(days) ? null : days;
+            // Phase 9 (Seed Stock Usability): a fast, capped variety search
+            // scoped to the chosen Species (Plant Type) -- never renders
+            // 1,000+ varieties into one <select>. Mirrors
+            // Pages/Production/SeedStock/Create.cshtml's own search box,
+            // both backed by the same PlantSpeciesRepository.SearchAsync.
+            function selectVariety(id, name, days) {
+                $('#varietySelect').val(id);
+                $('#varietySearchInput').val(name);
+                $('#varietyResults').addClass('d-none').empty();
+                growingDays = (days === null || days === undefined || days === '') ? null : parseInt(days, 10);
                 const $info = $('#growingDaysInfo');
-                if (!$('#varietySelect').val()) { $info.text('').removeClass('text-danger'); }
-                else if (growingDays) { $info.text('Growing days: ' + growingDays).removeClass('text-danger'); }
+                if (growingDays) { $info.text('Growing days: ' + growingDays).removeClass('text-danger'); }
                 else { $info.text('Growing days are not configured for this variety - sowing will be refused. Set them in Administration > Plant Master.').addClass('text-danger'); }
                 updateExpected();
                 loadSeedLots();
+            }
+
+            function clearVariety() {
+                $('#varietySelect').val('');
+                growingDays = null;
+                $('#growingDaysInfo').text('').removeClass('text-danger');
+                updateExpected();
+                loadSeedLots();
+            }
+
+            function renderVarietyResults(list) {
+                const $results = $('#varietyResults');
+                $results.empty();
+                if (!list.length) {
+                    $results.append($('<div class="list-group-item text-muted"></div>').text('No matching variety found.'));
+                } else {
+                    list.forEach(function (v) {
+                        const label = v.name + (v.growingDays ? ' (' + v.growingDays + ' days)' : ' (growing days not set)');
+                        const $item = $('<button type="button" class="list-group-item list-group-item-action"></button>').text(label);
+                        $item.on('click', function () { selectVariety(v.id, v.name, v.growingDays); });
+                        $results.append($item);
+                    });
+                }
+                $results.removeClass('d-none');
+            }
+
+            function searchVarieties() {
+                const typeId = $('#plantTypeSelect').val();
+                const q = $('#varietySearchInput').val().trim();
+                if (!typeId) return;
+                $.getJSON(handlerUrl, { handler: 'Varieties', plantTypeId: typeId, q: q }, renderVarietyResults);
+            }
+
+            function loadVarieties() {
+                const typeId = $('#plantTypeSelect').val();
+                const $input = $('#varietySearchInput');
+                clearVariety();
+                $input.val('');
+                $('#varietyResults').addClass('d-none').empty();
+                if (!typeId) {
+                    $input.prop('disabled', true).attr('placeholder', '-- Select Species first --');
+                    return;
+                }
+                $input.prop('disabled', false).attr('placeholder', 'Type at least 2 letters to search a variety by name...');
             }
 
             function loadSeedLots() {
@@ -247,7 +287,18 @@
 
             $('#areaSelect').on('change', loadPolyhouses);
             $('#plantTypeSelect').on('change', loadVarieties);
-            $('#varietySelect').on('change', onVarietyChange);
+            $('#varietySearchInput').on('input', function () {
+                $('#varietySelect').val(''); // any prior selection is invalidated by further typing
+                const q = $(this).val().trim();
+                clearTimeout(varietyDebounce);
+                if (q.length < 2) { $('#varietyResults').addClass('d-none').empty(); return; }
+                varietyDebounce = setTimeout(searchVarieties, 250);
+            });
+            $(document).on('click', function (e) {
+                if (!$(e.target).closest('#varietySearchInput, #varietyResults').length) {
+                    $('#varietyResults').addClass('d-none');
+                }
+            });
             $('#seedLotSelect').on('change', onLotChange);
             $('#quantityInput').on('input', checkQuantity);
 
@@ -274,9 +325,21 @@
             calcTrays();
             $('#sowingDate').on('change', updateExpected);
 
-            // Re-populate dependent lists after a failed POST.
+            // Re-populate dependent lists after a failed POST -- the
+            // previously chosen Variety (SeedSowing.SpeciesId) survives
+            // model binding on the hidden field even though the search
+            // box itself has no server-rendered options; re-select it
+            // by name so the seed-lot/growing-days chain still runs.
             loadPolyhouses();
-            if ($('#plantTypeSelect').val()) loadVarieties();
+            const presetSpeciesId = $('#varietySelect').val();
+            const presetSpeciesName = $('#varietySelect').data('name');
+            const presetGrowingDays = $('#varietySelect').data('days');
+            if ($('#plantTypeSelect').val()) {
+                loadVarieties();
+                if (presetSpeciesId && presetSpeciesName) {
+                    selectVariety(presetSpeciesId, presetSpeciesName, presetGrowingDays);
+                }
+            }
         });
     </script>
 }
