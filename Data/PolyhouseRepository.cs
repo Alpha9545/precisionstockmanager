@@ -32,11 +32,14 @@ LEFT JOIN dbo.Area a ON a.Id = p.AreaId";
         }
 
         // Polyhouses that belong to the given Area (Phase B hierarchy).
+        // dbo.Polyhouses has no IsActive column of its own -- "active" here
+        // means the parent Area is active, same gate already applied to the
+        // Areas dropdown itself (Create/EditModel.LoadDropdownsAsync).
         public async Task<List<Polyhouse>> GetByAreaIdAsync(int areaId)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(BaseSelect + " WHERE p.AreaId = @AreaId ORDER BY p.Name", conn);
+            using var cmd = new SqlCommand(BaseSelect + " WHERE p.AreaId = @AreaId AND a.IsActive = 1 ORDER BY p.Name", conn);
             cmd.Parameters.AddWithValue("@AreaId", areaId);
             return await ReadListAsync(cmd);
         }
