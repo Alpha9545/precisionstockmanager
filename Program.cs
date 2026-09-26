@@ -44,6 +44,10 @@ builder.Services.AddScoped<PottedPlantStockRepository>(); // Phase 7
 builder.Services.AddScoped<PotBatchRepository>(); // Phase D: pot batches + daily production + READY
 builder.Services.AddScoped<StockHistoryRepository>(); // Phase D: stock history over every ledger
 builder.Services.AddScoped<WastageRepository>(); // Phase D: one wastage report
+builder.Services.AddScoped<OutletPurchaseRepository>(); // Phase E: Outlet's own direct purchase
+builder.Services.AddScoped<OutletSaleRepository>(); // Phase E: multi-item direct customer sale
+builder.Services.AddScoped<OutletBookingRepository>(); // Phase E: multi-item customer booking
+builder.Services.AddScoped<OutletWastageRepository>(); // Phase E: Outlet's own potted/tray wastage
 builder.Services.AddScoped<InternalTransferRepository>(); // Phase 8
 builder.Services.AddScoped<PottedPlantBookingRepository>(); // Phase 9
 builder.Services.AddScoped<DispatchRepository>(); // Phase 10

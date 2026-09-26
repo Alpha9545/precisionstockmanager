@@ -1,0 +1,63 @@
+@page
+@model PlantStockManager.Pages.Production.OutletBooking.IndexModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Outlet Booking History";
+    var canCreate = await FeatureAccess.CanAccessPageAsync(User, "/Production/OutletBooking/Create");
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">Outlet Booking History</h3>
+        @if (canCreate)
+        {
+            <a asp-page="/Production/OutletBooking/Create" class="btn btn-success">New Booking</a>
+        }
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <form method="get" class="mb-3">
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="openOnly" value="true" id="openOnly" onchange="this.form.submit()" @(Model.OpenOnly ? "checked" : "") />
+            <label class="form-check-label" for="openOnly">Open bookings only</label>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-light">
+                <tr><th>Booking No.</th><th>Date</th><th>Required by</th><th>Outlet</th><th>Customer</th><th>Contact</th><th>Items</th><th>Ordered (potted / trays)</th><th>Collected (potted / trays)</th><th>Status</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var b in Model.Bookings)
+                {
+                    <tr>
+                        <td>@b.BookingCode</td>
+                        <td>@b.BookingDate.ToString("dd/MM/yyyy")</td>
+                        <td>@(b.RequiredDate?.ToString("dd/MM/yyyy") ?? "-")</td>
+                        <td>@b.OutletAreaName</td>
+                        <td>@b.CustomerName</td>
+                        <td>@(b.CustomerContact ?? "-")</td>
+                        <td>@b.Items.Count</td>
+                        <td>@b.Items.Where(i => !i.IsTray).Sum(i => i.Quantity).ToString("N0") / @b.Items.Where(i => i.IsTray).Sum(i => i.Quantity).ToString("N0")</td>
+                        <td>@b.Items.Where(i => !i.IsTray).Sum(i => i.CollectedQuantity).ToString("N0") / @b.Items.Where(i => i.IsTray).Sum(i => i.CollectedQuantity).ToString("N0")</td>
+                        <td><span class="badge @(b.Status == "Completed" ? "bg-success" : b.Status == "Cancelled" ? "bg-secondary" : b.Status == "PartiallyCollected" ? "bg-info text-dark" : "bg-warning text-dark")">@b.Status</span></td>
+                        <td><a asp-page="/Production/OutletBooking/Details" asp-route-id="@b.Id" class="btn btn-sm btn-outline-secondary">Open</a></td>
+                    </tr>
+                }
+                @if (!Model.Bookings.Any())
+                {
+                    <tr><td colspan="11" class="text-center text-muted">No Outlet bookings found.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

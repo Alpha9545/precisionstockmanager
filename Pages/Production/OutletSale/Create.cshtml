@@ -1,0 +1,161 @@
+@page
+@model PlantStockManager.Pages.Production.OutletSale.CreateModel
+@{
+    ViewData["Title"] = "Outlet Direct Sale";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 1100px;">
+        <div class="card-header">
+            <h4 class="mb-0">Direct Customer Sale</h4>
+            <small class="text-muted">One customer, any mix of Potted Plants and Ready Trays, in one sale. The whole sale fails together if any item cannot be fulfilled.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <form method="post" id="saleForm">
+                <div class="row g-3 mb-2">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Outlet</label>
+                        <select id="outletSelect" name="OutletAreaId" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var a in Model.Outlets)
+                            {
+                                <option value="@a.Id" selected="@(a.Id == Model.OutletAreaId)">@a.Name</option>
+                            }
+                        </select>
+                        @if (!Model.Outlets.Any())
+                        {
+                            <div class="text-danger small">No Outlet is set up for you yet.</div>
+                        }
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Customer Name</label>
+                        <input type="text" asp-for="CustomerName" class="form-control" maxlength="200" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Contact Number</label>
+                        <input type="text" asp-for="CustomerContact" class="form-control" maxlength="50" />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Sale Date</label>
+                        <input type="date" asp-for="SaleDate" class="form-control" max="@DateTime.Today.ToString("yyyy-MM-dd")" required />
+                    </div>
+                    <div class="col-md-9">
+                        <label class="form-label">Remarks</label>
+                        <input type="text" asp-for="Remarks" class="form-control" maxlength="500" />
+                    </div>
+                </div>
+
+                <h6 class="mt-3">Items</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered align-middle" id="itemsTable">
+                        <thead class="table-light"><tr><th style="width:15%">Type</th><th style="width:45%">Variety / Pot Size / Cavity</th><th style="width:15%">Quantity</th><th>Available</th><th></th></tr></thead>
+                        <tbody id="itemsBody"></tbody>
+                    </table>
+                </div>
+                <button type="button" id="addItemBtn" class="btn btn-outline-primary btn-sm mb-3">+ Add Another Item</button>
+                <div class="text-danger small d-none" id="noItemsWarning">Add at least one item.</div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/OutletSale/Index" class="btn btn-secondary me-2">Back</a>
+                    <button type="submit" class="btn btn-success" id="submitBtn">Complete Sale</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const url = '@Url.Page("/Production/OutletSale/Create")';
+            let potted = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.PottedOptions.Select(s => new {
+                id = s.Id,
+                label = $"{s.SpeciesName?.Trim()}{(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")")} - {s.PotSize} - available {(s.AvailableQuantity - s.InTransitQuantity):N0}",
+                available = s.AvailableQuantity - s.InTransitQuantity
+            })));
+            let trays = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.TrayOptions.Select(s => new {
+                id = s.Id,
+                label = $"{s.SpeciesName?.Trim()} - {s.CavityType} - available {Math.Floor(s.AvailableQuantity / (PlantStockManager.Services.DirectSowingRules.CavityCount(s.CavityType) ?? 1)):N0} trays",
+                available = Math.Floor(s.AvailableQuantity / (PlantStockManager.Services.DirectSowingRules.CavityCount(s.CavityType) ?? 1))
+            })));
+            let rowIndex = 0;
+
+            function stockOptionsHtml(list) {
+                let html = '<option value="">-- Select --</option>';
+                list.forEach(function (s) { html += '<option value="' + s.id + '" data-available="' + s.available + '">' + s.label + '</option>'; });
+                return html;
+            }
+
+            function reindex() {
+                $('#itemsBody tr').each(function (i, row) {
+                    $(row).find('.item-type').attr('name', 'Items[' + i + '].StockType');
+                    $(row).find('.item-stock').attr('name', 'Items[' + i + '].StockId');
+                    $(row).find('.item-qty').attr('name', 'Items[' + i + '].Quantity');
+                });
+                $('#noItemsWarning').toggleClass('d-none', $('#itemsBody tr').length > 0);
+            }
+
+            function syncStockSelect($row) {
+                const type = $row.find('.item-type').val();
+                const $stock = $row.find('.item-stock');
+                $stock.empty().append(stockOptionsHtml(type === 'Tray' ? trays : potted));
+                if (window.enhanceSearchable) window.enhanceSearchable($stock[0]);
+                $row.find('.item-available').text('-');
+            }
+
+            function addRow() {
+                const i = rowIndex++;
+                const $row = $('<tr class="item-row">' +
+                    '<td><select class="form-select form-select-sm item-type" name="Items[' + i + '].StockType">' +
+                        '<option value="Potted">Potted Plant</option><option value="Tray">Ready Tray</option></select></td>' +
+                    '<td><select class="form-select form-select-sm item-stock" name="Items[' + i + '].StockId" required data-searchable></select></td>' +
+                    '<td><input type="number" step="1" min="1" class="form-control form-control-sm item-qty" name="Items[' + i + '].Quantity" required /></td>' +
+                    '<td class="item-available text-muted small">-</td>' +
+                    '<td><button type="button" class="btn btn-sm btn-outline-danger remove-row">&times;</button></td>' +
+                    '</tr>');
+                $('#itemsBody').append($row);
+                syncStockSelect($row);
+                reindex();
+            }
+
+            $('#itemsBody').on('change', '.item-type', function () { syncStockSelect($(this).closest('tr')); });
+            $('#itemsBody').on('change', '.item-stock', function () {
+                const avail = $(this).find('option:selected').data('available');
+                const $row = $(this).closest('tr');
+                $row.find('.item-available').text(avail === undefined || avail === '' ? '-' : Number(avail).toLocaleString('en-IN'));
+                $row.find('.item-qty').attr('max', avail || '');
+            });
+            $('#itemsBody').on('click', '.remove-row', function () { $(this).closest('tr').remove(); reindex(); });
+            $('#addItemBtn').on('click', addRow);
+
+            function loadStockFor(outletAreaId) {
+                if (!outletAreaId) { potted = []; trays = []; $('#itemsBody').empty(); reindex(); return; }
+                $.getJSON(url, { handler: 'StockOptions', outletAreaId: outletAreaId }, function (data) {
+                    potted = data.potted; trays = data.trays;
+                    $('#itemsBody').empty();
+                    addRow();
+                });
+            }
+            $('#outletSelect').on('change', function () { loadStockFor($(this).val()); });
+
+            if ($('#itemsBody tr').length === 0 && (potted.length || trays.length)) addRow();
+            reindex();
+
+            $('#saleForm').on('submit', function (e) {
+                if ($('#itemsBody tr').length === 0) { e.preventDefault(); $('#noItemsWarning').removeClass('d-none'); }
+            });
+        });
+    </script>
+}

@@ -109,6 +109,20 @@ SELECT * FROM (
     LEFT JOIN dbo.Area a ON a.Id = p.AreaId
     LEFT JOIN dbo.IMSUsers u ON u.Id = t.UserId
     WHERE t.TransactionType = 'Wastage'
+
+    UNION ALL
+    SELECT CAST(t.TransactionDate AS date), N'Ready tray stock', N'Ready tray',
+           RTRIM(ps.Name), pt.Name, ps.Color, r.CavityType, NULL,
+           r.AreaId, a.Name, -t.Quantity, NULL,
+           t.Remarks, sw.SowingCode, u.Name, NULL
+    FROM dbo.ReadyStockTransactions t
+    INNER JOIN dbo.ReadyStock r ON r.Id = t.ReadyStockId
+    INNER JOIN dbo.SeedSowings sw ON sw.Id = r.SeedSowingId
+    INNER JOIN dbo.PlantSpecies ps ON ps.Id = r.SpeciesId
+    INNER JOIN dbo.PlantTypes pt ON pt.Id = ps.PlantTypeId
+    LEFT JOIN dbo.Area a ON a.Id = r.AreaId
+    LEFT JOIN dbo.IMSUsers u ON u.Id = t.UserId
+    WHERE t.TransactionType = 'Wastage'
 ) w
 WHERE w.WDate BETWEEN @From AND @To
   AND (@Search IS NULL OR w.Variety LIKE @Like OR ISNULL(w.PlantType, '') LIKE @Like OR ISNULL(w.Reference, '') LIKE @Like)

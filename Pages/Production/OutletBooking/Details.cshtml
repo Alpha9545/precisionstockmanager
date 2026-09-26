@@ -1,0 +1,83 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.OutletBooking.DetailsModel
+@{
+    var b = Model.Booking;
+    ViewData["Title"] = "Booking " + b.BookingCode;
+    var badge = b.Status switch { "Completed" => "bg-success", "Cancelled" => "bg-secondary", "PartiallyCollected" => "bg-info text-dark", _ => "bg-warning text-dark" };
+}
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">Booking @b.BookingCode <span class="badge @badge fs-6 align-middle">@b.Status</span></h3>
+        <a asp-page="/Production/OutletBooking/Index" class="btn btn-secondary">All bookings</a>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <table class="table table-sm table-bordered">
+        <tbody>
+            <tr><th class="w-25">Outlet</th><td>@b.OutletAreaName</td></tr>
+            <tr><th>Customer</th><td>@b.CustomerName @(string.IsNullOrEmpty(b.CustomerContact) ? "" : "(" + b.CustomerContact + ")")</td></tr>
+            <tr><th>Booking date / Required by</th><td>@b.BookingDate.ToString("dd/MM/yyyy") @(b.RequiredDate.HasValue ? "&rarr; " + b.RequiredDate.Value.ToString("dd/MM/yyyy") : "")</td></tr>
+            @if (b.Status == "Cancelled")
+            {
+                <tr><th>Cancelled</th><td>@(b.CancelledDate?.ToLocalTime().ToString("dd/MM/yyyy")) -- @b.CancellationReason</td></tr>
+            }
+            @if (!string.IsNullOrEmpty(b.Remarks))
+            {
+                <tr><th>Remarks</th><td>@b.Remarks</td></tr>
+            }
+        </tbody>
+    </table>
+
+    <h6>Items</h6>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered table-striped align-middle">
+            <thead class="table-light"><tr><th>Type</th><th>Variety</th><th>Pot Size / Cavity</th><th class="text-end">Ordered</th><th class="text-end">Collected</th><th class="text-end">Open</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var i in b.Items)
+                {
+                    <tr>
+                        <td>@(i.IsTray ? "Ready Tray" : "Potted Plant")</td>
+                        <td>@i.SpeciesName?.Trim() @(string.IsNullOrEmpty(i.SpeciesColor) ? "" : "(" + i.SpeciesColor + ")")</td>
+                        <td>@(i.IsTray ? i.CavityType : i.PotSize)</td>
+                        <td class="text-end">@i.Quantity.ToString("N0") @(i.IsTray ? "trays" : "pots")</td>
+                        <td class="text-end">@i.CollectedQuantity.ToString("N0")</td>
+                        <td class="text-end fw-bold">@i.OpenQuantity.ToString("N0")</td>
+                        <td>
+                            @if (!Model.IsClosed && i.OpenQuantity > 0)
+                            {
+                                <form method="post" asp-page-handler="Collect" asp-route-id="@b.Id" class="d-flex gap-1">
+                                    <input type="hidden" name="CollectItemId" value="@i.Id" />
+                                    <input type="number" step="1" min="1" max="@i.OpenQuantity.ToString("0")" name="CollectQuantity" class="form-control form-control-sm" style="width:90px" required />
+                                    <button type="submit" class="btn btn-sm btn-success">Collect</button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr class="fw-bold"><td colspan="3">Total</td><td class="text-end">@b.Items.Sum(i => i.Quantity).ToString("N0")</td><td class="text-end">@b.Items.Sum(i => i.CollectedQuantity).ToString("N0")</td><td class="text-end">@b.Items.Sum(i => i.OpenQuantity).ToString("N0")</td><td></td></tr>
+            </tfoot>
+        </table>
+    </div>
+
+    @if (!Model.IsClosed)
+    {
+        <form method="post" asp-page-handler="Cancel" asp-route-id="@b.Id" class="row g-2 align-items-end mt-3" onsubmit="return confirm('Cancel this booking? Every open reservation is released.');">
+            <div class="col-md-6">
+                <label class="form-label">Cancellation reason</label>
+                <input type="text" name="CancelReason" class="form-control" maxlength="200" required />
+            </div>
+            <div class="col-auto"><button type="submit" class="btn btn-outline-danger">Cancel Booking</button></div>
+        </form>
+    }
+</div>

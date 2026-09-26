@@ -1,0 +1,165 @@
+@page
+@model PlantStockManager.Pages.Production.OutletWastage.CreateModel
+@{
+    ViewData["Title"] = "Outlet Wastage";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Record Outlet Wastage</h4>
+            <small class="text-muted">Damaged, wilted or lost stock at this Outlet -- separate from nursery production wastage. No automatic percentage is ever applied.</small>
+        </div>
+        <div class="card-body">
+            @if (TempData["Success"] != null)
+            {
+                <div class="alert alert-success">@TempData["Success"]</div>
+            }
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <form method="post" id="wastageForm">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Outlet</label>
+                        <select id="outletSelect" name="OutletAreaId" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var a in Model.Outlets)
+                            {
+                                <option value="@a.Id" selected="@(a.Id == Model.OutletAreaId)">@a.Name</option>
+                            }
+                        </select>
+                        @if (!Model.Outlets.Any())
+                        {
+                            <div class="text-danger small">No Outlet is set up for you yet.</div>
+                        }
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Type</label>
+                        <select id="typeSelect" name="StockType" class="form-select">
+                            <option value="Potted">Potted Plant</option>
+                            <option value="Tray">Ready Tray</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Date</label>
+                        <input type="date" asp-for="WastageDate" class="form-control" max="@DateTime.Today.ToString("yyyy-MM-dd")" required />
+                    </div>
+
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Variety / Pot Size / Cavity</label>
+                        <select id="stockSelect" name="StockId" class="form-select" required data-searchable>
+                            <option value="">-- Select Outlet first --</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Quantity</label>
+                        <input type="number" step="1" min="1" asp-for="Quantity" id="qtyInput" class="form-control" required />
+                        <div class="form-text" id="availableHint"></div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Reason</label>
+                        <select asp-for="Reason" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var r in Model.Reasons)
+                            {
+                                <option value="@r">@r</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Remarks</label>
+                        <input type="text" asp-for="Remarks" class="form-control" maxlength="500" />
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PottedPlantStock/Index" class="btn btn-secondary me-2">Back to Stock</a>
+                    <button type="submit" class="btn btn-danger">Record Wastage</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    @if (Model.Recent.Any())
+    {
+        <div class="card shadow-sm mx-auto mt-4" style="max-width: 900px;">
+            <div class="card-header"><strong>Recent Outlet Wastage</strong></div>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead class="table-light"><tr><th>Code</th><th>Date</th><th>Outlet</th><th>Type</th><th>Variety</th><th>Pot Size / Cavity</th><th class="text-end">Qty</th><th>Reason</th></tr></thead>
+                    <tbody>
+                        @foreach (var w in Model.Recent)
+                        {
+                            <tr>
+                                <td>@w.WastageCode</td>
+                                <td>@w.WastageDate.ToString("dd/MM/yyyy")</td>
+                                <td>@w.OutletAreaName</td>
+                                <td>@(w.IsTray ? "Ready Tray" : "Potted Plant")</td>
+                                <td>@w.SpeciesName?.Trim()</td>
+                                <td>@(w.IsTray ? w.CavityType : w.PotSize)</td>
+                                <td class="text-end">@w.Quantity.ToString("N0")</td>
+                                <td>@w.Reason</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const url = '@Url.Page("/Production/OutletWastage/Create")';
+            let potted = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.PottedOptions.Select(s => new {
+                id = s.Id,
+                label = $"{s.SpeciesName?.Trim()}{(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")")} - {s.PotSize} - available {(s.AvailableQuantity - s.InTransitQuantity):N0}",
+                available = s.AvailableQuantity - s.InTransitQuantity
+            })));
+            let trays = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.TrayOptions.Select(s => new {
+                id = s.Id,
+                label = $"{s.SpeciesName?.Trim()} - {s.CavityType} - available {Math.Floor(s.AvailableQuantity / (PlantStockManager.Services.DirectSowingRules.CavityCount(s.CavityType) ?? 1)):N0} trays",
+                available = Math.Floor(s.AvailableQuantity / (PlantStockManager.Services.DirectSowingRules.CavityCount(s.CavityType) ?? 1))
+            })));
+
+            function stockOptionsHtml(list) {
+                let html = '<option value="">-- Select --</option>';
+                list.forEach(function (s) { html += '<option value="' + s.id + '" data-available="' + s.available + '">' + s.label + '</option>'; });
+                return html;
+            }
+            function syncStockSelect() {
+                const type = $('#typeSelect').val();
+                $('#stockSelect').empty().append(stockOptionsHtml(type === 'Tray' ? trays : potted));
+                if (window.enhanceSearchable) window.enhanceSearchable(document.getElementById('stockSelect'));
+                $('#availableHint').text('');
+            }
+            $('#typeSelect').on('change', syncStockSelect);
+            $('#stockSelect').on('change', function () {
+                const avail = $(this).find('option:selected').data('available');
+                $('#availableHint').text(avail === undefined || avail === '' ? '' : ('Available: ' + Number(avail).toLocaleString('en-IN')));
+                $('#qtyInput').attr('max', avail || '');
+            });
+
+            function loadStockFor(outletAreaId) {
+                if (!outletAreaId) { potted = []; trays = []; syncStockSelect(); return; }
+                $.getJSON(url, { handler: 'StockOptions', outletAreaId: outletAreaId }, function (data) {
+                    potted = data.potted; trays = data.trays;
+                    syncStockSelect();
+                });
+            }
+            $('#outletSelect').on('change', function () { loadStockFor($(this).val()); });
+
+            syncStockSelect();
+        });
+    </script>
+}

@@ -60,6 +60,13 @@ The Reporting/Dashboard phase (`Pages/Production/Dashboard/Index`) added **no** 
     * **Mother Plant Supervisor** is granted `InternalTransfer.Enter` — the Send/Move screens already required it, but the role had never actually been given it.
     **The application code of this branch needs these objects — deploy the code and this script together.**
 
+30. `PhaseE_OutletModule.sql` — **the Outlet module** (run after `PhaseD_ProductionRestructure.sql`). Refuses to run on any database other than `PlantsIMS2_Test`. Additive and idempotent; no existing business row is changed. An Outlet is simply an Area with `AreaType = 'Outlet'` — there is no separate Outlet stock system; Outlet potted-plant stock is the existing `dbo.PottedPlantStock` and Outlet tray stock is the existing `dbo.ReadyStock`, both keyed by `AreaId`.
+    * `dbo.OutletPurchases`: potted plants an Outlet buys directly from an external supplier (distinct from a Main Office purchase order) → credits that Outlet's own `PottedPlantStock` (`'Purchase'`, new on `PottedPlantStockTransactions`). Immutable once recorded; the Area must be an active Outlet (`TR_OutletPurchases_Rules`).
+    * `dbo.OutletSales` / `dbo.OutletSaleItems`: one customer, any number of varieties, one atomic transaction — every item is checked and deducted (`'Dispatch'`) under its own stock row's lock inside the same transaction as the header; the first item that cannot be fulfilled fails the whole sale. Immutable once recorded.
+    * `dbo.OutletBookings` / `dbo.OutletBookingItems`: a customer order across several varieties, reserved now (existing `ReservedQuantity` / `'Reservation'`), collected fully or partially later (`'Dispatch'` + `'ReservationRelease'`), cancel releases whatever is still open. Item identity (stock/quantity) is immutable once recorded — only `CollectedQuantity` may change (`TR_OutletBookingItems_Rules`); a closed (`Completed`/`Cancelled`) booking cannot be reopened (`TR_OutletBookings_Update`).
+    * `dbo.Permissions` gains `Outlet.Purchase`, granted to the existing `Outlet Sales` role. `Outlet.View` / `Outlet.Sell` (already existed) are reused for the rest — no new role.
+    **The application code of this branch needs these objects — deploy the code and this script together.**
+
 ## Verifying a run
 
 After running all twenty-five scripts, a quick sanity check:

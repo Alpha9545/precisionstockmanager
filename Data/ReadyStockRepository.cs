@@ -225,7 +225,7 @@ VALUES
         // (BeforeQuantity = Reserved) and 'Dispatch' (BeforeQuantity = Physical).
         public async Task<(bool Success, string? Message)> RecordDispatchAsync(
             SqlConnection conn, SqlTransaction tx, int readyStockId, decimal quantity,
-            string? referenceType, int? referenceId, int? userId, string? remarks)
+            string? referenceType, int? referenceId, int? userId, string? remarks, string ledgerType = "Dispatch")
         {
             if (quantity <= 0)
                 return (false, "Dispatch quantity must be greater than zero.");
@@ -246,9 +246,24 @@ WHERE Id = @Id", conn, tx);
             update.Parameters.AddWithValue("@Id", readyStockId);
             await update.ExecuteNonQueryAsync();
 
-            await InsertLedgerAsync(conn, tx, readyStockId, "ReservationRelease", referenceType, referenceId, -quantity, reserved, userId, "Dispatched");
-            await InsertLedgerAsync(conn, tx, readyStockId, "Dispatch", referenceType, referenceId, -quantity, physical, userId, remarks);
+            await InsertLedgerAsync(conn, tx, readyStockId, "ReservationRelease", referenceType, referenceId, -quantity, reserved, userId, ledgerType == "Dispatch" ? "Dispatched" : ledgerType);
+            await InsertLedgerAsync(conn, tx, readyStockId, ledgerType, referenceType, referenceId, -quantity, physical, userId, remarks);
             return (true, null);
+        }
+
+        // Read-only lock-free peek at the current balances, for the
+        // caller's own pre-checks (e.g. Outlet Sale/Wastage) before it
+        // decides how much to reserve. NOT under a lock -- the actual
+        // Reserve/Dispatch calls re-check everything under their own lock.
+        public async Task<(decimal Quantity, decimal Reserved, decimal Dispatched)?> PeekQuantitiesAsync(int readyStockId)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            var cmd = new SqlCommand("SELECT Quantity, ReservedQuantity, DispatchedQuantity FROM dbo.ReadyStock WHERE Id = @Id", conn);
+            cmd.Parameters.AddWithValue("@Id", readyStockId);
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (!await reader.ReadAsync()) return null;
+            return (reader.GetDecimal(0), reader.GetDecimal(1), reader.GetDecimal(2));
         }
 
         private static async Task<(bool Ok, decimal Quantity, decimal Reserved, decimal Dispatched)> LockQuantitiesAsync(

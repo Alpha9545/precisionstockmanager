@@ -133,6 +133,16 @@ namespace PlantStockManager.Authorization
                 ["/Production/Dispatch/Create"] = R("Dispatch.Enter|Outlet.Sell"),
                 ["/Production/Dispatch/Edit"] = R("Dispatch.Enter|Outlet.Sell"),
 
+                // ---- Outlet (Phase E): direct purchase, multi-item sale/booking --
+                ["/Production/OutletPurchase/Create"] = R("Outlet.Purchase"),
+                ["/Production/OutletSale/Index"] = R("Outlet.View"),
+                ["/Production/OutletSale/Details"] = R("Outlet.View"),
+                ["/Production/OutletSale/Create"] = R("Outlet.Sell"),
+                ["/Production/OutletBooking/Index"] = R("Outlet.View"),
+                ["/Production/OutletBooking/Details"] = R("Outlet.View", "Outlet.Sell"),
+                ["/Production/OutletBooking/Create"] = R("Outlet.Sell"),
+                ["/Production/OutletWastage/Create"] = R("Outlet.Sell"),
+
                 // Seedling booking (dbo.Bookings): New Booking / Edit Booking
                 ["/Bookings/Book"] = R("Booking.Enter"),
                 ["/Bookings/EditBookingRecords"] = R("Booking.Enter"),

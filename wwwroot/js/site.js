@@ -100,4 +100,7 @@ window.addEventListener("resize", () => {
         });
     }
     document.querySelectorAll("select[data-searchable]").forEach(enhance);
+    // Exposed so a page that clones a row with a data-searchable select at
+    // runtime (e.g. "Add another item") can enhance the new one too.
+    window.enhanceSearchable = enhance;
 })();

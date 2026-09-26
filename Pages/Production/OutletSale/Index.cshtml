@@ -1,0 +1,49 @@
+@page
+@model PlantStockManager.Pages.Production.OutletSale.IndexModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Outlet Sales History";
+    var canCreate = await FeatureAccess.CanAccessPageAsync(User, "/Production/OutletSale/Create");
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">Outlet Sales History</h3>
+        @if (canCreate)
+        {
+            <a asp-page="/Production/OutletSale/Create" class="btn btn-success">New Direct Sale</a>
+        }
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover">
+            <thead class="table-light">
+                <tr><th>Sale No.</th><th>Date</th><th>Outlet</th><th>Customer</th><th>Contact</th><th>Items</th><th>Potted / Trays</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var s in Model.Sales)
+                {
+                    <tr>
+                        <td>@s.SaleCode</td>
+                        <td>@s.SaleDate.ToString("dd/MM/yyyy")</td>
+                        <td>@s.OutletAreaName</td>
+                        <td>@s.CustomerName</td>
+                        <td>@(s.CustomerContact ?? "-")</td>
+                        <td>@s.Items.Count</td>
+                        <td>@s.Items.Where(i => !i.IsTray).Sum(i => i.Quantity).ToString("N0") pots / @s.Items.Where(i => i.IsTray).Sum(i => i.Quantity).ToString("N0") trays</td>
+                        <td><a asp-page="/Production/OutletSale/Details" asp-route-id="@s.Id" class="btn btn-sm btn-outline-secondary">View</a></td>
+                    </tr>
+                }
+                @if (!Model.Sales.Any())
+                {
+                    <tr><td colspan="8" class="text-center text-muted">No Outlet sales recorded yet.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

@@ -1,0 +1,117 @@
+@page
+@model PlantStockManager.Pages.Production.OutletPurchase.CreateModel
+@{
+    ViewData["Title"] = "Outlet Purchase";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Outlet Purchase (External Supplier)</h4>
+            <small class="text-muted">Potted plants bought directly by the Outlet -- separate from Main Office purchase orders. Adds straight to this Outlet's own Potted Plant Stock.</small>
+        </div>
+        <div class="card-body">
+            @if (TempData["Success"] != null)
+            {
+                <div class="alert alert-success">@TempData["Success"]</div>
+            }
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Outlet</label>
+                        <select asp-for="OutletAreaId" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var a in Model.Outlets)
+                            {
+                                <option value="@a.Id">@a.Name</option>
+                            }
+                        </select>
+                        @if (!Model.Outlets.Any())
+                        {
+                            <div class="text-danger small">No Outlet is set up for you yet. Ask an administrator to create one (Admin &gt; Areas) and assign you to it.</div>
+                        }
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Purchase Date</label>
+                        <input type="date" asp-for="PurchaseDate" class="form-control" max="@DateTime.Today.ToString("yyyy-MM-dd")" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Supplier</label>
+                        <input type="text" asp-for="SupplierName" class="form-control" maxlength="200" required />
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Variety</label>
+                        <select asp-for="SpeciesId" class="form-select" required data-searchable>
+                            <option value="">-- Select --</option>
+                            @foreach (var s in Model.Species)
+                            {
+                                <option value="@s.Id">@s.Name?.Trim()@(string.IsNullOrEmpty(s.Color) ? "" : " (" + s.Color + ")")</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Pot Size</label>
+                        <select asp-for="PotSize" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var p in Model.PotSizes)
+                            {
+                                <option value="@p.Name">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Quantity</label>
+                        <input type="number" step="1" min="1" asp-for="Quantity" class="form-control" required />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Remarks</label>
+                        <input type="text" asp-for="Remarks" class="form-control" maxlength="500" />
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PottedPlantStock/Index" class="btn btn-secondary me-2">Back to Stock</a>
+                    <button type="submit" class="btn btn-success">Record Purchase</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    @if (Model.Recent.Any())
+    {
+        <div class="card shadow-sm mx-auto mt-4" style="max-width: 900px;">
+            <div class="card-header"><strong>Recent Outlet Purchases</strong></div>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead class="table-light"><tr><th>Code</th><th>Date</th><th>Outlet</th><th>Variety</th><th>Pot Size</th><th class="text-end">Qty</th><th>Supplier</th></tr></thead>
+                    <tbody>
+                        @foreach (var p in Model.Recent)
+                        {
+                            <tr>
+                                <td>@p.PurchaseCode</td>
+                                <td>@p.PurchaseDate.ToString("dd/MM/yyyy")</td>
+                                <td>@p.OutletAreaName</td>
+                                <td>@p.SpeciesName?.Trim()</td>
+                                <td>@p.PotSize</td>
+                                <td class="text-end">@p.Quantity.ToString("N0")</td>
+                                <td>@p.SupplierName</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
