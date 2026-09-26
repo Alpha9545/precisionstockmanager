@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
+using PlantStockManager.Services;
 using PlantStockManager.Models;
 
 namespace PlantStockManager.Pages.Bookings
@@ -20,13 +21,13 @@ namespace PlantStockManager.Pages.Bookings
     public class SeedlingDispatchModel : PageModel
     {
         private readonly SeedlingFulfilmentRepository _repo;
-        private readonly EmployeeRepository _employeeRepo;
+        private readonly UserRoleRepository _userRoleRepo;
         private readonly AreaAccessService _areaAccess;
 
-        public SeedlingDispatchModel(SeedlingFulfilmentRepository repo, EmployeeRepository employeeRepo, AreaAccessService areaAccess)
+        public SeedlingDispatchModel(SeedlingFulfilmentRepository repo, UserRoleRepository userRoleRepo, AreaAccessService areaAccess)
         {
             _repo = repo;
-            _employeeRepo = employeeRepo;
+            _userRoleRepo = userRoleRepo;
             _areaAccess = areaAccess;
         }
 
@@ -76,6 +77,12 @@ namespace PlantStockManager.Pages.Bookings
         public async Task<IActionResult> OnPostDispatchAsync()
         {
             var lines = Lines.Where(l => l.Quantity != 0).Select(l => (l.AllocationId, (decimal)l.Quantity)).ToList();
+            if (ResponsiblePersonId.HasValue
+                && (await _userRoleRepo.GetUsersInAnyRoleAsync(SupervisorRules.DispatchExecutive)).All(u => u.EmployeeID != ResponsiblePersonId.Value))
+            {
+                TempData["Error"] = "The dispatch person must be a Dispatch Executive.";
+                return RedirectToPage(new { id = Id });
+            }
             var (ok, message) = await _repo.DispatchAsync(Id, lines, DispatchDate, ResponsiblePersonId, Remarks, Actor, CanAccessArea);
             TempData[ok ? "Success" : "Error"] = message;
             return RedirectToPage(new { id = Id });
@@ -103,7 +110,7 @@ namespace PlantStockManager.Pages.Bookings
             BatchOptions = (await _repo.GetBatchOptionsAsync(Booking.PlantId))
                 .Where(o => _areaAccess.CanAccessArea(User, o.AreaId))
                 .ToList();
-            Staff = await _employeeRepo.GetAllActiveUsers();
+            Staff = await _userRoleRepo.GetUsersInAnyRoleAsync(SupervisorRules.DispatchExecutive);   // dispatch staff only
             Lines = Allocations.Where(a => a.Status == "Active" && a.OpenQuantity > 0)
                 .Select(a => new DispatchLineInput { AllocationId = a.Id, Quantity = 0 }).ToList();
             return true;

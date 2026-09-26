@@ -84,6 +84,7 @@ namespace PlantStockManager.Pages.Production.LabRequest
             }
 
             Request.CreatedBy = User.Identity?.Name ?? "System";
+            Request.ResponsiblePersonId = null;   // no generic Responsible Person
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
 
@@ -103,7 +104,7 @@ namespace PlantStockManager.Pages.Production.LabRequest
         {
             var allStock = await _pottedPlantStockRepo.GetAllAsync();
             StockPools = allStock.Where(s => s.AvailableQuantity > 0 && CanAccessLabRequest(s.AreaId, write: true)).ToList(); // F1
-            PersonOptions = await _employeeRepo.GetAllActiveUsers();
+            // (no Responsible Person picker)
         }
     }
 }

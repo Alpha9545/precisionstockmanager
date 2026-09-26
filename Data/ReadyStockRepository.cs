@@ -35,7 +35,6 @@ INNER JOIN dbo.SeedSowings sw ON rs.SeedSowingId = sw.Id
 INNER JOIN dbo.PlantSpecies ps ON rs.SpeciesId = ps.Id
 INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
 INNER JOIN dbo.Area a ON rs.AreaId = a.Id
-LEFT JOIN dbo.Polyhouses ph ON a.PolyhouseId = ph.Id
 LEFT JOIN dbo.Polyhouses rph ON rs.PolyhouseId = rph.Id
 OUTER APPLY (
     SELECT TOP 1 u.Name AS ApprovedByName, rc.ConfirmationDate AS ApprovalDate, rc.ActualTrayQuantity AS ReadyTrays

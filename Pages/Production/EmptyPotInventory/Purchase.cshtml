@@ -1,0 +1,122 @@
+@page
+@model PlantStockManager.Pages.Production.EmptyPotInventory.PurchaseModel
+@{
+    ViewData["Title"] = "Empty Pot Purchase";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto mb-4" style="max-width: 820px;">
+        <div class="card-header">
+            <h4 class="mb-0">Empty Pot Purchase</h4>
+            <small class="text-muted">Pots bought by the Office go into the Office store. Issue them to a production Area from Empty Pot Stock.</small>
+        </div>
+        <div class="card-body">
+            @if (TempData["Success"] != null)
+            {
+                <div class="alert alert-success">@TempData["Success"]</div>
+            }
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (!Model.OfficeStores.Any())
+            {
+                <div class="alert alert-warning">No active Main Office Area exists. Create one in Administration &rarr; Areas (type "MainOffice").</div>
+            }
+            @if (!Model.PotSizes.Any())
+            {
+                <div class="alert alert-warning">No pot sizes are set up. Add them in Administration &rarr; Pot Sizes.</div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Purchase Date</label>
+                        <input type="date" asp-for="PurchaseDate" class="form-control" max="@DateTime.Today.ToString("yyyy-MM-dd")" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Pot Size</label>
+                        <select asp-for="PotSize" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var p in Model.PotSizes)
+                            {
+                                <option value="@p.Name">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Quantity</label>
+                        <input type="number" step="1" min="1" asp-for="Quantity" class="form-control" required />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Supplier</label>
+                        <input type="text" asp-for="SupplierName" class="form-control" list="suppliers" maxlength="150" required />
+                        <datalist id="suppliers">
+                            @foreach (var s in Model.SupplierSuggestions)
+                            {
+                                <option value="@s"></option>
+                            }
+                        </datalist>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Invoice / Reference</label>
+                        <input type="text" asp-for="InvoiceRef" class="form-control" maxlength="100" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Received into (Office store)</label>
+                        <select asp-for="AreaId" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var a in Model.OfficeStores)
+                            {
+                                <option value="@a.Id">@a.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Remarks</label>
+                        <input type="text" asp-for="Remarks" class="form-control" maxlength="500" />
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/EmptyPotInventory/Index" class="btn btn-secondary me-2">Empty Pot Stock</a>
+                    <button type="submit" class="btn btn-success">Save Purchase</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <h5>Recent purchases</h5>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered table-striped">
+            <thead class="table-light">
+                <tr><th>Code</th><th>Date</th><th>Pot Size</th><th class="text-end">Quantity</th><th>Supplier</th><th>Invoice</th><th>Store</th><th>By</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var p in Model.Recent)
+                {
+                    <tr>
+                        <td>@p.PurchaseCode</td>
+                        <td>@p.PurchaseDate.ToString("dd/MM/yyyy")</td>
+                        <td>@p.PotSize</td>
+                        <td class="text-end">@p.Quantity.ToString("N0")</td>
+                        <td>@p.SupplierName</td>
+                        <td>@(p.InvoiceRef ?? "-")</td>
+                        <td>@p.AreaName</td>
+                        <td>@p.CreatedBy</td>
+                    </tr>
+                }
+                @if (!Model.Recent.Any())
+                {
+                    <tr><td colspan="8" class="text-center text-muted">No purchases in the last 60 days.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

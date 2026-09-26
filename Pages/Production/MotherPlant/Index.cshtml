@@ -65,7 +65,7 @@
             </select>
         </div>
         <div class="col-md-3">
-            <label class="form-label">Responsible Person</label>
+            <label class="form-label">Supervisor</label>
             <select name="ResponsiblePersonId" class="form-select" asp-for="ResponsiblePersonId">
                 <option value="">-- All --</option>
                 @foreach (var r in Model.ResponsiblePersons)
@@ -92,7 +92,7 @@
                     <th>Cutting Rate</th>
                     <th>Expected Cutting</th>
                     <th>Expected Monthly</th>
-                    <th>Responsible</th>
+                    <th>Colour</th>
                     <th>Supervisor</th>
                     <th>Status</th>
                     <th></th>
@@ -111,7 +111,7 @@
                         <td>@mp.CuttingRate.ToString("N2")</td>
                         <td>@mp.ExpectedCuttingQuantity.ToString("N2")</td>
                         <td>@mp.ExpectedMonthlyCuttingQuantity.ToString("N2")</td>
-                        <td>@mp.ResponsiblePersonName</td>
+                        <td>@(mp.SpeciesColor ?? "-")</td>
                         <td>@mp.SupervisorName</td>
                         <td><span class="badge bg-secondary">@mp.Status</span></td>
                         <td>

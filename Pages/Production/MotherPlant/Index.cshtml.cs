@@ -13,13 +13,16 @@ namespace PlantStockManager.Pages.Production.MotherPlant
         private readonly PolyhouseRepository _polyhouseRepo;
         private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccessService;
+        private readonly UserRoleRepository _userRoleRepo;
 
         public IndexModel(
             MotherPlantRepository motherPlantRepo,
             PolyhouseRepository polyhouseRepo,
             EmployeeRepository employeeRepo,
-            AreaAccessService areaAccessService)
+            AreaAccessService areaAccessService,
+            UserRoleRepository userRoleRepo)
         {
+            _userRoleRepo = userRoleRepo;
             _motherPlantRepo = motherPlantRepo;
             _polyhouseRepo = polyhouseRepo;
             _employeeRepo = employeeRepo;
@@ -42,7 +45,10 @@ namespace PlantStockManager.Pages.Production.MotherPlant
 
         public async Task OnGetAsync()
         {
-            var all = await _motherPlantRepo.GetAllAsync(PolyhouseId, SpeciesId, Status, ResponsiblePersonId);
+            // Phase D: the person filter is the Mother Plant Supervisor.
+            var all = (await _motherPlantRepo.GetAllAsync(PolyhouseId, SpeciesId, Status))
+                .Where(m => !ResponsiblePersonId.HasValue || m.SupervisorId == ResponsiblePersonId)
+                .ToList();
 
             // Phase 17/B: in-memory post-filter, not a repository change --
             // GetAllAsync is also called by CuttingPlan Create/Edit and the
@@ -56,7 +62,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
                 : all.Where(m => _areaAccessService.CanAccessArea(User, m.AreaId)).ToList();
 
             Polyhouses = await _polyhouseRepo.GetAllPolyhouses();
-            ResponsiblePersons = await _employeeRepo.GetAllActiveUsers();
+            ResponsiblePersons = await _userRoleRepo.GetUsersInRoleAsync(PlantStockManager.Services.SupervisorRules.MotherPlantSupervisor);
         }
     }
 }

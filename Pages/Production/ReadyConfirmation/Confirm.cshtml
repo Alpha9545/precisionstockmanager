@@ -30,7 +30,7 @@
                     <div class="col-md-6"><strong>Area / Polyhouse:</strong> @s.AreaName / @(s.PolyhouseName ?? "-")</div>
                     <div class="col-md-6"><strong>Sowing Date:</strong> @s.SowingDate.ToString("dd/MM/yyyy")</div>
                     <div class="col-md-6"><strong>Expected Ready Date:</strong> @(s.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</div>
-                    <div class="col-md-6"><strong>Seed Lot:</strong> @(string.IsNullOrEmpty(s.BatchNo) ? "-" : s.BatchNo)</div>
+                    <div class="col-md-6"><strong>Sown from:</strong> @s.SourceLabel @(s.IsCuttingSource ? "(" + s.SourceAreaName + ")" : (string.IsNullOrEmpty(s.BatchNo) ? "-" : s.BatchNo))</div>
                     <div class="col-md-6"><strong>Assigned Supervisor:</strong> @(s.SupervisorName ?? "-")</div>
                 </div>
             </div>
@@ -39,10 +39,10 @@
             <h6 class="fw-bold">From the sowing (read-only)</h6>
             <table class="table table-sm table-bordered align-middle mb-3" style="max-width: 560px;">
                 <tbody>
-                    <tr><th class="w-50">Seed Quantity entered</th><td>@(s.SeedQuantity > 0 ? s.SeedQuantity.ToString("N0") : "not recorded (sowing before the tray rule)")</td></tr>
+                    <tr><th class="w-50">@(s.IsCuttingSource ? "Cutting" : "Seed") Quantity entered</th><td>@(s.SeedQuantity > 0 ? s.SeedQuantity.ToString("N0") : "not recorded (sowing before the tray rule)")</td></tr>
                     <tr><th>Cavity (inherited, cannot be changed)</th><td><strong>@s.CavityType</strong></td></tr>
                     <tr><th>Sowing Trays</th><td>@(s.NumberOfTrays?.ToString("N0") ?? "-")</td></tr>
-                    <tr><th>Seeds Sown (Seeds Used)</th><td id="seedsSown" data-value="@s.QuantitySown.ToString(System.Globalization.CultureInfo.InvariantCulture)">@s.QuantitySown.ToString("N0")</td></tr>
+                    <tr><th>@s.UnitName Used (sown in complete trays)</th><td id="seedsSown" data-value="@s.QuantitySown.ToString(System.Globalization.CultureInfo.InvariantCulture)">@s.QuantitySown.ToString("N0")</td></tr>
                 </tbody>
             </table>
 
@@ -62,7 +62,7 @@
                         <table class="table table-sm table-bordered mb-0">
                             <tbody>
                                 <tr><th class="w-50">Actual Ready Seedlings <span class="text-muted fw-normal">= trays &times; @(cavity?.ToString() ?? "?")</span></th><td id="outSeedlings">&ndash;</td></tr>
-                                <tr><th>Wastage <span class="text-muted fw-normal">= seeds sown &minus; ready seedlings</span></th><td id="outWastage">&ndash;</td></tr>
+                                <tr><th>Wastage <span class="text-muted fw-normal">= @s.UnitName.ToLower() used &minus; ready seedlings</span></th><td id="outWastage">&ndash;</td></tr>
                                 <tr><th>Wastage %</th><td id="outWastagePct">&ndash;</td></tr>
                             </tbody>
                         </table>
@@ -81,18 +81,7 @@
                         <div class="form-text">Required when wastage is more than 0.</div>
                     </div>
 
-                    <div class="col-md-4">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-4">
+                    <div class="col-md-8">
                         <label class="form-label fw-bold">Remarks</label>
                         <textarea asp-for="Remarks" class="form-control" rows="1"></textarea>
                     </div>

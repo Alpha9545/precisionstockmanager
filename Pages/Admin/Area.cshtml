@@ -33,16 +33,6 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label fw-bold">Polyhouse</label>
-                <select asp-for="NewArea.PolyhouseId" class="form-select">
-                    <option value="">-- None (Main Office only) --</option>
-                    @foreach (var p in Model.Polyhouses)
-                    {
-                        <option value="@p.Id">@p.Name</option>
-                    }
-                </select>
-            </div>
-            <div class="col-md-2">
                 <label class="form-label fw-bold">Area Name</label>
                 <input type="text" asp-for="NewArea.Name" class="form-control" placeholder="Area name" required />
             </div>
@@ -52,13 +42,7 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label fw-bold">Supervisor</label>
-                <select asp-for="NewArea.SupervisorId" class="form-select">
-                    <option value="">-- None --</option>
-                    @foreach (var s in Model.Supervisors)
-                    {
-                        <option value="@s.EmployeeID">@s.Name</option>
-                    }
-                </select>
+                <div class="form-text mt-0">Choose with Edit after users are given this Area in User Roles.</div>
             </div>
             <div class="col-md-1">
                 <label class="form-label fw-bold">Size</label>
@@ -79,16 +63,6 @@
             <div class="col-md-3">
                 <input type="text" asp-for="NewArea.Remarks" class="form-control" placeholder="Remarks (optional)" />
             </div>
-            <div class="col-md-3">
-                <label class="form-label fw-bold">Growing Partner</label>
-                <select asp-for="NewArea.GrowingPartnerId" class="form-select">
-                    <option value="">-- Internal / No Growing Partner --</option>
-                    @foreach (var gp in Model.GrowingPartners)
-                    {
-                        <option value="@gp.Id">@gp.Name</option>
-                    }
-                </select>
-            </div>
         </div>
     </form>
 
@@ -97,11 +71,10 @@
         <thead>
             <tr>
                 <th>Area Type</th>
-                <th>Polyhouse</th>
+                <th>Polyhouses (in this Area)</th>
                 <th>Area Name</th>
                 <th>Area Code</th>
                 <th>Supervisor</th>
-                <th>Growing Partner</th>
                 <th>Size</th>
                 <th>Capacity</th>
                 <th>Status</th>
@@ -117,13 +90,12 @@
                     <td>@area.Name</td>
                     <td>@area.AreaCode</td>
                     <td>@(area.SupervisorName ?? "-")</td>
-                    <td>@(area.GrowingPartnerName ?? "Internal")</td>
                     <td>@(area.AreaSize.HasValue ? $"{area.AreaSize:N2} {area.AreaUnit}" : "-")</td>
                     <td>@(area.Capacity.HasValue ? $"{area.Capacity:N2} {area.CapacityUnit}" : "-")</td>
                     <td>@(area.IsActive ? "Active" : "Inactive")</td>
                     <td>
                         <button class="btn btn-warning btn-sm"
-                                onclick="openEditModal(@area.Id, '@(area.PolyhouseId?.ToString() ?? "")', '@area.Name', '@area.AreaCode', '@(area.AreaSize?.ToString() ?? "")', '@area.AreaUnit', '@(area.Capacity?.ToString() ?? "")', '@area.CapacityUnit', @(area.IsActive ? "true" : "false"), '@(area.AreaType ?? "")', '@(area.SupervisorId?.ToString() ?? "")', '@(area.Location ?? "")', '@(area.Remarks ?? "")', '@(area.GrowingPartnerId?.ToString() ?? "")')">
+                                onclick="openEditModal(@area.Id, '@area.Name', '@area.AreaCode', '@(area.AreaSize?.ToString() ?? "")', '@area.AreaUnit', '@(area.Capacity?.ToString() ?? "")', '@area.CapacityUnit', @(area.IsActive ? "true" : "false"), '@(area.AreaType ?? "")', '@(area.SupervisorId?.ToString() ?? "")', '@(area.Location ?? "")', '@(area.Remarks ?? "")')">
                             Edit
                         </button>
                     </td>
@@ -155,16 +127,6 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Polyhouse</label>
-                        <select asp-for="EditArea.PolyhouseId" class="form-select" id="editPolyhouseId">
-                            <option value="">-- None (Main Office only) --</option>
-                            @foreach (var p in Model.Polyhouses)
-                            {
-                                <option value="@p.Id">@p.Name</option>
-                            }
-                        </select>
-                    </div>
-                    <div class="mb-3">
                         <label class="form-label">Area Name</label>
                         <input type="text" asp-for="EditArea.Name" class="form-control" id="editName" required />
                     </div>
@@ -178,9 +140,10 @@
                             <option value="">-- None --</option>
                             @foreach (var s in Model.Supervisors)
                             {
-                                <option value="@s.EmployeeID">@s.Name</option>
+                                <option value="@s.EmployeeID" data-areas="@(Model.SupervisorAreaIds.TryGetValue(s.EmployeeID, out var ids) ? string.Join(",", ids) : "")">@s.Name</option>
                             }
                         </select>
+                        <div class="form-text">Only users with a Supervisor role for this Area (Admin &gt; User Roles).</div>
                     </div>
                     <div class="row mb-3">
                         <div class="col-6">
@@ -210,16 +173,6 @@
                         <label class="form-label">Remarks</label>
                         <input type="text" asp-for="EditArea.Remarks" class="form-control" id="editRemarks" />
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Growing Partner</label>
-                        <select asp-for="EditArea.GrowingPartnerId" class="form-select" id="editGrowingPartnerId">
-                            <option value="">-- Internal / No Growing Partner --</option>
-                            @foreach (var gp in Model.GrowingPartners)
-                            {
-                                <option value="@gp.Id">@gp.Name</option>
-                            }
-                        </select>
-                    </div>
                     <div class="form-check">
                         <input type="checkbox" asp-for="EditArea.IsActive" class="form-check-input" id="editIsActive" />
                         <label class="form-check-label" for="editIsActive">Active</label>
@@ -236,9 +189,8 @@
 
 <!-- JavaScript for Modal -->
 <script>
-    function openEditModal(id, polyhouseId, name, areaCode, areaSize, areaUnit, capacity, capacityUnit, isActive, areaType, supervisorId, location, remarks, growingPartnerId) {
+    function openEditModal(id, name, areaCode, areaSize, areaUnit, capacity, capacityUnit, isActive, areaType, supervisorId, location, remarks) {
         document.getElementById("editId").value = id;
-        document.getElementById("editPolyhouseId").value = polyhouseId;
         document.getElementById("editName").value = name;
         document.getElementById("editAreaCode").value = areaCode;
         document.getElementById("editAreaSize").value = areaSize;
@@ -247,10 +199,16 @@
         document.getElementById("editCapacityUnit").value = capacityUnit;
         document.getElementById("editIsActive").checked = isActive;
         document.getElementById("editAreaType").value = areaType;
-        document.getElementById("editSupervisorId").value = supervisorId;
+        // Only this Area's supervisors (plus the one already stored).
+        var sup = document.getElementById("editSupervisorId");
+        Array.from(sup.options).forEach(function (o) {
+            if (!o.value) return;
+            var areas = (o.getAttribute("data-areas") || "").split(",");
+            o.hidden = !(areas.indexOf(String(id)) >= 0 || o.value === String(supervisorId));
+        });
+        sup.value = supervisorId;
         document.getElementById("editLocation").value = location;
         document.getElementById("editRemarks").value = remarks;
-        document.getElementById("editGrowingPartnerId").value = growingPartnerId;
         var modal = new bootstrap.Modal(document.getElementById('editModal'));
         modal.show();
     }

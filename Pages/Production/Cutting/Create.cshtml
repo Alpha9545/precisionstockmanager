@@ -1,0 +1,110 @@
+@page
+@model PlantStockManager.Pages.Production.Cutting.CreateModel
+@{
+    ViewData["Title"] = "Record Cuttings";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 760px;">
+        <div class="card-header">
+            <h4 class="mb-0">Record Cuttings</h4>
+            <small class="text-muted">Cuttings taken from a Mother Plant go into its Area's Cutting Stock.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (!Model.MotherPlants.Any())
+            {
+                <div class="alert alert-warning">No active Mother Plant with an Area is available to you.</div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label fw-bold">Mother Plant</label>
+                        <select asp-for="MotherPlantId" id="motherPlant" class="form-select" required data-searchable>
+                            <option value="">-- Select Mother Plant --</option>
+                            @foreach (var m in Model.MotherPlants)
+                            {
+                                <option value="@m.Id" data-area="@m.AreaName" data-color="@m.SpeciesColor" data-variety="@m.SpeciesName?.Trim()" data-type="@m.PlantTypeName">
+                                    @m.MotherPlantCode - @m.SpeciesName?.Trim()@(string.IsNullOrEmpty(m.SpeciesColor) ? "" : " (" + m.SpeciesColor + ")") - @m.AreaName
+                                </option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Variety</label>
+                        <input type="text" id="variety" class="form-control" readonly />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Colour</label>
+                        <input type="text" id="color" class="form-control" readonly />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Area</label>
+                        <input type="text" id="area" class="form-control" readonly />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Cutting Date</label>
+                        <input type="date" asp-for="CuttingDate" class="form-control" required max="@DateTime.Today.ToString("yyyy-MM-dd")" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Cuttings Taken</label>
+                        <input type="number" step="1" min="1" asp-for="Quantity" class="form-control" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Supervisor</label>
+                        <select asp-for="SupervisorId" id="supervisor" class="form-select" required>
+                            <option value="">-- Select Mother Plant first --</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Remarks</label>
+                        <textarea asp-for="Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/Cutting/Index" class="btn btn-secondary me-2">Back</a>
+                    <button type="submit" class="btn btn-success">Save Cuttings</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const url = '@Url.Page("/Production/Cutting/Create")';
+            const selectedSupervisor = '@(Model.SupervisorId > 0 ? Model.SupervisorId.ToString() : "")';
+            function onMotherPlant() {
+                const $o = $('#motherPlant option:selected');
+                $('#variety').val($o.data('variety') ? $o.data('variety') + ' (' + $o.data('type') + ')' : '');
+                $('#color').val($o.data('color') || '');
+                $('#area').val($o.data('area') || '');
+                const $s = $('#supervisor');
+                const id = $('#motherPlant').val();
+                if (!id) { $s.empty().append('<option value="">-- Select Mother Plant first --</option>'); return; }
+                $.getJSON(url, { handler: 'Supervisors', motherPlantId: id }, function (list) {
+                    $s.empty().append($('<option value="">').text(list.length ? '-- Select supervisor --' : '-- No Mother Plant Supervisor assigned to this Area --'));
+                    list.forEach(function (u) {
+                        const $opt = $('<option>').val(u.id).text(u.name);
+                        if (String(u.id) === selectedSupervisor || (!selectedSupervisor && u.isDefault)) $opt.prop('selected', true);
+                        $s.append($opt);
+                    });
+                });
+            }
+            $('#motherPlant').on('change', onMotherPlant);
+            onMotherPlant();
+        });
+    </script>
+}

@@ -4,14 +4,8 @@ namespace PlantStockManager.Models
     {
         public int Id { get; set; }
 
-        // Nullable as of Phase 14: most Areas (MotherPlant/Kunjir/Kiran/
-        // Outlet growing areas) still belong to exactly one Polyhouse, but
-        // a "MainOffice" AreaType is a central stock/verification location
-        // with no Polyhouse of its own -- forcing one would be an
-        // artificial relationship the business owner explicitly rejected.
-        // ValidateArea() in Area.cshtml.cs enforces "required unless
-        // AreaType is MainOffice" at the application layer.
-        public int? PolyhouseId { get; set; }
+        // Polyhouses belong to an Area through dbo.Polyhouses.AreaId (the
+        // retired dbo.Area.PolyhouseId column is not mapped).
 
         // Explicit default (was missing before Phase 14) so an unbound/
         // not-yet-set Name is an empty string, not null -- this is what

@@ -1,13 +1,27 @@
 @page
 @model PlantStockManager.Pages.Production.EmptyPotInventory.IndexModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
-    ViewData["Title"] = "Empty Pot Inventory";
+    ViewData["Title"] = "Empty Pot Stock";
+    var canPurchase = await FeatureAccess.CanAccessPageAsync(User, "/Production/EmptyPotInventory/Purchase");
+    var canIssue = await FeatureAccess.CanAccessPageAsync(User, "/Production/EmptyPotInventory/Issue");
+    var office = Model.EmptyPotInventories.Where(e => e.AreaType == "MainOffice").ToList();
+    var areas = Model.EmptyPotInventories.Where(e => e.AreaType != "MainOffice").ToList();
 }
 
 <div class="container-fluid mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="mb-0">Empty Pot Inventory</h2>
-        <a asp-page="/Production/EmptyPotInventory/Create" class="btn btn-primary">+ Add Pot Size</a>
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Empty Pot Stock</h3>
+        <div class="d-flex gap-2">
+            @if (canPurchase)
+            {
+                <a asp-page="/Production/EmptyPotInventory/Purchase" class="btn btn-success">+ Purchase</a>
+            }
+            @if (canIssue)
+            {
+                <a asp-page="/Production/EmptyPotInventory/Issue" class="btn btn-primary">Issue to Area</a>
+            }
+        </div>
     </div>
 
     @if (TempData["Success"] != null)
@@ -15,56 +29,55 @@
         <div class="alert alert-success">@TempData["Success"]</div>
     }
 
-    <div class="row g-3 mb-4">
-        <div class="col-md-4">
-            <div class="card text-center shadow-sm">
-                <div class="card-body">
-                    <div class="text-muted small">Total Empty Pots (Physical)</div>
-                    <div class="fs-3 fw-bold">@Model.TotalPhysical.ToString("N2")</div>
-                </div>
-            </div>
-        </div>
-    </div>
+    <p class="text-muted small">
+        Office stock is issued to a production Area; each Area can only use its own pots.
+    </p>
 
-    <div class="table-responsive">
-        <table class="table table-striped table-hover">
-            <thead>
-                <tr>
-                    <th>Pot Size</th>
-                    <th>Area</th>
-                    <th>Growing Partner</th>
-                    <th>Physical Quantity</th>
-                    <th>Active</th>
-                    <th></th>
-                </tr>
-            </thead>
+    <h5>Office store</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-bordered table-striped">
+            <thead class="table-light"><tr><th>Pot Size</th><th>Store</th><th class="text-end">In stock</th><th></th></tr></thead>
             <tbody>
-                @foreach (var e in Model.EmptyPotInventories)
+                @foreach (var e in office)
                 {
                     <tr>
                         <td>@e.PotSize</td>
-                        <td>@(e.AreaName ?? "Unassigned")</td>
-                        <td>@(e.GrowingPartnerName ?? "Internal")</td>
-                        <td>@e.PhysicalQuantity.ToString("N2")</td>
-                        <td>
-                            @if (e.IsActive)
+                        <td>@e.AreaName</td>
+                        <td class="text-end fw-bold">@e.PhysicalQuantity.ToString("N0")</td>
+                        <td class="text-nowrap">
+                            <a asp-page="/Production/EmptyPotInventory/Details" asp-route-id="@e.Id" class="btn btn-sm btn-outline-secondary">History</a>
+                            @if (canIssue && e.PhysicalQuantity > 0)
                             {
-                                <span class="badge bg-success">Active</span>
+                                <a asp-page="/Production/EmptyPotInventory/Issue" asp-route-sourcePoolId="@e.Id" class="btn btn-sm btn-outline-primary">Issue</a>
                             }
-                            else
-                            {
-                                <span class="badge bg-secondary">Inactive</span>
-                            }
-                        </td>
-                        <td>
-                            <a asp-page="/Production/EmptyPotInventory/Details" asp-route-id="@e.Id" class="btn btn-sm btn-outline-secondary">View / History</a>
-                            <a asp-page="/Production/EmptyPotInventory/AddStock" asp-route-id="@e.Id" class="btn btn-sm btn-outline-primary">Add Stock</a>
                         </td>
                     </tr>
                 }
-                @if (!Model.EmptyPotInventories.Any())
+                @if (!office.Any())
                 {
-                    <tr><td colspan="6" class="text-center text-muted">No Pot Sizes defined yet.</td></tr>
+                    <tr><td colspan="4" class="text-center text-muted">No Office stock.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h5>Production Areas</h5>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered table-striped">
+            <thead class="table-light"><tr><th>Area</th><th>Pot Size</th><th class="text-end">Available to this Area</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var e in areas.OrderBy(a => a.AreaName).ThenBy(a => a.PotSize))
+                {
+                    <tr>
+                        <td>@(e.AreaName ?? "Unassigned (old stock)")</td>
+                        <td>@e.PotSize</td>
+                        <td class="text-end fw-bold">@e.PhysicalQuantity.ToString("N0")</td>
+                        <td><a asp-page="/Production/EmptyPotInventory/Details" asp-route-id="@e.Id" class="btn btn-sm btn-outline-secondary">History</a></td>
+                    </tr>
+                }
+                @if (!areas.Any())
+                {
+                    <tr><td colspan="4" class="text-center text-muted">No pots issued to production Areas yet.</td></tr>
                 }
             </tbody>
         </table>

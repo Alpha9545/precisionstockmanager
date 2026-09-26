@@ -11,12 +11,25 @@ namespace PlantStockManager.Models
         public int Id { get; set; }
         public string SowingCode { get; set; } = string.Empty;
 
-        public int SourceSeedStockId { get; set; }
+        // Phase D: what was sown -- seeds from a seed lot (Direct Seed Sowing)
+        // or cuttings from Cutting Stock (Cutting Tray Sowing). Both follow
+        // the same tray rule, Supervisor Approval and Ready Stock.
+        public const string SourceSeed = "Seed";
+        public const string SourceCutting = "Cutting";
+        public string SourceType { get; set; } = SourceSeed;
+        public bool IsCuttingSource => SourceType == SourceCutting;
+        // Labels for the pages: "Seeds" / "Cuttings", "seed lot" / "Cutting Stock".
+        public string UnitName => IsCuttingSource ? "Cuttings" : "Seeds";
+        public string SourceLabel => IsCuttingSource ? "Cutting Stock" : "Seed lot";
+
+        public int SourceSeedStockId { get; set; }          // 0 for a cutting sowing
+        public int? SourceCuttingStockId { get; set; }      // cutting sowing only
 
         // Denormalized, server-derived traceability fields -- never
         // trusted from the caller (see SeedSowingRepository.InsertAsync).
         public int SpeciesId { get; set; }
         public string SpeciesName { get; set; } = string.Empty;
+        public string? SpeciesColor { get; set; }
         public string PlantTypeName { get; set; } = string.Empty;
 
         public int AreaId { get; set; }

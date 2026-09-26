@@ -1,0 +1,67 @@
+@page
+@model PlantStockManager.Pages.Production.EmptyPotInventory.IssueModel
+@{
+    ViewData["Title"] = "Issue Empty Pots";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 720px;">
+        <div class="card-header">
+            <h4 class="mb-0">Issue Empty Pots to an Area</h4>
+            <small class="text-muted">Issued pots can only be used by production in the receiving Area.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (!Model.SourcePools.Any())
+            {
+                <div class="alert alert-warning">There are no empty pots in an Office store you can issue from. Record a purchase first.</div>
+            }
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label fw-bold">From Office stock</label>
+                        <select asp-for="SourcePoolId" class="form-select" required>
+                            <option value="">-- Select pot size --</option>
+                            @foreach (var p in Model.SourcePools)
+                            {
+                                <option value="@p.Id">@p.PotSize - @p.AreaName - in stock @p.PhysicalQuantity.ToString("N0")</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">To production Area</label>
+                        <select asp-for="DestinationAreaId" class="form-select" required>
+                            <option value="">-- Select Area --</option>
+                            @foreach (var a in Model.ProductionAreas)
+                            {
+                                <option value="@a.Id">@a.Name@(a.AreaType != null ? " (" + a.AreaType + ")" : "")</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Quantity</label>
+                        <input type="number" step="1" min="1" asp-for="Quantity" class="form-control" required />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Remarks</label>
+                        <input type="text" asp-for="Remarks" class="form-control" maxlength="500" />
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/EmptyPotInventory/Index" class="btn btn-secondary me-2">Back</a>
+                    <button type="submit" class="btn btn-success">Issue Pots</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

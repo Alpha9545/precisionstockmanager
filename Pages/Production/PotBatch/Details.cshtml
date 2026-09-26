@@ -1,0 +1,211 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.PotBatch.DetailsModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    var b = Model.Batch;
+    ViewData["Title"] = "Pot Batch " + b.BatchCode;
+    var inProduction = b.Status == PlantStockManager.Services.PotBatchRules.InProduction;
+    var canEnter = await FeatureAccess.CanAccessPageAsync(User, "/Production/PotBatch/Create");
+    var readiness = b.Readiness(DateTime.Today);
+    var badge = readiness switch { "Overdue" => "bg-danger", "Due today" => "bg-warning text-dark", "Due soon" => "bg-info text-dark", "Ready" => "bg-success", "Complete loss" => "bg-dark", "Cancelled" => "bg-secondary", _ => "bg-light text-dark" };
+}
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Pot Batch @b.BatchCode <span class="badge @badge fs-6 align-middle">@readiness</span></h3>
+        <a asp-page="/Production/PotBatch/Index" class="btn btn-secondary">All batches</a>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <table class="table table-sm table-bordered">
+                <tbody>
+                    <tr><th class="w-50">Variety</th><td>@b.SpeciesName <span class="text-muted">(@b.PlantTypeName)</span></td></tr>
+                    <tr><th>Colour</th><td>@(b.Color ?? "-")</td></tr>
+                    <tr><th>Pot Size</th><td>@b.PotSize</td></tr>
+                    <tr><th>Production Area</th><td>@b.AreaName</td></tr>
+                    <tr><th>Cuttings from</th><td>@b.SourceAreaName Cutting Stock</td></tr>
+                    <tr><th>Start / Expected Ready</th><td>@b.ProductionStartDate.ToString("dd/MM/yyyy") &rarr; <strong>@b.ExpectedReadyDate.ToString("dd/MM/yyyy")</strong></td></tr>
+                    <tr><th>Assigned Supervisor (confirms READY)</th><td>@(b.SupervisorName ?? "-")</td></tr>
+                    <tr><th>Created by</th><td>@(b.CreatedByName ?? b.CreatedBy)</td></tr>
+                    @if (!string.IsNullOrEmpty(b.Remarks))
+                    {
+                        <tr><th>Remarks</th><td>@b.Remarks</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="col-lg-6">
+            <table class="table table-sm table-bordered">
+                <tbody>
+                    <tr><th class="w-50">Cuttings allocated</th><td class="text-end">@b.CuttingAllocated.ToString("N0")</td></tr>
+                    <tr><th>Pots produced (total of daily entries)</th><td class="text-end fw-bold">@b.PottedQuantity.ToString("N0")</td></tr>
+                    <tr><th>Cuttings not yet potted</th><td class="text-end">@b.CuttingsLeft.ToString("N0")</td></tr>
+                    <tr><th>Empty @b.PotSize pots in @b.AreaName</th><td class="text-end">@b.EmptyPotsAvailable.ToString("N0")</td></tr>
+                    @if (b.IsConfirmed)
+                    {
+                        <tr class="@(b.Status == "Lost" ? "table-danger" : "table-success")"><th>Ready pots (to Potted Plant Stock)</th><td class="text-end fw-bold">@b.ReadyQuantity!.Value.ToString("N0")@(b.Status == "Lost" ? " - complete loss" : "")</td></tr>
+                        <tr><th>Pots lost (wastage)</th><td class="text-end">@b.PotWastage.ToString("N0") @(b.WastageReason != null ? "(" + b.WastageReason + ")" : "")</td></tr>
+                        <tr><th>Unused cuttings</th><td class="text-end">@b.UnusedCuttings.ToString("N0") @(b.UnusedCuttingAction == "ReturnedToStock" ? "(returned to Cutting Stock)" : b.UnusedCuttingAction == "Wastage" ? "(wastage)" : "")</td></tr>
+                        <tr><th>@(b.Status == "Lost" ? "Closed as complete loss by" : "Confirmed READY by")</th><td>@b.ReadyConfirmedByName on @b.ReadyDate?.ToLocalTime().ToString("dd/MM/yyyy")</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <h5 class="mt-3">Daily production</h5>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered table-striped">
+            <thead class="table-light"><tr><th>Date</th><th class="text-end">Pots</th><th class="text-end">Running total</th><th>Entered by</th><th>Remarks</th></tr></thead>
+            <tbody>
+                @{ decimal running = 0; }
+                @foreach (var e in Model.Entries)
+                {
+                    running += e.Quantity;
+                    <tr>
+                        <td>@e.ProductionDate.ToString("dd/MM/yyyy")</td>
+                        <td class="text-end">@e.Quantity.ToString("N0")</td>
+                        <td class="text-end">@running.ToString("N0")</td>
+                        <td>@e.CreatedBy</td>
+                        <td>@e.Remarks</td>
+                    </tr>
+                }
+                @if (!Model.Entries.Any())
+                {
+                    <tr><td colspan="5" class="text-center text-muted">No production entered yet.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (inProduction && canEnter && b.CuttingsLeft > 0)
+    {
+        <div class="card mb-3">
+            <div class="card-body">
+                <h6 class="card-title">Enter today's production</h6>
+                <form method="post" asp-page-handler="Entry" asp-route-id="@b.Id" class="row g-2 align-items-end">
+                    <div class="col-md-3">
+                        <label class="form-label">Date</label>
+                        <input type="date" asp-for="EntryDate" class="form-control" max="@DateTime.Today.ToString("yyyy-MM-dd")" min="@b.ProductionStartDate.ToString("yyyy-MM-dd")" required />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Pots made</label>
+                        <input type="number" step="1" min="1" max="@Math.Min(b.CuttingsLeft, b.EmptyPotsAvailable).ToString("0")" asp-for="EntryQuantity" class="form-control" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Remarks</label>
+                        <input type="text" asp-for="EntryRemarks" class="form-control" />
+                    </div>
+                    <div class="col-md-2"><button type="submit" class="btn btn-success w-100">Add</button></div>
+                </form>
+                <div class="form-text">Up to @b.CuttingsLeft.ToString("N0") more (cuttings left) and @b.EmptyPotsAvailable.ToString("N0") empty pots available in @b.AreaName.</div>
+            </div>
+        </div>
+    }
+
+    @if (inProduction && Model.IsAssignedSupervisor)
+    {
+        <div class="card border-success mb-3">
+            <div class="card-body">
+                <h6 class="card-title">Confirm READY</h6>
+                <form method="post" asp-page-handler="Ready" asp-route-id="@b.Id" class="row g-2" onsubmit="return confirm(document.getElementById('readyQty').value === '0' ? 'Close this batch as a COMPLETE LOSS? Nothing is added to stock and the batch is closed.' : 'Confirm this batch READY? The ready pots are added to Potted Plant Stock and the batch is closed.');">
+                    <div class="col-md-3">
+                        <label class="form-label fw-bold">Ready pots</label>
+                        <input type="number" step="1" min="0" max="@b.PottedQuantity.ToString("0")" asp-for="ReadyQuantity" id="readyQty" class="form-control" required
+                               data-produced="@b.PottedQuantity.ToString("0")" data-unused="@b.CuttingsLeft.ToString("0")" />
+                        <div class="form-text">Of @b.PottedQuantity.ToString("N0") produced. Enter 0 if every plant was lost.</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Pots lost</label>
+                        <input type="text" id="lost" class="form-control" readonly />
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Wastage / loss reason</label>
+                        <select asp-for="WastageReason" id="reason" class="form-select">
+                            <option value="">-- none --</option>
+                            @foreach (var r in Model.WastageReasons)
+                            {
+                                <option value="@r">@r</option>
+                            }
+                        </select>
+                    </div>
+                    @if (b.CuttingsLeft > 0)
+                    {
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">@b.CuttingsLeft.ToString("N0") cuttings not potted</label>
+                            <select asp-for="UnusedCuttingAction" class="form-select" required>
+                                <option value="">-- choose --</option>
+                                <option value="ReturnedToStock">Return to Cutting Stock</option>
+                                <option value="Wastage">Record as wastage</option>
+                            </select>
+                        </div>
+                    }
+                    <div class="col-md-9">
+                        <label class="form-label">Remarks</label>
+                        <input type="text" asp-for="ReadyRemarks" class="form-control" />
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end"><button type="submit" id="readyBtn" class="btn btn-success w-100">Confirm READY</button></div>
+                </form>
+            </div>
+        </div>
+    }
+    else if (inProduction)
+    {
+        <div class="alert alert-info">Only @b.SupervisorName (the batch's assigned supervisor) can confirm this batch READY.</div>
+    }
+
+    @if (inProduction && (Model.IsCreator || Model.IsAssignedSupervisor))
+    {
+        <div class="d-flex flex-wrap gap-3 align-items-end">
+            <form method="post" asp-page-handler="ExpectedDate" asp-route-id="@b.Id" class="d-flex gap-2 align-items-end">
+                <div>
+                    <label class="form-label mb-0 small">Expected ready date</label>
+                    <input type="date" asp-for="NewExpectedReadyDate" class="form-control form-control-sm" min="@b.ProductionStartDate.ToString("yyyy-MM-dd")" />
+                </div>
+                <button type="submit" class="btn btn-sm btn-outline-primary">Change</button>
+            </form>
+            @if (!Model.Entries.Any())
+            {
+                <form method="post" asp-page-handler="Cancel" asp-route-id="@b.Id" onsubmit="return confirm('Cancel this batch? The allocated cuttings return to Cutting Stock.');">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">Cancel batch</button>
+                </form>
+            }
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const qty = document.getElementById('readyQty');
+            if (!qty) return;
+            const produced = parseFloat(qty.dataset.produced);
+            const lost = document.getElementById('lost');
+            const reason = document.getElementById('reason');
+            const btn = document.getElementById('readyBtn');
+            function update() {
+                const r = parseFloat(qty.value);
+                const total = r === 0;
+                btn.textContent = total ? 'Close as complete loss' : 'Confirm READY';
+                btn.classList.toggle('btn-danger', total);
+                btn.classList.toggle('btn-success', !total);
+                if (isNaN(r)) { lost.value = ''; reason.required = false; return; }
+                const l = produced - r;
+                lost.value = l < 0 ? 'more than produced - not allowed' : l.toLocaleString('en-IN');
+                reason.required = l > 0 || total;
+            }
+            qty.addEventListener('input', update);
+            update();
+        })();
+    </script>
+}

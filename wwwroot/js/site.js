@@ -72,3 +72,32 @@ window.addEventListener("resize", () => {
     }
 });
 
+
+// Searchable dropdowns: <select data-searchable> gets a small "type to
+// filter" box above it (long variety / stock lists). No external library.
+(function () {
+    function enhance(select) {
+        if (select.dataset.searchReady) return;
+        select.dataset.searchReady = "1";
+        const box = document.createElement("input");
+        box.type = "search";
+        box.className = "form-control form-control-sm mb-1";
+        box.placeholder = "Type to filter the list...";
+        box.setAttribute("aria-label", "Filter list");
+        select.parentNode.insertBefore(box, select);
+        box.addEventListener("input", function () {
+            const term = box.value.trim().toLowerCase();
+            let firstMatch = null;
+            Array.from(select.options).forEach(function (o) {
+                const show = !o.value || !term || o.text.toLowerCase().indexOf(term) >= 0;
+                o.hidden = !show;
+                if (show && o.value && !firstMatch) firstMatch = o;
+            });
+            if (term && firstMatch && (select.selectedIndex < 0 || select.options[select.selectedIndex].hidden)) {
+                select.value = firstMatch.value;
+                select.dispatchEvent(new Event("change", { bubbles: true }));
+            }
+        });
+    }
+    document.querySelectorAll("select[data-searchable]").forEach(enhance);
+})();

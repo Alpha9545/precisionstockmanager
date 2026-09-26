@@ -53,20 +53,17 @@ namespace PlantStockManager.Pages.ManagementDashboard
     {
         private readonly ManagementDashboardRepository _dashboardRepo;
         private readonly AreaRepository _areaRepo;
-        private readonly GrowingPartnerRepository _growingPartnerRepo;
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
         private readonly EmptyPotInventoryRepository _emptyPotInventoryRepo;
 
         public IndexModel(
             ManagementDashboardRepository dashboardRepo,
             AreaRepository areaRepo,
-            GrowingPartnerRepository growingPartnerRepo,
             PlantSpeciesRepository plantSpeciesRepo,
             EmptyPotInventoryRepository emptyPotInventoryRepo)
         {
             _dashboardRepo = dashboardRepo;
             _areaRepo = areaRepo;
-            _growingPartnerRepo = growingPartnerRepo;
             _plantSpeciesRepo = plantSpeciesRepo;
             _emptyPotInventoryRepo = emptyPotInventoryRepo;
         }
@@ -126,7 +123,6 @@ namespace PlantStockManager.Pages.ManagementDashboard
 
             var production = await _dashboardRepo.GetProductionSummaryAsync(filters);
             var readyStock = await _dashboardRepo.GetReadyStockSummaryAsync(filters);
-            var growingPartners = await _dashboardRepo.GetGrowingPartnerSummaryAsync(filters);
             var outletSales = await _dashboardRepo.GetOutletSalesSummaryAsync(filters);
             // Reuses production.SeedStock (the all-Areas per-Unit Seed
             // Stock balance) instead of a second, identical query -- see
@@ -138,7 +134,6 @@ namespace PlantStockManager.Pages.ManagementDashboard
             var outletDispatchTrend = await _dashboardRepo.GetOutletDispatchTrendAsync(filters);
 
             var areas = await _areaRepo.GetAllAreas();
-            var growingPartnerOptions = await _growingPartnerRepo.GetAllAsync(activeOnly: true);
             var speciesOptions = await _plantSpeciesRepo.GetAllAsync();
             var emptyPots = await _emptyPotInventoryRepo.GetAllAsync(activeOnly: true);
 
@@ -147,7 +142,6 @@ namespace PlantStockManager.Pages.ManagementDashboard
                 Filters = filters,
                 Production = production,
                 ReadyStock = readyStock,
-                GrowingPartners = growingPartners,
                 OutletSales = outletSales,
                 Seed = seed,
                 Cutting = cutting,
@@ -155,13 +149,7 @@ namespace PlantStockManager.Pages.ManagementDashboard
                 SowingVsReadyTrend = sowingVsReadyTrend,
                 ReadyStockTrend = new List<TrendPoint>(), // deliberately not a separate chart -- see repository comment
                 OutletDispatchTrend = outletDispatchTrend,
-                GrowingPartnerProductionChart = growingPartners
-                    .Select(g => new CategoryValue { Label = $"{g.GrowingPartnerName} / {g.AreaName}", Value = g.PotTrayProduction })
-                    .Where(c => c.Value > 0)
-                    .OrderByDescending(c => c.Value)
-                    .ToList(),
                 Areas = areas,
-                GrowingPartnerOptions = growingPartnerOptions,
                 SpeciesOptions = speciesOptions,
                 PotSizeOptions = emptyPots.Select(e => e.PotSize).Distinct().OrderBy(p => p).ToList()
             };

@@ -4,6 +4,9 @@
 @{
     ViewData["Title"] = "Approval History";
     var canApprove = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyConfirmation/Confirm");
+    // Only the sowing's assigned supervisor may approve it or cancel its approval.
+    var isAssignedSupervisor = Model.SeedSowing.SupervisorId.HasValue
+        && Model.SeedSowing.SupervisorId == PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.GetUserId(User);
 }
 
 <div class="container-fluid mt-4">
@@ -31,7 +34,7 @@
             <div class="col-md-4"><strong>Still to approve:</strong> @Model.SeedSowing.RemainingReadyQuantity.ToString("N2")</div>
             <div class="col-md-4"><strong>Status:</strong> @Model.SeedSowing.Status</div>
         </div>
-        @if (canApprove && Model.SeedSowing.RemainingReadyQuantity > 0 && Model.SeedSowing.Status == "Sown")
+        @if (canApprove && isAssignedSupervisor && Model.SeedSowing.RemainingReadyQuantity > 0 && Model.SeedSowing.Status == "Sown")
         {
             <div class="mt-2">
                 <a asp-page="/Production/ReadyConfirmation/Confirm" asp-route-id="@Model.SeedSowing.Id" class="btn btn-sm btn-success">Approve batch</a>
@@ -84,7 +87,7 @@
                         <td>@(rc.SupervisorName ?? "-")</td>
                         <td>@(rc.Remarks ?? "-")</td>
                         <td>
-                            @if (canApprove && rc.Status == "Confirmed")
+                            @if (canApprove && isAssignedSupervisor && rc.Status == "Confirmed")
                             {
                                 <form method="post" asp-page-handler="Cancel" asp-route-confirmationId="@rc.Id" asp-route-seedSowingId="@Model.SeedSowing.Id"
                                       onsubmit="return confirm('Cancel this approval? Its Ready quantity is removed from Ready Stock and the batch is re-opened for approval.');">

@@ -42,7 +42,7 @@ namespace PlantStockManager.Data
             using (var conn = _dbHelper.GetConnection())
             {
                 await conn.OpenAsync();
-                var cmd = new SqlCommand("SELECT Id, PlantTypeId, Name, ScientificName, ReadyStockDays FROM PlantSpecies ORDER BY Name", conn);
+                var cmd = new SqlCommand("SELECT Id, PlantTypeId, Name, ScientificName, ReadyStockDays, Color FROM PlantSpecies ORDER BY Name", conn);
                 using (var reader = await cmd.ExecuteReaderAsync())
                 {
                     while (await reader.ReadAsync())
@@ -53,7 +53,8 @@ namespace PlantStockManager.Data
                             PlantTypeId = reader.GetInt32(1),
                             Name = reader.GetString(2),
                             ScientificName = reader.IsDBNull(3) ? null : reader.GetString(3),
-                            ReadyStockDays = reader.IsDBNull(4) ? (int?)null : reader.GetInt32(4)
+                            ReadyStockDays = reader.IsDBNull(4) ? (int?)null : reader.GetInt32(4),
+                            Color = reader.IsDBNull(5) ? null : reader.GetString(5)
                         });
                     }
                 }
@@ -80,6 +81,7 @@ namespace PlantStockManager.Data
                     // reads Id/PlantTypeId/Name/ScientificName, so adding
                     // this field is purely additive and safe.
                     var readyStockDaysOrdinal = reader.GetOrdinal("ReadyStockDays");
+                    var colorOrdinal = reader.GetOrdinal("Color");
                     while (await reader.ReadAsync())
                     {
                         speciesList.Add(new PlantSpecies
@@ -88,7 +90,8 @@ namespace PlantStockManager.Data
                             PlantTypeId = reader.GetInt32(1),
                             Name = reader.GetString(2),
                             ScientificName = reader.IsDBNull(3) ? null : reader.GetString(3),
-                            ReadyStockDays = reader.IsDBNull(readyStockDaysOrdinal) ? (int?)null : reader.GetInt32(readyStockDaysOrdinal)
+                            ReadyStockDays = reader.IsDBNull(readyStockDaysOrdinal) ? (int?)null : reader.GetInt32(readyStockDaysOrdinal),
+                            Color = reader.IsDBNull(colorOrdinal) ? null : reader.GetString(colorOrdinal)
                         });
                     }
                 }
@@ -107,7 +110,7 @@ namespace PlantStockManager.Data
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            var cmd = new SqlCommand("SELECT Id, PlantTypeId, Name, ScientificName, ReadyStockDays FROM PlantSpecies WHERE Id = @Id", conn);
+            var cmd = new SqlCommand("SELECT Id, PlantTypeId, Name, ScientificName, ReadyStockDays, Color FROM PlantSpecies WHERE Id = @Id", conn);
             cmd.Parameters.AddWithValue("@Id", id);
             using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
@@ -118,7 +121,8 @@ namespace PlantStockManager.Data
                     PlantTypeId = reader.GetInt32(1),
                     Name = reader.GetString(2),
                     ScientificName = reader.IsDBNull(3) ? null : reader.GetString(3),
-                    ReadyStockDays = reader.IsDBNull(4) ? (int?)null : reader.GetInt32(4)
+                    ReadyStockDays = reader.IsDBNull(4) ? (int?)null : reader.GetInt32(4),
+                    Color = reader.IsDBNull(5) ? null : reader.GetString(5)
                 };
             }
             return null;
@@ -130,29 +134,31 @@ namespace PlantStockManager.Data
         // caller in the whole codebase -- Pages/Admin/Plant.cshtml.cs --
         // confirmed by grep, so widening the signature here is safe and
         // that page has been updated to pass the new field through.
-        public async Task AddPlantSpecies(int plantTypeId, string name, string scientificName, int? readyStockDays = null)
+        public async Task AddPlantSpecies(int plantTypeId, string name, string scientificName, int? readyStockDays = null, string? color = null)
         {
             using (var conn = _dbHelper.GetConnection())
             {
                 await conn.OpenAsync();
-                var cmd = new SqlCommand("INSERT INTO PlantSpecies (PlantTypeId, Name, ScientificName, ReadyStockDays) VALUES (@PlantTypeId, @Name, @ScientificName, @ReadyStockDays)", conn);
+                var cmd = new SqlCommand("INSERT INTO PlantSpecies (PlantTypeId, Name, ScientificName, ReadyStockDays, Color) VALUES (@PlantTypeId, @Name, @ScientificName, @ReadyStockDays, @Color)", conn);
                 cmd.Parameters.AddWithValue("@PlantTypeId", plantTypeId);
-                cmd.Parameters.AddWithValue("@Name", name);
+                cmd.Parameters.AddWithValue("@Name", name.Trim());
                 cmd.Parameters.AddWithValue("@ScientificName", string.IsNullOrWhiteSpace(scientificName) ? (object)DBNull.Value : scientificName);
                 cmd.Parameters.AddWithValue("@ReadyStockDays", readyStockDays.HasValue ? (object)readyStockDays.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@Color", string.IsNullOrWhiteSpace(color) ? (object)DBNull.Value : color.Trim());
                 await cmd.ExecuteNonQueryAsync();
             }
         }
 
-        public async Task UpdatePlantSpecies(int id, string name, string scientificName, int? readyStockDays = null)
+        public async Task UpdatePlantSpecies(int id, string name, string scientificName, int? readyStockDays = null, string? color = null)
         {
             using (var conn = _dbHelper.GetConnection())
             {
                 await conn.OpenAsync();
-                var cmd = new SqlCommand("UPDATE PlantSpecies SET Name = @Name, ScientificName = @ScientificName, ReadyStockDays = @ReadyStockDays WHERE Id = @Id", conn);
+                var cmd = new SqlCommand("UPDATE PlantSpecies SET Name = @Name, ScientificName = @ScientificName, ReadyStockDays = @ReadyStockDays, Color = @Color WHERE Id = @Id", conn);
                 cmd.Parameters.AddWithValue("@Name", name);
                 cmd.Parameters.AddWithValue("@ScientificName", string.IsNullOrWhiteSpace(scientificName) ? (object)DBNull.Value : scientificName);
                 cmd.Parameters.AddWithValue("@ReadyStockDays", readyStockDays.HasValue ? (object)readyStockDays.Value : DBNull.Value);
+                cmd.Parameters.AddWithValue("@Color", string.IsNullOrWhiteSpace(color) ? (object)DBNull.Value : color.Trim());
                 cmd.Parameters.AddWithValue("@Id", id);
                 await cmd.ExecuteNonQueryAsync();
             }

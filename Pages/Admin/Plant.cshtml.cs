@@ -45,6 +45,12 @@ namespace PlantStockManager.Pages.Admin
         public int? NewSpeciesReadyStockDays { get; set; }
 
         [BindProperty]
+        public string? NewSpeciesColor { get; set; }
+
+        [BindProperty]
+        public string? EditSpeciesColor { get; set; }
+
+        [BindProperty]
         public int EditSpeciesId { get; set; }
         [BindProperty]
         public string EditSpeciesName { get; set; }
@@ -106,7 +112,7 @@ namespace PlantStockManager.Pages.Admin
                     TempData["Error"] = "Ready Stock Days must be greater than zero when provided.";
                     return RedirectToPage();
                 }
-                await _plantSpeciesRepo.AddPlantSpecies(NewSpeciesTypeId, NewSpeciesName, NewSpeciesScientificName, NewSpeciesReadyStockDays);
+                await _plantSpeciesRepo.AddPlantSpecies(NewSpeciesTypeId, NewSpeciesName, NewSpeciesScientificName, NewSpeciesReadyStockDays, NewSpeciesColor);
             }
             return RedirectToPage();
         }
@@ -127,7 +133,7 @@ namespace PlantStockManager.Pages.Admin
                 // ReadyStockDays value it read at the moment of sowing
                 // onto the SeedSowings row itself, so no past Sowing's
                 // ExpectedReadyDate/ReadyStockDays is touched by this edit.
-                await _plantSpeciesRepo.UpdatePlantSpecies(EditSpeciesId, EditSpeciesName, EditSpeciesScientificName, EditSpeciesReadyStockDays);
+                await _plantSpeciesRepo.UpdatePlantSpecies(EditSpeciesId, EditSpeciesName, EditSpeciesScientificName, EditSpeciesReadyStockDays, EditSpeciesColor);
             }
             return RedirectToPage();
         }

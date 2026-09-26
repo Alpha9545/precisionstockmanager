@@ -48,6 +48,7 @@ namespace PlantStockManager.Models
         // Display-only, populated by joins in MotherPlantRepository. Not persisted.
         public string? PolyhouseName { get; set; }
         public string? SpeciesName { get; set; }
+        public string? SpeciesColor { get; set; }
         public string? PlantTypeName { get; set; }
         public string? AreaName { get; set; }
         public string? ResponsiblePersonName { get; set; }

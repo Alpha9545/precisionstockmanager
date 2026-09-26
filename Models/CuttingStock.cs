@@ -16,6 +16,7 @@ namespace PlantStockManager.Models
         public int SpeciesId { get; set; }
         public string? SpeciesName { get; set; }
         public string? PlantTypeName { get; set; }
+        public string? SpeciesColor { get; set; }
 
         public int AreaId { get; set; }
         public string? AreaName { get; set; }

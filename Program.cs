@@ -32,13 +32,18 @@ builder.Services.AddScoped<EmployeeRepository>();
 builder.Services.AddScoped<AreaRepository>();
 builder.Services.AddScoped<BatchNumberRepository>();
 builder.Services.AddScoped<MotherPlantRepository>();
-builder.Services.AddScoped<CuttingPlanRepository>(); // Phase 3
-builder.Services.AddScoped<ActualCuttingRepository>(); // Phase 4
-builder.Services.AddScoped<CuttingDeliveryRepository>(); // Phase 5
-builder.Services.AddScoped<PropagationBatchRepository>(); // Phase 6
+// Phase D: Cutting Plan / Actual Cutting / Cutting Delivery / Propagation
+// Batch (Phases 3-6) and the single-shot Pot Production (Phase 7) are
+// retired -- replaced by Cutting Production -> Cutting Stock -> Pot
+// Production Batches. Their tables and rows are kept.
+builder.Services.AddScoped<CuttingProductionRepository>(); // Phase D
+builder.Services.AddScoped<PotSizeRepository>(); // Phase D: pot-size master
 builder.Services.AddScoped<EmptyPotInventoryRepository>(); // Phase 7
+builder.Services.AddScoped<EmptyPotPurchaseRepository>(); // Phase D
 builder.Services.AddScoped<PottedPlantStockRepository>(); // Phase 7
-builder.Services.AddScoped<PotProductionRepository>(); // Phase 7
+builder.Services.AddScoped<PotBatchRepository>(); // Phase D: pot batches + daily production + READY
+builder.Services.AddScoped<StockHistoryRepository>(); // Phase D: stock history over every ledger
+builder.Services.AddScoped<WastageRepository>(); // Phase D: one wastage report
 builder.Services.AddScoped<InternalTransferRepository>(); // Phase 8
 builder.Services.AddScoped<PottedPlantBookingRepository>(); // Phase 9
 builder.Services.AddScoped<DispatchRepository>(); // Phase 10
@@ -57,16 +62,12 @@ builder.Services.AddScoped<CuttingStockRepository>();
 
 // Growing Partner foundation (Phase 17) -- deliberately separate from
 // VendorRepository/dbo.Vendors (Phase 11), see GrowingPartner.cs.
-builder.Services.AddScoped<GrowingPartnerRepository>();
 
 // Growing Partner Access & Responsibilities (Phase 17/B): reusable
 // Area-scope check, reads the RoleName/AreaAccess claims stamped at
 // login. Stateless, but Scoped to match every other service's lifetime
 // in this project.
 builder.Services.AddScoped<AreaAccessService>();
-// F1: resolves the Area of Phase 3-6 records through their Mother Plant
-// so those pages can use AreaAccessService (Authorization/MotherPlantAreaScope.cs).
-builder.Services.AddScoped<MotherPlantAreaScope>();
 builder.Services.AddScoped<AdministrativeAccessGuard>(); // Phase A: user/role anti-escalation rules
 // Phase B: Area scope for the seedling workflow pages only (switchable while
 // Polyhouses/Areas are not configured yet). See Authorization/SeedlingAreaScope.cs.

@@ -56,9 +56,10 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
             if (Order.Items == null || Order.Items.Count == 0)
                 ModelState.AddModelError(string.Empty, "At least one line item is required.");
 
-            // F1: every EmptyPot line's destination Area must be one of the user's.
-            if (Order.Items != null && Order.Items.Any(i => i.ItemCategory == "EmptyPot" && !_areaAccessService.CanAccessArea(User, i.AreaId)))
-                ModelState.AddModelError(string.Empty, "You are not authorized to order Empty Pots for one or more of the selected Areas.");
+            // Phase D: empty pots are bought through Empty Pot Purchase (one
+            // path into Empty Pot Stock), never through a purchase order.
+            if (Order.Items != null && Order.Items.Any(i => i.ItemCategory == "EmptyPot"))
+                ModelState.AddModelError(string.Empty, "Empty pots are recorded with Pot Production > Empty Pot Purchase, not with a purchase order.");
 
             if (!ModelState.IsValid)
             {

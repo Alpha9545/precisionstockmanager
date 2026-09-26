@@ -64,7 +64,6 @@ INNER JOIN dbo.SeedSowings sw ON rc.SeedSowingId = sw.Id
 INNER JOIN dbo.PlantSpecies ps ON sw.SpeciesId = ps.Id
 INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
 INNER JOIN dbo.Area a ON sw.AreaId = a.Id
-LEFT JOIN dbo.Polyhouses ph ON a.PolyhouseId = ph.Id
 LEFT JOIN dbo.Polyhouses sph ON sw.PolyhouseId = sph.Id
 LEFT JOIN dbo.IMSUsers ab ON rc.ApprovedById = ab.Id
 LEFT JOIN dbo.IMSUsers r ON rc.ResponsiblePersonId = r.Id
@@ -303,6 +302,9 @@ WHERE Id = @Id", conn, tx);
         // longer there), takes its Ready and Wastage back off the Sowing and
         // RE-OPENS the batch (Completed -> Sown) so it can be approved again.
         // Never deletes the approval row or the Ready Stock row.
+        // Phase D: only the sowing's ASSIGNED supervisor may reverse its
+        // approval -- the same person who alone may approve it. No other
+        // supervisor and no administrator can undo someone else's approval.
         public async Task<(bool Success, string? Message)> CancelAsync(int id, string? modifiedBy, int? userId)
         {
             using var conn = _dbHelper.GetConnection();
@@ -312,12 +314,14 @@ WHERE Id = @Id", conn, tx);
             try
             {
                 var lockCmd = new SqlCommand(
-                    "SELECT SeedSowingId, ReadyStockId, ConfirmedQuantity, WastageQuantity, Status FROM dbo.ReadyConfirmations WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                    "SELECT rc.SeedSowingId, rc.ReadyStockId, rc.ConfirmedQuantity, rc.WastageQuantity, rc.Status, sw.SupervisorId AS SowingSupervisorId " +
+                    "FROM dbo.ReadyConfirmations rc WITH (UPDLOCK, HOLDLOCK) INNER JOIN dbo.SeedSowings sw ON sw.Id = rc.SeedSowingId WHERE rc.Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", id);
                 int seedSowingId, readyStockId;
                 decimal confirmedQuantity, wastageQuantity;
                 string status;
+                int? sowingSupervisorId;
                 using (var reader = await lockCmd.ExecuteReaderAsync())
                 {
                     if (!await reader.ReadAsync())
@@ -331,8 +335,14 @@ WHERE Id = @Id", conn, tx);
                     confirmedQuantity = reader.GetDecimal(reader.GetOrdinal("ConfirmedQuantity"));
                     wastageQuantity = reader.GetDecimal(reader.GetOrdinal("WastageQuantity"));
                     status = reader.GetString(reader.GetOrdinal("Status"));
+                    sowingSupervisorId = reader.IsDBNull(reader.GetOrdinal("SowingSupervisorId")) ? null : reader.GetInt32(reader.GetOrdinal("SowingSupervisorId"));
                 }
 
+                if (!userId.HasValue || sowingSupervisorId != userId)
+                {
+                    tx.Rollback();
+                    return (false, "Only the Sowing Supervisor assigned to this sowing can cancel its approval.");
+                }
                 if (status == "Cancelled")
                 {
                     tx.Rollback();

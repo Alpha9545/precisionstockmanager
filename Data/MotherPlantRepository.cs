@@ -17,7 +17,7 @@ namespace PlantStockManager.Data
         private const string BaseSelect = @"
 SELECT
     mp.Id, mp.MotherPlantCode, mp.PolyhouseId, ph.Name AS PolyhouseName,
-    mp.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
+    mp.SpeciesId, ps.Name AS SpeciesName, ps.Color AS SpeciesColor, pt.Name AS PlantTypeName,
     mp.AreaId, a.Name AS AreaName,
     mp.ResponsiblePersonId, u.Name AS ResponsiblePersonName,
     mp.SupervisorId, sup.Name AS SupervisorName,
@@ -204,6 +204,7 @@ WHERE Id = @Id";
                 PolyhouseName = reader.GetString(reader.GetOrdinal("PolyhouseName")),
                 SpeciesId = reader.GetInt32(reader.GetOrdinal("SpeciesId")),
                 SpeciesName = reader.GetString(reader.GetOrdinal("SpeciesName")),
+                SpeciesColor = reader.IsDBNull(reader.GetOrdinal("SpeciesColor")) ? null : reader.GetString(reader.GetOrdinal("SpeciesColor")),
                 PlantTypeName = reader.GetString(reader.GetOrdinal("PlantTypeName")),
                 AreaId = reader.IsDBNull(reader.GetOrdinal("AreaId")) ? null : reader.GetInt32(reader.GetOrdinal("AreaId")),
                 AreaName = reader.IsDBNull(reader.GetOrdinal("AreaName")) ? null : reader.GetString(reader.GetOrdinal("AreaName")),

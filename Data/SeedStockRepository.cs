@@ -47,6 +47,38 @@ LEFT JOIN dbo.SeedSources src ON ss.SeedSourceId = src.Id";
             return list;
         }
 
+        // Phase D: searchable seed selection for 1,000+ varieties. Filters in
+        // SQL (never loads the whole list into a dropdown): free text matches
+        // the variety, crop/class, colour, supplier or lot number.
+        public async Task<List<SeedStock>> SearchAsync(string? text, int? plantTypeId = null, int? seedSourceId = null,
+            bool onlyAvailable = false, bool mainOfficeOnly = false, int max = 200)
+        {
+            var list = new List<SeedStock>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+
+            var sql = BaseSelect.Replace("SELECT\n", $"SELECT TOP ({Math.Clamp(max, 1, 1000)})\n").Replace("SELECT\r\n", $"SELECT TOP ({Math.Clamp(max, 1, 1000)})\r\n") + @"
+WHERE (@Text IS NULL OR ps.Name LIKE @Like OR pt.Name LIKE @Like OR ISNULL(ps.Color, N'') LIKE @Like
+       OR ISNULL(src.Name, N'') LIKE @Like OR ss.BatchNo LIKE @Like)
+  AND (@PlantTypeId IS NULL OR ps.PlantTypeId = @PlantTypeId)
+  AND (@SeedSourceId IS NULL OR ss.SeedSourceId = @SeedSourceId)
+  AND (@OnlyAvailable = 0 OR ss.AvailableQuantity > 0)
+  AND (@MainOfficeOnly = 0 OR (a.AreaType = N'MainOffice' AND a.IsActive = 1))
+ORDER BY ps.Name, ss.BatchNo";
+            var term = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@Text", (object?)term ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Like", term == null ? DBNull.Value : "%" + term.Replace("[", "[[]").Replace("%", "[%]").Replace("_", "[_]") + "%");
+            cmd.Parameters.AddWithValue("@PlantTypeId", (object?)plantTypeId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@SeedSourceId", (object?)seedSourceId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@OnlyAvailable", onlyAvailable);
+            cmd.Parameters.AddWithValue("@MainOfficeOnly", mainOfficeOnly);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                list.Add(Map(reader));
+            return list;
+        }
+
         public async Task<SeedStock?> GetByIdAsync(int id)
         {
             using var conn = _dbHelper.GetConnection();

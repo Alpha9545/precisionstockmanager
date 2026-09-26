@@ -10,13 +10,11 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
     public class EditModel : PageModel
     {
         private readonly InternalTransferRepository _internalTransferRepo;
-        private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccessService;
 
-        public EditModel(InternalTransferRepository internalTransferRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
+        public EditModel(InternalTransferRepository internalTransferRepo, AreaAccessService areaAccessService)
         {
             _internalTransferRepo = internalTransferRepo;
-            _employeeRepo = employeeRepo;
             _areaAccessService = areaAccessService;
         }
 
@@ -47,8 +45,6 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
         [BindProperty]
         public InternalTransferModel InternalTransfer { get; set; } = new();
 
-        public List<Employee> ResponsiblePersons { get; set; } = new();
-        public List<Employee> Supervisors { get; set; } = new();
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -159,9 +155,6 @@ namespace PlantStockManager.Pages.Production.InternalTransfer
 
         private async Task LoadDropdownsAsync()
         {
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
         }
     }
 }

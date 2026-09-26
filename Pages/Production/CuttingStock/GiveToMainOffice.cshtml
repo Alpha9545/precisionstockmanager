@@ -50,14 +50,14 @@
                     {
                         <tr>
                             <td>@s.SpeciesName</td>
-                            <td>@s.PhysicalQuantity.ToString("N2")</td>
-                            <td>@s.InTransitQuantity.ToString("N2")</td>
-                            <td class="fw-bold">@s.AvailableQuantity.ToString("N2")</td>
+                            <td>@s.PhysicalQuantity.ToString("N0")</td>
+                            <td>@s.InTransitQuantity.ToString("N0")</td>
+                            <td class="fw-bold">@s.AvailableQuantity.ToString("N0")</td>
                             <td style="max-width:120px;">
                                 <form method="post" asp-page-handler="Send">
                                     <input type="hidden" name="cuttingStockId" value="@s.Id" />
                                     <input type="hidden" name="areaId" value="@Model.SelectedAreaId" />
-                                    <input type="number" step="0.01" min="0.01" max="@s.AvailableQuantity" name="quantity" class="form-control form-control-sm mb-1" required />
+                                    <input type="number" step="1" min="1" max="@s.AvailableQuantity" name="quantity" class="form-control form-control-sm mb-1" required />
                                     <select name="pendingConfirmationAreaId" class="form-select form-select-sm mb-1" required>
                                         <option value="">-- Main Office --</option>
                                         @foreach (var mo in Model.MainOfficeAreas)

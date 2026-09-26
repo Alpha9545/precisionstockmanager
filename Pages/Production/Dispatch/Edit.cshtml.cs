@@ -16,13 +16,11 @@ namespace PlantStockManager.Pages.Production.Dispatch
     public class EditModel : PageModel
     {
         private readonly DispatchRepository _dispatchRepo;
-        private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccessService;
 
-        public EditModel(DispatchRepository dispatchRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
+        public EditModel(DispatchRepository dispatchRepo, AreaAccessService areaAccessService)
         {
             _dispatchRepo = dispatchRepo;
-            _employeeRepo = employeeRepo;
             _areaAccessService = areaAccessService;
         }
 
@@ -35,7 +33,6 @@ namespace PlantStockManager.Pages.Production.Dispatch
         [BindProperty]
         public DispatchModel Dispatch { get; set; } = new();
 
-        public List<Employee> PersonOptions { get; set; } = new();
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -152,7 +149,6 @@ namespace PlantStockManager.Pages.Production.Dispatch
 
         private async Task LoadDropdownsAsync()
         {
-            PersonOptions = await _employeeRepo.GetAllActiveUsers();
         }
     }
 }

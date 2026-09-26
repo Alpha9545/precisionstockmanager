@@ -1,0 +1,119 @@
+@page
+@model PlantStockManager.Pages.Production.PotBatch.CreateModel
+@{
+    ViewData["Title"] = "Start Pot Batch";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Start Pot Production Batch</h4>
+            <small class="text-muted">Choose the cuttings and the empty pots issued to your Area. One cutting makes one pot. The cuttings leave Cutting Stock now; each day's production uses the Area's empty pots.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Cutting Stock</label>
+                        <select asp-for="SourceCuttingStockId" id="stock" class="form-select" required data-searchable>
+                            <option value="">-- Select variety / Area --</option>
+                            @foreach (var s in Model.StockPools)
+                            {
+                                <option value="@s.Id" data-available="@s.AvailableQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)">
+                                    @s.SpeciesName?.Trim()@(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")") - @s.AreaName - available @s.AvailableQuantity.ToString("N0")
+                                </option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Cuttings Allocated</label>
+                        <input type="number" step="1" min="1" asp-for="CuttingAllocated" id="allocated" class="form-control" required />
+                        <div class="text-danger small d-none" id="allocWarning">More than the available cuttings.</div>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Empty pots (production Area - pot size)</label>
+                        <select asp-for="EmptyPotInventoryId" id="pool" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var p in Model.PotPools)
+                            {
+                                <option value="@p.Id" data-area="@p.AreaId" data-pots="@p.PhysicalQuantity.ToString("0")">@p.AreaName - @p.PotSize - @p.PhysicalQuantity.ToString("N0") empty pots</option>
+                            }
+                        </select>
+                        @if (!Model.PotPools.Any())
+                        {
+                            <div class="text-danger small">No empty pots have been issued to your Area yet. Ask the Main Office to issue pots first.</div>
+                        }
+                        <div class="text-warning small d-none" id="potWarning">Fewer empty pots than cuttings: issue more pots to this Area before potting them all.</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Production Start Date</label>
+                        <input type="date" asp-for="ProductionStartDate" class="form-control" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Expected Ready Date</label>
+                        <input type="date" asp-for="ExpectedReadyDate" class="form-control" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Supervisor (confirms READY)</label>
+                        <select asp-for="SupervisorId" id="supervisor" class="form-select" required>
+                            <option value="">-- Select empty pots first --</option>
+                        </select>
+                        <div class="form-text">A Mother Plant Supervisor of the Area, other than you.</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Remarks</label>
+                        <textarea asp-for="Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PotBatch/Index" class="btn btn-secondary me-2">Back</a>
+                    <button type="submit" class="btn btn-success">Start Batch</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const url = '@Url.Page("/Production/PotBatch/Create")';
+            const selectedSupervisor = '@(Model.SupervisorId > 0 ? Model.SupervisorId.ToString() : "")';
+            function checkAlloc() {
+                const a = parseFloat($('#stock option:selected').data('available'));
+                const q = parseFloat($('#allocated').val());
+                const pots = parseFloat($('#pool option:selected').data('pots'));
+                $('#allocWarning').toggleClass('d-none', !(!isNaN(a) && !isNaN(q) && q > a));
+                $('#potWarning').toggleClass('d-none', !(!isNaN(pots) && !isNaN(q) && q > pots));
+            }
+            function loadSupervisors() {
+                const areaId = $('#pool option:selected').data('area');
+                const $s = $('#supervisor');
+                if (!areaId) { $s.empty().append('<option value="">-- Select empty pots first --</option>'); return; }
+                $.getJSON(url, { handler: 'Supervisors', areaId: areaId }, function (list) {
+                    $s.empty().append($('<option value="">').text(list.length ? '-- Select supervisor --' : '-- No other Mother Plant Supervisor in this Area --'));
+                    list.forEach(function (u) {
+                        const $o = $('<option>').val(u.id).text(u.name);
+                        if (String(u.id) === selectedSupervisor || list.length === 1) $o.prop('selected', true);
+                        $s.append($o);
+                    });
+                });
+            }
+            $('#stock').on('change', checkAlloc);
+            $('#allocated').on('input', checkAlloc);
+            $('#pool').on('change', function () { loadSupervisors(); checkAlloc(); });
+            loadSupervisors(); checkAlloc();
+        });
+    </script>
+}

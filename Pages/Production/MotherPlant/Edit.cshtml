@@ -24,36 +24,39 @@
 
             <form method="post">
                 <input type="hidden" asp-for="MotherPlant.Id" />
+                <input type="hidden" asp-for="MotherPlant.SpeciesId" />
+                <input type="hidden" asp-for="SelectedPlantTypeId" />
                 <input type="hidden" asp-for="MotherPlant.MotherPlantCode" />
                 <input type="hidden" asp-for="MotherPlant.CreatedBy" />
                 <input type="hidden" asp-for="MotherPlant.CreatedDate" />
 
                 <div class="row g-3">
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Polyhouse</label>
-                        <select asp-for="MotherPlant.PolyhouseId" id="polyhouseSelect" class="form-select" required>
-                            @foreach (var p in Model.Polyhouses)
-                            {
-                                <option value="@p.Id">@p.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Area (optional)</label>
-                        <select asp-for="MotherPlant.AreaId" id="areaSelect" class="form-select">
-                            <option value="">-- None --</option>
+                        <label class="form-label fw-bold">Area</label>
+                        <select asp-for="MotherPlant.AreaId" id="areaSelect" class="form-select" required>
+                            <option value="">-- Select Area --</option>
                             @foreach (var a in Model.Areas)
                             {
                                 <option value="@a.Id">@a.Name</option>
                             }
                         </select>
-                        <small class="text-muted">Select a Polyhouse first; Areas are scoped to it.</small>
+                    </div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Polyhouse</label>
+                        <select asp-for="MotherPlant.PolyhouseId" id="polyhouseSelect" class="form-select" required>
+                            <option value="">-- Select Area first --</option>
+                            @foreach (var p in Model.Polyhouses)
+                            {
+                                <option value="@p.Id">@p.Name</option>
+                            }
+                        </select>
+                        <small class="text-muted">Only the Polyhouses of the selected Area.</small>
                     </div>
 
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Plant Type</label>
-                        <select asp-for="SelectedPlantTypeId" id="plantTypeSelect" class="form-select" required>
+                        <select asp-for="SelectedPlantTypeId" id="plantTypeSelect" class="form-select" required disabled>
                             @foreach (var t in Model.PlantTypes)
                             {
                                 <option value="@t.Id">@t.Name</option>
@@ -63,7 +66,7 @@
 
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Variety (Species)</label>
-                        <select asp-for="MotherPlant.SpeciesId" id="speciesSelect" class="form-select" required>
+                        <select asp-for="MotherPlant.SpeciesId" id="speciesSelect" class="form-select" required disabled title="The variety cannot be changed after the Mother Plant is created.">
                             @foreach (var s in Model.SpeciesForSelectedType)
                             {
                                 <option value="@s.Id">@s.Name</option>
@@ -72,25 +75,18 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Responsible Person</label>
-                        <select asp-for="MotherPlant.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="MotherPlant.SupervisorId" class="form-select">
-                            <option value="">-- None --</option>
+                        <label class="form-label fw-bold">Mother Plant Supervisor</label>
+                        <select asp-for="MotherPlant.SupervisorId" id="supervisorSelect" class="form-select" required>
+                            <option value="">-- Select supervisor --</option>
                             @foreach (var s in Model.Supervisors)
                             {
                                 <option value="@s.EmployeeID">@s.Name</option>
                             }
                         </select>
+                        @if (!Model.Supervisors.Any())
+                        {
+                            <div class="form-text">Mother Plant Supervisors assigned to the selected Area (Admin &gt; User Roles).</div>
+                        }
                     </div>
 
                     <div class="col-md-6">
@@ -167,27 +163,22 @@
                 });
             });
 
-            // Polyhouse -> Area cascading dropdown. An Area belongs to
-            // exactly one Polyhouse, so the Area list is re-fetched every
-            // time the Polyhouse changes and never shows areas outside it.
-            // The initial page load already renders the correct Area list
-            // (filtered server-side to the record's existing Polyhouse in
-            // EditModel.OnGetAsync), so this only fires on a user change.
-            $('#polyhouseSelect').on('change', function () {
-                const polyhouseId = $(this).val();
-                const areaSelect = $('#areaSelect');
-                areaSelect.empty();
-                areaSelect.append('<option value="">-- None --</option>');
-                if (!polyhouseId) {
-                    return;
-                }
-                $.get(window.basePath + 'Production/MotherPlant/Edit?handler=AreasByPolyhouseId&polyhouseId=' + polyhouseId, function (data) {
-                    $.each(data, function (i, a) {
-                        areaSelect.append('<option value="' + a.id + '">' + a.name + '</option>');
-                    });
-                }).fail(function () {
-                    areaSelect.append('<option value="">-- Failed to load areas --</option>');
+            // Area first: load that Area's Polyhouses and Mother Plant Supervisors.
+            $('#areaSelect').on('change', function () {
+                const areaId = $(this).val();
+                const ph = $('#polyhouseSelect'), sup = $('#supervisorSelect');
+                ph.empty().append($('<option value="">').text(areaId ? '-- Select Polyhouse --' : '-- Select Area first --'));
+                sup.empty().append($('<option value="">').text('-- Select supervisor --'));
+                if (!areaId) return;
+                $.getJSON(window.basePath + 'Production/MotherPlant/Edit?handler=AreaOptions&areaId=' + areaId, function (data) {
+                    if (!data.polyhouses.length) ph.empty().append($('<option value="">').text('-- No Polyhouse assigned to this Area --'));
+                    if (!data.supervisors.length) sup.empty().append($('<option value="">').text('-- No Mother Plant Supervisor for this Area --'));
+                    $.each(data.polyhouses, function (i, x) { ph.append($('<option>').val(x.id).text(x.name)); });
+                    $.each(data.supervisors, function (i, x) { sup.append($('<option>').val(x.id).text(x.name)); });
+                    if (data.polyhouses.length === 1) ph.val(data.polyhouses[0].id);
+                    if (data.supervisors.length === 1) sup.val(data.supervisors[0].id);
                 });
+            });
             });
 
             function recalcPreview() {

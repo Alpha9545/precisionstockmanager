@@ -54,27 +54,9 @@
                 <input type="hidden" asp-for="InternalTransfer.CreatedDate" />
 
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="InternalTransfer.ResponsiblePersonId" class="form-select" disabled="@(Model.InternalTransfer.Status == "Cancelled")">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
+                    <input type="hidden" asp-for="InternalTransfer.ResponsiblePersonId" />
 
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="InternalTransfer.SupervisorId" class="form-select" disabled="@(Model.InternalTransfer.Status == "Cancelled")">
-                            <option value="">-- None --</option>
-                            @foreach (var s in Model.Supervisors)
-                            {
-                                <option value="@s.EmployeeID">@s.Name</option>
-                            }
-                        </select>
-                    </div>
+                    <input type="hidden" asp-for="InternalTransfer.SupervisorId" />
 
                     <div class="col-12">
                         <label class="form-label fw-bold">Remarks</label>

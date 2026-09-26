@@ -20,7 +20,7 @@ namespace PlantStockManager.Data
         }
 
         private const string BaseSelect = @"
-SELECT c.Id, c.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
+SELECT c.Id, c.SpeciesId, ps.Name AS SpeciesName, ps.Color AS SpeciesColor, pt.Name AS PlantTypeName,
        c.AreaId, a.Name AS AreaName, a.AreaType, gp.Name AS GrowingPartnerName,
        c.PhysicalQuantity, c.InTransitQuantity, c.AvailableQuantity,
        c.CreatedDate, c.CreatedBy, c.ModifiedDate, c.ModifiedBy
@@ -221,100 +221,6 @@ VALUES
             return (true, null);
         }
 
-        // Phase 16 (Model B): the ONE point a Cutting transfer's stock
-        // actually moves. Decreases PhysicalQuantity AND releases the
-        // matching InTransitQuantity together, and writes exactly one
-        // 'Transplanted' ledger row -- one-sided, by design: nothing is
-        // credited anywhere else. The destination Polyhouse never gets a
-        // CuttingStock row touched on its behalf.
-        public async Task<(bool Success, string? Message)> RecordTransplantAsync(
-            SqlConnection conn, SqlTransaction tx, int cuttingStockId, decimal quantity,
-            string? referenceType, int? referenceId, int? userId, string? remarks)
-        {
-            if (quantity < 0)
-                return (false, "Transplant quantity cannot be negative.");
-
-            var lockCmd = new SqlCommand(
-                "SELECT PhysicalQuantity, InTransitQuantity FROM dbo.CuttingStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
-                conn, tx);
-            lockCmd.Parameters.AddWithValue("@Id", cuttingStockId);
-            using var reader = await lockCmd.ExecuteReaderAsync();
-            if (!await reader.ReadAsync())
-            {
-                reader.Close();
-                return (false, "Cutting Stock record not found.");
-            }
-            var before = reader.GetDecimal(reader.GetOrdinal("PhysicalQuantity"));
-            var inTransit = reader.GetDecimal(reader.GetOrdinal("InTransitQuantity"));
-            reader.Close();
-
-            if (quantity > before)
-                return (false, $"This would take Cutting stock negative (available {before:N2}, requested change {quantity:N2}).");
-            var releaseFromInTransit = Math.Min(quantity, inTransit);
-            var after = before - quantity;
-
-            var updateCmd = new SqlCommand(
-                "UPDATE dbo.CuttingStock SET PhysicalQuantity = @After, InTransitQuantity = InTransitQuantity - @Release, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id",
-                conn, tx);
-            updateCmd.Parameters.AddWithValue("@After", after);
-            updateCmd.Parameters.AddWithValue("@Release", releaseFromInTransit);
-            updateCmd.Parameters.AddWithValue("@Id", cuttingStockId);
-            await updateCmd.ExecuteNonQueryAsync();
-
-            const string ledgerSql = @"
-INSERT INTO dbo.CuttingStockTransactions
-(CuttingStockId, TransactionDate, TransactionType, ReferenceType, ReferenceId, Quantity, BeforeQuantity, UserId, Remarks, CreatedAt)
-VALUES
-(@CuttingStockId, SYSUTCDATETIME(), 'Transplanted', @ReferenceType, @ReferenceId, @Quantity, @BeforeQuantity, @UserId, @Remarks, SYSUTCDATETIME());";
-
-            var ledgerCmd = new SqlCommand(ledgerSql, conn, tx);
-            ledgerCmd.Parameters.AddWithValue("@CuttingStockId", cuttingStockId);
-            ledgerCmd.Parameters.AddWithValue("@ReferenceType", (object?)referenceType ?? DBNull.Value);
-            ledgerCmd.Parameters.AddWithValue("@ReferenceId", (object?)referenceId ?? DBNull.Value);
-            ledgerCmd.Parameters.AddWithValue("@Quantity", -quantity);
-            ledgerCmd.Parameters.AddWithValue("@BeforeQuantity", before);
-            ledgerCmd.Parameters.AddWithValue("@UserId", (object?)userId ?? DBNull.Value);
-            ledgerCmd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
-            await ledgerCmd.ExecuteNonQueryAsync();
-
-            return (true, null);
-        }
-
-        // "Enter Cutting": a fresh, independent harvest record -- no
-        // CuttingPlan/ActualCutting link, per the business owner's
-        // confirmed decision. Owns its own transaction (unlike
-        // RecordTransactionAsync, which assumes a caller-owned one)
-        // because nothing else needs to happen alongside it.
-        public async Task<(bool Success, string? Message, int CuttingStockId)> EnterCuttingAsync(
-            int speciesId, int areaId, decimal quantity, int? userId, string? createdBy, string? remarks)
-        {
-            if (quantity <= 0)
-                return (false, "Quantity must be greater than zero.", 0);
-
-            using var conn = _dbHelper.GetConnection();
-            await conn.OpenAsync();
-            using var tx = conn.BeginTransaction();
-
-            try
-            {
-                var stockId = await GetOrCreateLockedAsync(conn, tx, speciesId, areaId, createdBy);
-                var (success, message) = await RecordTransactionAsync(conn, tx, stockId, quantity, "Harvest", null, null, userId, remarks);
-                if (!success)
-                {
-                    tx.Rollback();
-                    return (false, message, 0);
-                }
-
-                tx.Commit();
-                return (true, null, stockId);
-            }
-            catch (Exception ex)
-            {
-                tx.Rollback();
-                return (false, ex.Message, 0);
-            }
-        }
-
         public async Task<List<CuttingStockTransaction>> GetTransactionsAsync(int cuttingStockId)
         {
             var list = new List<CuttingStockTransaction>();
@@ -368,6 +274,7 @@ ORDER BY t.CreatedAt DESC";
                 SpeciesId = reader.GetInt32(reader.GetOrdinal("SpeciesId")),
                 SpeciesName = reader.IsDBNull(reader.GetOrdinal("SpeciesName")) ? null : reader.GetString(reader.GetOrdinal("SpeciesName")),
                 PlantTypeName = reader.IsDBNull(reader.GetOrdinal("PlantTypeName")) ? null : reader.GetString(reader.GetOrdinal("PlantTypeName")),
+                SpeciesColor = reader.IsDBNull(reader.GetOrdinal("SpeciesColor")) ? null : reader.GetString(reader.GetOrdinal("SpeciesColor")),
                 AreaId = reader.GetInt32(reader.GetOrdinal("AreaId")),
                 AreaName = reader.IsDBNull(reader.GetOrdinal("AreaName")) ? null : reader.GetString(reader.GetOrdinal("AreaName")),
                 AreaType = reader.IsDBNull(reader.GetOrdinal("AreaType")) ? null : reader.GetString(reader.GetOrdinal("AreaType")),

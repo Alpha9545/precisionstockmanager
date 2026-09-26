@@ -1,0 +1,119 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.PottedPlantStock.MoveModel
+@{
+    ViewData["Title"] = "Send Potted Plants";
+    var s = Model.Stock;
+    var sendable = s.AvailableQuantity - s.InTransitQuantity;
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 760px;">
+        <div class="card-header">
+            <h4 class="mb-0">Send Potted Plants</h4>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <table class="table table-sm table-bordered">
+                <tbody>
+                    <tr><th class="w-50">Variety</th><td>@s.SpeciesName?.Trim() (@s.PlantTypeName)@(s.SpeciesColor != null ? " - " + s.SpeciesColor : "")</td></tr>
+                    <tr><th>Pot Size</th><td>@s.PotSize</td></tr>
+                    <tr><th>From Area</th><td>@s.AreaName</td></tr>
+                    <tr><th>Available to send</th><td class="fw-bold">@sendable.ToString("N0")</td></tr>
+                </tbody>
+            </table>
+
+            <form method="post">
+                <div class="mb-3">
+                    <label class="form-label fw-bold">Send to</label>
+                    <div class="d-flex gap-3 flex-wrap">
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" asp-for="Destination" value="@PlantStockManager.Pages.Production.PottedPlantStock.MoveModel.ToMainOffice" id="dMain" disabled="@(!Model.CanTransfer || !Model.MainOfficeAreas.Any())" />
+                            <label class="form-check-label" for="dMain">Main Office</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" asp-for="Destination" value="@PlantStockManager.Pages.Production.PottedPlantStock.MoveModel.ToOutlet" id="dOutlet" disabled="@(!Model.CanTransfer || !Model.OutletAreas.Any())" />
+                            <label class="form-check-label" for="dOutlet">Outlet</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" asp-for="Destination" value="@PlantStockManager.Pages.Production.PottedPlantStock.MoveModel.ToCustomer" id="dCustomer" disabled="@(!Model.CanSell)" />
+                            <label class="form-check-label" for="dCustomer">Customer</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3 dest dest-MainOffice d-none">
+                    <label class="form-label fw-bold">Main Office Area</label>
+                    <select class="form-select dest-area" data-for="MainOffice">
+                        @foreach (var a in Model.MainOfficeAreas)
+                        {
+                            <option value="@a.Id">@a.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="mb-3 dest dest-Outlet d-none">
+                    <label class="form-label fw-bold">Outlet</label>
+                    <select class="form-select dest-area" data-for="Outlet">
+                        @foreach (var a in Model.OutletAreas)
+                        {
+                            <option value="@a.Id">@a.Name</option>
+                        }
+                    </select>
+                </div>
+                <input type="hidden" asp-for="DestinationAreaId" id="destinationAreaId" />
+                <div class="row g-3 dest dest-Customer d-none mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Customer name</label>
+                        <input type="text" asp-for="CustomerName" class="form-control" maxlength="200" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Phone</label>
+                        <input type="text" asp-for="CustomerContact" class="form-control" maxlength="50" />
+                    </div>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Quantity</label>
+                        <input type="number" step="1" min="1" max="@sendable.ToString("0")" asp-for="Quantity" class="form-control" required />
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">Remarks / reference</label>
+                        <input type="text" asp-for="Remarks" class="form-control" maxlength="500" />
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/PottedPlantStock/Index" class="btn btn-secondary me-2">Back</a>
+                    <button type="submit" class="btn btn-success">Send</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            function sync() {
+                const d = $('input[name="Destination"]:checked').val();
+                $('.dest').addClass('d-none');
+                if (d) $('.dest-' + d).removeClass('d-none');
+                const $sel = $('.dest-area[data-for="' + d + '"]');
+                $('#destinationAreaId').val($sel.length ? $sel.val() : '');
+            }
+            $('input[name="Destination"]').on('change', sync);
+            $('.dest-area').on('change', sync);
+            sync();
+        });
+    </script>
+}

@@ -2,12 +2,14 @@
 @model PlantStockManager.Pages.Production.SeedSowing.EditModel
 @{
     ViewData["Title"] = "Edit Sowing";
+    var s = Model.SeedSowing;
+    var unit = s.IsCuttingSource ? "Cuttings" : "Seeds";
 }
 
 <div class="container mt-4">
     <div class="card shadow-sm mx-auto" style="max-width: 850px;">
         <div class="card-header">
-            <h4 class="mb-0">Edit Sowing &mdash; @Model.SeedSowing.SowingCode</h4>
+            <h4 class="mb-0">Edit Sowing &mdash; @s.SowingCode</h4>
         </div>
         <div class="card-body">
             @if (!ModelState.IsValid)
@@ -26,85 +28,45 @@
                 <div class="alert alert-danger">@TempData["Error"]</div>
             }
 
-            <div class="alert alert-secondary">
-                <strong>@Model.SeedSowing.SpeciesName</strong> &mdash;
-                Area <strong>@Model.SeedSowing.AreaName</strong> &mdash;
-                Cavity/Tray Type <strong>@Model.SeedSowing.CavityType</strong> &mdash;
-                Quantity Sown <strong>@Model.SeedSowing.QuantitySown.ToString("N2")</strong> &mdash;
-                Ready Stock Days <strong>@(Model.SeedSowing.ReadyStockDays?.ToString() ?? "-")</strong> &mdash;
-                Expected Ready Date <strong>@(Model.SeedSowing.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</strong>
-                <div class="small text-muted">
-                    These fields cannot be changed once Sowing is recorded -- Ready Stock Days/Expected Ready Date are the
-                    historical values calculated at the time of sowing, and the others already moved real Seed Stock.
-                    Use "Cancel Sowing" below to reverse the stock effect entirely if this record was a mistake.
-                </div>
+            <table class="table table-sm table-bordered mb-3">
+                <tbody>
+                    <tr><th class="w-50">Source</th><td>@(s.IsCuttingSource ? "Cutting Stock" : "Seed lot " + s.BatchNo)</td></tr>
+                    <tr><th>Variety</th><td>@s.SpeciesName.Trim() (@s.PlantTypeName)</td></tr>
+                    <tr><th>Area</th><td>@s.AreaName</td></tr>
+                    <tr><th>Cavity / Complete Trays</th><td>@s.CavityType &times; @(s.NumberOfTrays?.ToString("N0") ?? "-")</td></tr>
+                    <tr><th>@unit Used</th><td>@s.QuantitySown.ToString("N0")</td></tr>
+                    <tr><th>Assigned Supervisor (only approver)</th><td>@(s.SupervisorName ?? "-")</td></tr>
+                    <tr><th>Expected Ready Date</th><td>@(s.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "-")</td></tr>
+                </tbody>
+            </table>
+            <div class="small text-muted mb-3">
+                These values are final once the sowing is saved. If something is wrong, cancel the sowing
+                (the @unit.ToLower() go back to stock) and record it again.
             </div>
 
-            @if (Model.SeedSowing.Status == "Cancelled")
+            @if (s.Status == "Cancelled")
             {
-                <div class="alert alert-warning">This record is Cancelled. The Seed Stock effect has already been reversed.</div>
+                <div class="alert alert-warning">This sowing is Cancelled.</div>
+            }
+            else
+            {
+                <form method="post">
+                    <input type="hidden" asp-for="Id" />
+                    <label class="form-label fw-bold">Remarks</label>
+                    <textarea asp-for="Remarks" class="form-control" rows="2"></textarea>
+                    <div class="text-center mt-3">
+                        <a asp-page="/Production/SeedSowing/Index" class="btn btn-secondary me-2">Back</a>
+                        <button type="submit" class="btn btn-success">Save Remarks</button>
+                    </div>
+                </form>
             }
 
-            <form method="post">
-                <input type="hidden" asp-for="SeedSowing.Id" />
-                <input type="hidden" asp-for="SeedSowing.SowingCode" />
-                <input type="hidden" asp-for="SeedSowing.CreatedBy" />
-                <input type="hidden" asp-for="SeedSowing.CreatedDate" />
-
-                <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="SeedSowing.ResponsiblePersonId" class="form-select" disabled="@(Model.SeedSowing.Status == "Cancelled")">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Supervisor <span class="text-muted fw-normal">(approves this batch)</span></label>
-                        @if (Model.CanChangeSupervisor)
-                        {
-                            <select asp-for="SeedSowing.SupervisorId" class="form-select" required>
-                                <option value="">-- Select supervisor --</option>
-                                @foreach (var s in Model.Supervisors)
-                                {
-                                    <option value="@s.EmployeeID">@s.Name</option>
-                                }
-                            </select>
-                        }
-                        else
-                        {
-                            @* Approved or cancelled: the assigned supervisor is fixed. *@
-                            <input type="hidden" asp-for="SeedSowing.SupervisorId" />
-                            <input type="text" class="form-control" readonly value="@(Model.SeedSowing.SupervisorName ?? "-")" />
-                            <div class="form-text">Fixed after approval.</div>
-                        }
-                    </div>
-
-                    <div class="col-12">
-                        <label class="form-label fw-bold">Remarks</label>
-                        <textarea asp-for="SeedSowing.Remarks" class="form-control" rows="2" disabled="@(Model.SeedSowing.Status == "Cancelled")"></textarea>
-                    </div>
-                </div>
-
-                <div class="text-center mt-4">
-                    <a asp-page="/Production/SeedSowing/Index" class="btn btn-secondary me-2">Cancel</a>
-                    @if (Model.SeedSowing.Status != "Cancelled")
-                    {
-                        <button type="submit" class="btn btn-success">Save Changes</button>
-                    }
-                </div>
-            </form>
-
-            @if (Model.SeedSowing.Status == "Sown" && Model.SeedSowing.ConfirmedReadyQuantity == 0 && Model.SeedSowing.WastageQuantity == 0)
+            @if (s.Status == "Sown" && s.ConfirmedReadyQuantity == 0 && s.WastageQuantity == 0)
             {
                 <hr />
-                <form method="post" asp-page-handler="Cancel" asp-route-id="@Model.SeedSowing.Id" onsubmit="return confirm('Cancel this Sowing? This returns the consumed seed to its source Seed Stock pool. This cannot be undone.');">
+                <form method="post" asp-page-handler="Cancel" asp-route-id="@s.Id" onsubmit="return confirm('Cancel this sowing? The @unit.ToLower() used go back to stock. This cannot be undone.');">
                     <div class="text-center">
-                        <button type="submit" class="btn btn-outline-danger">Cancel Sowing (reverse stock)</button>
+                        <button type="submit" class="btn btn-outline-danger">Cancel Sowing (return @unit.ToLower() to stock)</button>
                     </div>
                 </form>
             }

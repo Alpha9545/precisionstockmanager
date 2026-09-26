@@ -23,15 +23,14 @@ namespace PlantStockManager.Data
         // all via LEFT JOIN/OUTER APPLY over the existing ledger -- zero new
         // columns on dbo.PottedPlantStock itself (spec items 9, 13).
         private const string BaseSelect = @"
-SELECT s.Id, s.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName, s.PotSize,
+SELECT s.Id, s.SpeciesId, ps.Name AS SpeciesName, ps.Color AS SpeciesColor, pt.Name AS PlantTypeName, s.PotSize,
        s.EmptyPotInventoryId, s.AreaId, a.Name AS AreaName, gp.Name AS GrowingPartnerName,
        s.PhysicalQuantity, s.ReservedQuantity, s.SoldDispatchedQuantity, s.WastedQuantity, s.InTransitQuantity,
        s.CreatedDate, s.CreatedBy, s.ModifiedDate, s.ModifiedBy,
        lastProd.Id AS LastProductionId,
-       lastProd.ProductionCode AS LastProductionCode,
-       CASE WHEN lastProd.Id IS NULL THEN NULL
-            WHEN lastProd.SourceCuttingStockId IS NOT NULL THEN 'Cutting Stock'
-            ELSE 'Propagation Batch' END AS LastProductionSource,
+       lastProd.BatchCode AS LastProductionCode,
+       lastProd.ReadyDate AS LastReadyDate,
+       batches.Codes AS BatchCodes,
        lastTx.TransactionDate AS LastTransactionDate
 FROM dbo.PottedPlantStock s
 INNER JOIN dbo.PlantSpecies ps ON s.SpeciesId = ps.Id
@@ -41,10 +40,17 @@ LEFT JOIN dbo.GrowingPartners gp ON a.GrowingPartnerId = gp.Id
 OUTER APPLY (
     SELECT TOP 1 t.ReferenceId
     FROM dbo.PottedPlantStockTransactions t
-    WHERE t.PottedPlantStockId = s.Id AND t.TransactionType = 'Production' AND t.ReferenceType = 'PotProduction'
+    WHERE t.PottedPlantStockId = s.Id AND t.TransactionType = 'Production' AND t.ReferenceType = 'PotProductionBatch'
     ORDER BY t.CreatedAt DESC
 ) AS lastProdTx
-LEFT JOIN dbo.PotProduction lastProd ON lastProd.Id = lastProdTx.ReferenceId
+LEFT JOIN dbo.PotProductionBatches lastProd ON lastProd.Id = lastProdTx.ReferenceId
+-- Phase D: the READY pot batches that built this stock (one stock row per
+-- variety + pot size + Area, fed by any number of batches).
+OUTER APPLY (
+    SELECT STRING_AGG(b.BatchCode, ', ') WITHIN GROUP (ORDER BY b.ReadyDate) AS Codes
+    FROM dbo.PotProductionBatches b
+    WHERE b.PottedPlantStockId = s.Id AND b.Status = 'Ready'
+) AS batches
 OUTER APPLY (
     SELECT TOP 1 t.TransactionDate
     FROM dbo.PottedPlantStockTransactions t
@@ -415,7 +421,9 @@ ORDER BY t.CreatedAt DESC";
                 GrowingPartnerName = reader.IsDBNull(reader.GetOrdinal("GrowingPartnerName")) ? null : reader.GetString(reader.GetOrdinal("GrowingPartnerName")),
                 LastProductionId = reader.IsDBNull(reader.GetOrdinal("LastProductionId")) ? null : reader.GetInt32(reader.GetOrdinal("LastProductionId")),
                 LastProductionCode = reader.IsDBNull(reader.GetOrdinal("LastProductionCode")) ? null : reader.GetString(reader.GetOrdinal("LastProductionCode")),
-                LastProductionSource = reader.IsDBNull(reader.GetOrdinal("LastProductionSource")) ? null : reader.GetString(reader.GetOrdinal("LastProductionSource")),
+                LastReadyDate = reader.IsDBNull(reader.GetOrdinal("LastReadyDate")) ? null : reader.GetDateTime(reader.GetOrdinal("LastReadyDate")),
+                BatchCodes = reader.IsDBNull(reader.GetOrdinal("BatchCodes")) ? null : reader.GetString(reader.GetOrdinal("BatchCodes")),
+                SpeciesColor = reader.IsDBNull(reader.GetOrdinal("SpeciesColor")) ? null : reader.GetString(reader.GetOrdinal("SpeciesColor")),
                 LastTransactionDate = reader.IsDBNull(reader.GetOrdinal("LastTransactionDate")) ? null : reader.GetDateTime(reader.GetOrdinal("LastTransactionDate"))
             };
         }

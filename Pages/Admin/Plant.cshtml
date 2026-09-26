@@ -78,19 +78,23 @@
                                 <input type="hidden" name="NewSpeciesTypeId" value="@type.Id" />
                                 <div class="row g-2 align-items-end">
                                     <div class="col-md-3">
-                                        <label class="form-label">Species Name</label>
-                                        <input type="text" name="NewSpeciesName" class="form-control" placeholder="Species Name" required />
+                                        <label class="form-label">Variety Name</label>
+                                        <input type="text" name="NewSpeciesName" class="form-control" placeholder="Variety Name" required />
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Colour</label>
+                                        <input type="text" name="NewSpeciesColor" class="form-control" placeholder="e.g. Pink" maxlength="50" />
                                     </div>
                                     <div class="col-md-3">
                                         <label class="form-label">Scientific Name</label>
                                         <input type="text" name="NewSpeciesScientificName" class="form-control" placeholder="Scientific Name" />
                                     </div>
-                                    <div class="col-md-3">
-                                        <label class="form-label">Ready Stock Days</label>
-                                        <input type="number" name="NewSpeciesReadyStockDays" min="1" class="form-control" placeholder="e.g. 25 (optional)" />
+                                    <div class="col-md-2">
+                                        <label class="form-label">Growing Days</label>
+                                        <input type="number" name="NewSpeciesReadyStockDays" min="1" class="form-control" placeholder="e.g. 25" />
                                     </div>
-                                    <div class="col-md-3">
-                                        <button type="submit" class="btn btn-success">Add Species</button>
+                                    <div class="col-md-2">
+                                        <button type="submit" class="btn btn-success">Add Variety</button>
                                     </div>
                                 </div>
                             </form>
@@ -100,9 +104,10 @@
                                 <thead>
                                     <tr>
                                         @* <th>ID</th> *@
-                                        <th>Species Name</th>
+                                        <th>Variety</th>
+                                        <th>Colour</th>
                                         <th>Scientific Name</th>
-                                        <th>Ready Stock Days</th>
+                                        <th>Growing Days</th>
                                         <th>Action</th>
                                     </tr>
                                 </thead>
@@ -112,6 +117,7 @@
                                         <tr>
                                             @* <td>@species.Id</td> *@
                                             <td>@species.Name</td>
+                                            <td>@(species.Color ?? "-")</td>
                                             <td>@species.ScientificName</td>
                                             <td>@(species.ReadyStockDays?.ToString() ?? "-")</td>
                                             @* <td>
@@ -121,8 +127,12 @@
                                             </td> *@
                                             <td>
                                                 <!-- Edit -->
-                                                <button class="btn btn-warning btn-sm"
-                                                        onclick="openEditSpeciesModal('@species.Id', '@species.Name', '@species.ScientificName', '@(species.ReadyStockDays?.ToString() ?? "")')">
+                                                @* Values travel in data- attributes (HTML-encoded), never pasted into
+                                                   JavaScript -- variety names can contain quotes and line breaks. *@
+                                                <button type="button" class="btn btn-warning btn-sm"
+                                                        data-id="@species.Id" data-name="@species.Name.Trim()" data-scientific="@species.ScientificName"
+                                                        data-days="@(species.ReadyStockDays?.ToString() ?? "")" data-color="@species.Color"
+                                                        onclick="openEditSpeciesModal(this)">
                                                     Edit
                                                 </button>
 
@@ -190,8 +200,12 @@
                 <div class="modal-body">
                     <input type="hidden" asp-for="EditSpeciesId" id="editSpeciesId" />
                     <div class="mb-3">
-                        <label class="form-label">Species Name</label>
+                        <label class="form-label">Variety Name</label>
                         <input type="text" asp-for="EditSpeciesName" class="form-control" id="editSpeciesName" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Colour</label>
+                        <input type="text" asp-for="EditSpeciesColor" class="form-control" id="editSpeciesColor" maxlength="50" />
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Scientific Name</label>
@@ -224,11 +238,12 @@
     }
 
     // Open modal to edit plant species
-    function openEditSpeciesModal(id, name, scientificName, readyStockDays) {
-        document.getElementById("editSpeciesId").value = id;
-        document.getElementById("editSpeciesName").value = name;
-        document.getElementById("editSpeciesScientificName").value = scientificName;
-        document.getElementById("editSpeciesReadyStockDays").value = readyStockDays || "";
+    function openEditSpeciesModal(btn) {
+        document.getElementById("editSpeciesId").value = btn.dataset.id;
+        document.getElementById("editSpeciesName").value = btn.dataset.name || "";
+        document.getElementById("editSpeciesScientificName").value = btn.dataset.scientific || "";
+        document.getElementById("editSpeciesReadyStockDays").value = btn.dataset.days || "";
+        document.getElementById("editSpeciesColor").value = btn.dataset.color || "";
         var modal = new bootstrap.Modal(document.getElementById('editSpeciesModal'));
         modal.show();
     }

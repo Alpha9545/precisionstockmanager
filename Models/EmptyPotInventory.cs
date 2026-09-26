@@ -21,6 +21,7 @@ namespace PlantStockManager.Models
 
         // Display-only, populated by the join in EmptyPotInventoryRepository.
         public string? AreaName { get; set; }
+        public string? AreaType { get; set; }
 
         // Phase E: derived via Area.GrowingPartnerId, same as
         // PottedPlantStock.GrowingPartnerName -- lets a Growing Partner

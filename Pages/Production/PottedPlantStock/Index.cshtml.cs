@@ -22,9 +22,26 @@ namespace PlantStockManager.Pages.Production.PottedPlantStock
         public decimal TotalReserved => Stocks.Sum(s => s.ReservedQuantity);
         public decimal TotalAvailable => Stocks.Sum(s => s.AvailableQuantity);
 
-        public async Task OnGetAsync()
+        public string? Search { get; set; }
+        public bool ShowEmpty { get; set; }
+
+        public async Task OnGetAsync(string? search, bool showEmpty = false)
         {
+            Search = search;
+            ShowEmpty = showEmpty;
             var all = await _pottedPlantStockRepo.GetAllAsync();
+            if (!showEmpty)
+                all = all.Where(s => s.PhysicalQuantity > 0).ToList();
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                var t = search.Trim();
+                all = all.Where(s => (s.SpeciesName ?? "").Contains(t, StringComparison.OrdinalIgnoreCase)
+                                     || (s.PlantTypeName ?? "").Contains(t, StringComparison.OrdinalIgnoreCase)
+                                     || (s.SpeciesColor ?? "").Contains(t, StringComparison.OrdinalIgnoreCase)
+                                     || s.PotSize.Contains(t, StringComparison.OrdinalIgnoreCase)
+                                     || (s.AreaName ?? "").Contains(t, StringComparison.OrdinalIgnoreCase)
+                                     || (s.BatchCodes ?? "").Contains(t, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
 
             // Phase E (spec item 12): a Growing Partner Supervisor must only
             // see PottedPlantStock belonging to Areas they are scoped to.

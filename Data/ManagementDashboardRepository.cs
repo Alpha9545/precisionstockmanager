@@ -84,15 +84,15 @@ WHERE (@AreaId IS NULL OR AreaId = @AreaId)
                 }
             }
 
-            // Pot/Tray Production (Movement, within the selected date
-            // range) -- unit: pots produced.
+            // Pot Production (Movement, within the selected date range) --
+            // unit: pots produced (Phase D: daily entries of pot batches).
             using (var cmd = new SqlCommand(@"
-SELECT ISNULL(SUM(Quantity), 0)
-FROM dbo.PotProduction
-WHERE Status = 'Completed'
-  AND ProductionDate >= @FromDate AND ProductionDate < @ToDateExclusive
-  AND (@AreaId IS NULL OR AreaId = @AreaId)
-  AND (@SpeciesId IS NULL OR SpeciesId = @SpeciesId)", conn))
+SELECT ISNULL(SUM(e.Quantity), 0)
+FROM dbo.PotProductionEntries e
+INNER JOIN dbo.PotProductionBatches b ON b.Id = e.BatchId
+WHERE e.ProductionDate >= @FromDate AND e.ProductionDate < @ToDateExclusive
+  AND (@AreaId IS NULL OR b.AreaId = @AreaId)
+  AND (@SpeciesId IS NULL OR b.SpeciesId = @SpeciesId)", conn))
             {
                 AddDateRange(cmd, filters);
                 AddAreaSpecies(cmd, filters);
@@ -268,16 +268,16 @@ GROUP BY DestinationAreaId", filters);
             var cuttingReceived = await SumByAreaAsync(conn, @"
 SELECT DestinationAreaId, ISNULL(SUM(ConfirmedQuantity), 0)
 FROM dbo.InternalTransfers
-WHERE StockType = 'Cutting' AND Status IN ('ConfirmedAwaitingTransplant', 'Transplanted')
+WHERE StockType = 'Cutting' AND Status IN ('Completed', 'ConfirmedAwaitingTransplant', 'Transplanted')
   AND ConfirmedDate >= @FromDate AND ConfirmedDate < @ToDateExclusive
 GROUP BY DestinationAreaId", filters);
 
             var potTrayProduction = await SumByAreaAsync(conn, @"
-SELECT AreaId, ISNULL(SUM(Quantity), 0)
-FROM dbo.PotProduction
-WHERE Status = 'Completed' AND AreaId IS NOT NULL
-  AND ProductionDate >= @FromDate AND ProductionDate < @ToDateExclusive
-GROUP BY AreaId", filters);
+SELECT b.AreaId, ISNULL(SUM(e.Quantity), 0)
+FROM dbo.PotProductionEntries e
+INNER JOIN dbo.PotProductionBatches b ON b.Id = e.BatchId
+WHERE e.ProductionDate >= @FromDate AND e.ProductionDate < @ToDateExclusive
+GROUP BY b.AreaId", filters);
 
             var currentPottedStock = await SumByAreaAsync(conn, @"
 SELECT AreaId, ISNULL(SUM(PhysicalQuantity), 0)

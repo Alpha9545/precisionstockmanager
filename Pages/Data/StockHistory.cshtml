@@ -1,188 +1,111 @@
-﻿@page
+@page
 @model PlantStockManager.Pages.Data.StockHistoryModel
 @{
-    ViewData["Title"] = "Utilized Stock";
+    ViewData["Title"] = "Stock History";
 }
 
-<div class="container-fluid py-3">
-    <!-- Heading and Filters in One Row -->
-    <div class="d-flex justify-content-between align-items-center flex-wrap mb-3">
-        <h2 class="mb-0 text-primary">Utilized Stock</h2>
+<div class="container-fluid mt-4">
+    <h3 class="mb-3">Stock History</h3>
 
-        <!-- Filters Section -->
-        <form method="get" class="d-flex flex-wrap align-items-center gap-3">
-            <div class="d-flex align-items-center gap-2">
-                <label class="form-label fw-bold mb-0">Date From:</label>
-                <input type="date" asp-for="DateFrom" class="form-control form-control-sm" style="width: 140px;">
-            </div>
+    <form method="get" class="row g-2 align-items-end mb-3">
+        <div class="col-md-2">
+            <label class="form-label mb-0">Stock</label>
+            <select name="stockType" class="form-select">
+                @foreach (var t in PlantStockManager.Data.StockHistoryRepository.StockTypes)
+                {
+                    <option value="@t.Key" selected="@(t.Key == Model.StockType)">@t.Value</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label mb-0">From</label>
+            <input type="date" name="from" value="@Model.From.ToString("yyyy-MM-dd")" class="form-control" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label mb-0">To</label>
+            <input type="date" name="to" value="@Model.To.ToString("yyyy-MM-dd")" class="form-control" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label mb-0">Area</label>
+            <select name="areaId" class="form-select">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.Areas)
+                {
+                    <option value="@a.Id" selected="@(a.Id == Model.AreaId)">@a.Name</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label mb-0">Search</label>
+            <input type="search" name="search" value="@Model.Search" class="form-control" placeholder="Variety, lot, pot size, batch" />
+        </div>
+        <div class="col-md-1"><button class="btn btn-primary w-100">Show</button></div>
+    </form>
 
-            <div class="d-flex align-items-center gap-2">
-                <label class="form-label fw-bold mb-0">Date To:</label>
-                <input type="date" asp-for="DateTo" class="form-control form-control-sm" style="width: 140px;">
-            </div>
+    <p class="text-muted small mb-2">Opening (before @Model.From.ToString("dd/MM/yyyy")) + Incoming &minus; Outgoing = Balance (end of @Model.To.ToString("dd/MM/yyyy")). Reservations are not stock movements and are not counted.</p>
 
-            <div>
-                <select asp-for="SelectedPolyhouse" class="form-select form-select-sm">
-                    <option value="">All Polyhouses</option>
-                    @foreach (var polyhouse in Model.Polyhouses)
-                    {
-                        <option value="@polyhouse.Id">@polyhouse.Name</option>
-                    }
-                </select>
-            </div>
-
-            <div>
-                <select asp-for="SelectedPlantType" class="form-select form-select-sm">
-                    <option value="">All Plant Types</option>
-                    @foreach (var plantType in Model.PlantTypes)
-                    {
-                        <option value="@plantType.Id">@plantType.Name</option>
-                    }
-                </select>
-            </div>
-
-            <div>
-                <select asp-for="SelectedSpecies" class="form-select form-select-sm">
-                    <option value="">All Species</option>
-                    @foreach (var species in Model.PlantSpecies)
-                    {
-                        <option value="@species.Id">@species.Name</option>
-                    }
-                </select>
-            </div>
-
-            <button type="submit" class="btn btn-primary btn-sm">Apply Filters</button>
-            @* <a asp-page="/Data/StockHistory"
-               asp-route-handler="GeneratePdf"
-               asp-route-SelectedPolyhouse="@Model.SelectedPolyhouse"
-               asp-route-SelectedPlantType="@Model.SelectedPlantType"
-               asp-route-SelectedSpecies="@Model.SelectedSpecies"
-               class="btn btn-secondary btn-sm" target="_blank">
-                Generate PDF
-            </a> *@
-
-            <button type="button" class="btn btn-secondary btn-sm" id="generatePdfBtn">
-                Generate PDF
-            </button>
-        </form>
+    <div class="table-responsive mb-4">
+        <table class="table table-bordered table-striped table-sm">
+            <thead class="table-light">
+                <tr><th>Item</th><th>Area</th><th class="text-end">Opening</th><th class="text-end">Incoming</th><th class="text-end">Outgoing</th><th class="text-end">Balance</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Rows)
+                {
+                    <tr>
+                        <td>@r.Item</td>
+                        <td>@(r.AreaName ?? "-")</td>
+                        <td class="text-end">@r.Summary.Opening.ToString("N0")</td>
+                        <td class="text-end text-success">@r.Summary.Incoming.ToString("N0")</td>
+                        <td class="text-end text-danger">@r.Summary.Outgoing.ToString("N0")</td>
+                        <td class="text-end fw-bold">@r.Summary.Balance.ToString("N0")</td>
+                    </tr>
+                }
+                @if (!Model.Rows.Any())
+                {
+                    <tr><td colspan="6" class="text-center text-muted">No stock movements.</td></tr>
+                }
+            </tbody>
+            @if (Model.Rows.Any())
+            {
+                <tfoot>
+                    <tr class="fw-bold">
+                        <td colspan="2">Total</td>
+                        <td class="text-end">@Model.Rows.Sum(r => r.Summary.Opening).ToString("N0")</td>
+                        <td class="text-end">@Model.Rows.Sum(r => r.Summary.Incoming).ToString("N0")</td>
+                        <td class="text-end">@Model.Rows.Sum(r => r.Summary.Outgoing).ToString("N0")</td>
+                        <td class="text-end">@Model.Rows.Sum(r => r.Summary.Balance).ToString("N0")</td>
+                    </tr>
+                </tfoot>
+            }
+        </table>
     </div>
 
-    <!-- Table Section -->
-    <div class="card shadow-sm p-3">
-        <div class="table-responsive" style="max-height:75vh; overflow-y: auto;">
-            @if (Model.Inventory.Any()){
-                <table class="table table-hover table-striped">
-                    <thead class="table-dark position-sticky top-0">
-                        <tr>
-                            <th>Sowing Id</th>
-                            <th>Polyhouse</th>
-                            <th>Plant Type</th>
-                            <th>Variety</th>
-                             <th>Seeding Date</th>
-                            <th>Ready On</th>
-                            <th>Quantity</th>
-                             @* <th>Delivery Date</th> *@
-                            <th>Utilized Date</th>
-                            <th>Utilized</th>
-                            <th>Customer</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @{
-                            int? previousInventoryId = null;
-                        }
-                        @foreach (var record in Model.Inventory)
-                        {
-                            // Insert a separator row when Inventory ID changes
-                            if (previousInventoryId != null && previousInventoryId != record.Id)
-                            {
-                                <tr class="table-divider">
-                                    <td colspan="10"></td>
-                                </tr>
-                            }
-
-                            previousInventoryId = record.Id;
-                            <tr>
-                                <td>@record.SeedEntryId</td>
-                                <td>@record.PolyhouseName</td>
-                                <td>@record.PlantTypeName</td>
-                                <td>@record.SpeciesName</td>
-                                <td>@record.SeedingDate.ToString("dd-MMM-yyyy")</td>
-                                <td>@record.LastUpdated.ToString("dd-MMMM-yyyy")</td>
-                                <td>@record.Quantity</td>
-                                @* <td>@record.TentativeDeliveryDate.ToString("dd-MMM-yyyy")</td> *@
-                                <td>@record.InventoryTransactionDate.ToString("dd-MMM-yyyy hh:mm:ss tt")</td>
-                                <td>@record.UtilizedQuantity</td>
-                                <td>@record.CustomerName</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            }
-            else
-            {
-                <div class="alert alert-warning text-center mt-3">
-                    No results found for the specified search.
-                </div>
-            }
-
-        </div>
+    <h5>Movements in the period</h5>
+    <div class="table-responsive">
+        <table class="table table-bordered table-sm">
+            <thead class="table-light">
+                <tr><th>Date</th><th>Item</th><th>Area</th><th>Type</th><th class="text-end">Quantity</th><th>Reference</th><th>By</th><th>Remarks</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var m in Model.PeriodMovements)
+                {
+                    <tr>
+                        <td class="text-nowrap">@m.Date.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td>
+                        <td>@m.Item</td>
+                        <td>@(m.AreaName ?? "-")</td>
+                        <td>@m.TransactionType</td>
+                        <td class="text-end @(m.Quantity < 0 ? "text-danger" : "text-success")">@m.Quantity.ToString("N0")</td>
+                        <td>@m.Reference</td>
+                        <td>@m.UserName</td>
+                        <td>@m.Remarks</td>
+                    </tr>
+                }
+                @if (!Model.PeriodMovements.Any())
+                {
+                    <tr><td colspan="8" class="text-center text-muted">No movements in this period.</td></tr>
+                }
+            </tbody>
+        </table>
     </div>
 </div>
-
-<style>
-    .table-divider td {
-        border-top: 3px solid #dc3545; /* Red separator for better contrast */
-        height: 8px;
-        padding: 0;
-        background-color: #f8f9fa;
-    }
-</style>
-
-
-<script>
-    document.addEventListener("DOMContentLoaded", function () {
-        var plantTypeDropdown = document.getElementById("SelectedPlantType");
-        var speciesDropdown = document.getElementById("SelectedSpecies");
-
-        plantTypeDropdown.addEventListener("change", function () {
-            var plantTypeId = plantTypeDropdown.value;
-            speciesDropdown.innerHTML = '<option value="">All Species</option>';
-
-            if (plantTypeId) {
-                fetch(`/Data/StockHistory?handler=SpeciesByPlantType&plantTypeId=${plantTypeId}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        data.forEach(species => {
-                            var option = document.createElement("option");
-                            option.value = species.id;
-                            option.textContent = species.name;
-                            speciesDropdown.appendChild(option);
-                        });
-                    })
-                    .catch(error => console.error("Error fetching species:", error));
-            }
-        });
-    });
-
-    document.getElementById('generatePdfBtn').addEventListener('click', function () {
-        const baseUrl = '/Data/StockHistory?handler=GeneratePdf';
-
-        const params = new URLSearchParams();
-
-        const dateFrom = document.querySelector('input[name="DateFrom"]').value;
-        const dateTo = document.querySelector('input[name="DateTo"]').value;
-        const polyhouse = document.querySelector('select[name="SelectedPolyhouse"]').value;
-        const plantType = document.querySelector('select[name="SelectedPlantType"]').value;
-        const species = document.querySelector('select[name="SelectedSpecies"]').value;
-
-        if (dateFrom) params.append('DateFrom', dateFrom);
-        if (dateTo) params.append('DateTo', dateTo);
-        if (polyhouse) params.append('SelectedPolyhouse', polyhouse);
-        if (plantType) params.append('SelectedPlantType', plantType);
-        if (species) params.append('SelectedSpecies', species);
-
-        const fullUrl = `${baseUrl}&${params.toString()}`;
-        window.open(fullUrl, '_blank');
-    });
-</script>

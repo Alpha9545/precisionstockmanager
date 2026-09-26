@@ -11,7 +11,6 @@
             <span class="text-muted fs-6">(@(Model.EmptyPotInventory.AreaName ?? "Unassigned")@(Model.EmptyPotInventory.GrowingPartnerName != null ? $" / {Model.EmptyPotInventory.GrowingPartnerName}" : ""))</span>
         </h4>
         <div>
-            <a asp-page="/Production/EmptyPotInventory/AddStock" asp-route-id="@Model.EmptyPotInventory.Id" class="btn btn-primary">Add Stock</a>
             <a asp-page="/Production/EmptyPotInventory/Index" class="btn btn-secondary">Back</a>
         </div>
     </div>
@@ -54,7 +53,7 @@
                         <td>
                             @if (t.ReferenceType == "PotProduction" && t.ReferenceId.HasValue)
                             {
-                                <a asp-page="/Production/PotProduction/Details" asp-route-id="@t.ReferenceId">PotProduction #@t.ReferenceId</a>
+                                <span>PotProduction #@t.ReferenceId (retired)</span>
                             }
                             else if (t.ReferenceType != null)
                             {

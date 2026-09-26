@@ -299,6 +299,115 @@ WHERE Id = @Id", conn, tx);
             }
         }
 
+        // Phase D: Direct customer sale -- a customer buys and takes potted
+        // plants at once. ONE transaction records the booking (already
+        // fully Dispatched) and its dispatch, and takes the plants out of
+        // Potted Plant Stock ('Dispatch'). Not restricted to a particular
+        // Area type: an authorized user (Outlet.Sell permission, checked by
+        // the caller) may sell READY stock from any active Area they have
+        // access to -- only readiness (available quantity) and the Area
+        // being active are checked here.
+        public async Task<(bool Success, string? Message, string? DispatchCode)> DirectSaleAsync(
+            int pottedPlantStockId, decimal quantity, string customerName, string? contact, string? remarks, int? userId, string? createdBy)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                var stockCmd = new SqlCommand(@"
+SELECT s.SpeciesId, s.PotSize, s.AreaId, s.PhysicalQuantity, s.ReservedQuantity, s.InTransitQuantity, a.AreaType, a.IsActive
+FROM dbo.PottedPlantStock s WITH (UPDLOCK, HOLDLOCK)
+LEFT JOIN dbo.Area a ON a.Id = s.AreaId
+WHERE s.Id = @Id", conn, tx);
+                stockCmd.Parameters.AddWithValue("@Id", pottedPlantStockId);
+                int speciesId; string potSize; int? areaId; decimal available; bool areaActive;
+                using (var r = await stockCmd.ExecuteReaderAsync())
+                {
+                    if (!await r.ReadAsync())
+                    {
+                        r.Close();
+                        tx.Rollback();
+                        return (false, "Potted Plant Stock not found.", null);
+                    }
+                    speciesId = r.GetInt32(0);
+                    potSize = r.GetString(1);
+                    areaId = r.IsDBNull(2) ? null : r.GetInt32(2);
+                    available = r.GetDecimal(3) - r.GetDecimal(4) - r.GetDecimal(5);
+                    areaActive = !r.IsDBNull(7) && r.GetBoolean(7);
+                }
+                var (saleOk, saleError) = PlantStockManager.Services.DispatchRules.ValidateDirectSale(
+                    quantity, customerName, areaId.HasValue, areaActive, available);
+                if (!saleOk)
+                {
+                    tx.Rollback();
+                    return (false, saleError, null);
+                }
+
+                var today = DateTime.Today;
+                var bookingCode = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "BK", today.Year);
+                var bookingCmd = new SqlCommand(@"
+INSERT INTO dbo.PottedPlantBookings
+(BookingCode, PottedPlantStockId, SpeciesId, PotSize, AreaId, Quantity, CustomerName, Contact,
+ BookingDate, DeliveryDate, ActualDeliveryDate, Status, AdvanceTaken, BookedById, Remarks, CreatedDate, CreatedBy, DispatchedQuantity)
+VALUES
+(@Code, @StockId, @SpeciesId, @PotSize, @AreaId, @Quantity, @Customer, @Contact,
+ SYSUTCDATETIME(), @Today, SYSUTCDATETIME(), 'Dispatched', 0, @UserId, @Remarks, SYSUTCDATETIME(), @CreatedBy, @Quantity);
+SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
+                bookingCmd.Parameters.AddWithValue("@Code", bookingCode);
+                bookingCmd.Parameters.AddWithValue("@StockId", pottedPlantStockId);
+                bookingCmd.Parameters.AddWithValue("@SpeciesId", speciesId);
+                bookingCmd.Parameters.AddWithValue("@PotSize", potSize);
+                bookingCmd.Parameters.AddWithValue("@AreaId", areaId!.Value);
+                bookingCmd.Parameters.AddWithValue("@Quantity", quantity);
+                bookingCmd.Parameters.AddWithValue("@Customer", customerName.Trim());
+                bookingCmd.Parameters.AddWithValue("@Contact", string.IsNullOrWhiteSpace(contact) ? DBNull.Value : contact.Trim());
+                bookingCmd.Parameters.AddWithValue("@Today", today);
+                bookingCmd.Parameters.AddWithValue("@UserId", (object?)userId ?? DBNull.Value);
+                bookingCmd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
+                bookingCmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
+                var bookingId = (int)(await bookingCmd.ExecuteScalarAsync())!;
+
+                var dispatchCode = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "DIS", today.Year);
+                var dispatchCmd = new SqlCommand(@"
+INSERT INTO dbo.Dispatches
+(DispatchCode, PottedPlantBookingId, PottedPlantStockId, SpeciesId, PotSize, AreaId, Quantity, DispatchDate, Status, Remarks, CreatedDate, CreatedBy)
+VALUES
+(@Code, @BookingId, @StockId, @SpeciesId, @PotSize, @AreaId, @Quantity, SYSUTCDATETIME(), 'Completed', @Remarks, SYSUTCDATETIME(), @CreatedBy);
+SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
+                dispatchCmd.Parameters.AddWithValue("@Code", dispatchCode);
+                dispatchCmd.Parameters.AddWithValue("@BookingId", bookingId);
+                dispatchCmd.Parameters.AddWithValue("@StockId", pottedPlantStockId);
+                dispatchCmd.Parameters.AddWithValue("@SpeciesId", speciesId);
+                dispatchCmd.Parameters.AddWithValue("@PotSize", potSize);
+                dispatchCmd.Parameters.AddWithValue("@AreaId", areaId!.Value);
+                dispatchCmd.Parameters.AddWithValue("@Quantity", quantity);
+                dispatchCmd.Parameters.AddWithValue("@Remarks", $"Direct sale to {customerName.Trim()}" + (string.IsNullOrWhiteSpace(remarks) ? "" : $" - {remarks}"));
+                dispatchCmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
+                var dispatchId = (int)(await dispatchCmd.ExecuteScalarAsync())!;
+
+                var (ok, message) = await _pottedPlantStockRepo.RecordTransactionAsync(
+                    conn, tx, pottedPlantStockId, -quantity, "Dispatch", "Dispatch", dispatchId, userId, $"Direct sale to {customerName.Trim()}");
+                if (!ok)
+                {
+                    tx.Rollback();
+                    return (false, message, null);
+                }
+                var soldCmd = new SqlCommand("UPDATE dbo.PottedPlantStock SET SoldDispatchedQuantity = SoldDispatchedQuantity + @Quantity WHERE Id = @Id", conn, tx);
+                soldCmd.Parameters.AddWithValue("@Quantity", quantity);
+                soldCmd.Parameters.AddWithValue("@Id", pottedPlantStockId);
+                await soldCmd.ExecuteNonQueryAsync();
+
+                tx.Commit();
+                return (true, null, dispatchCode);
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { }
+                return (false, ex.Message, null);
+            }
+        }
+
         // Non-stock-affecting fields only (ResponsiblePerson/Supervisor/
         // Remarks). PottedPlantStockId/Quantity/the parent Booking link
         // are immutable after creation -- use CancelAsync to reverse.

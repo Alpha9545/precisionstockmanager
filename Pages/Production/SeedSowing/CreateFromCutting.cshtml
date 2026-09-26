@@ -1,0 +1,139 @@
+@page
+@model PlantStockManager.Pages.Production.SeedSowing.CreateFromCuttingModel
+@{
+    ViewData["Title"] = "Cutting Tray Sowing";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Cutting Tray Sowing</h4>
+            <small class="text-muted">Cuttings from Cutting Stock are placed in complete trays. Leftover cuttings stay in Cutting Stock.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (!Model.StockPools.Any())
+            {
+                <div class="alert alert-warning">No Cutting Stock with available cuttings in your Areas.</div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold">Cutting Stock</label>
+                        <select asp-for="CuttingStockId" id="stock" class="form-select" required data-searchable>
+                            <option value="">-- Select variety / Area --</option>
+                            @foreach (var s in Model.StockPools)
+                            {
+                                <option value="@s.Id" data-available="@s.AvailableQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)">
+                                    @s.SpeciesName?.Trim()@(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")") - @s.AreaName - available @s.AvailableQuantity.ToString("N0")
+                                </option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Sowing Date</label>
+                        <input type="date" asp-for="SowingDate" class="form-control" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Cutting Quantity</label>
+                        <input type="number" step="1" min="1" asp-for="CuttingQuantity" id="qty" class="form-control" required />
+                        <div class="text-danger small d-none" id="qtyWarning">More than the available cuttings.</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Tray Cavity</label>
+                        <select asp-for="CavityType" id="cavity" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var c in Model.CavityTypes)
+                            {
+                                <option value="@c">@c</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Growing Area <span class="text-muted">(optional)</span></label>
+                        <select asp-for="AreaId" class="form-select">
+                            <option value="">-- Cutting Stock's Area --</option>
+                            @foreach (var a in Model.Areas)
+                            {
+                                <option value="@a.Id">@a.Name</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Complete Trays</label>
+                        <input type="text" id="trays" class="form-control" readonly placeholder="calculated" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Used Cutting</label>
+                        <input type="text" id="used" class="form-control" readonly placeholder="calculated" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold">Remaining Cutting (stays in stock)</label>
+                        <input type="text" id="remaining" class="form-control" readonly placeholder="calculated" />
+                    </div>
+                    <div class="col-12"><div class="text-danger small d-none" id="trayError"></div></div>
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Sowing Supervisor <span class="text-muted fw-normal">(the only person who can approve)</span></label>
+                        <select asp-for="SupervisorId" class="form-select" required>
+                            <option value="">-- Select supervisor --</option>
+                            @foreach (var s in Model.Supervisors)
+                            {
+                                <option value="@s.EmployeeID">@s.Name</option>
+                            }
+                        </select>
+                        <div class="form-text">Cannot be changed after saving.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Remarks</label>
+                        <textarea asp-for="Remarks" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/CuttingStock/Index" class="btn btn-secondary me-2">Back</a>
+                    <button type="submit" class="btn btn-success">Save Tray Sowing</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const url = '@Url.Page("/Production/SeedSowing/CreateFromCutting")';
+            function check() {
+                const a = parseFloat($('#stock option:selected').data('available'));
+                const q = parseFloat($('#qty').val());
+                $('#qtyWarning').toggleClass('d-none', !(!isNaN(a) && !isNaN(q) && q > a));
+            }
+            function calc() {
+                const q = $('#qty').val(), c = $('#cavity').val();
+                $('#trays, #used, #remaining').val('');
+                $('#trayError').addClass('d-none').text('');
+                check();
+                if (!q || !c) return;
+                $.getJSON(url, { handler: 'TrayCalculation', quantity: q, cavityType: c }, function (r) {
+                    if (r.ok) { $('#trays').val(r.trays); $('#used').val(r.used); $('#remaining').val(r.remaining); }
+                    const msg = !r.wholeNumber ? 'Cutting Quantity must be a whole number.' : (r.ok ? '' : r.error);
+                    if (msg) $('#trayError').removeClass('d-none').text(msg);
+                });
+            }
+            $('#qty').on('input', calc);
+            $('#cavity, #stock').on('change', calc);
+            calc();
+        });
+    </script>
+}

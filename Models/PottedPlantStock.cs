@@ -58,14 +58,14 @@ namespace PlantStockManager.Models
         // PotProduction.GrowingPartnerName from Phase 19).
         public string? GrowingPartnerName { get; set; }
 
-        // Traceability (Phase E spec item 9): the most recent 'Production'
-        // ledger entry's PotProduction row, so a Growing Partner can trace
-        // PottedPlantStock -> PotProduction -> SourceCuttingStock/
-        // PropagationBatch -> Area -> GrowingPartner without this row
-        // duplicating any of those fields itself.
-        public int? LastProductionId { get; set; }
-        public string? LastProductionCode { get; set; }
-        public string? LastProductionSource { get; set; } // "Cutting Stock" | "Propagation Batch" | null
+        // Phase D traceability: the pot production batches (READY) that built
+        // this stock, and the most recent one.
+        public int? LastProductionId { get; set; }          // PotProductionBatches.Id
+        public string? LastProductionCode { get; set; }     // its BatchCode
+        public DateTime? LastReadyDate { get; set; }
+        public string? BatchCodes { get; set; }
+        public string? SpeciesColor { get; set; }
+        public string Status => AvailableQuantity > 0 ? "READY" : PhysicalQuantity > 0 ? "Reserved" : "Empty";
 
         // Most recent transaction of ANY type against this stock row
         // (Production, Reservation, Dispatch, Wastage, Transfer, ...), for

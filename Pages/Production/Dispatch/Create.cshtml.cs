@@ -20,13 +20,11 @@ namespace PlantStockManager.Pages.Production.Dispatch
     public class CreateModel : PageModel
     {
         private readonly DispatchRepository _dispatchRepo;
-        private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccessService;
 
-        public CreateModel(DispatchRepository dispatchRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
+        public CreateModel(DispatchRepository dispatchRepo, AreaAccessService areaAccessService)
         {
             _dispatchRepo = dispatchRepo;
-            _employeeRepo = employeeRepo;
             _areaAccessService = areaAccessService;
         }
 
@@ -41,7 +39,6 @@ namespace PlantStockManager.Pages.Production.Dispatch
         // (the amount to dispatch now, which may be a partial amount) --
         // see DispatchRepository.InsertAsync.
         public List<PlantStockManager.Models.PottedPlantBooking> DispatchableBookings { get; set; } = new();
-        public List<Employee> PersonOptions { get; set; } = new();
 
         public async Task OnGetAsync()
         {
@@ -109,7 +106,6 @@ namespace PlantStockManager.Pages.Production.Dispatch
             DispatchableBookings = _areaAccessService.HasFullAreaAccess(User)
                 ? all
                 : all.Where(b => _areaAccessService.CanAccessArea(User, b.AreaId)).ToList();
-            PersonOptions = await _employeeRepo.GetAllActiveUsers();
         }
     }
 }

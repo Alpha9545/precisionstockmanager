@@ -1,123 +1,52 @@
-    using iTextSharp.text;
-using iTextSharp.text.pdf;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 
 namespace PlantStockManager.Pages.Data
 {
+    // Phase D: Wastage report over the current workflow (tray production,
+    // cutting deliveries, pot production, potted stock). Leftover seeds or
+    // cuttings below one complete tray are stock, not wastage, and never
+    // appear here. (The former version read the retired dbo.Inventory
+    // pipeline.)
     public class WastedStockModel : PageModel
     {
+        private readonly WastageRepository _repo;
+        private readonly AreaRepository _areaRepo;
+        private readonly AreaAccessService _areaAccess;
 
-        private readonly InventoryRepository _inventoryRepository;
-        private readonly PolyhouseRepository _polyhouseRepository;
-        private readonly PlantTypeRepository _plantTypeRepository;
-        private readonly PlantSpeciesRepository _plantSpeciesRepository;
-
-        public WastedStockModel(
-            InventoryRepository inventoryRepository,
-            PolyhouseRepository polyhouseRepository,
-            PlantTypeRepository plantTypeRepository,
-            PlantSpeciesRepository plantSpeciesRepository)
+        public WastedStockModel(WastageRepository repo, AreaRepository areaRepo, AreaAccessService areaAccess)
         {
-            _inventoryRepository = inventoryRepository;
-            _polyhouseRepository = polyhouseRepository;
-            _plantTypeRepository = plantTypeRepository;
-            _plantSpeciesRepository = plantSpeciesRepository;
+            _repo = repo;
+            _areaRepo = areaRepo;
+            _areaAccess = areaAccess;
         }
 
-        public List<Inventory> Inventory { get; set; } = new();
-        public List<Polyhouse> Polyhouses { get; set; } = new();
-        public List<PlantType> PlantTypes { get; set; } = new();
-        public List<PlantSpecies> PlantSpecies { get; set; } = new();
+        public DateTime From { get; set; }
+        public DateTime To { get; set; }
+        public int? AreaId { get; set; }
+        public string? Search { get; set; }
+        public string? Type { get; set; }
+        public List<Area> Areas { get; set; } = new();
+        public List<WastageRepository.WastageRow> Rows { get; set; } = new();
+        public List<string> Types { get; set; } = new();
 
-        [BindProperty(SupportsGet = true)] public int? SelectedPolyhouse { get; set; }
-        [BindProperty(SupportsGet = true)] public int? SelectedPlantType { get; set; }
-        [BindProperty(SupportsGet = true)] public int? SelectedSpecies { get; set; }
-        [BindProperty(SupportsGet = true)] public DateTime? DateFrom { get; set; }
-        [BindProperty(SupportsGet = true)] public DateTime? DateTo { get; set; }
-
-        public async Task OnGetAsync()
+        public async Task OnGetAsync(DateTime? from, DateTime? to, int? areaId, string? search, string? type)
         {
-            DateFrom ??= DateTime.Today.AddDays(-30);
-            DateTo ??= DateTime.Today;
-
-            Polyhouses = await _polyhouseRepository.GetAllPolyhouses();
-            PlantTypes = await _plantTypeRepository.GetAllPlantTypes();
-            if (SelectedPlantType.HasValue)
-            {
-                PlantSpecies = await _plantSpeciesRepository.GetSpeciesByPlantType(SelectedPlantType.Value);
-            }
-
-            Inventory = await _inventoryRepository.GetWastedStockReport(
-                SelectedPolyhouse,
-                SelectedPlantType,
-                SelectedSpecies,
-                DateFrom,
-                DateTo);
-        }
-
-        public async Task<JsonResult> OnGetSpeciesByPlantTypeAsync(int plantTypeId)
-        {
-            var speciesList = await _plantSpeciesRepository.GetSpeciesByPlantType(plantTypeId);
-            return new JsonResult(speciesList);
-        }
-
-        public async Task<IActionResult> OnGetGeneratePdfAsync()
-        {
-            Inventory = await _inventoryRepository.GetWastedStockReport(
-                SelectedPolyhouse,
-                SelectedPlantType,
-                SelectedSpecies,
-                DateFrom,
-                DateTo);
-
-            using var ms = new MemoryStream();
-            Document doc = new Document(PageSize.A4.Rotate(), 10, 10, 10, 10);
-            PdfWriter.GetInstance(doc, ms);
-            doc.Open();
-
-            var titleFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 14);
-            var headerFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 9, BaseColor.WHITE);
-            var cellFont = FontFactory.GetFont(FontFactory.HELVETICA, 9);
-            var headerBg = new BaseColor(0, 102, 204);
-
-            doc.Add(new Paragraph("Wasted Stock Report", titleFont) { Alignment = Element.ALIGN_CENTER });
-            doc.Add(new Paragraph("Generated on: " + DateTime.Now.ToString("dd-MMM-yyyy hh:mm tt")));
-            doc.Add(new Paragraph(" "));
-
-            PdfPTable table = new PdfPTable(10) { WidthPercentage = 100 };
-            table.SetWidths(new float[] { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 });
-
-            void AddHeader(string text) => table.AddCell(new PdfPCell(new Phrase(text, headerFont)) { BackgroundColor = headerBg, HorizontalAlignment = Element.ALIGN_CENTER });
-            void AddCell(string text) => table.AddCell(new PdfPCell(new Phrase(text, cellFont)));
-
-            AddHeader("Seeding Date"); AddHeader("Polyhouse"); AddHeader("Plant"); AddHeader("Species");
-            AddHeader("Tray Waste"); AddHeader("Hardening Waste"); AddHeader("Inventory Waste"); AddHeader("Sorting Waste"); AddHeader("Total Waste"); AddHeader("Supervisor");
-
-            foreach (var r in Inventory)
-            {
-                AddCell(r.SeedingDate.ToShortDateString().ToString());
-                AddCell(r.PolyhouseName);
-                AddCell(r.PlantTypeName);
-                AddCell(r.SpeciesName);
-                AddCell(r.WastedInTrays.ToString());
-                AddCell(r.WastedInHardening.ToString());
-                AddCell(r.WastedInInventory.ToString());
-                AddCell(r.WastedInSorting.ToString());
-                AddCell(r.TotalWasted.ToString());
-                AddCell(r.Supervisor.ToString());
-            }
-
-            doc.Add(table);
-            doc.Close();
-
-            byte[] pdfBytes = ms.ToArray();
-            Response.Headers.Add("Content-Disposition", "inline; filename=WastedStock.pdf");
-
-            // Return the PDF without specifying a download name
-            return File(pdfBytes, "application/pdf");
+            To = (to ?? DateTime.Today).Date;
+            From = (from ?? To.AddDays(-30)).Date;
+            if (From > To)
+                (From, To) = (To, From);
+            AreaId = areaId;
+            Search = search;
+            Type = type;
+            Areas = (await _areaRepo.GetAllAreas()).Where(a => _areaAccess.CanAccessArea(User, a.Id)).OrderBy(a => a.Name).ToList();
+            var rows = (await _repo.GetAsync(From, To, areaId, search))
+                .Where(r => r.AreaId.HasValue ? _areaAccess.CanAccessArea(User, r.AreaId) : _areaAccess.HasFullAreaAccess(User))
+                .ToList();
+            Types = rows.Select(r => r.ProductionType).Distinct().OrderBy(t => t).ToList();
+            Rows = string.IsNullOrEmpty(type) ? rows : rows.Where(r => r.ProductionType == type).ToList();
         }
     }
 }

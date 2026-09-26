@@ -1,0 +1,69 @@
+@page
+@model PlantStockManager.Pages.Production.PotBatch.IndexModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Pot Production";
+    var canCreate = await FeatureAccess.CanAccessPageAsync(User, "/Production/PotBatch/Create");
+    var me = PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.GetUserId(User);
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Pot Production Batches</h3>
+        <div class="d-flex gap-2">
+            <a asp-page="/Production/PotBatch/Index" asp-route-show="@(Model.Show == "open" ? "all" : "open")" class="btn btn-outline-secondary">
+                @(Model.Show == "open" ? "Show all batches" : "Show open batches")
+            </a>
+            @if (canCreate)
+            {
+                <a asp-page="/Production/PotBatch/Create" class="btn btn-success">+ Start Batch</a>
+            }
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-striped table-sm align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Batch</th><th>Variety</th><th>Colour</th><th>Pot Size</th><th>Area</th>
+                    <th class="text-end">Cuttings</th><th class="text-end">Potted</th><th class="text-end">Ready</th>
+                    <th>Expected Ready</th><th>Status</th><th>Supervisor</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var b in Model.Batches)
+                {
+                    var readiness = b.Readiness(DateTime.Today);
+                    var badge = readiness switch { "Overdue" => "bg-danger", "Due today" => "bg-warning text-dark", "Due soon" => "bg-info text-dark", "Ready" => "bg-success", "Complete loss" => "bg-dark", "Cancelled" => "bg-secondary", _ => "bg-light text-dark" };
+                    <tr>
+                        <td>@b.BatchCode</td>
+                        <td>@b.SpeciesName <span class="text-muted">(@b.PlantTypeName)</span></td>
+                        <td>@(b.Color ?? "-")</td>
+                        <td>@b.PotSize</td>
+                        <td>@b.AreaName</td>
+                        <td class="text-end">@b.CuttingAllocated.ToString("N0")</td>
+                        <td class="text-end">@b.PottedQuantity.ToString("N0")</td>
+                        <td class="text-end">@(b.ReadyQuantity?.ToString("N0") ?? "-")</td>
+                        <td>@b.ExpectedReadyDate.ToString("dd/MM/yyyy")</td>
+                        <td><span class="badge @badge">@readiness</span></td>
+                        <td>@b.SupervisorName @if (me == b.SupervisorId) { <span class="badge bg-primary">you</span> }</td>
+                        <td><a asp-page="/Production/PotBatch/Details" asp-route-id="@b.Id" class="btn btn-sm btn-outline-primary">Open</a></td>
+                    </tr>
+                }
+                @if (!Model.Batches.Any())
+                {
+                    <tr><td colspan="12" class="text-center text-muted">No batches.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

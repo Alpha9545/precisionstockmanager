@@ -19,6 +19,10 @@
         // the value that was actually applied at sowing time.
         public int? ReadyStockDays { get; set; }
 
+        // Phase D: the variety's colour (optional). Batches, cuttings and
+        // potted stock show it through the variety -- never stored twice.
+        public string? Color { get; set; }
+
         // Navigation Property (Not stored in DB, used for reference)
         public PlantType? PlantType { get; set; }
     }

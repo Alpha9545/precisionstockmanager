@@ -16,6 +16,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
         private readonly AreaRepository _areaRepo;
         private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccessService;
+        private readonly UserRoleRepository _userRoleRepo;
 
         public EditModel(
             MotherPlantRepository motherPlantRepo,
@@ -24,8 +25,10 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             PlantSpeciesRepository plantSpeciesRepo,
             AreaRepository areaRepo,
             EmployeeRepository employeeRepo,
-            AreaAccessService areaAccessService)
+            AreaAccessService areaAccessService,
+            UserRoleRepository userRoleRepo)
         {
+            _userRoleRepo = userRoleRepo;
             _motherPlantRepo = motherPlantRepo;
             _polyhouseRepo = polyhouseRepo;
             _plantTypeRepo = plantTypeRepo;
@@ -48,7 +51,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
         public List<PlantType> PlantTypes { get; set; } = new();
         public List<PlantSpecies> SpeciesForSelectedType { get; set; } = new();
         public List<Area> Areas { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
+        // Only users holding the "Mother Plant Supervisor" role.
         public List<Employee> Supervisors { get; set; } = new();
 
         public decimal PreviewExpectedCuttingQuantity =>
@@ -75,7 +78,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
 
             MotherPlant = existing;
             SelectedPlantTypeId = await _plantSpeciesRepo.GetPlantTypeIdBySpeciesId(existing.SpeciesId);
-            await LoadDropdownsAsync(SelectedPlantTypeId, existing.PolyhouseId);
+            await LoadDropdownsAsync(SelectedPlantTypeId, existing.AreaId ?? 0);
             return Page();
         }
 
@@ -85,12 +88,19 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             return new JsonResult(species);
         }
 
-        // Cascading dropdown: an Area belongs to exactly one Polyhouse, so
-        // the Area list is re-fetched whenever the user changes Polyhouse.
-        public async Task<JsonResult> OnGetAreasByPolyhouseId(int polyhouseId)
+        // Area first: the Polyhouses of that Area (dbo.Polyhouses.AreaId) and
+        // the Mother Plant Supervisors assigned to that Area.
+        public async Task<JsonResult> OnGetAreaOptionsAsync(int areaId)
         {
-            var areas = await _areaRepo.GetAreasByPolyhouseId(polyhouseId);
-            return new JsonResult(areas.Select(a => new { id = a.Id, name = a.Name }));
+            if (!_areaAccessService.CanAccessArea(User, areaId))
+                return new JsonResult(new { polyhouses = Array.Empty<object>(), supervisors = Array.Empty<object>() });
+            var polyhouses = await _polyhouseRepo.GetByAreaIdAsync(areaId);
+            var supervisors = await _userRoleRepo.GetUsersInRoleAsync(PlantStockManager.Services.SupervisorRules.MotherPlantSupervisor, areaId);
+            return new JsonResult(new
+            {
+                polyhouses = polyhouses.Select(x => new { id = x.Id, name = x.Name }),
+                supervisors = supervisors.Select(x => new { id = x.EmployeeID, name = x.Name })
+            });
         }
 
         public async Task<IActionResult> OnPostAsync()
@@ -104,6 +114,15 @@ namespace PlantStockManager.Pages.Production.MotherPlant
                 ModelState.AddModelError("MotherPlant.CuttingRate", "Cutting Rate cannot be negative.");
             if (MotherPlant.CuttingPeriodDays <= 0)
                 ModelState.AddModelError("MotherPlant.CuttingPeriodDays", "Cutting Period (days) must be greater than zero.");
+            // Phase D: every Mother Plant belongs to an Area and has a Mother
+            // Plant Supervisor (also enforced by TR_MotherPlants_AreaAndSupervisor).
+            if (!MotherPlant.AreaId.HasValue)
+                ModelState.AddModelError("MotherPlant.AreaId", "Area is required.");
+            var eligibleSupervisors = MotherPlant.AreaId.HasValue
+                ? (await _userRoleRepo.GetUsersInRoleAsync(PlantStockManager.Services.SupervisorRules.MotherPlantSupervisor, MotherPlant.AreaId.Value)).Select(u => u.EmployeeID)
+                : Enumerable.Empty<int>();
+            if (!MotherPlant.SupervisorId.HasValue || !eligibleSupervisors.Contains(MotherPlant.SupervisorId.Value))
+                ModelState.AddModelError("MotherPlant.SupervisorId", "Choose a Mother Plant Supervisor of this Area.");
 
             // Phase 17/B: check the record's CURRENT (pre-edit) Area, not
             // just the submitted one -- otherwise a user restricted to
@@ -128,9 +147,10 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             if (MotherPlant.AreaId.HasValue)
             {
                 var area = await _areaRepo.GetAreaById(MotherPlant.AreaId.Value);
-                if (area == null || area.PolyhouseId != MotherPlant.PolyhouseId)
+                var polyhouse = await _polyhouseRepo.GetByIdAsync(MotherPlant.AreaId ?? 0);
+                if (area == null || polyhouse == null || polyhouse.AreaId != MotherPlant.AreaId)
                 {
-                    ModelState.AddModelError("MotherPlant.AreaId", "The selected Area does not belong to the selected Polyhouse.");
+                    ModelState.AddModelError("MotherPlant.PolyhouseId", "Choose a Polyhouse of the selected Area (assign Polyhouses to Areas in Admin > Polyhouses).");
                 }
                 else if (!_areaAccessService.CanAccessArea(User, MotherPlant.AreaId))
                 {
@@ -140,17 +160,21 @@ namespace PlantStockManager.Pages.Production.MotherPlant
 
             if (!ModelState.IsValid)
             {
-                await LoadDropdownsAsync(SelectedPlantTypeId, MotherPlant.PolyhouseId);
+                await LoadDropdownsAsync(SelectedPlantTypeId, MotherPlant.AreaId ?? 0);
                 return Page();
             }
 
+            // The variety is fixed once created (cutting records reference it;
+            // FK_CuttingProductions_MotherPlant also refuses a change).
+            MotherPlant.SpeciesId = existingForAuth!.SpeciesId;
+            MotherPlant.ResponsiblePersonId = existingForAuth.ResponsiblePersonId;
             MotherPlant.ModifiedBy = User.Identity?.Name ?? "System";
 
             var (success, message) = await _motherPlantRepo.UpdateAsync(MotherPlant);
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to update Mother Plant batch.");
-                await LoadDropdownsAsync(SelectedPlantTypeId, MotherPlant.PolyhouseId);
+                await LoadDropdownsAsync(SelectedPlantTypeId, MotherPlant.AreaId ?? 0);
                 return Page();
             }
 
@@ -158,19 +182,17 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             return RedirectToPage("/Production/MotherPlant/Index");
         }
 
-        private async Task LoadDropdownsAsync(int plantTypeId, int polyhouseId)
+        private async Task LoadDropdownsAsync(int plantTypeId, int areaId)
         {
-            Polyhouses = await _polyhouseRepo.GetAllPolyhouses();
+            Polyhouses = areaId > 0 ? await _polyhouseRepo.GetByAreaIdAsync(areaId) : new List<Polyhouse>();
             PlantTypes = await _plantTypeRepo.GetAllPlantTypes();
             SpeciesForSelectedType = plantTypeId > 0
                 ? await _plantSpeciesRepo.GetSpeciesByPlantType(plantTypeId)
                 : new List<PlantSpecies>();
-            Areas = polyhouseId > 0
-                ? await _areaRepo.GetAreasByPolyhouseId(polyhouseId)
-                : new List<Area>();
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            ResponsiblePersons = activeUsers;
-            Supervisors = activeUsers;
+            Areas = (await _areaRepo.GetAllAreas()).Where(a => a.IsActive && _areaAccessService.CanAccessArea(User, a.Id)).OrderBy(a => a.Name).ToList();
+            Supervisors = areaId > 0
+                ? await _userRoleRepo.GetUsersInRoleAsync(PlantStockManager.Services.SupervisorRules.MotherPlantSupervisor, areaId)
+                : new List<Employee>();
         }
     }
 }

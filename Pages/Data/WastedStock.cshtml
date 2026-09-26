@@ -1,173 +1,91 @@
-﻿@page
+@page
 @model PlantStockManager.Pages.Data.WastedStockModel
 @{
-    ViewData["Title"] = "Wasted Stock Report";
+    ViewData["Title"] = "Wastage";
 }
 
-<style>
-    /* Sticky table header inside the scroll container */
-    .sticky-head thead th {
-        position: sticky;
-        top: 0; /* set to your fixed navbar height if you have one, e.g. 56px */
-        z-index: 5; /* keep it above table rows */
-        background-color: #212529; /* match .table-dark */
-        color: #fff;
-    }
+<div class="container-fluid mt-4">
+    <h3 class="mb-3">Wastage</h3>
 
-        /* Optional: subtle divider line under the stuck header */
-        .sticky-head thead th::after {
-            content: "";
-            position: absolute;
-            left: 0;
-            right: 0;
-            bottom: -1px;
-            height: 1px;
-            background: rgba(0,0,0,.2);
-        }
-
-    /* On very small screens, you may want to disable sticky to avoid overlap */
-    @@media (max-width: 576px) {
-        .sticky-head thead th
-
-    {
-        position: static;
-    }
-
-    }
-</style>
-
-
-<div class="container-fluid py-3">
-    <div class="d-flex justify-content-between align-items-center flex-wrap mb-3">
-        <h2 class="mb-0 text-danger">Wasted Stock Report</h2>
-
-        <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
-            <div class="d-flex flex-column">
-                <label class="form-label fw-bold">From:</label>
-                <input type="date" asp-for="DateFrom" class="form-control form-control-sm" style="width: 140px;">
-            </div>
-            <div class="d-flex flex-column">
-                <label class="form-label fw-bold">To:</label>
-                <input type="date" asp-for="DateTo" class="form-control form-control-sm" style="width: 140px;">
-            </div>
-            <div>
-                <label class="form-label fw-bold">Polyhouse:</label>
-                <select asp-for="SelectedPolyhouse" class="form-select form-select-sm">
-                    <option value="">All</option>
-                    @foreach (var p in Model.Polyhouses)
-                    {
-                        <option value="@p.Id">@p.Name</option>
-                    }
-                </select>
-            </div>
-            <div>
-                <label class="form-label fw-bold">Plant Type:</label>
-                <select asp-for="SelectedPlantType" class="form-select form-select-sm" id="SelectedPlantType">
-                    <option value="">All</option>
-                    @foreach (var pt in Model.PlantTypes)
-                    {
-                        <option value="@pt.Id">@pt.Name</option>
-                    }
-                </select>
-            </div>
-            <div>
-                <label class="form-label fw-bold">Species:</label>
-                <select asp-for="SelectedSpecies" class="form-select form-select-sm" id="SelectedSpecies">
-                    <option value="">All</option>
-                    @foreach (var sp in Model.PlantSpecies)
-                    {
-                        <option value="@sp.Id">@sp.Name</option>
-                    }
-                </select>
-            </div>
-            <div>
-                <button type="submit" class="btn btn-sm btn-primary">Apply</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="generatePdfBtn">PDF</button>
-            </div>
-        </form>
-    </div>
-
-    <div class="card p-3 shadow-sm">
-        <div class="table-responsive sticky-head" style="max-height: 70vh; overflow-y: auto;">
-            @if (Model.Inventory.Any())
-            {
-                <table class="table table-bordered table-striped table-hover">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>Sowing ID</th>
-                            <th>Polyhouse</th>
-                            <th>Plant Type</th>
-                            <th>Species</th>
-                            <th>Seeds Planted</th>
-                            <th>Sowing Date</th>
-                            <th>Trays wasted</th>
-                            <th>Hardening wasted</th>
-                            <th>Inventory wasted</th>
-                            <th>Sorting wasted</th>
-                            <th>Total wasted</th>
-
-                            <th>Supervisor</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in Model.Inventory)
-                        {
-                            <tr>
-                                <td>@item.SeedEntryId</td>
-                                <td>@item.PolyhouseName</td>
-                                <td>@item.PlantTypeName</td>
-                                <td>@item.SpeciesName</td>
-                                <td>@item.SeedsPlanted</td>
-                                <td>@item.SeedingDate.ToString("dd-MMM-yyyy")</td>
-                                <td>@item.WastedInTrays</td>
-                                <td>@item.WastedInHardening</td>
-                                <td>@item.WastedInInventory</td>
-                                <td>@item.WastedInSorting</td>
-                                <td><strong class="text-danger">@item.TotalWasted</strong></td>
-                               
-                                <td>@item.Supervisor</td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            }
-            else
-            {
-                <div class="alert alert-warning text-center">No records found.</div>
-            }
+    <form method="get" class="row g-2 align-items-end mb-3">
+        <div class="col-md-2">
+            <label class="form-label mb-0">From</label>
+            <input type="date" name="from" value="@Model.From.ToString("yyyy-MM-dd")" class="form-control" />
         </div>
+        <div class="col-md-2">
+            <label class="form-label mb-0">To</label>
+            <input type="date" name="to" value="@Model.To.ToString("yyyy-MM-dd")" class="form-control" />
+        </div>
+        <div class="col-md-2">
+            <label class="form-label mb-0">Area</label>
+            <select name="areaId" class="form-select">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.Areas)
+                {
+                    <option value="@a.Id" selected="@(a.Id == Model.AreaId)">@a.Name</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label mb-0">Production type</label>
+            <select name="type" class="form-select">
+                <option value="">All</option>
+                @foreach (var t in Model.Types)
+                {
+                    <option value="@t" selected="@(t == Model.Type)">@t</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label mb-0">Search</label>
+            <input type="search" name="search" value="@Model.Search" class="form-control" placeholder="Variety, crop, sowing or batch" />
+        </div>
+        <div class="col-md-1"><button class="btn btn-primary w-100">Show</button></div>
+    </form>
+
+    <p class="text-muted small">
+        Tray wastage = seeds/cuttings used in complete trays &minus; ready seedlings. Leftover seeds or cuttings below one complete tray stay in stock and are not wastage.
+    </p>
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-striped table-sm">
+            <thead class="table-light">
+                <tr>
+                    <th>Date</th><th>Production</th><th>Material</th><th>Variety</th><th>Colour</th><th>Cavity / Pot</th><th>Area</th>
+                    <th class="text-end">Wastage</th><th class="text-end">Of</th><th class="text-end">%</th><th>Reason</th><th>Sowing / Batch</th><th>Supervisor</th><th>Remarks</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Rows)
+                {
+                    <tr>
+                        <td class="text-nowrap">@r.Date.ToString("dd/MM/yyyy")</td>
+                        <td>@r.ProductionType</td>
+                        <td>@r.Material</td>
+                        <td>@r.Variety <span class="text-muted">(@r.PlantType)</span></td>
+                        <td>@(r.Color ?? "-")</td>
+                        <td>@(r.Cavity ?? r.PotSize ?? "-")</td>
+                        <td>@(r.AreaName ?? "-")</td>
+                        <td class="text-end fw-bold">@r.Quantity.ToString("N0")</td>
+                        <td class="text-end">@(r.OutOf?.ToString("N0") ?? "-")</td>
+                        <td class="text-end">@(r.Percent?.ToString("0.00") ?? "-")</td>
+                        <td>@(r.Reason ?? "-")</td>
+                        <td>@(r.Reference ?? "-")</td>
+                        <td>@(r.Supervisor ?? "-")</td>
+                        <td>@r.Remarks</td>
+                    </tr>
+                }
+                @if (!Model.Rows.Any())
+                {
+                    <tr><td colspan="14" class="text-center text-muted">No wastage in this period.</td></tr>
+                }
+            </tbody>
+            @if (Model.Rows.Any())
+            {
+                <tfoot>
+                    <tr class="fw-bold"><td colspan="7">Total</td><td class="text-end">@Model.Rows.Sum(r => r.Quantity).ToString("N0")</td><td colspan="6"></td></tr>
+                </tfoot>
+            }
+        </table>
     </div>
 </div>
-
-@section Scripts {
-    <script>
-        document.getElementById("SelectedPlantType").addEventListener("change", function () {
-            const plantTypeId = this.value;
-            const speciesDropdown = document.getElementById("SelectedSpecies");
-            speciesDropdown.innerHTML = '<option value="">All</option>';
-
-            if (plantTypeId) {
-                fetch(`/Data/WastedStock?handler=SpeciesByPlantType&plantTypeId=${plantTypeId}`)
-                    .then(res => res.json())
-                    .then(data => {
-                        data.forEach(sp => {
-                            const option = document.createElement("option");
-                            option.value = sp.id;
-                            option.textContent = sp.name;
-                            speciesDropdown.appendChild(option);
-                        });
-                    });
-            }
-        });
-
-        document.getElementById("generatePdfBtn").addEventListener("click", function () {
-            const params = new URLSearchParams();
-            const fields = ["DateFrom", "DateTo", "SelectedPolyhouse", "SelectedPlantType", "SelectedSpecies"];
-            fields.forEach(field => {
-                const el = document.querySelector(`[name='${field}']`);
-                if (el && el.value) params.append(field, el.value);
-            });
-            window.open(`/Data/WastedStock?handler=GeneratePdf&${params.toString()}`, '_blank');
-        });
-    </script>
-}

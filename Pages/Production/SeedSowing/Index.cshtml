@@ -8,11 +8,12 @@
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="mb-0">Direct Sowing</h2>
+        <h2 class="mb-0">Sowings (seed &amp; cutting trays)</h2>
         <div>
             @if (canSow)
             {
-                <a asp-page="/Production/SeedSowing/Create" class="btn btn-primary">+ New Sowing</a>
+                <a asp-page="/Production/SeedSowing/Create" class="btn btn-primary">+ Direct Seed Sowing</a>
+                <a asp-page="/Production/SeedSowing/CreateFromCutting" class="btn btn-outline-primary">+ Cutting Tray Sowing</a>
             }
         </div>
     </div>
@@ -43,13 +44,13 @@
                 <tr>
                     <th>Batch No.</th>
                     <th>Species/Variety</th>
-                    <th>Seed Lot</th>
+                    <th>Source</th>
                     <th>Area</th>
                     <th>Polyhouse</th>
                     <th>Cavity x Trays</th>
                     <th>Sowing Date</th>
                     <th>Expected Ready</th>
-                    <th>Seeds Used</th>
+                    <th>Used</th>
                     <th>Ready Seedlings</th>
                     <th>Wastage</th>
                     <th>Status</th>
@@ -62,7 +63,7 @@
                     <tr>
                         <td>@sw.SowingCode</td>
                         <td>@sw.SpeciesName <span class="text-muted">(@sw.PlantTypeName)</span></td>
-                        <td>@(string.IsNullOrEmpty(sw.BatchNo) ? "-" : sw.BatchNo)</td>
+                        <td>@(sw.IsCuttingSource ? "Cutting" : "Seed lot " + (string.IsNullOrEmpty(sw.BatchNo) ? "-" : sw.BatchNo))</td>
                         <td>@sw.AreaName</td>
                         <td>@(sw.PolyhouseName ?? "-")</td>
                         <td>@sw.CavityType@(sw.NumberOfTrays.HasValue ? $" x{sw.NumberOfTrays}" : "")</td>

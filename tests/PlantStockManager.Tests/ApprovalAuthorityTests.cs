@@ -45,6 +45,16 @@ namespace PlantStockManager.Tests
         }
 
         [Fact]
+        public void OwnSowingMessage_NamesOnlyTheAssignedSupervisor()
+        {
+            // Phase D: the refusal no longer suggests that another supervisor
+            // or an administrator may approve instead.
+            Assert.DoesNotContain("Administrator", DirectSowingRules.OwnSowingMessage);
+            Assert.DoesNotContain("Another", DirectSowingRules.OwnSowingMessage);
+            Assert.Contains("assigned", DirectSowingRules.OwnSowingMessage);
+        }
+
+        [Fact]
         public void NoSupervisorAssigned_NobodyMayApprove()
         {
             var (ok, error) = DirectSowingRules.CanApprove(null, Pratik, "Pratik", Akshay, "Akshay");
@@ -57,8 +67,12 @@ namespace PlantStockManager.Tests
             => Assert.False(DirectSowingRules.CanApprove(Akshay, Pratik, "Pratik", null, "Akshay").Ok);
 
         // ---- assigning the supervisor on the sowing ---------------------
+        // Phase D: the eligible list holds Sowing Supervisors only
+        // (UserRoleRepository.GetSowingApproversAsync) -- here Akshay and a
+        // second Sowing Supervisor (id 30); System Administrators are not in it.
 
-        private static readonly int[] Approvers = { Akshay, Rohit, Prajwal };
+        private const int SecondSowingSupervisor = 30;
+        private static readonly int[] Approvers = { Akshay, SecondSowingSupervisor };
 
         [Fact]
         public void Assignment_EligibleSupervisor_IsAccepted()
@@ -79,7 +93,17 @@ namespace PlantStockManager.Tests
             var (ok, error) = DirectSowingRules.ValidateSupervisorAssignment(Akshay, Akshay, Approvers);
             Assert.False(ok);
             Assert.Contains("cannot assign yourself", error);
-            Assert.True(DirectSowingRules.ValidateSupervisorAssignment(Rohit, Akshay, Approvers).Ok);
+            Assert.True(DirectSowingRules.ValidateSupervisorAssignment(SecondSowingSupervisor, Akshay, Approvers).Ok);
+        }
+
+        [Fact]
+        public void Assignment_SystemAdministrator_IsRefused()
+        {
+            // An administrator is not a Sowing Supervisor, so cannot be the
+            // assigned approver (no bypass through assignment either).
+            var (ok, error) = DirectSowingRules.ValidateSupervisorAssignment(Rohit, Pratik, Approvers);
+            Assert.False(ok);
+            Assert.Contains("not an active Sowing Supervisor", error);
         }
 
         [Fact]
@@ -87,17 +111,33 @@ namespace PlantStockManager.Tests
         {
             var (ok, error) = DirectSowingRules.ValidateSupervisorAssignment(Pratik /* Sowing Operator */, Rohit, Approvers);
             Assert.False(ok);
-            Assert.Contains("not an active user who can approve", error);
+            Assert.Contains("not an active Sowing Supervisor", error);
         }
 
-        [Theory]
-        [InlineData("Sown", 0, 0, true)]
-        [InlineData("Sown", 10, 0, false)]
-        [InlineData("Sown", 0, 5, false)]
-        [InlineData("Completed", 450, 50, false)]
-        [InlineData("Cancelled", 0, 0, false)]
-        public void SupervisorChange_OnlyBeforeApproval(string status, decimal ready, decimal wastage, bool allowed)
-            => Assert.Equal(allowed, DirectSowingRules.CanChangeSupervisor(status, ready, wastage));
+        // Phase D: a saved sowing's supervisor can never be changed (so
+        // nobody can re-assign a sowing to themselves and then approve it).
+        // The Edit page accepts only the sowing id and its Remarks.
+        [Fact]
+        public void EditPage_BindsOnlyIdAndRemarks()
+        {
+            var bound = typeof(PlantStockManager.Pages.Production.SeedSowing.EditModel)
+                .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                .Where(p => System.Reflection.CustomAttributeExtensions.GetCustomAttribute<Microsoft.AspNetCore.Mvc.BindPropertyAttribute>(p) != null)
+                .Select(p => p.Name).OrderBy(n => n).ToArray();
+            Assert.Equal(new[] { "Id", "Remarks" }, bound);
+        }
+
+        [Fact]
+        public void Repository_HasNoSupervisorUpdate()
+        {
+            // UpdateDetailsAsync (which could change SupervisorId) is gone;
+            // only the Remarks can be updated.
+            var methods = typeof(PlantStockManager.Data.SeedSowingRepository).GetMethods().Select(m => m.Name).ToList();
+            Assert.DoesNotContain("UpdateDetailsAsync", methods);
+            Assert.Contains("UpdateRemarksAsync", methods);
+            var p = typeof(PlantStockManager.Data.SeedSowingRepository).GetMethod("UpdateRemarksAsync")!.GetParameters().Select(x => x.Name).ToArray();
+            Assert.DoesNotContain(p, n => n!.Contains("upervisor", StringComparison.OrdinalIgnoreCase));
+        }
 
         // ---- quantities at approval (duplicate / invalid / wastage) ------
 

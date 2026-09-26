@@ -50,27 +50,9 @@
                 <input type="hidden" asp-for="Dispatch.CreatedDate" />
 
                 <div class="row g-3">
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Responsible Person</label>
-                        <select asp-for="Dispatch.ResponsiblePersonId" class="form-select" disabled="@(Model.Dispatch.Status == "Cancelled")">
-                            <option value="">-- None --</option>
-                            @foreach (var e in Model.PersonOptions)
-                            {
-                                <option value="@e.EmployeeID">@e.Name</option>
-                            }
-                        </select>
-                    </div>
+                    <input type="hidden" asp-for="Dispatch.ResponsiblePersonId" />
 
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="Dispatch.SupervisorId" class="form-select" disabled="@(Model.Dispatch.Status == "Cancelled")">
-                            <option value="">-- None --</option>
-                            @foreach (var e in Model.PersonOptions)
-                            {
-                                <option value="@e.EmployeeID">@e.Name</option>
-                            }
-                        </select>
-                    </div>
+                    <input type="hidden" asp-for="Dispatch.SupervisorId" />
 
                     <div class="col-12">
                         <label class="form-label fw-bold">Remarks</label>

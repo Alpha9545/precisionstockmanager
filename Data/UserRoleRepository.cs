@@ -2,6 +2,7 @@ using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Options;
 using PlantStockManager.Authorization;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -21,42 +22,66 @@ namespace PlantStockManager.Data
         }
 
         // Sowing approval: the users who can be ASSIGNED as a sowing's
-        // supervisor = ACTIVE users holding ReadyStock.Confirm through one of
-        // their roles, or holding a full-access role (System Administrator,
-        // SecurityOptions). Same sources as the login claims (UserClaimsFactory).
+        // supervisor = ACTIVE users holding the "Sowing Supervisor" role. No
+        // other role (not even System Administrator) is offered: the assigned
+        // supervisor is the only person who can approve that sowing.
         // Pass conn/tx to read inside an existing transaction.
-        public async Task<List<Employee>> GetSowingApproversAsync(SqlConnection? conn = null, SqlTransaction? tx = null)
-        {
-            var fullAccess = _security.EffectiveFullAccessRoleNames.ToList();
-            var inList = fullAccess.Count == 0 ? "NULL" : string.Join(", ", fullAccess.Select((_, i) => "@F" + i));
-            var sql = $@"
-SELECT u.Id, u.Name, ISNULL(d.DesignationName, '')
-FROM dbo.IMSUsers u
-LEFT JOIN dbo.Designation d ON d.DesignationID = u.DesignationID
-WHERE u.IsActive = 1
-  AND EXISTS (
-        SELECT 1
-        FROM dbo.UserRoles ur
-        INNER JOIN dbo.Roles r ON r.Id = ur.RoleId
-        WHERE ur.UserId = u.Id
-          AND (COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), ''), r.RoleName) IN ({inList})
-               OR EXISTS (SELECT 1 FROM dbo.RolePermissions rp
-                          INNER JOIN dbo.Permissions p ON p.Id = rp.PermissionId
-                          WHERE rp.RoleId = r.Id AND p.Code = N'ReadyStock.Confirm')))
-ORDER BY u.Name";
+        public Task<List<Employee>> GetSowingApproversAsync(SqlConnection? conn = null, SqlTransaction? tx = null)
+            => GetUsersInRoleAsync(SupervisorRules.SowingSupervisor, null, conn, tx);
 
+        // Every active user holding a role -- the source of every supervisor
+        // dropdown. areaId set: only users holding the role FOR that Area.
+        public async Task<List<Employee>> GetUsersInRoleAsync(string roleName, int? areaId = null, SqlConnection? conn = null, SqlTransaction? tx = null)
+        {
+            var assignments = await GetRoleAssignmentsAsync(conn, tx);
+            return SupervisorRules.Eligible(assignments, roleName, areaId)
+                .Select(u => new Employee { EmployeeID = u.UserId, Name = u.UserName, Designation = roleName })
+                .ToList();
+        }
+
+        // Active users holding any of the roles (each user once).
+        public async Task<List<Employee>> GetUsersInAnyRoleAsync(params string[] roleNames)
+        {
+            var assignments = await GetRoleAssignmentsAsync();
+            return roleNames.SelectMany(r => SupervisorRules.Eligible(assignments, r, null))
+                .GroupBy(u => u.UserId)
+                .Select(g => new Employee { EmployeeID = g.Key, Name = g.First().UserName })
+                .OrderBy(e => e.Name)
+                .ToList();
+        }
+
+        // Users holding any "... Supervisor" role for the given Area (Area
+        // supervisor field).
+        public async Task<List<Employee>> GetAreaSupervisorsAsync(int areaId)
+        {
+            var assignments = await GetRoleAssignmentsAsync();
+            return assignments
+                .Where(a => a.IsActive && a.AreaId == areaId && SupervisorRules.IsSupervisorRole(a.RoleName))
+                .GroupBy(a => a.UserId)
+                .Select(g => new Employee { EmployeeID = g.Key, Name = g.First().UserName, Designation = string.Join(", ", g.Select(x => x.RoleName).Distinct()) })
+                .OrderBy(e => e.Name)
+                .ToList();
+        }
+
+        public async Task<List<SupervisorRules.RoleAssignment>> GetRoleAssignmentsAsync(SqlConnection? conn = null, SqlTransaction? tx = null)
+        {
+            const string sql = @"
+SELECT u.Id, u.Name, COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) AS RoleName, ur.AreaId, CAST(ISNULL(u.IsActive, 0) AS BIT) AS IsActive
+FROM dbo.UserRoles ur
+INNER JOIN dbo.Roles r ON r.Id = ur.RoleId
+INNER JOIN dbo.IMSUsers u ON u.Id = ur.UserId";
             var owns = conn == null;
             var c = conn ?? _dbHelper.GetConnection();
             try
             {
                 if (owns) await c.OpenAsync();
                 using var cmd = new SqlCommand(sql, c, tx);
-                for (var i = 0; i < fullAccess.Count; i++)
-                    cmd.Parameters.AddWithValue("@F" + i, fullAccess[i]);
-                var list = new List<Employee>();
+                var list = new List<SupervisorRules.RoleAssignment>();
                 using var reader = await cmd.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
-                    list.Add(new Employee { EmployeeID = reader.GetInt32(0), Name = reader.GetString(1), Designation = reader.GetString(2) });
+                    list.Add(new SupervisorRules.RoleAssignment(
+                        reader.GetInt32(0), reader.GetString(1).Trim(), reader.IsDBNull(2) ? "" : reader.GetString(2),
+                        reader.IsDBNull(3) ? null : reader.GetInt32(3), reader.GetBoolean(4)));
                 return list;
             }
             finally

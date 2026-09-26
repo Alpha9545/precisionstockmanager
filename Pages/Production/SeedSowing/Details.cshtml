@@ -22,16 +22,19 @@
             }
             <dl class="row mb-0">
                 <dt class="col-sm-5">Species/Variety</dt><dd class="col-sm-7">@Model.SeedSowing.SpeciesName (@Model.SeedSowing.PlantTypeName)</dd>
-                <dt class="col-sm-5">Seed Lot</dt><dd class="col-sm-7">@(string.IsNullOrEmpty(Model.SeedSowing.BatchNo) ? "-" : Model.SeedSowing.BatchNo)</dd>
-                <dt class="col-sm-5">Seed Taken From</dt><dd class="col-sm-7">@(Model.SeedSowing.SourceAreaName ?? "-")</dd>
-                <dt class="col-sm-5">Seed Source</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedSourceName ?? "-")</dd>
+                <dt class="col-sm-5">Sown from</dt><dd class="col-sm-7">@Model.SeedSowing.SourceLabel @(Model.SeedSowing.IsCuttingSource ? "" : (string.IsNullOrEmpty(Model.SeedSowing.BatchNo) ? "-" : Model.SeedSowing.BatchNo))</dd>
+                <dt class="col-sm-5">Taken from Area</dt><dd class="col-sm-7">@(Model.SeedSowing.SourceAreaName ?? "-")</dd>
+                @if (!Model.SeedSowing.IsCuttingSource)
+                {
+                    <dt class="col-sm-5">Seed Source</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedSourceName ?? "-")</dd>
+                }
                 <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@Model.SeedSowing.AreaName @(Model.SeedSowing.GrowingPartnerName != null ? $"({Model.SeedSowing.GrowingPartnerName})" : "")</dd>
                 <dt class="col-sm-5">Polyhouse</dt><dd class="col-sm-7">@(Model.SeedSowing.PolyhouseName ?? "-")</dd>
-                <dt class="col-sm-5">Seed Quantity entered</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedQuantity > 0 ? Model.SeedSowing.SeedQuantity.ToString("N0") : "not recorded (before the tray rule)")</dd>
+                <dt class="col-sm-5">@(Model.SeedSowing.IsCuttingSource ? "Cutting" : "Seed") Quantity entered</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedQuantity > 0 ? Model.SeedSowing.SeedQuantity.ToString("N0") : "not recorded (before the tray rule)")</dd>
                 <dt class="col-sm-5">Tray Cavity</dt><dd class="col-sm-7">@Model.SeedSowing.CavityType</dd>
                 <dt class="col-sm-5">Complete Trays</dt><dd class="col-sm-7">@(Model.SeedSowing.NumberOfTrays?.ToString("N0") ?? "-")</dd>
-                <dt class="col-sm-5">Seeds Used (sown)</dt><dd class="col-sm-7">@Model.SeedSowing.QuantitySown.ToString("N0")</dd>
-                <dt class="col-sm-5">Remaining Seeds (stay in the seed lot)</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedQuantity > 0 ? Model.SeedSowing.RemainingSeeds.ToString("N0") : "-")</dd>
+                <dt class="col-sm-5">@Model.SeedSowing.UnitName Used (in complete trays)</dt><dd class="col-sm-7">@Model.SeedSowing.QuantitySown.ToString("N0")</dd>
+                <dt class="col-sm-5">Remaining @Model.SeedSowing.UnitName (stay in @Model.SeedSowing.SourceLabel)</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedQuantity > 0 ? Model.SeedSowing.RemainingSeeds.ToString("N0") : "-")</dd>
                 <dt class="col-sm-5">Sowing Date</dt><dd class="col-sm-7">@Model.SeedSowing.SowingDate.ToString("dd/MM/yyyy")</dd>
                 <dt class="col-sm-5">Ready Stock Days</dt><dd class="col-sm-7">@(Model.SeedSowing.ReadyStockDays?.ToString() ?? "-")</dd>
                 <dt class="col-sm-5">Expected Ready Date</dt><dd class="col-sm-7">@(Model.SeedSowing.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</dd>

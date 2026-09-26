@@ -44,19 +44,21 @@ namespace PlantStockManager.Services
         // that fill those complete trays; RemainingSeeds = the rest.
         // The server always recalculates with this function; any tray count
         // sent by the browser is ignored.
+        // The same rule serves cutting tray sowing (quantityLabel "Cutting
+        // Quantity"): only complete trays are produced, the rest stays in stock.
         public static (bool Ok, int Trays, decimal SeedsUsed, decimal RemainingSeeds, string? Error) CalculateTrays(
-            decimal seedQuantity, string? cavityType)
+            decimal seedQuantity, string? cavityType, string quantityLabel = SeedQuantityLabel)
         {
             var cavity = CavityCount(cavityType);
             if (cavity == null)
                 return (false, 0, 0, 0, $"Tray size must be one of: {string.Join(", ", CavityTypes)}.");
             if (seedQuantity <= 0)
-                return (false, 0, 0, 0, "Seed Quantity must be greater than zero.");
+                return (false, 0, 0, 0, $"{quantityLabel} must be greater than zero.");
             var trays = decimal.Floor(seedQuantity / cavity.Value);
             if (trays < 1)
-                return (false, 0, 0, seedQuantity, $"Seed Quantity ({seedQuantity:N0}) is less than one complete {cavity.Value}-cavity tray.");
+                return (false, 0, 0, seedQuantity, $"{quantityLabel} ({seedQuantity:N0}) is less than one complete {cavity.Value}-cavity tray.");
             if (trays > int.MaxValue)
-                return (false, 0, 0, 0, "Seed Quantity is too large.");
+                return (false, 0, 0, 0, $"{quantityLabel} is too large.");
             var seedsUsed = trays * cavity.Value;
             return (true, (int)trays, seedsUsed, seedQuantity - seedsUsed, null);
         }
@@ -70,18 +72,22 @@ namespace PlantStockManager.Services
         //   SeedSowings.NumberOfTrays  = Trays
         //   'Sown' ledger entry         = -SeedsUsed
         //   lot available afterwards   = available - SeedsUsed
+        public const string SeedQuantityLabel = "Seed Quantity";
+        public const string CuttingQuantityLabel = "Cutting Quantity";
+
         public static (bool Ok, int Trays, decimal SeedsUsed, decimal RemainingSeeds, decimal AvailableAfter, string? Error) PlanSowing(
-            decimal seedQuantity, string? cavityType, decimal physical, decimal inTransit)
+            decimal seedQuantity, string? cavityType, decimal physical, decimal inTransit,
+            string quantityLabel = SeedQuantityLabel, string stockLabel = "Main Office seed stock")
         {
             var available = physical - inTransit;
             if (seedQuantity <= 0)
-                return (false, 0, 0, 0, available, "Seed Quantity must be greater than zero.");
+                return (false, 0, 0, 0, available, $"{quantityLabel} must be greater than zero.");
             if (!IsWholeNumber(seedQuantity))
-                return (false, 0, 0, 0, available, "Seed Quantity must be a whole number.");
-            var (traysOk, trays, seedsUsed, remaining, trayError) = CalculateTrays(seedQuantity, cavityType);
+                return (false, 0, 0, 0, available, $"{quantityLabel} must be a whole number.");
+            var (traysOk, trays, seedsUsed, remaining, trayError) = CalculateTrays(seedQuantity, cavityType, quantityLabel);
             if (!traysOk)
                 return (false, 0, 0, 0, available, trayError);
-            var (enough, _, stockError) = CheckSeedAvailability(physical, inTransit, seedQuantity);
+            var (enough, _, stockError) = CheckSeedAvailability(physical, inTransit, seedQuantity, quantityLabel, stockLabel);
             if (!enough)
                 return (false, 0, 0, 0, available, stockError);
             return (true, trays, seedsUsed, remaining, available - seedsUsed, null);
@@ -108,13 +114,16 @@ namespace PlantStockManager.Services
         }
 
         public const string NoSupervisorMessage =
-            "No supervisor is assigned to this sowing. Assign its supervisor (Direct Sowing > Edit) before it can be approved.";
+            "No supervisor is assigned to this sowing, so it cannot be approved. Cancel it and record it again with its Sowing Supervisor.";
         public const string NotAssignedMessage =
             "Only the supervisor assigned to this sowing can approve it.";
 
-        // Who may be ASSIGNED as a sowing's supervisor: an active user who can
-        // approve (eligible list from UserRoleRepository), and never the person
-        // who records the sowing (they could not approve it anyway).
+        // Who may be ASSIGNED as a sowing's supervisor: an active Sowing
+        // Supervisor (eligible list from UserRoleRepository.GetUsersInRoleAsync),
+        // and never the person who records the sowing (they could not approve
+        // it). The assignment is final: it cannot be changed after the sowing
+        // is saved (TR_SeedSowings_ImmutableTrayData), so nobody can re-assign a
+        // sowing to themselves to approve it.
         public static (bool Ok, string? Error) ValidateSupervisorAssignment(
             int? supervisorId, int? createdById, IReadOnlyCollection<int> eligibleSupervisorIds)
         {
@@ -123,13 +132,9 @@ namespace PlantStockManager.Services
             if (createdById.HasValue && supervisorId.Value == createdById.Value)
                 return (false, "You cannot assign yourself as the supervisor of a sowing you record (you could not approve it).");
             if (!eligibleSupervisorIds.Contains(supervisorId.Value))
-                return (false, "The selected supervisor is not an active user who can approve sowings.");
+                return (false, "The selected supervisor is not an active Sowing Supervisor.");
             return (true, null);
         }
-
-        // The supervisor can be changed only while nothing has been approved.
-        public static bool CanChangeSupervisor(string? status, decimal approvedReady, decimal approvedWastage)
-            => status == "Sown" && approvedReady == 0 && approvedWastage == 0;
 
         // Expected Ready Date = Sowing Date + the variety's growing days
         // (dbo.PlantSpecies.ReadyStockDays). Null when the variety has no
@@ -176,19 +181,20 @@ namespace PlantStockManager.Services
         }
 
         public const string OwnSowingMessage =
-            "You recorded this sowing, so you cannot approve it. Another Sowing Supervisor or a System Administrator must approve it.";
+            "You recorded this sowing, so you cannot approve it. Only the Sowing Supervisor assigned to this sowing can approve it.";
 
         // Available Main Office seed after a sowing, or an error when the
         // sowing would make stock negative.
-        public static (bool Ok, decimal Remaining, string? Error) CheckSeedAvailability(decimal physical, decimal inTransit, decimal quantitySown)
+        public static (bool Ok, decimal Remaining, string? Error) CheckSeedAvailability(decimal physical, decimal inTransit, decimal quantitySown,
+            string quantityLabel = SeedQuantityLabel, string stockLabel = "Main Office seed stock")
         {
             if (quantitySown <= 0)
-                return (false, physical - inTransit, "Seed Quantity must be greater than zero.");
+                return (false, physical - inTransit, $"{quantityLabel} must be greater than zero.");
             if (!IsWholeNumber(quantitySown))
-                return (false, physical - inTransit, "Seed Quantity must be a whole number.");
+                return (false, physical - inTransit, $"{quantityLabel} must be a whole number.");
             var available = physical - inTransit;
             if (quantitySown > available)
-                return (false, available, $"Insufficient Main Office seed stock (available {available:N2}, requested {quantitySown:N2}).");
+                return (false, available, $"Insufficient {stockLabel} (available {available:N0}, requested {quantitySown:N0}).");
             return (true, available - quantitySown, null);
         }
 

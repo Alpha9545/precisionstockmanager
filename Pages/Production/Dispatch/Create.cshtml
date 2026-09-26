@@ -73,27 +73,7 @@
                         <input type="date" asp-for="Dispatch.DispatchDate" class="form-control" required />
                     </div>
 
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Responsible Person</label>
-                        <select asp-for="Dispatch.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var e in Model.PersonOptions)
-                            {
-                                <option value="@e.EmployeeID">@e.Name</option>
-                            }
-                        </select>
-                    </div>
 
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Supervisor</label>
-                        <select asp-for="Dispatch.SupervisorId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var e in Model.PersonOptions)
-                            {
-                                <option value="@e.EmployeeID">@e.Name</option>
-                            }
-                        </select>
-                    </div>
 
                     <div class="col-12">
                         <label class="form-label fw-bold">Remarks</label>

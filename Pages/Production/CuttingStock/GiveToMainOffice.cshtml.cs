@@ -8,12 +8,10 @@ using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
 
 namespace PlantStockManager.Pages.Production.CuttingStock
 {
-    // "Give Cutting to Main Office" -- step 2 of the approved workflow.
-    // Creates a Cutting-type InternalTransfer in 'PendingConfirmation'.
-    // Nothing is decremented here except InTransitQuantity (reserved by
-    // InternalTransferRepository.InsertAsync itself) -- PhysicalQuantity
-    // and the ledger are untouched until the transfer is actually
-    // transplanted.
+    // Cutting Delivery to Main Office. Creates a Cutting-type
+    // InternalTransfer in 'PendingConfirmation'; only InTransitQuantity is
+    // reserved here. Stock moves when Main Office confirms what it received
+    // (ConfirmReceipt).
     public class GiveToMainOfficeModel : PageModel
     {
         private readonly CuttingStockRepository _cuttingStockRepo;
@@ -56,9 +54,10 @@ namespace PlantStockManager.Pages.Production.CuttingStock
 
         public async Task<IActionResult> OnPostSendAsync(int cuttingStockId, decimal quantity, int pendingConfirmationAreaId, string? remarks, int? areaId)
         {
-            if (quantity <= 0)
+            var (quantityOk, quantityError) = PlantStockManager.Services.CuttingRules.ValidateProductionQuantity(quantity);
+            if (!quantityOk)
             {
-                TempData["Error"] = "Quantity must be greater than zero.";
+                TempData["Error"] = quantityError!.Replace("Cutting quantity", "Delivery quantity");
                 return RedirectToPage("/Production/CuttingStock/GiveToMainOffice", new { areaId });
             }
             if (pendingConfirmationAreaId <= 0)
@@ -100,7 +99,7 @@ namespace PlantStockManager.Pages.Production.CuttingStock
 
             var (success, message, _) = await _internalTransferRepo.InsertAsync(entry, userId);
             TempData[success ? "Success" : "Error"] = success
-                ? $"Sent {quantity:N2} to Main Office. Awaiting confirmation."
+                ? $"Sent {quantity:N0} cuttings to Main Office. Waiting for Main Office to confirm what it received."
                 : (message ?? "Failed to send cutting to Main Office.");
 
             return RedirectToPage("/Production/CuttingStock/GiveToMainOffice", new { areaId });

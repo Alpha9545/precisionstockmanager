@@ -13,7 +13,7 @@ namespace PlantStockManager.Pages.Production.CuttingStock
 {
     // "Main Office Pending Cutting" -- the confirmation queue. Main Office
     // either confirms receipt (-> ConfirmReceipt.cshtml, which immediately
-    // opens the Transplant screen) or rejects it outright here.
+    // moves the received cuttings into Main Office Cutting Stock) or rejects it here.
     public class PendingConfirmationsModel : PageModel
     {
         private readonly InternalTransferRepository _internalTransferRepo;

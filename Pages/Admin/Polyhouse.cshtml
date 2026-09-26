@@ -10,7 +10,7 @@
     <!-- Add Polyhouse Form -->
     <p class="text-muted small">
         Business hierarchy: <strong>Area</strong> (site, e.g. Main Nursery) &rarr; <strong>Polyhouse</strong>
-        (production unit inside it, e.g. PH-01). Direct Sowing offers only the Polyhouses assigned to the chosen Area.
+        (production unit inside it, e.g. PH-01). This is the only Area &harr; Polyhouse link: sowing and Mother Plant forms offer only the Polyhouses of the chosen Area.
     </p>
     <form method="post" asp-page-handler="Add" class="mb-4">
         <div class="input-group">
@@ -32,24 +32,17 @@
             <tr>
                 @* <th>ID</th> *@
                 <th>Polyhouse Name</th>
-                <th>Belongs to Area (site)</th>
-                <th>Legacy linked Areas</th>
-                <th>Total Area Size</th>
-                <th>Total Capacity</th>
+                <th>Belongs to Area</th>
                 <th>Action</th>
             </tr>
         </thead>
         <tbody>
             @foreach (var polyhouse in Model.Polyhouses)
             {
-                var summary = Model.AreaSummaries.ContainsKey(polyhouse.Id) ? Model.AreaSummaries[polyhouse.Id] : null;
                 <tr>
                     @* <td>@polyhouse.Id</td> *@
                     <td>@polyhouse.Name</td>
-                    <td>@(polyhouse.AreaName ?? "-")</td>
-                    <td>@(summary?.AreaCount ?? 0)</td>
-                    <td>@(summary != null && summary.SizeTotals.Count > 0 ? string.Join(", ", summary.SizeTotals) : "-")</td>
-                    <td>@(summary != null && summary.CapacityTotals.Count > 0 ? string.Join(", ", summary.CapacityTotals) : "-")</td>
+                    <td>@(polyhouse.AreaName ?? "- not assigned -")</td>
                     <td>
                         <button type="button" class="btn btn-warning btn-sm js-edit-polyhouse"
                                 data-id="@polyhouse.Id" data-name="@polyhouse.Name" data-area-id="@(polyhouse.AreaId?.ToString() ?? "")">

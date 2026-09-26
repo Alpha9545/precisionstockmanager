@@ -1,0 +1,86 @@
+@page
+@model PlantStockManager.Pages.Admin.PotSizesModel
+@{
+    ViewData["Title"] = "Pot Sizes";
+}
+
+<div class="container mt-4" style="max-width: 760px;">
+    <h3 class="mb-3">Pot Sizes</h3>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form method="post" asp-page-handler="Add" class="row g-2 align-items-end">
+                <div class="col-md-6">
+                    <label class="form-label fw-bold">New pot size</label>
+                    <input asp-for="NewName" id="newName" class="form-control" placeholder='e.g. 5 inch, 5", 5in' maxlength="50" required />
+                    <div class="form-text">Saved as: <strong id="normalized">-</strong></div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">Order in lists</label>
+                    <input asp-for="NewSortOrder" type="number" class="form-control" />
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-success w-100">Add</button>
+                </div>
+            </form>
+            <div class="small text-muted mt-2">
+                "5 inch", "5 Inch", "5&quot;", "5-inch" and "5in" are the same size and are all saved as "5 inch".
+                A size that is already used in stock cannot be renamed; deactivate it instead.
+            </div>
+        </div>
+    </div>
+
+    <table class="table table-bordered table-striped">
+        <thead class="table-light">
+            <tr><th>Pot size</th><th>Order</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var p in Model.PotSizes)
+            {
+                <tr>
+                    <td>@p.Name</td>
+                    <td>@p.SortOrder</td>
+                    <td>@(p.IsActive ? "Active" : "Inactive")</td>
+                    <td>
+                        <form method="post" asp-page-handler="Toggle" asp-route-id="@p.Id" asp-route-isActive="@(!p.IsActive)">
+                            <button type="submit" class="btn btn-sm @(p.IsActive ? "btn-outline-secondary" : "btn-outline-success")">
+                                @(p.IsActive ? "Deactivate" : "Activate")
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+            }
+            @if (!Model.PotSizes.Any())
+            {
+                <tr><td colspan="4" class="text-center text-muted">No pot sizes yet.</td></tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const input = document.getElementById('newName');
+            const out = document.getElementById('normalized');
+            const url = '@Url.Page("/Admin/PotSizes", "Normalize")';
+            let t = null;
+            input.addEventListener('input', function () {
+                clearTimeout(t);
+                t = setTimeout(function () {
+                    fetch(url + '&name=' + encodeURIComponent(input.value))
+                        .then(r => r.json()).then(r => out.textContent = r.name || '-');
+                }, 200);
+            });
+        })();
+    </script>
+}

@@ -18,11 +18,9 @@ using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
 
 namespace PlantStockManager.Pages.Production.CuttingStock
 {
-    // Step 1 of 2 of Main Office's confirmation (Model B). Records
-    // ConfirmedQuantity/discrepancy only -- no stock moves here. On
-    // success this IMMEDIATELY redirects to the Transplant screen, per
-    // the approved UX: "the user should not need to search for another
-    // page."
+    // Phase D: Main Office confirms what actually arrived. One step: the
+    // received cuttings become Main Office Cutting Stock and any shortfall is
+    // recorded as transit loss (InternalTransferRepository.ConfirmReceiptAsync).
     public class ConfirmReceiptModel : PageModel
     {
         private readonly InternalTransferRepository _internalTransferRepo;
@@ -80,10 +78,9 @@ namespace PlantStockManager.Pages.Production.CuttingStock
                 return RedirectToPage("/Production/CuttingStock/PendingConfirmations");
             }
 
-            if (ConfirmedQuantity < 0)
-                ModelState.AddModelError(nameof(ConfirmedQuantity), "Confirmed quantity cannot be negative.");
-            if (ConfirmedQuantity != Transfer.Quantity && string.IsNullOrWhiteSpace(DiscrepancyReason))
-                ModelState.AddModelError(nameof(DiscrepancyReason), "A reason is required when the confirmed quantity differs from the sent quantity.");
+            var (valid, _, validationError) = PlantStockManager.Services.CuttingRules.ConfirmDelivery(Transfer.Quantity, ConfirmedQuantity, DiscrepancyReason);
+            if (!valid)
+                ModelState.AddModelError(string.Empty, validationError!);
 
             if (!ModelState.IsValid)
                 return Page();
@@ -99,8 +96,10 @@ namespace PlantStockManager.Pages.Production.CuttingStock
                 return Page();
             }
 
-            // Immediately open the Transplant screen -- no extra menu hop.
-            return RedirectToPage("/Production/CuttingStock/Transplant", new { id });
+            var loss = Transfer.Quantity - ConfirmedQuantity;
+            TempData["Success"] = $"Delivery {Transfer.TransferCode} confirmed: {ConfirmedQuantity:N0} cuttings added to Main Office Cutting Stock"
+                + (loss > 0 ? $"; {loss:N0} recorded as transit loss." : ".");
+            return RedirectToPage("/Production/CuttingStock/PendingConfirmations");
         }
     }
 }

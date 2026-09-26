@@ -57,7 +57,6 @@ namespace PlantStockManager.Authorization
                 // ---- Dashboard ---------------------------------------------
                 ["/Index"] = R("Dashboard.View"),
                 ["/ManagementDashboard/Index"] = R("Admin.ManageAreas"),   // unchanged: Phase L administrator-only decision
-                ["/Production/Dashboard/Index"] = R("Reports.View"),
 
                 // ---- Administration ----------------------------------------
                 ["/Admin/Users"] = R("Admin.ManageUsers"),
@@ -66,8 +65,8 @@ namespace PlantStockManager.Authorization
                 ["/Admin/Roles"] = R("Admin.ManageRoles"),
                 ["/Admin/Area"] = R("Admin.ManageAreas"),
                 ["/Admin/Polyhouse"] = R("Admin.ManageAreas"),
-                ["/Admin/GrowingPartner"] = R("Admin.ManageAreas"),
                 ["/Admin/Plant"] = R("Admin.ManageMasters"),
+                ["/Admin/PotSizes"] = R("Admin.ManageMasters"),                          // Phase D: pot-size master
                 ["/Admin/Seedsource"] = R("Admin.ManageMasters"),
                 ["/Admin/Vendor"] = R("Purchase.View", "Purchase.Enter"),
 
@@ -82,6 +81,7 @@ namespace PlantStockManager.Authorization
                 ["/Production/SeedSowing/Details"] = R("Sowing.View"),
                 ["/Production/SeedSowing/Create"] = R("Sowing.Enter"),
                 ["/Production/SeedSowing/Edit"] = R("Sowing.Enter"),
+                ["/Production/SeedSowing/CreateFromCutting"] = R("Sowing.Enter"),        // Phase D: cutting tray sowing
                 ["/Production/ReadyAlerts/Index"] = R("ReadyStock.View|Sowing.View"),
                 ["/Production/ReadyConfirmation/Index"] = R("ReadyStock.View"),
                 ["/Production/ReadyConfirmation/History"] = R("ReadyStock.View", "ReadyStock.Confirm"),
@@ -93,56 +93,34 @@ namespace PlantStockManager.Authorization
                 ["/Production/MotherPlant/Details"] = R("MotherPlant.View"),
                 ["/Production/MotherPlant/Create"] = R("MotherPlant.Enter"),
                 ["/Production/MotherPlant/Edit"] = R("MotherPlant.Enter"),
-                ["/Production/CuttingPlan/Index"] = R("CuttingPlan.View|MotherPlant.View"),
-                ["/Production/CuttingPlan/Details"] = R("CuttingPlan.View|MotherPlant.View"),
-                ["/Production/CuttingPlan/Create"] = R("MotherPlant.Enter"),
-                ["/Production/CuttingPlan/Edit"] = R("MotherPlant.Enter"),
-                ["/Production/ActualCutting/Index"] = R("MotherPlant.View|CuttingPlan.View"),
-                ["/Production/ActualCutting/Details"] = R("MotherPlant.View|CuttingPlan.View"),
-                ["/Production/ActualCutting/Create"] = R("MotherPlant.Enter"),
-                ["/Production/ActualCutting/Edit"] = R("MotherPlant.Enter"),
-                ["/Production/CuttingDelivery/Index"] = R("CuttingDelivery.View"),
-                ["/Production/CuttingDelivery/Details"] = R("CuttingDelivery.View"),
-                ["/Production/CuttingDelivery/Create"] = R("CuttingDelivery.Enter"),
-                ["/Production/CuttingDelivery/Edit"] = R("CuttingDelivery.Enter"),
-                ["/Production/CuttingStock/EnterCutting"] = R("MotherPlant.Enter|Kunjir.Enter|Kiran.Enter"),
+                // Phase D: Mother Plant -> Cutting Production -> Delivery ->
+                // Main Office confirmation -> Cutting Stock. (Cutting Plan /
+                // Actual Cutting / Cutting Delivery / Propagation Batch and the
+                // separate Transplant step are retired.)
+                ["/Production/Cutting/Index"] = R("MotherPlant.View|MainOffice.View|PotProduction.View"),
+                ["/Production/Cutting/Create"] = R("MotherPlant.Enter"),
+                ["/Production/CuttingStock/Index"] = R("MotherPlant.View|MainOffice.View|PotProduction.View|Sowing.View|Kunjir.View|Kiran.View"),
                 ["/Production/CuttingStock/GiveToMainOffice"] = R("MotherPlant.Enter|Kunjir.Enter|Kiran.Enter"),
                 ["/Production/CuttingStock/MyTransactions"] = R("MotherPlant.View|Kunjir.View|Kiran.View|MainOffice.View"),
                 ["/Production/CuttingStock/PendingConfirmations"] = R("MainOffice.View", "MainOffice.Confirm"),
                 ["/Production/CuttingStock/ConfirmReceipt"] = R("MainOffice.Confirm"),
-                ["/Production/CuttingStock/Transplant"] = R("MainOffice.Confirm"),
-                ["/Production/CuttingStock/PendingTransplants"] = R("MainOffice.View"),
 
-                // ---- Propagation / pot & tray production -------------------
-                ["/Production/PropagationBatch/Index"] = R("PotProduction.View|CuttingDelivery.View"),
-                ["/Production/PropagationBatch/Details"] = R("PotProduction.View|CuttingDelivery.View"),
-                ["/Production/PropagationBatch/Create"] = R("PotProduction.Enter"),
-                ["/Production/PropagationBatch/Edit"] = R("PotProduction.Enter"),
-                ["/Production/PotProduction/Index"] = R("PotProduction.View|Kiran.View"),
-                ["/Production/PotProduction/Details"] = R("PotProduction.View|Kiran.View"),
-                ["/Production/PotProduction/Create"] = R("PotProduction.Enter|Kiran.Enter"),
-                ["/Production/PotProduction/CreateFromCutting"] = R("PotProduction.Enter|Kiran.Enter"),
-                ["/Production/PotProduction/Edit"] = R("PotProduction.Enter|Kiran.Enter"),
-                ["/Production/EmptyPotInventory/Index"] = R("PotProduction.View|Purchase.View"),
-                ["/Production/EmptyPotInventory/Details"] = R("PotProduction.View|Purchase.View"),
-                ["/Production/EmptyPotInventory/Create"] = R("PotProduction.Enter|Purchase.Enter"),
-                ["/Production/EmptyPotInventory/AddStock"] = R("PotProduction.Enter|Purchase.Enter"),
-                ["/Production/PottedPlantStock/Index"] = R("PotProduction.View|Outlet.View|Booking.View|Dispatch.View|InternalTransfer.View"),
-                ["/Production/PottedPlantStock/Details"] = R("PotProduction.View|Outlet.View|Booking.View|Dispatch.View|InternalTransfer.View"),
+                // ---- Pot production (Phase D) ------------------------------
+                ["/Production/PotBatch/Index"] = R("PotProduction.View|MotherPlant.View|Kiran.View"),
+                ["/Production/PotBatch/Details"] = R("PotProduction.View|MotherPlant.View|Kiran.View", "PotProduction.Enter|MotherPlant.Enter|Kiran.Enter"),
+                ["/Production/PotBatch/Create"] = R("PotProduction.Enter|MotherPlant.Enter|Kiran.Enter"),
+                ["/Production/EmptyPotInventory/Index"] = R("PotProduction.View|Purchase.View|MotherPlant.View"),
+                ["/Production/EmptyPotInventory/Details"] = R("PotProduction.View|Purchase.View|MotherPlant.View"),
+                ["/Production/EmptyPotInventory/Purchase"] = R("Purchase.Enter"),       // Office Officer records pot purchases
+                ["/Production/EmptyPotInventory/Issue"] = R("InternalTransfer.Enter"),          // Main Office store keeper issues pots to an Area
+                ["/Production/PottedPlantStock/Index"] = R("PotProduction.View|Outlet.View|Booking.View|Dispatch.View|InternalTransfer.View|MotherPlant.View"),
+                ["/Production/PottedPlantStock/Details"] = R("PotProduction.View|Outlet.View|Booking.View|Dispatch.View|InternalTransfer.View|MotherPlant.View"),
+                ["/Production/PottedPlantStock/Move"] = R("InternalTransfer.Enter|MainOffice.Confirm|Outlet.Sell"),   // per destination: transfer vs Outlet sale (MoveModel)
 
-                // ---- Transfers ---------------------------------------------
+                // ---- Stock movement register -------------------------------
                 ["/Production/InternalTransfer/Index"] = R("InternalTransfer.View"),
                 ["/Production/InternalTransfer/Details"] = R("InternalTransfer.View"),
-                ["/Production/InternalTransfer/Create"] = R("InternalTransfer.Enter"),
                 ["/Production/InternalTransfer/Edit"] = R("InternalTransfer.Enter"),
-                ["/Production/MainOfficeIssue/Create"] = R("MainOffice.Confirm"),
-                ["/Production/MainOfficeIssue/MyIssues"] = R("MainOffice.View"),
-                ["/Production/MainOfficeIssue/PendingReceipts"] = R("InternalTransfer.View|PotProduction.View", "InternalTransfer.Enter|PotProduction.Enter"),
-                ["/Production/MainOfficeIssue/ConfirmReceipt"] = R("InternalTransfer.Enter|PotProduction.Enter"),
-                ["/Production/GrowingPartnerToOutlet/Create"] = R("InternalTransfer.Enter"),
-                ["/Production/GrowingPartnerToOutlet/MySentTransfers"] = R("InternalTransfer.View"),
-                ["/Production/GrowingPartnerToOutlet/PendingReceipts"] = R("Outlet.View", "Outlet.Confirm"),
-                ["/Production/GrowingPartnerToOutlet/ConfirmReceipt"] = R("Outlet.Confirm"),
 
                 // ---- Booking / dispatch / outlet ---------------------------
                 ["/Production/PottedPlantBooking/Index"] = R("Booking.View|Outlet.View"),
@@ -157,8 +135,6 @@ namespace PlantStockManager.Authorization
                 // Seedling booking (dbo.Bookings): New Booking / Edit Booking
                 ["/Bookings/Book"] = R("Booking.Enter"),
                 ["/Bookings/EditBookingRecords"] = R("Booking.Enter"),
-                ["/Bookings/CancleBooking"] = R("Booking.View|Dispatch.View"),
-                ["/Bookings/TotalBookings"] = R("Booking.View|Dispatch.View|Reports.View"),
 
                 // Phase C: Ready Stock -> seedling booking reservation -> dispatch
                 ["/Bookings/Fulfilment"] = R("Booking.View|Dispatch.View|Reports.View"),
@@ -192,20 +168,17 @@ namespace PlantStockManager.Authorization
 
                 // ---- Reports (/Data) ---------------------------------------
                 ["/Data/BookingsRecord"] = R("Booking.View|Booking.Direct|Dispatch.View|Reports.View"),
+                // Phase D: current-ledger reports.
+                ["/Data/StockHistory"] = R("Reports.View|ReadyStock.View|SeedStock.View|PotProduction.View|MotherPlant.View|MainOffice.View"),
+                ["/Data/WastedStock"] = R("Reports.View|ReadyStock.View|PotProduction.View|MotherPlant.View"),
+                // REPORTS -> Old System: the old seed pipeline (dbo.SeedEntries /
+                // dbo.Inventory) -- history only, read-only (the only POST is an
+                // Excel export); no new workflow writes to or reads these tables.
                 ["/Data/BookingHistory"] = R("Booking.View|Booking.Direct|Dispatch.View|Reports.View"),
                 ["/Data/SowingPlants"] = R("Sowing.View|Reports.View"),
                 ["/Data/MonthWiseSowing"] = R("Sowing.View|Reports.View"),
-                ["/Data/SowingByMonth"] = R("Sowing.View|Reports.View"),
-                ["/Data/StockHistory"] = R("ReadyStock.View|Reports.View"),
-                ["/Data/WastedStock"] = R("ReadyStock.View|Reports.View"),
                 ["/Data/TotalStockSync"] = R("Reports.View|Sowing.View|Booking.View"),
                 ["/Data/SowingBookingSync"] = R("Reports.View|Sowing.View|Booking.View"),
-                ["/Data/SowingBookingSummary"] = R("Reports.View|Sowing.View|Booking.View"),
-
-                // ---- Developer / sample pages: System Administrator only ---
-                ["/Data/test201225"] = FullAccessOnlyRule,
-                ["/SamplePages/SidebarDesign"] = FullAccessOnlyRule,
-                ["/random"] = FullAccessOnlyRule,
             };
 
         // "/Admin/Users", "/admin/users/", "/Production/X/Index", "/" and

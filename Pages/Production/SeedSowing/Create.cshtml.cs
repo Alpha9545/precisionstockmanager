@@ -67,7 +67,6 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         public List<Area> Areas { get; set; } = new();
         public List<PlantType> PlantTypes { get; set; } = new();
         public List<Employee> Supervisors { get; set; } = new();
-        public List<Employee> ResponsiblePersons { get; set; } = new();
         public IReadOnlyList<string> CavityTypes => DirectSowingRules.CavityTypes;
 
         public async Task OnGetAsync()
@@ -113,6 +112,27 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         {
             var list = await _plantSpeciesRepo.GetSpeciesByPlantType(plantTypeId);
             return new JsonResult(list.Select(v => new { id = v.Id, name = v.Name.Trim(), growingDays = v.ReadyStockDays }));
+        }
+
+        // Phase D: find a seed lot by typing part of the variety, crop,
+        // colour, supplier or lot number (1,000+ varieties -- no giant list).
+        public async Task<JsonResult> OnGetFindLotsAsync(string? term)
+        {
+            if (string.IsNullOrWhiteSpace(term) || term.Trim().Length < 2)
+                return new JsonResult(Array.Empty<object>());
+            var list = await _seedStockRepo.SearchAsync(term, onlyAvailable: true, mainOfficeOnly: true, max: 25);
+            var typeIds = (await _plantSpeciesRepo.GetAllAsync()).ToDictionary(v => v.Id, v => v.PlantTypeId);
+            return new JsonResult(list.Select(s => new
+            {
+                id = s.Id,
+                speciesId = s.SpeciesId,
+                plantTypeId = typeIds.TryGetValue(s.SpeciesId, out var t) ? t : 0,
+                variety = (s.SpeciesName ?? "").Trim(),
+                crop = s.PlantTypeName,
+                lot = string.IsNullOrEmpty(s.BatchNo) ? "(no lot no.)" : s.BatchNo,
+                source = s.SeedSourceName,
+                available = s.AvailableQuantity
+            }));
         }
 
         // Main Office seed lots of a Variety that still have stock.
@@ -186,6 +206,7 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             SeedSowing.CreatedBy = User.Identity?.Name ?? "System";
             var userId = User.GetUserId();
             SeedSowing.CreatedById = userId;   // used by the self-approval rule
+            SeedSowing.ResponsiblePersonId = null;
 
             var (success, message, _) = await _seedSowingRepo.InsertAsync(SeedSowing, userId,
                 areaId => _areaAccessService.CanAccessArea(User, areaId));   // re-checked on the resolved growing Area
@@ -196,7 +217,7 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 return Page();
             }
 
-            TempData["Success"] = $"Sowing batch {SeedSowing.SowingCode} recorded: {SeedSowing.NumberOfTrays:N0} complete trays, {SeedSowing.QuantitySown:N0} seeds sown and deducted from the Main Office lot; {SeedSowing.SeedQuantity - SeedSowing.QuantitySown:N0} remaining seeds stay in the lot. Expected ready: {SeedSowing.ExpectedReadyDate:dd-MM-yyyy}.";
+            TempData["Success"] = $"Sowing batch {SeedSowing.SowingCode} recorded: {SeedSowing.NumberOfTrays:N0} complete trays, {SeedSowing.QuantitySown:N0} seeds used (deducted from the lot); {SeedSowing.SeedQuantity - SeedSowing.QuantitySown:N0} remaining seeds stay in the lot. Expected ready: {SeedSowing.ExpectedReadyDate:dd-MM-yyyy}.";
             return RedirectToPage("/Production/SeedSowing/Details", new { id = SeedSowing.Id });
         }
 
@@ -210,12 +231,10 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 .ToList();
 
             PlantTypes = await _plantTypeRepo.GetAllPlantTypes();
-            var activeUsers = await _employeeRepo.GetAllActiveUsers();
-            // Supervisor = who will approve: users who can approve sowings,
-            // never the person recording this one.
+            // Supervisor = who will approve: Sowing Supervisors only, never
+            // the person recording this sowing.
             var me = User.GetUserId();
             Supervisors = (await _userRoleRepo.GetSowingApproversAsync()).Where(a => a.EmployeeID != me).ToList();
-            ResponsiblePersons = activeUsers;
         }
     }
 }

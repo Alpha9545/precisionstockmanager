@@ -48,7 +48,7 @@
                         <td>@t.TransferCode</td>
                         <td>@t.SourceAreaName</td>
                         <td>@t.SpeciesName</td>
-                        <td>@t.Quantity.ToString("N2")</td>
+                        <td>@t.Quantity.ToString("N0")</td>
                         <td>@t.CreatedDate.ToString("yyyy-MM-dd HH:mm")</td>
                         <td class="text-nowrap">
                             <a asp-page="/Production/CuttingStock/ConfirmReceipt" asp-route-id="@t.Id" class="btn btn-sm btn-primary">Confirm Receipt</a>

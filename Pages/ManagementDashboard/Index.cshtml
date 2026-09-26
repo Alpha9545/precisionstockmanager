@@ -196,16 +196,6 @@
             </select>
         </div>
         <div class="col-auto">
-            <label class="form-label small mb-0">Growing Partner</label>
-            <select name="GrowingPartnerId" class="form-select form-select-sm">
-                <option value="">All Growing Partners</option>
-                @foreach (var g in Model.Dashboard.GrowingPartnerOptions)
-                {
-                    <option value="@g.Id" selected="@(Model.GrowingPartnerId == g.Id)">@g.Name</option>
-                }
-            </select>
-        </div>
-        <div class="col-auto">
             <label class="form-label small mb-0">Plant / Variety</label>
             <select name="SpeciesId" class="form-select form-select-sm">
                 <option value="">All Varieties</option>
@@ -322,49 +312,6 @@
     <div class="mb-4">
         <a asp-page="/Production/ReadyAlerts/Index" class="btn btn-sm btn-outline-danger">Open Ready Alerts &rarr;</a>
         <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-sm btn-outline-success">Open Ready Confirmation &rarr;</a>
-    </div>
-
-    <!-- Section C: Growing Partner Summary -->
-    <h5>Growing Partner Summary</h5>
-    <div class="table-responsive mb-4">
-        <table class="table table-sm table-striped">
-            <thead class="table-light">
-                <tr>
-                    <th>Growing Partner</th><th>Area</th>
-                    <th>Starter Material Received</th><th>Cutting Received</th>
-                    <th>Pot/Tray Production</th><th>Current Potted Stock</th>
-                    <th>Transfers to Outlet</th><th>Pending Confirmations</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var g in Model.Dashboard.GrowingPartners)
-                {
-                    <tr>
-                        <td>@g.GrowingPartnerName</td>
-                        <td>@g.AreaName</td>
-                        <td>@g.StarterMaterialReceived.ToString("N0")</td>
-                        <td>@g.CuttingReceived.ToString("N0")</td>
-                        <td>@g.PotTrayProduction.ToString("N0")</td>
-                        <td>@g.CurrentPottedStock.ToString("N0")</td>
-                        <td>@g.TransfersToOutlet.ToString("N0")</td>
-                        <td>
-                            @if (g.PendingConfirmations > 0)
-                            {
-                                <span class="badge bg-warning text-dark">@g.PendingConfirmations</span>
-                            }
-                            else
-                            {
-                                <span class="text-muted">0</span>
-                            }
-                        </td>
-                    </tr>
-                }
-                @if (!Model.Dashboard.GrowingPartners.Any())
-                {
-                    <tr><td colspan="8" class="text-center text-muted">No Growing-Partner-owned Areas match the current filters.</td></tr>
-                }
-            </tbody>
-        </table>
     </div>
 
     <!-- Section D: Outlet / Sales Summary -->
@@ -515,12 +462,6 @@
             <div class="card h-100"><div class="card-body">
                 <div class="fw-semibold">Outlet Dispatch Trend <span class="text-muted small">(daily, selected range, unit: plants)</span></div>
                 @Html.Raw(RenderSingleSeriesBarChart(Model.Dashboard.OutletDispatchTrend, "plants"))
-            </div></div>
-        </div>
-        <div class="col-lg-6">
-            <div class="card h-100"><div class="card-body">
-                <div class="fw-semibold">Growing Partner Production <span class="text-muted small">(selected range, unit: pots)</span></div>
-                @Html.Raw(RenderHorizontalBarChart(Model.Dashboard.GrowingPartnerProductionChart, "pots"))
             </div></div>
         </div>
     </div>

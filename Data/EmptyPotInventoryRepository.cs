@@ -21,7 +21,7 @@ namespace PlantStockManager.Data
         // Phase E: adds GrowingPartnerName via Area.GrowingPartnerId, no new
         // column on dbo.EmptyPotInventory.
         private const string BaseSelect = @"
-SELECT e.Id, e.PotSize, e.AreaId, a.Name AS AreaName, gp.Name AS GrowingPartnerName, e.PhysicalQuantity, e.IsActive,
+SELECT e.Id, e.PotSize, e.AreaId, a.Name AS AreaName, a.AreaType, gp.Name AS GrowingPartnerName, e.PhysicalQuantity, e.IsActive,
        e.CreatedDate, e.CreatedBy, e.ModifiedDate, e.ModifiedBy
 FROM dbo.EmptyPotInventory e
 LEFT JOIN dbo.Area a ON e.AreaId = a.Id
@@ -77,42 +77,6 @@ LEFT JOIN dbo.GrowingPartners gp ON a.GrowingPartnerId = gp.Id";
                 return Map(reader);
             }
             return null;
-        }
-
-        // Defines a new Pot Size record in a specific Area. Starts at
-        // zero -- use AddStockAsync afterwards to bring in physical
-        // stock, so every quantity change (including the very first
-        // one) goes through the ledger.
-        public async Task<(bool Success, string? Message, int Id)> InsertAsync(EmptyPotInventory entry)
-        {
-            using var conn = _dbHelper.GetConnection();
-            await conn.OpenAsync();
-
-            try
-            {
-                const string insertSql = @"
-INSERT INTO dbo.EmptyPotInventory (PotSize, AreaId, PhysicalQuantity, IsActive, CreatedDate, CreatedBy)
-VALUES (@PotSize, @AreaId, 0, @IsActive, SYSUTCDATETIME(), @CreatedBy);
-SELECT CAST(SCOPE_IDENTITY() AS INT);";
-
-                using var cmd = new SqlCommand(insertSql, conn);
-                cmd.Parameters.AddWithValue("@PotSize", entry.PotSize);
-                cmd.Parameters.AddWithValue("@AreaId", (object?)entry.AreaId ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@IsActive", entry.IsActive);
-                cmd.Parameters.AddWithValue("@CreatedBy", (object?)entry.CreatedBy ?? DBNull.Value);
-
-                var newId = (int)await cmd.ExecuteScalarAsync();
-                entry.Id = newId;
-                return (true, null, newId);
-            }
-            catch (SqlException ex) when (ex.Number == 2601 || ex.Number == 2627)
-            {
-                return (false, $"A Pot Size named '{entry.PotSize}' already exists in that Area.", 0);
-            }
-            catch (Exception ex)
-            {
-                return (false, ex.Message, 0);
-            }
         }
 
         // Gets the existing (PotSize, AreaId) pool row, locked for the
@@ -195,36 +159,6 @@ VALUES
             return (true, null);
         }
 
-        // Convenience wrapper for manual stock movements (Add Stock /
-        // Adjustment pages) that own their own connection+transaction,
-        // as opposed to PotProductionRepository, which calls
-        // RecordTransactionAsync directly inside its own larger
-        // transaction spanning multiple tables.
-        public async Task<(bool Success, string? Message)> AddStockAsync(int emptyPotInventoryId, decimal quantityDelta, string transactionType, int? userId, string? remarks)
-        {
-            using var conn = _dbHelper.GetConnection();
-            await conn.OpenAsync();
-            using var tx = conn.BeginTransaction();
-
-            try
-            {
-                var (success, message) = await RecordTransactionAsync(conn, tx, emptyPotInventoryId, quantityDelta, transactionType, "ManualAdjustment", null, userId, remarks);
-                if (!success)
-                {
-                    tx.Rollback();
-                    return (false, message);
-                }
-
-                tx.Commit();
-                return (true, null);
-            }
-            catch (Exception ex)
-            {
-                tx.Rollback();
-                return (false, ex.Message);
-            }
-        }
-
         public async Task<List<EmptyPotInventoryTransaction>> GetTransactionsAsync(int emptyPotInventoryId)
         {
             var list = new List<EmptyPotInventoryTransaction>();
@@ -273,6 +207,7 @@ ORDER BY t.CreatedAt DESC";
                 PotSize = reader.GetString(reader.GetOrdinal("PotSize")),
                 AreaId = reader.IsDBNull(reader.GetOrdinal("AreaId")) ? null : reader.GetInt32(reader.GetOrdinal("AreaId")),
                 AreaName = reader.IsDBNull(reader.GetOrdinal("AreaName")) ? null : reader.GetString(reader.GetOrdinal("AreaName")),
+                AreaType = reader.IsDBNull(reader.GetOrdinal("AreaType")) ? null : reader.GetString(reader.GetOrdinal("AreaType")),
                 GrowingPartnerName = reader.IsDBNull(reader.GetOrdinal("GrowingPartnerName")) ? null : reader.GetString(reader.GetOrdinal("GrowingPartnerName")),
                 PhysicalQuantity = reader.GetDecimal(reader.GetOrdinal("PhysicalQuantity")),
                 IsActive = reader.GetBoolean(reader.GetOrdinal("IsActive")),

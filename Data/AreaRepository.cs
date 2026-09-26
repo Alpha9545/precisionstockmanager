@@ -5,10 +5,10 @@ using System.Threading.Tasks;
 
 namespace PlantStockManager.Data
 {
-    // Revised for the Polyhouse -> Area redesign: every Area now belongs
-    // to exactly one Polyhouse (Area.PolyhouseId -> Polyhouses.Id) and
-    // carries size/capacity data, so every query joins to Polyhouses for
-    // display and every write carries the full set of fields.
+    // Area -> Polyhouse is ONE relationship: dbo.Polyhouses.AreaId (each
+    // Polyhouse belongs to an Area; an Area has many Polyhouses). The old
+    // dbo.Area.PolyhouseId column is retired: never read or written here
+    // (its values were copied to Polyhouses.AreaId by PhaseD).
     public class AreaRepository
     {
         private readonly DatabaseHelper _dbHelper;
@@ -19,12 +19,13 @@ namespace PlantStockManager.Data
         }
 
         private const string BaseSelect = @"
-SELECT a.Id, a.PolyhouseId, ph.Name AS PolyhouseName, a.Name, a.AreaCode,
+SELECT a.Id,
+       (SELECT STRING_AGG(RTRIM(p.Name), N', ') WITHIN GROUP (ORDER BY p.Name) FROM dbo.Polyhouses p WHERE p.AreaId = a.Id) AS PolyhouseName,
+       a.Name, a.AreaCode,
        a.AreaSize, a.AreaUnit, a.Capacity, a.CapacityUnit, a.IsActive, a.CreatedAt,
        a.AreaType, a.SupervisorId, sup.Name AS SupervisorName, a.Location, a.Remarks,
        a.GrowingPartnerId, gp.Name AS GrowingPartnerName
 FROM dbo.Area a
-LEFT JOIN dbo.Polyhouses ph ON a.PolyhouseId = ph.Id
 LEFT JOIN dbo.IMSUsers sup ON a.SupervisorId = sup.Id
 LEFT JOIN dbo.GrowingPartners gp ON a.GrowingPartnerId = gp.Id";
 
@@ -34,7 +35,7 @@ LEFT JOIN dbo.GrowingPartners gp ON a.GrowingPartnerId = gp.Id";
             using (var conn = _dbHelper.GetConnection())
             {
                 await conn.OpenAsync();
-                var sql = BaseSelect + " WHERE a.IsActive = 1 ORDER BY ph.Name, a.Name";
+                var sql = BaseSelect + " WHERE a.IsActive = 1 ORDER BY a.Name";
                 var cmd = new SqlCommand(sql, conn);
                 using (var reader = await cmd.ExecuteReaderAsync())
                 {
@@ -47,16 +48,14 @@ LEFT JOIN dbo.GrowingPartners gp ON a.GrowingPartnerId = gp.Id";
             return areas;
         }
 
-        // Used by the Polyhouse -> Area cascading dropdown on the Mother
-        // Plant Create/Edit pages, and by the Polyhouse admin page's
-        // per-Polyhouse Area/size/capacity summary.
+        // The Area a Polyhouse belongs to (Polyhouses.AreaId), as a list.
         public async Task<List<Area>> GetAreasByPolyhouseId(int polyhouseId)
         {
             var areas = new List<Area>();
             using (var conn = _dbHelper.GetConnection())
             {
                 await conn.OpenAsync();
-                var sql = BaseSelect + " WHERE a.IsActive = 1 AND a.PolyhouseId = @PolyhouseId ORDER BY a.Name";
+                var sql = BaseSelect + " WHERE a.IsActive = 1 AND a.Id = (SELECT p.AreaId FROM dbo.Polyhouses p WHERE p.Id = @PolyhouseId) ORDER BY a.Name";
                 var cmd = new SqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue("@PolyhouseId", polyhouseId);
                 using (var reader = await cmd.ExecuteReaderAsync())
@@ -99,12 +98,11 @@ LEFT JOIN dbo.GrowingPartners gp ON a.GrowingPartnerId = gp.Id";
             {
                 await conn.OpenAsync();
                 const string sql = @"
-INSERT INTO dbo.Area (PolyhouseId, Name, AreaCode, AreaSize, AreaUnit, Capacity, CapacityUnit, IsActive, CreatedAt,
-                       AreaType, SupervisorId, Location, Remarks, GrowingPartnerId)
-VALUES (@PolyhouseId, @Name, @AreaCode, @AreaSize, @AreaUnit, @Capacity, @CapacityUnit, @IsActive, SYSUTCDATETIME(),
-        @AreaType, @SupervisorId, @Location, @Remarks, @GrowingPartnerId)";
+INSERT INTO dbo.Area (Name, AreaCode, AreaSize, AreaUnit, Capacity, CapacityUnit, IsActive, CreatedAt,
+                       AreaType, SupervisorId, Location, Remarks)
+VALUES (@Name, @AreaCode, @AreaSize, @AreaUnit, @Capacity, @CapacityUnit, @IsActive, SYSUTCDATETIME(),
+        @AreaType, @SupervisorId, @Location, @Remarks)";
                 var cmd = new SqlCommand(sql, conn);
-                cmd.Parameters.AddWithValue("@PolyhouseId", (object?)area.PolyhouseId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Name", area.Name);
                 cmd.Parameters.AddWithValue("@AreaCode", (object?)area.AreaCode ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@AreaSize", (object?)area.AreaSize ?? DBNull.Value);
@@ -116,7 +114,6 @@ VALUES (@PolyhouseId, @Name, @AreaCode, @AreaSize, @AreaUnit, @Capacity, @Capaci
                 cmd.Parameters.AddWithValue("@SupervisorId", (object?)area.SupervisorId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Location", (object?)area.Location ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Remarks", (object?)area.Remarks ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@GrowingPartnerId", (object?)area.GrowingPartnerId ?? DBNull.Value);
                 await cmd.ExecuteNonQueryAsync();
             }
         }
@@ -128,8 +125,7 @@ VALUES (@PolyhouseId, @Name, @AreaCode, @AreaSize, @AreaUnit, @Capacity, @Capaci
                 await conn.OpenAsync();
                 const string sql = @"
 UPDATE dbo.Area
-SET PolyhouseId = @PolyhouseId,
-    Name = @Name,
+SET Name = @Name,
     AreaCode = @AreaCode,
     AreaSize = @AreaSize,
     AreaUnit = @AreaUnit,
@@ -139,12 +135,10 @@ SET PolyhouseId = @PolyhouseId,
     AreaType = @AreaType,
     SupervisorId = @SupervisorId,
     Location = @Location,
-    Remarks = @Remarks,
-    GrowingPartnerId = @GrowingPartnerId
-WHERE Id = @Id";
+    Remarks = @Remarks
+WHERE Id = @Id";   // the retired Growing Partner link is never overwritten
                 var cmd = new SqlCommand(sql, conn);
                 cmd.Parameters.AddWithValue("@Id", area.Id);
-                cmd.Parameters.AddWithValue("@PolyhouseId", (object?)area.PolyhouseId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Name", area.Name);
                 cmd.Parameters.AddWithValue("@AreaCode", (object?)area.AreaCode ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@AreaSize", (object?)area.AreaSize ?? DBNull.Value);
@@ -156,7 +150,6 @@ WHERE Id = @Id";
                 cmd.Parameters.AddWithValue("@SupervisorId", (object?)area.SupervisorId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Location", (object?)area.Location ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Remarks", (object?)area.Remarks ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@GrowingPartnerId", (object?)area.GrowingPartnerId ?? DBNull.Value);
                 await cmd.ExecuteNonQueryAsync();
             }
         }
@@ -199,7 +192,6 @@ WHERE Id = @Id";
             return new Area
             {
                 Id = reader.GetInt32(reader.GetOrdinal("Id")),
-                PolyhouseId = reader.IsDBNull(reader.GetOrdinal("PolyhouseId")) ? (int?)null : reader.GetInt32(reader.GetOrdinal("PolyhouseId")),
                 PolyhouseName = reader.IsDBNull(reader.GetOrdinal("PolyhouseName")) ? null : reader.GetString(reader.GetOrdinal("PolyhouseName")),
                 Name = reader.GetString(reader.GetOrdinal("Name")),
                 AreaCode = reader.IsDBNull(reader.GetOrdinal("AreaCode")) ? null : reader.GetString(reader.GetOrdinal("AreaCode")),

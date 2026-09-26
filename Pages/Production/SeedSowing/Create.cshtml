@@ -1,13 +1,13 @@
 @page
 @model PlantStockManager.Pages.Production.SeedSowing.CreateModel
 @{
-    ViewData["Title"] = "Direct Sowing";
+    ViewData["Title"] = "Direct Seed Sowing";
 }
 
 <div class="container mt-4">
     <div class="card shadow-sm mx-auto" style="max-width: 960px;">
         <div class="card-header">
-            <h4 class="mb-0">Direct Sowing</h4>
+            <h4 class="mb-0">Direct Seed Sowing</h4>
             <small class="text-muted">Seed is taken directly from Main Office Seed Stock. A batch number (YYYY-MM-DD-L-NNN) is generated on save.</small>
         </div>
         <div class="card-body">
@@ -30,6 +30,14 @@
                     assigned to it (Administration &rarr; Polyhouse &rarr; "Belongs to Area") and you have access to that Area.
                 </div>
             }
+
+            <div class="mb-3 p-3 bg-light border rounded">
+                <label class="form-label fw-bold mb-1" for="lotFinder">Find seed lot</label>
+                <input type="search" id="lotFinder" class="form-control" autocomplete="off"
+                       placeholder="Type part of the variety, crop, colour, supplier or lot number..." />
+                <div class="list-group mt-1 d-none" id="lotFinderResults" style="max-height: 260px; overflow-y: auto;"></div>
+                <div class="form-text">Picking a result fills Species, Variety and Seed Lot below. Only Main Office lots with stock are shown.</div>
+            </div>
 
             <form method="post" id="sowingForm">
                 <div class="row g-3">
@@ -70,7 +78,7 @@
 
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Variety</label>
-                        <select asp-for="SeedSowing.SpeciesId" id="varietySelect" class="form-select" required
+                        <select asp-for="SeedSowing.SpeciesId" id="varietySelect" class="form-select" required data-searchable
                                 data-selected="@(Model.SeedSowing.SpeciesId > 0 ? Model.SeedSowing.SpeciesId.ToString() : "")">
                             <option value="">-- Select Species first --</option>
                         </select>
@@ -132,7 +140,7 @@
                     </div>
 
                     <div class="col-md-6">
-                        <label class="form-label fw-bold">Supervisor <span class="text-muted fw-normal">(approves this batch)</span></label>
+                        <label class="form-label fw-bold">Sowing Supervisor <span class="text-muted fw-normal">(the only person who can approve this batch)</span></label>
                         <select asp-for="SeedSowing.SupervisorId" class="form-select" required>
                             <option value="">-- Select supervisor --</option>
                             @foreach (var s in Model.Supervisors)
@@ -140,17 +148,14 @@
                                 <option value="@s.EmployeeID">@s.Name</option>
                             }
                         </select>
-                    </div>
-
-                    <div class="col-md-6">
-                        <label class="form-label fw-bold">Labour / Responsible Person</label>
-                        <select asp-for="SeedSowing.ResponsiblePersonId" class="form-select">
-                            <option value="">-- None --</option>
-                            @foreach (var r in Model.ResponsiblePersons)
-                            {
-                                <option value="@r.EmployeeID">@r.Name</option>
-                            }
-                        </select>
+                        @if (!Model.Supervisors.Any())
+                        {
+                            <div class="form-text text-danger">No Sowing Supervisor is available. Ask the administrator to give a user the "Sowing Supervisor" role.</div>
+                        }
+                        else
+                        {
+                            <div class="form-text">Cannot be changed after saving.</div>
+                        }
                     </div>
 
                     <div class="col-12">
@@ -283,6 +288,37 @@
             $('#cavitySelect').on('change', calcTrays);
             calcTrays();
             $('#sowingDate').on('change', updateExpected);
+
+            // Find seed lot: type -> pick -> Species, Variety and Lot are filled in.
+            let finderTimer = null;
+            $('#lotFinder').on('input', function () {
+                clearTimeout(finderTimer);
+                const term = $(this).val().trim();
+                const $res = $('#lotFinderResults');
+                if (term.length < 2) { $res.addClass('d-none').empty(); return; }
+                finderTimer = setTimeout(function () {
+                    $.getJSON(handlerUrl, { handler: 'FindLots', term: term }, function (list) {
+                        $res.empty();
+                        if (!list.length) {
+                            $res.append($('<div class="list-group-item text-muted">').text('No Main Office lot with stock matches "' + term + '".'));
+                        }
+                        list.forEach(function (x) {
+                            const $a = $('<button type="button" class="list-group-item list-group-item-action">')
+                                .text(x.variety + ' (' + x.crop + ') - lot ' + x.lot + ' - ' + (x.source || 'unknown source') + ' - available ' + Number(x.available).toLocaleString('en-IN'));
+                            $a.on('click', function () {
+                                $('#plantTypeSelect').val(x.plantTypeId);
+                                $('#varietySelect').data('selected', String(x.speciesId));
+                                $('#seedLotSelect').data('selected', String(x.id));
+                                loadVarieties();
+                                $res.addClass('d-none').empty();
+                                $('#lotFinder').val(x.variety + ' - lot ' + x.lot);
+                            });
+                            $res.append($a);
+                        });
+                        $res.removeClass('d-none');
+                    });
+                }, 250);
+            });
 
             // Re-populate dependent lists after a failed POST.
             loadPolyhouses();
