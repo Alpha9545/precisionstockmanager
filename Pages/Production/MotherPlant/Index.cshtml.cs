@@ -14,14 +14,17 @@ namespace PlantStockManager.Pages.Production.MotherPlant
         private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccessService;
         private readonly UserRoleRepository _userRoleRepo;
+        private readonly FeatureAccessService _featureAccess;
 
         public IndexModel(
             MotherPlantRepository motherPlantRepo,
             PolyhouseRepository polyhouseRepo,
             EmployeeRepository employeeRepo,
             AreaAccessService areaAccessService,
-            UserRoleRepository userRoleRepo)
+            UserRoleRepository userRoleRepo,
+            FeatureAccessService featureAccess)
         {
+            _featureAccess = featureAccess;
             _userRoleRepo = userRoleRepo;
             _motherPlantRepo = motherPlantRepo;
             _polyhouseRepo = polyhouseRepo;
@@ -32,6 +35,9 @@ namespace PlantStockManager.Pages.Production.MotherPlant
         public List<MotherPlantModel> MotherPlants { get; set; } = new();
         public List<Polyhouse> Polyhouses { get; set; } = new();
         public List<Employee> ResponsiblePersons { get; set; } = new();
+
+        // Same rule the Delete page itself enforces (MotherPlant.Enter).
+        public bool CanDelete { get; set; }
 
         [BindProperty(SupportsGet = true)] public int? PolyhouseId { get; set; }
         [BindProperty(SupportsGet = true)] public int? SpeciesId { get; set; }
@@ -63,6 +69,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
 
             Polyhouses = await _polyhouseRepo.GetAllPolyhouses();
             ResponsiblePersons = await _userRoleRepo.GetUsersInRoleAsync(PlantStockManager.Services.SupervisorRules.MotherPlantSupervisor);
+            CanDelete = await _featureAccess.CanAccessPageAsync(User, "/Production/MotherPlant/Delete");
         }
     }
 }

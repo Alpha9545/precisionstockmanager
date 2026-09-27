@@ -1,0 +1,76 @@
+@page
+@model PlantStockManager.Pages.Production.MotherPlant.DeleteModel
+@{
+    ViewData["Title"] = "Delete Mother Plant";
+    var mp = Model.MotherPlant;
+}
+
+<div class="container mt-4" style="max-width: 900px;">
+    <h2 class="mb-3">Delete Mother Plant Batch</h2>
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-4">Mother Plant Code</dt><dd class="col-sm-8">@mp.MotherPlantCode</dd>
+                <dt class="col-sm-4">Species / Variety</dt><dd class="col-sm-8">@mp.SpeciesName <span class="text-muted">(@mp.PlantTypeName)</span></dd>
+                <dt class="col-sm-4">Area</dt><dd class="col-sm-8">@(mp.AreaName ?? "-")</dd>
+                <dt class="col-sm-4">Polyhouse</dt><dd class="col-sm-8">@mp.PolyhouseName</dd>
+                <dt class="col-sm-4">Status</dt><dd class="col-sm-8"><span class="badge bg-secondary">@mp.Status</span></dd>
+            </dl>
+        </div>
+    </div>
+
+    <div class="alert alert-warning">
+        Deleting permanently removes this Mother Plant batch and cannot be undone.
+        It is only allowed when no other record uses it.
+    </div>
+
+    @if (Model.BlockedMessage != null)
+    {
+        <div class="alert alert-danger">@Model.BlockedMessage</div>
+    }
+    else if (Model.CanDelete)
+    {
+        <div class="alert alert-success">No records use this Mother Plant batch. It can be deleted safely.</div>
+    }
+    else
+    {
+        <div class="alert alert-danger">This Mother Plant batch cannot be deleted because it is being used by existing records.</div>
+    }
+
+    @if (!Model.CanDelete)
+    {
+        <p>
+            <strong>Mother Plant: @mp.MotherPlantCode</strong><br />
+            Remove/archive the dependent records first, then delete this Mother Plant batch.
+            @if (Model.CanDeactivate)
+            {
+                <span>
+                    To keep its history, <strong>Deactivate</strong> it instead: the status becomes
+                    '@Model.DeactivatedStatus', no new cuttings can be recorded for it, and every
+                    related record is kept.
+                </span>
+            }
+        </p>
+    }
+
+    <partial name="_DependencyTable" model="Model.Dependencies" />
+
+    <div class="d-flex gap-2 mt-3">
+        <a asp-page="/Production/MotherPlant/Index" class="btn btn-secondary">Cancel</a>
+        @if (Model.CanDeactivate)
+        {
+            <form method="post" asp-page-handler="Deactivate" asp-route-id="@mp.Id"
+                  onsubmit="return confirm('Deactivate this Mother Plant batch? Its status becomes @Model.DeactivatedStatus and all history is kept.');">
+                <button type="submit" class="btn @(Model.CanDelete ? "btn-outline-warning" : "btn-warning")">Deactivate@(Model.CanDelete ? "" : " instead")</button>
+            </form>
+        }
+        @if (Model.CanDelete)
+        {
+            <form method="post" asp-page-handler="Delete" asp-route-id="@mp.Id"
+                  onsubmit="return confirm('Delete this Mother Plant batch permanently? This cannot be undone.');">
+                <button type="submit" class="btn btn-danger">Delete Mother Plant</button>
+            </form>
+        }
+    </div>
+</div>

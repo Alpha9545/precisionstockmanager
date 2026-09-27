@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -192,6 +193,91 @@ WHERE Id = @Id";
                 tx.Rollback();
                 return (false, ex.Message);
             }
+        }
+
+        // Read-only: how many records still use this Mother Plant, per relationship.
+        public async Task<List<DependencyCount>> GetDeletionCheckAsync(int id)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return await DependencyChecker.CountAsync(conn, null, DeletionRules.MotherPlantTable, DeletionRules.MotherPlantDependencies, id);
+        }
+
+        public async Task<DeleteResult> DeleteAsync(int id)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                var result = await DeleteAsync(conn, tx, id);
+                if (result.Succeeded) tx.Commit(); else tx.Rollback();
+                return result;
+            }
+            catch
+            {
+                try { tx.Rollback(); } catch { }
+                throw;
+            }
+        }
+
+        // Deletes the Mother Plant only if nothing references it (same locked
+        // check-then-delete as AreaRepository.DeleteAsync). Child records are
+        // never deleted. Runs on the caller's transaction.
+        public async Task<DeleteResult> DeleteAsync(SqlConnection conn, SqlTransaction tx, int id)
+        {
+            string? code;
+            using (var lockCmd = new SqlCommand("SELECT MotherPlantCode FROM dbo.MotherPlants WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx))
+            {
+                lockCmd.Parameters.AddWithValue("@Id", id);
+                code = await lockCmd.ExecuteScalarAsync() as string;
+            }
+            if (code == null)
+                return new DeleteResult(DeleteOutcome.NotFound, "Mother Plant batch not found.", Array.Empty<DependencyCount>());
+
+            var dependencies = await DependencyChecker.CountAsync(conn, tx, DeletionRules.MotherPlantTable, DeletionRules.MotherPlantDependencies, id);
+            if (!DeletionRules.CanDelete(dependencies))
+                return new DeleteResult(DeleteOutcome.Blocked, DeletionRules.BlockedMessage("Mother Plant batch", dependencies), dependencies);
+
+            const string savepoint = "BeforeMotherPlantDelete";
+            tx.Save(savepoint);
+            try
+            {
+                using var delete = new SqlCommand("DELETE FROM dbo.MotherPlants WHERE Id = @Id", conn, tx);
+                delete.Parameters.AddWithValue("@Id", id);
+                await delete.ExecuteNonQueryAsync();
+            }
+            catch (SqlException ex) when (ex.Number == 547)
+            {
+                tx.Rollback(savepoint);
+                var again = await DependencyChecker.CountAsync(conn, tx, DeletionRules.MotherPlantTable, DeletionRules.MotherPlantDependencies, id);
+                return new DeleteResult(DeleteOutcome.Blocked, DeletionRules.BlockedMessage("Mother Plant batch", again), again);
+            }
+            return new DeleteResult(DeleteOutcome.Deleted, DeletionRules.DeletedMessage("Mother Plant batch", code), dependencies);
+        }
+
+        // Deactivate: status becomes 'Removed' (no new cuttings can be
+        // recorded for it); the batch and all of its history are kept.
+        public async Task<(bool Success, string? Message)> DeactivateAsync(int id, string? modifiedBy)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return await DeactivateAsync(conn, null, id, modifiedBy);
+        }
+
+        public async Task<(bool Success, string? Message)> DeactivateAsync(SqlConnection conn, SqlTransaction? tx, int id, string? modifiedBy)
+        {
+            using var cmd = new SqlCommand(@"
+UPDATE dbo.MotherPlants
+SET Status = @Status, ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @ModifiedBy
+WHERE Id = @Id AND Status <> @Status", conn, tx);
+            cmd.Parameters.AddWithValue("@Status", DeletionRules.MotherPlantDeactivatedStatus);
+            cmd.Parameters.AddWithValue("@ModifiedBy", (object?)modifiedBy ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Id", id);
+            var rows = await cmd.ExecuteNonQueryAsync();
+            return rows > 0
+                ? (true, null)
+                : (false, "Mother Plant batch not found, or it is already deactivated.");
         }
 
         private static MotherPlant Map(SqlDataReader reader)

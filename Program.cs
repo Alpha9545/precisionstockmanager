@@ -218,3 +218,6 @@ app.UseAuthorization();
 app.MapRazorPages();
 
 app.Run();
+
+// Lets the test project start the real application (WebApplicationFactory<Program>).
+public partial class Program { }
