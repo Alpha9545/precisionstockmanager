@@ -1,0 +1,24 @@
+@model IReadOnlyList<PlantStockManager.Services.DependencyCount>
+@using PlantStockManager.Services
+@* Every relationship checked before a Delete, blocking ones first. *@
+<table class="table table-sm table-bordered mb-2">
+    <thead class="table-light">
+        <tr>
+            <th>Used by</th>
+            <th class="text-end" style="width: 110px;">Records</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var d in DeletionRules.ForDisplay(Model))
+        {
+            <tr class="@(d.Count > 0 ? "table-danger fw-bold" : "text-muted")">
+                <td>@d.Label</td>
+                <td class="text-end">@d.Count</td>
+            </tr>
+        }
+        @if (Model.Count == 0)
+        {
+            <tr><td colspan="2" class="text-muted">No related tables were found.</td></tr>
+        }
+    </tbody>
+</table>

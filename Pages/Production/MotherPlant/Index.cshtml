@@ -14,6 +14,10 @@
     {
         <div class="alert alert-success">@TempData["Success"]</div>
     }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
 
     <!-- Dashboard summary -->
     <div class="row g-3 mb-4">
@@ -117,6 +121,10 @@
                         <td>
                             <a asp-page="/Production/MotherPlant/Details" asp-route-id="@mp.Id" class="btn btn-sm btn-outline-secondary">View</a>
                             <a asp-page="/Production/MotherPlant/Edit" asp-route-id="@mp.Id" class="btn btn-sm btn-outline-warning">Edit</a>
+                            @if (Model.CanDelete)
+                            {
+                                <a asp-page="/Production/MotherPlant/Delete" asp-route-id="@mp.Id" class="btn btn-sm btn-outline-danger">Delete</a>
+                            }
                         </td>
                     </tr>
                 }

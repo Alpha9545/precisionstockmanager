@@ -7,6 +7,15 @@
 <div class="container mt-4">
     <h2 class="mb-3">Area Management</h2>
 
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
     @if (!ModelState.IsValid)
     {
         <div class="alert alert-danger">
@@ -84,7 +93,7 @@
         <tbody>
             @foreach (var area in Model.Areas)
             {
-                <tr>
+                <tr class="@(area.IsActive ? "" : "text-muted")">
                     <td>@(area.AreaType ?? "-")</td>
                     <td>@(area.PolyhouseName ?? "-")</td>
                     <td>@area.Name</td>
@@ -98,12 +107,102 @@
                                 onclick="openEditModal(@area.Id, '@area.Name', '@area.AreaCode', '@(area.AreaSize?.ToString() ?? "")', '@area.AreaUnit', '@(area.Capacity?.ToString() ?? "")', '@area.CapacityUnit', @(area.IsActive ? "true" : "false"), '@(area.AreaType ?? "")', '@(area.SupervisorId?.ToString() ?? "")', '@(area.Location ?? "")', '@(area.Remarks ?? "")')">
                             Edit
                         </button>
+                        <form method="post" asp-page-handler="SetActive" asp-route-id="@area.Id" asp-route-isActive="@(area.IsActive ? "false" : "true")" class="d-inline"
+                              onsubmit="return confirm('@(area.IsActive ? "Deactivate this Area? It will be hidden from selection lists for new work. All existing records are kept. (An Area that still contains stock cannot be deactivated.)" : "Activate this Area again?")');">
+                            <button type="submit" class="btn btn-sm @(area.IsActive ? "btn-outline-secondary" : "btn-outline-success")">
+                                @(area.IsActive ? "Deactivate" : "Activate")
+                            </button>
+                        </form>
+                        <a asp-page-handler="ConfirmDelete" asp-route-id="@area.Id" class="btn btn-sm btn-outline-danger">Delete</a>
                     </td>
                 </tr>
             }
         </tbody>
     </table>
 </div>
+
+@if (Model.DeleteCandidate != null)
+{
+    var candidate = Model.DeleteCandidate;
+    <!-- Delete confirmation -->
+    <div id="deleteModal" class="modal fade" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Delete Area</h5>
+                    <a asp-page="/Admin/Area" class="btn-close" aria-label="Close"></a>
+                </div>
+                <div class="modal-body">
+                    <dl class="row mb-3">
+                        <dt class="col-sm-4">Area Name</dt><dd class="col-sm-8">@candidate.Name</dd>
+                        <dt class="col-sm-4">Area Code</dt><dd class="col-sm-8">@(string.IsNullOrWhiteSpace(candidate.AreaCode) ? "-" : candidate.AreaCode)</dd>
+                        <dt class="col-sm-4">Area Type</dt><dd class="col-sm-8">@(candidate.AreaType ?? "-")</dd>
+                        <dt class="col-sm-4">Status</dt><dd class="col-sm-8">@(candidate.IsActive ? "Active" : "Inactive")</dd>
+                    </dl>
+
+                    <div class="alert alert-warning">
+                        This Area may have related records (stock, sowings, Mother Plants, Polyhouses, user roles and more).
+                        It can only be deleted when no record uses it. Deleting cannot be undone.
+                    </div>
+
+                    @if (Model.DeleteBlockedMessage != null)
+                    {
+                        <div class="alert alert-danger">@Model.DeleteBlockedMessage</div>
+                    }
+                    else if (Model.CanDeleteCandidate)
+                    {
+                        <div class="alert alert-success mb-3">No records use this Area. It can be deleted safely.</div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-danger">This Area cannot be deleted because it is being used by existing records.</div>
+                    }
+
+                    @if (!Model.CanDeleteCandidate)
+                    {
+                        <p class="mb-2">
+                            <strong>Area: @candidate.Name</strong><br />
+                            Remove/archive the dependent records first, then delete this Area.
+                            @if (candidate.IsActive && Model.CanDeactivateCandidate)
+                            {
+                                <span>If these are historical or business records that must be kept, <strong>Deactivate</strong> the Area instead.</span>
+                            }
+                        </p>
+                        @if (candidate.IsActive && !Model.CanDeactivateCandidate)
+                        {
+                            <div class="alert alert-warning">
+                                <strong>Deactivate is not available either.</strong> @Model.CandidateStockMessage
+                            </div>
+                        }
+                    }
+                    <partial name="_DependencyTable" model="Model.DeleteDependencies" />
+                </div>
+                <div class="modal-footer">
+                    <a asp-page="/Admin/Area" class="btn btn-secondary">Cancel</a>
+                    @if (!Model.CanDeleteCandidate && candidate.IsActive && Model.CanDeactivateCandidate)
+                    {
+                        <form method="post" asp-page-handler="SetActive" asp-route-id="@candidate.Id" asp-route-isActive="false" class="d-inline"
+                              onsubmit="return confirm('Deactivate this Area? All existing records are kept.');">
+                            <button type="submit" class="btn btn-warning">Deactivate instead</button>
+                        </form>
+                    }
+                    @if (Model.CanDeleteCandidate)
+                    {
+                        <form method="post" asp-page-handler="Delete" asp-route-id="@candidate.Id" class="d-inline"
+                              onsubmit="return confirm('Delete this Area permanently? This cannot be undone.');">
+                            <button type="submit" class="btn btn-danger">Delete Area</button>
+                        </form>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            new bootstrap.Modal(document.getElementById("deleteModal")).show();
+        });
+    </script>
+}
 
 <!-- Edit Modal -->
 <div id="editModal" class="modal fade" tabindex="-1">

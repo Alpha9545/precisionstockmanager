@@ -94,6 +94,7 @@ namespace PlantStockManager.Authorization
                 ["/Production/MotherPlant/Details"] = R("MotherPlant.View"),
                 ["/Production/MotherPlant/Create"] = R("MotherPlant.Enter"),
                 ["/Production/MotherPlant/Edit"] = R("MotherPlant.Enter"),
+                ["/Production/MotherPlant/Delete"] = R("MotherPlant.Enter"),   // dependency-aware delete / deactivate
                 // Phase D: Mother Plant -> Cutting Production -> Delivery ->
                 // Main Office confirmation -> Cutting Stock. (Cutting Plan /
                 // Actual Cutting / Cutting Delivery / Propagation Batch and the

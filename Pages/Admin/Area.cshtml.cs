@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Admin
 {
@@ -46,10 +47,92 @@ namespace PlantStockManager.Pages.Admin
         [BindProperty]
         public Area EditArea { get; set; } = new();
 
+        // Delete confirmation (shown in a dialog): the Area and every
+        // relationship checked, with how many records use it.
+        public Area? DeleteCandidate { get; set; }
+        public IReadOnlyList<DependencyCount> DeleteDependencies { get; set; } = Array.Empty<DependencyCount>();
+        public bool CanDeleteCandidate => DeletionRules.CanDelete(DeleteDependencies);
+        public string? DeleteBlockedMessage { get; set; }
+        // Current stock in the Area: Deactivate is offered only when there is none.
+        public IReadOnlyList<DependencyCount> CandidateStock { get; set; } = Array.Empty<DependencyCount>();
+        public bool CanDeactivateCandidate => DeletionRules.CanDeactivateArea(CandidateStock);
+        public string CandidateStockMessage => DeletionRules.AreaDeactivationBlockedMessage(CandidateStock);
+
         public async Task OnGetAsync()
         {
             await LoadDropdownsAsync();
-            Areas = await _areaRepo.GetAllAreas();
+            Areas = await _areaRepo.GetAllAreasForAdminAsync();
+        }
+
+        public async Task<IActionResult> OnGetConfirmDeleteAsync(int id)
+        {
+            var area = await _areaRepo.GetAreaById(id);
+            if (area == null)
+            {
+                TempData["Error"] = "Area not found.";
+                return RedirectToPage();
+            }
+            DeleteCandidate = area;
+            DeleteDependencies = await _areaRepo.GetDeletionCheckAsync(id);
+            if (!CanDeleteCandidate && area.IsActive)
+                CandidateStock = await _areaRepo.GetStockCheckAsync(id);
+            await LoadDropdownsAsync();
+            Areas = await _areaRepo.GetAllAreasForAdminAsync();
+            return Page();
+        }
+
+        // Deletes only when nothing uses the Area; otherwise nothing changes
+        // and the dialog shows what is blocking it.
+        public async Task<IActionResult> OnPostDeleteAsync(int id)
+        {
+            var area = await _areaRepo.GetAreaById(id);
+            var result = await _areaRepo.DeleteAsync(id);
+            if (result.Outcome == DeleteOutcome.Deleted)
+            {
+                TempData["Success"] = result.Message;
+                return RedirectToPage();
+            }
+            if (result.Outcome == DeleteOutcome.NotFound || area == null)
+            {
+                TempData["Error"] = "Area not found.";
+                return RedirectToPage();
+            }
+            DeleteCandidate = area;
+            DeleteDependencies = result.Dependencies;
+            DeleteBlockedMessage = result.Message;
+            if (area.IsActive)
+                CandidateStock = await _areaRepo.GetStockCheckAsync(id);
+            await LoadDropdownsAsync();
+            Areas = await _areaRepo.GetAllAreasForAdminAsync();
+            return Page();
+        }
+
+        // Deactivate / Activate: keeps every record that uses the Area.
+        // Deactivate is refused while the Area still holds current stock.
+        public async Task<IActionResult> OnPostSetActiveAsync(int id, bool isActive)
+        {
+            var area = await _areaRepo.GetAreaById(id);
+            if (area == null)
+            {
+                TempData["Error"] = "Area not found.";
+                return RedirectToPage();
+            }
+
+            if (isActive)
+            {
+                if (await _areaRepo.ActivateAsync(id))
+                    TempData["Success"] = $"Area '{area.Name}' activated.";
+                else
+                    TempData["Error"] = "Area not found.";
+                return RedirectToPage();
+            }
+
+            var result = await _areaRepo.DeactivateAsync(id);
+            if (result.Succeeded)
+                TempData["Success"] = $"Area '{area.Name}' deactivated. It is hidden from selection lists for new work; all of its existing records are kept.";
+            else
+                TempData["Error"] = result.NotFound ? "Area not found." : $"Area '{area.Name}': {result.Message}";
+            return RedirectToPage();
         }
 
         public async Task<IActionResult> OnPostAddAsync()
@@ -62,7 +145,7 @@ namespace PlantStockManager.Pages.Admin
             if (!ModelState.IsValid)
             {
                 await LoadDropdownsAsync();
-                Areas = await _areaRepo.GetAllAreas();
+                Areas = await _areaRepo.GetAllAreasForAdminAsync();
                 return Page();
             }
 
@@ -89,8 +172,23 @@ namespace PlantStockManager.Pages.Admin
             if (!ModelState.IsValid)
             {
                 await LoadDropdownsAsync();
-                Areas = await _areaRepo.GetAllAreas();
+                Areas = await _areaRepo.GetAllAreasForAdminAsync();
                 return Page();
+            }
+
+            // Unticking "Active" in Edit is a deactivation: same stock rule as
+            // the Deactivate button (checked atomically before saving).
+            var current = await _areaRepo.GetAreaById(EditArea.Id);
+            if (current != null && current.IsActive && !EditArea.IsActive)
+            {
+                var deactivate = await _areaRepo.DeactivateAsync(EditArea.Id);
+                if (!deactivate.Succeeded)
+                {
+                    ModelState.AddModelError("EditArea.IsActive", deactivate.Message);
+                    await LoadDropdownsAsync();
+                    Areas = await _areaRepo.GetAllAreasForAdminAsync();
+                    return Page();
+                }
             }
 
             await _areaRepo.UpdateArea(EditArea);

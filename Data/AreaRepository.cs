@@ -1,4 +1,5 @@
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using System.Collections.Generic;
 using Microsoft.Data.SqlClient;
 using System.Threading.Tasks;
@@ -46,6 +47,155 @@ LEFT JOIN dbo.GrowingPartners gp ON a.GrowingPartnerId = gp.Id";
                 }
             }
             return areas;
+        }
+
+        // Admin > Areas only: active AND inactive Areas, so a deactivated Area
+        // stays visible and can be activated again. Every other screen keeps
+        // using the active-only GetAllAreas.
+        public async Task<List<Area>> GetAllAreasForAdminAsync()
+        {
+            var areas = new List<Area>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new SqlCommand(BaseSelect + " ORDER BY a.IsActive DESC, a.Name", conn);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                areas.Add(Map(reader));
+            return areas;
+        }
+
+        // Read-only: how many records still use this Area, per relationship.
+        public async Task<List<DependencyCount>> GetDeletionCheckAsync(int id)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return await DependencyChecker.CountAsync(conn, null, DeletionRules.AreaTable, DeletionRules.AreaDependencies, id);
+        }
+
+        public async Task<DeleteResult> DeleteAsync(int id)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                var result = await DeleteAsync(conn, tx, id);
+                if (result.Succeeded) tx.Commit(); else tx.Rollback();
+                return result;
+            }
+            catch
+            {
+                try { tx.Rollback(); } catch { }
+                throw;
+            }
+        }
+
+        // Deletes the Area only if nothing references it. The Area row is
+        // locked first, so no new reference can slip in between the check
+        // and the DELETE; if the database still refuses (a foreign key the
+        // check did not see), that single statement is rolled back to the
+        // savepoint and reported -- nothing is ever partially deleted and no
+        // child row is touched. Runs on the caller's transaction; the caller
+        // commits or rolls back.
+        public async Task<DeleteResult> DeleteAsync(SqlConnection conn, SqlTransaction tx, int id)
+        {
+            string? name;
+            using (var lockCmd = new SqlCommand("SELECT Name FROM dbo.Area WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx))
+            {
+                lockCmd.Parameters.AddWithValue("@Id", id);
+                name = await lockCmd.ExecuteScalarAsync() as string;
+            }
+            if (name == null)
+                return new DeleteResult(DeleteOutcome.NotFound, "Area not found.", Array.Empty<DependencyCount>());
+
+            var dependencies = await DependencyChecker.CountAsync(conn, tx, DeletionRules.AreaTable, DeletionRules.AreaDependencies, id);
+            if (!DeletionRules.CanDelete(dependencies))
+                return new DeleteResult(DeleteOutcome.Blocked, DeletionRules.BlockedMessage("Area", dependencies), dependencies);
+
+            const string savepoint = "BeforeAreaDelete";
+            tx.Save(savepoint);
+            try
+            {
+                using var delete = new SqlCommand("DELETE FROM dbo.Area WHERE Id = @Id", conn, tx);
+                delete.Parameters.AddWithValue("@Id", id);
+                await delete.ExecuteNonQueryAsync();
+            }
+            catch (SqlException ex) when (ex.Number == 547)
+            {
+                tx.Rollback(savepoint);
+                var again = await DependencyChecker.CountAsync(conn, tx, DeletionRules.AreaTable, DeletionRules.AreaDependencies, id);
+                return new DeleteResult(DeleteOutcome.Blocked, DeletionRules.BlockedMessage("Area", again), again);
+            }
+            return new DeleteResult(DeleteOutcome.Deleted, DeletionRules.DeletedMessage("Area", name.Trim()), dependencies);
+        }
+
+        // Read-only: current stock / work in progress still held in this Area.
+        public async Task<List<DependencyCount>> GetStockCheckAsync(int id)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return await DependencyChecker.CountStockAsync(conn, null, DeletionRules.AreaStockChecks, id);
+        }
+
+        // Deactivate: only IsActive changes, every record that uses the Area is
+        // kept -- and it is refused while the Area still holds current stock.
+        public async Task<AreaDeactivateResult> DeactivateAsync(int id)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                var result = await DeactivateAsync(conn, tx, id);
+                if (result.Succeeded) tx.Commit(); else tx.Rollback();
+                return result;
+            }
+            catch
+            {
+                try { tx.Rollback(); } catch { }
+                throw;
+            }
+        }
+
+        // The UPDATE runs first so its exclusive lock holds the Area row while
+        // the stock is counted; if stock is found the change is rolled back to
+        // the savepoint. Runs on the caller's transaction.
+        public async Task<AreaDeactivateResult> DeactivateAsync(SqlConnection conn, SqlTransaction tx, int id)
+        {
+            const string savepoint = "BeforeAreaDeactivate";
+            tx.Save(savepoint);
+
+            using (var update = new SqlCommand("UPDATE dbo.Area SET IsActive = 0 WHERE Id = @Id", conn, tx))
+            {
+                update.Parameters.AddWithValue("@Id", id);
+                if (await update.ExecuteNonQueryAsync() == 0)
+                {
+                    tx.Rollback(savepoint);
+                    return new AreaDeactivateResult(false, true, "Area not found.", Array.Empty<DependencyCount>());
+                }
+            }
+
+            var stock = await DependencyChecker.CountStockAsync(conn, tx, DeletionRules.AreaStockChecks, id);
+            if (!DeletionRules.CanDeactivateArea(stock))
+            {
+                tx.Rollback(savepoint);
+                return new AreaDeactivateResult(false, false, DeletionRules.AreaDeactivationBlockedMessage(stock), stock);
+            }
+            return new AreaDeactivateResult(true, false, "Area deactivated.", stock);
+        }
+
+        public async Task<bool> ActivateAsync(int id)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return await ActivateAsync(conn, null, id);
+        }
+
+        public async Task<bool> ActivateAsync(SqlConnection conn, SqlTransaction? tx, int id)
+        {
+            using var cmd = new SqlCommand("UPDATE dbo.Area SET IsActive = 1 WHERE Id = @Id", conn, tx);
+            cmd.Parameters.AddWithValue("@Id", id);
+            return await cmd.ExecuteNonQueryAsync() > 0;
         }
 
         // The Area a Polyhouse belongs to (Polyhouses.AreaId), as a list.
