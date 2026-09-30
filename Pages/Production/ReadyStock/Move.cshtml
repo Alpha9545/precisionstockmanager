@@ -24,6 +24,7 @@
                 </div>
             }
 
+            <div class="table-responsive">
             <table class="table table-sm table-bordered">
                 <tbody>
                     <tr><th class="w-50">Batch</th><td>@b.SowingCode</td></tr>
@@ -34,6 +35,7 @@
                     <tr><th>Reserved / Dispatched</th><td>@b.ReservedQuantity.ToString("N0") / @b.DispatchedQuantity.ToString("N0")</td></tr>
                 </tbody>
             </table>
+            </div>
 
             @if (b.ReservedQuantity > 0 || b.DispatchedQuantity > 0)
             {

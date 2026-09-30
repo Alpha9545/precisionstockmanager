@@ -37,14 +37,24 @@
 
             @* The sowing -> approval relationship. Everything here comes from the stored sowing (read-only). *@
             <h6 class="fw-bold">From the sowing (read-only)</h6>
+            <div class="table-responsive">
             <table class="table table-sm table-bordered align-middle mb-3" style="max-width: 560px;">
                 <tbody>
                     <tr><th class="w-50">@(s.IsCuttingSource ? "Cutting" : "Seed") Quantity entered</th><td>@(s.SeedQuantity > 0 ? s.SeedQuantity.ToString("N0") : "not recorded (sowing before the tray rule)")</td></tr>
                     <tr><th>Cavity (inherited, cannot be changed)</th><td><strong>@s.CavityType</strong></td></tr>
                     <tr><th>Sowing Trays</th><td>@(s.NumberOfTrays?.ToString("N0") ?? "-")</td></tr>
                     <tr><th>@s.UnitName Used (sown in complete trays)</th><td id="seedsSown" data-value="@s.QuantitySown.ToString(System.Globalization.CultureInfo.InvariantCulture)">@s.QuantitySown.ToString("N0")</td></tr>
+                    @if (s.IsCuttingSource && Model.AvailableCuttingStock.HasValue)
+                    {
+                        <tr><th>Available Cutting Stock now <span class="text-muted fw-normal">(cuttings; excludes in-transit)</span></th><td>@Model.AvailableCuttingStock.Value.ToString("N0") cuttings</td></tr>
+                        @if (Model.MaxReadyTrays.HasValue)
+                        {
+                            <tr><th>Most Actual Ready Trays you can enter now</th><td>@Model.MaxReadyTrays.Value.ToString("N0") trays</td></tr>
+                        }
+                    }
                 </tbody>
             </table>
+            </div>
 
             <form method="post">
                 <input type="hidden" asp-for="SeedSowingId" />
@@ -53,19 +63,42 @@
                 <div class="row g-3">
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Actual Ready Trays <span class="text-danger">*</span></label>
-                        <input type="number" step="1" min="1" max="@(s.NumberOfTrays ?? 0)" asp-for="ActualReadyTrays"
-                               id="actualTrays" class="form-control" required />
-                        <div class="form-text">Whole trays, 1 to @(s.NumberOfTrays?.ToString("N0") ?? "-"). The only quantity you enter.</div>
+                        @if (s.IsCuttingSource)
+                        {
+                            @* Cutting Tray Sowing: more trays than were sown are allowed (no browser maximum). *@
+                            <input type="number" step="1" min="1" asp-for="ActualReadyTrays"
+                                   id="actualTrays" class="form-control" required />
+                            <div class="form-text">
+                                Enter <strong>TRAYS</strong>, not cuttings: whole trays, at least 1. One tray = @(cavity?.ToString() ?? "?") cuttings.
+                                This sowing has @(s.NumberOfTrays?.ToString("N0") ?? "-") trays (@s.QuantitySown.ToString("N0") cuttings).
+                                You may enter more trays than that: each extra tray takes @(cavity?.ToString() ?? "?") cuttings from Cutting Stock automatically
+                                (you do not enter the extra). The total ready cuttings (trays &times; @(cavity?.ToString() ?? "?")) cannot be more than the
+                                available Cutting Stock@(Model.AvailableCuttingStock.HasValue ? " (" + Model.AvailableCuttingStock.Value.ToString("N0") + " cuttings now" + (Model.MaxReadyTrays.HasValue ? ", so at most " + Model.MaxReadyTrays.Value.ToString("N0") + " trays" : "") + ")" : "").
+                            </div>
+                        }
+                        else
+                        {
+                            <input type="number" step="1" min="1" max="@(s.NumberOfTrays ?? 0)" asp-for="ActualReadyTrays"
+                                   id="actualTrays" class="form-control" required />
+                            <div class="form-text">Whole trays, 1 to @(s.NumberOfTrays?.ToString("N0") ?? "-"). The only quantity you enter.</div>
+                        }
                     </div>
                     <div class="col-md-8">
                         @* Calculated by the SERVER (same rule as the save); nothing here is posted. *@
+                        <div class="table-responsive">
                         <table class="table table-sm table-bordered mb-0">
                             <tbody>
                                 <tr><th class="w-50">Actual Ready Seedlings <span class="text-muted fw-normal">= trays &times; @(cavity?.ToString() ?? "?")</span></th><td id="outSeedlings">&ndash;</td></tr>
                                 <tr><th>Wastage <span class="text-muted fw-normal">= @s.UnitName.ToLower() used &minus; ready seedlings</span></th><td id="outWastage">&ndash;</td></tr>
                                 <tr><th>Wastage %</th><td id="outWastagePct">&ndash;</td></tr>
+                                @if (s.IsCuttingSource)
+                                {
+                                    <tr><th>Extra Trays <span class="text-muted fw-normal">= ready trays &minus; @(s.NumberOfTrays?.ToString("N0") ?? "?") sown trays (trays)</span></th><td id="outExtraTrays">&ndash;</td></tr>
+                                    <tr><th>Extra Cuttings taken from Cutting Stock <span class="text-muted fw-normal">= extra trays &times; @(cavity?.ToString() ?? "?") (cuttings)</span></th><td id="outExtra">&ndash;</td></tr>
+                                }
                             </tbody>
                         </table>
+                        </div>
                         <div class="text-danger small d-none" id="previewError"></div>
                     </div>
 
@@ -110,7 +143,7 @@
             const url = '@Url.Page("/Production/ReadyConfirmation/Confirm", "TrayPreview", new { id = Model.SeedSowing.Id })';
             function fmt(n) { return Number(n).toLocaleString('en-IN'); }
             function preview() {
-                ['outSeedlings', 'outWastage', 'outWastagePct'].forEach(i => document.getElementById(i).textContent = '–');
+                ['outSeedlings', 'outWastage', 'outWastagePct', 'outExtraTrays', 'outExtra'].forEach(i => { const e = document.getElementById(i); if (e) e.textContent = '–'; });
                 err.classList.add('d-none');
                 if (!trays.value) { reason.required = false; return; }
                 fetch(url + '&trays=' + encodeURIComponent(trays.value), { headers: { 'Accept': 'application/json' } })
@@ -120,6 +153,10 @@
                             document.getElementById('outSeedlings').textContent = fmt(r.seedlings);
                             document.getElementById('outWastage').textContent = fmt(r.wastage);
                             document.getElementById('outWastagePct').textContent = r.wastagePercent.toFixed(2) + '%';
+                            const extraTrays = document.getElementById('outExtraTrays');
+                            if (extraTrays) extraTrays.textContent = fmt(r.extraTrays || 0) + ' trays';
+                            const extra = document.getElementById('outExtra');
+                            if (extra) extra.textContent = fmt(r.extraCuttings || 0) + ' cuttings';
                         }
                         reason.required = r.wastage > 0;
                         if (r.error && !r.ok) { err.textContent = r.error; err.classList.remove('d-none'); }

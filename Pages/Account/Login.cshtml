@@ -1,12 +1,21 @@
 ﻿@page
 @model PlantStockManager.Pages.Account.LoginModel
 @{
+    // This page is its own complete HTML document (own <!DOCTYPE html>/<head>/<body>,
+    // no sidebar/header -- unauthenticated visitors should see only the login form).
+    // Without this, _ViewStart.cshtml's default Layout wrapped the whole app shell
+    // (sidebar, header, all its CSS/JS) around this page's own document, producing
+    // two nested <html> documents -- invalid markup that also duplicated every
+    // stylesheet/script load and could visibly flash the sidebar before the login
+    // form. Purely a rendering directive: no authentication/business logic changed.
+    Layout = null;
 }
 
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Login</title>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <style>

@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="~/PlantStockManager.styles.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/dashboard.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/css/flatpicker.min.css" />
+    <link rel="stylesheet" href="~/css/responsive.css" asp-append-version="true" />
 </head>
 
 <body>
@@ -132,7 +133,7 @@
                     <li nav-page="/Production/Cutting/Index"><a asp-page="/Production/Cutting/Index">Cutting Production</a></li>
                     <li nav-page="/Production/CuttingStock/GiveToMainOffice"><a asp-page="/Production/CuttingStock/GiveToMainOffice">Send Cuttings to Main Office</a></li>
                     <li nav-page="/Production/CuttingStock/PendingConfirmations"><a asp-page="/Production/CuttingStock/PendingConfirmations">Confirm Cutting Receipt</a></li>
-                    <li nav-page="/Production/CuttingStock/MyTransactions"><a asp-page="/Production/CuttingStock/MyTransactions">Cutting Deliveries</a></li>
+                    <li nav-page="/Production/CuttingStock/MyTransactions"><a asp-page="/Production/CuttingStock/MyTransactions">Cutting Delivery History</a></li>
                     <li nav-page="/Production/CuttingStock/Index"><a asp-page="/Production/CuttingStock/Index">Cutting Stock</a></li>
                     <li nav-page="/Production/SeedSowing/CreateFromCutting"><a asp-page="/Production/SeedSowing/CreateFromCutting">Cutting Tray Sowing</a></li>
                 </ul>
@@ -275,6 +276,7 @@
                     <li nav-page="/Fertilizer/Stock"><a asp-page="/Fertilizer/Stock">Fertilizer Stock</a></li>
                     <li nav-page="/Fertilizer/Usage"><a asp-page="/Fertilizer/Usage">Fertilizer Usage</a></li>
                     <li nav-page="/Fertilizer/View"><a asp-page="/Fertilizer/View">Fertilizer Report</a></li>
+                    <li nav-page="/Fertilizer/Transactions"><a asp-page="/Fertilizer/Transactions">Fertilizer Transactions</a></li>
                 </ul>
             </li>
 
@@ -295,15 +297,16 @@
                     <li><a class="link_name" href="#">Reports</a></li>
                     <li nav-page="/Data/StockHistory"><a asp-page="/Data/StockHistory">Stock History</a></li>
                     <li nav-page="/Data/WastedStock"><a asp-page="/Data/WastedStock">Wastage</a></li>
+                    <li nav-page="/Data/SeedSowingMonthlyReport"><a asp-page="/Data/SeedSowingMonthlyReport">Sowing Monthly Report</a></li>
                     <!-- Old System: read-only history from the old seed pipeline
                          (dbo.SeedEntries / dbo.Inventory). Nothing in the new
-                         production workflow writes to or reads from these. -->
+                         production workflow writes to or reads from these.
+                         2026-09-30: Sowing Records / Month-wise Sowing / Stock
+                         Sync / Sowing-Booking Sync removed (Phase 1 of the old-
+                         system cleanup); Booking History intentionally kept --
+                         out of scope for this pass. -->
                     <li class="menu-group-label" style="padding:8px 15px 2px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;opacity:.65;">Old System (history only)</li>
-                    <li nav-page="/Data/SowingPlants"><a asp-page="/Data/SowingPlants">Old System: Sowing Records</a></li>
-                    <li nav-page="/Data/MonthWiseSowing"><a asp-page="/Data/MonthWiseSowing">Old System: Month-wise Sowing</a></li>
                     <li nav-page="/Data/BookingHistory"><a asp-page="/Data/BookingHistory">Old System: Booking History</a></li>
-                    <li nav-page="/Data/TotalStockSync"><a asp-page="/Data/TotalStockSync">Old System: Stock Sync</a></li>
-                    <li nav-page="/Data/SowingBookingSync"><a asp-page="/Data/SowingBookingSync">Old System: Sowing / Booking Sync</a></li>
                 </ul>
             </li>
 

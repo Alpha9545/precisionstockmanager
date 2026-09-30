@@ -38,7 +38,7 @@ namespace PlantStockManager.Pages.Admin
         // Exposed as an instance property (not a bare static field) so the
         // Razor view can read it via Model.AreaTypes -- a static member
         // cannot be accessed through an instance reference in C# (CS0176).
-        private static readonly string[] _areaTypes = { "MotherPlant", "Kunjir", "Kiran", "Outlet", "MainOffice" };
+        private static readonly string[] _areaTypes = { "MotherPlant", "Outlet", "MainOffice" };
         public string[] AreaTypes => _areaTypes;
 
         [BindProperty]

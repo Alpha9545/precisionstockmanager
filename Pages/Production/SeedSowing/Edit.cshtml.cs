@@ -29,6 +29,21 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         [BindProperty]
         public string? Remarks { get; set; }
 
+        // Phase H (2026-09-30): optional survivorship checkpoints -- see
+        // Models/SeedSowing.cs and SeedSowingRepository.UpdateSurvivorshipAsync.
+        [BindProperty]
+        public decimal? TraysAliveQuantity { get; set; }
+        [BindProperty]
+        public DateTime? TraysAliveDate { get; set; }
+        [BindProperty]
+        public decimal? HardeningAliveQuantity { get; set; }
+        [BindProperty]
+        public DateTime? HardeningAliveDate { get; set; }
+        [BindProperty]
+        public string? Location { get; set; }
+        [BindProperty]
+        public string? LocationDescription { get; set; }
+
         public SeedSowingModel SeedSowing { get; set; } = new();
 
         public async Task<IActionResult> OnGetAsync(int id)
@@ -44,6 +59,12 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             SeedSowing = existing;
             Id = existing.Id;
             Remarks = existing.Remarks;
+            TraysAliveQuantity = existing.TraysAliveQuantity;
+            TraysAliveDate = existing.TraysAliveDate;
+            HardeningAliveQuantity = existing.HardeningAliveQuantity;
+            HardeningAliveDate = existing.HardeningAliveDate;
+            Location = existing.Location;
+            LocationDescription = existing.LocationDescription;
             return Page();
         }
 
@@ -61,10 +82,20 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 return RedirectToPage("/Production/SeedSowing/Index");
             }
 
-            var (success, message) = await _seedSowingRepo.UpdateRemarksAsync(existing.Id, Remarks, User.Identity?.Name ?? "System");
-            if (!success)
+            var (remarksOk, remarksMessage) = await _seedSowingRepo.UpdateRemarksAsync(existing.Id, Remarks, User.Identity?.Name ?? "System");
+            if (!remarksOk)
             {
-                ModelState.AddModelError(string.Empty, message ?? "Failed to update Sowing.");
+                ModelState.AddModelError(string.Empty, remarksMessage ?? "Failed to update Sowing.");
+                SeedSowing = existing;
+                return Page();
+            }
+
+            var (survivorshipOk, survivorshipMessage) = await _seedSowingRepo.UpdateSurvivorshipAsync(
+                existing.Id, TraysAliveQuantity, TraysAliveDate, HardeningAliveQuantity, HardeningAliveDate,
+                Location, LocationDescription, User.Identity?.Name ?? "System");
+            if (!survivorshipOk)
+            {
+                ModelState.AddModelError(string.Empty, survivorshipMessage ?? "Failed to update growth checkpoints.");
                 SeedSowing = existing;
                 return Page();
             }

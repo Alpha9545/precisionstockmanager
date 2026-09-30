@@ -31,6 +31,12 @@ namespace PlantStockManager.Pages.Production.Dispatch
         [BindProperty]
         public DispatchModel Dispatch { get; set; } = new();
 
+        // How much of the chosen Booking had been dispatched when this form was opened (set by the page from
+        // the Booking's current data). The repository refuses the dispatch if that changed meanwhile -- the
+        // same form submitted twice, or another user dispatching in between (DispatchRules.CheckFormIsCurrent).
+        [BindProperty]
+        public decimal? ExpectedDispatched { get; set; }
+
         // Only Bookings still 'Pending' or 'PartiallyDispatched' (i.e.
         // something remains reserved) AND belonging to an Area the current
         // user can access are offered. Species/PotSize/Area are always
@@ -58,8 +64,10 @@ namespace PlantStockManager.Pages.Production.Dispatch
 
             if (Dispatch.PottedPlantBookingId <= 0)
                 ModelState.AddModelError("Dispatch.PottedPlantBookingId", "Booking is required.");
-            if (Dispatch.Quantity <= 0)
-                ModelState.AddModelError("Dispatch.Quantity", "Quantity must be greater than zero.");
+            if (Dispatch.Quantity <= 0 || !PlantStockManager.Services.DirectSowingRules.IsWholeNumber(Dispatch.Quantity))
+                ModelState.AddModelError("Dispatch.Quantity", "Dispatch quantity must be a whole number greater than zero.");
+            if (!ExpectedDispatched.HasValue)
+                ModelState.AddModelError(string.Empty, "This form is out of date. Choose the Booking again so its current quantities are loaded, then dispatch.");
 
             if (!ModelState.IsValid)
             {
@@ -88,7 +96,9 @@ namespace PlantStockManager.Pages.Production.Dispatch
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
 
-            var (success, message, _) = await _dispatchRepo.InsertAsync(Dispatch, userId);
+            // Area authorization and the stale-form check are re-applied by the repository under the Booking's lock.
+            var (success, message, _) = await _dispatchRepo.InsertAsync(Dispatch, userId,
+                areaId => _areaAccessService.CanAccessArea(User, areaId), ExpectedDispatched);
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to record Dispatch.");
@@ -96,7 +106,11 @@ namespace PlantStockManager.Pages.Production.Dispatch
                 return Page();
             }
 
-            TempData["Success"] = $"Dispatch {Dispatch.DispatchCode} recorded successfully. Stock and reservation both released.";
+            var dispatchedTotal = booking.DispatchedQuantity + Dispatch.Quantity;
+            var remainingAfter = booking.Quantity - dispatchedTotal;
+            var statusAfter = PlantStockManager.Services.DispatchRules.StatusAfterDispatch(booking.Quantity, dispatchedTotal);
+            TempData["Success"] = $"Dispatch {Dispatch.DispatchCode} recorded: {Dispatch.Quantity:N0} plants handed over for Booking {booking.BookingCode} "
+                + $"({dispatchedTotal:N0} of {booking.Quantity:N0} fulfilled, {remainingAfter:N0} remaining). Booking status: {statusAfter}. Stock and reservation both reduced.";
             return RedirectToPage("/Production/Dispatch/Index");
         }
 

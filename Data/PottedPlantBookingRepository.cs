@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -63,6 +64,45 @@ LEFT JOIN dbo.IMSUsers u ON bk.BookedById = u.Id";
                 list.Add(Map(reader));
             }
             return list;
+        }
+
+        // ---- Correction #6: the Potted Plant Booking list with the "Booking By" filter ------------------------------
+        // The user's Areas are part of the query (same rule as the page always applied in C#): allowedAreaIds null = full Area
+        // access; otherwise only bookings whose stock Area (bk.AreaId) is in the list -- plus bookings with no Area at all,
+        // which the previous check (CanAccessArea(null) = true) also let everyone see. An empty list therefore returns only
+        // the Area-less ones (none exist in practice). The Booking By filter is one more AND, so it can only narrow what the
+        // user may already see. Order and content with no filter are exactly GetAllAsync's.
+        private const string AreaScope = "(@Allowed IS NULL OR bk.AreaId IS NULL OR bk.AreaId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Allowed, ',')))";
+
+        private static string? AllowedList(IReadOnlyCollection<int>? allowedAreaIds)
+            => allowedAreaIds == null ? null : string.Join(",", allowedAreaIds.Distinct());
+
+        public async Task<List<PottedPlantBooking>> SearchAsync(BookedByFilter? bookedBy, IReadOnlyCollection<int>? allowedAreaIds, string? status = null)
+        {
+            var list = new List<PottedPlantBooking>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            var sql = BaseSelect + @"
+WHERE (@Status IS NULL OR bk.Status = @Status)
+  AND " + AreaScope + BookedBySql.Clause("bk.BookedById", "bk.BookedByOther") + @"
+ORDER BY bk.CreatedDate DESC
+OPTION (RECOMPILE)";
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@Status", (object?)status ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Allowed", (object?)AllowedList(allowedAreaIds) ?? DBNull.Value);
+            BookedBySql.AddParameters(cmd, bookedBy);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                list.Add(Map(reader));
+            return list;
+        }
+
+        // The "Booking By" choices for the user's Areas only: people / names that occur on bookings they may see.
+        public async Task<List<BookedByFilter.Option>> GetBookedByOptionsAsync(IReadOnlyCollection<int>? allowedAreaIds)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return await BookedBySql.LoadOptionsAsync(conn, "dbo.PottedPlantBookings bk", "bk", AreaScope, AllowedList(allowedAreaIds));
         }
 
         public async Task<PottedPlantBooking?> GetByIdAsync(int id)

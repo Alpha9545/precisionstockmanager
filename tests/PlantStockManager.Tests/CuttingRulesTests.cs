@@ -51,12 +51,12 @@ namespace PlantStockManager.Tests
         public void Confirmation_InvalidReceived_IsRefused(decimal received)
             => Assert.False(CuttingRules.ConfirmDelivery(1000, received, "x").Ok);
 
-        // Main Office Cutting Stock feeds every production Area.
+        // Correction #3 -- AREA ISOLATION: a pool is usable only by users who may access the pool's OWN Area
+        // (Main Office stock is the Main Office Area's stock, not every Area's).
         [Theory]
-        [InlineData(true, false, true)]    // Main Office stock, user of another Area
-        [InlineData(false, true, true)]    // the user's own Area
-        [InlineData(false, false, false)]  // another Area's stock
-        public void CuttingSource_MainOfficeOrOwnArea(bool mainOffice, bool ownArea, bool expected)
-            => Assert.Equal(expected, CuttingRules.CanUseAsSource(mainOffice, ownArea));
+        [InlineData(true, true)]     // the user may access the pool's Area (their own Area, or Main Office for a Main Office user)
+        [InlineData(false, false)]   // another Area's stock -- including Main Office stock for a production Area's user
+        public void CuttingSource_OnlyThePoolsOwnAreaUsers(bool canAccessPoolArea, bool expected)
+            => Assert.Equal(expected, CuttingRules.CanUseAsSource(canAccessPoolArea));
     }
 }

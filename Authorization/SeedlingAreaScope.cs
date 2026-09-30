@@ -42,5 +42,14 @@ namespace PlantStockManager.Authorization
 
         public bool CanAccessArea(ClaimsPrincipal user, int? areaId)
             => !IsEnforced || _areaAccess.CanAccessArea(user, areaId);
+
+        // Phase H (2026-09-30): for pages that filter a LIST server-side in
+        // SQL (rather than loading everything and filtering in C#, which is
+        // what every other SeedSowing page currently does) -- null means "no
+        // restriction" (full access, or EnforceAreaScope is off), exactly
+        // matching HasFullAreaAccess's own toggle logic, so callers never
+        // have to duplicate that check themselves.
+        public IReadOnlyCollection<int>? GetAccessibleAreaIdsOrNull(ClaimsPrincipal user)
+            => HasFullAreaAccess(user) ? null : _areaAccess.GetAccessibleAreaIds(user);
     }
 }

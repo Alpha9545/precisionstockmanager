@@ -65,7 +65,7 @@ namespace PlantStockManager.Pages
             if (await _featureAccess.CanAccessPageAsync(User, "/Production/PotBatch/Index"))
             {
                 var batches = _areaAccess.FilterByArea(User, await _potBatchRepo.GetAllAsync(PotBatchRules.InProduction), b => (int?)b.AreaId);
-                Add("Pot batches waiting for your READY confirmation", batches.Count(b => me.HasValue && b.SupervisorId == me && b.PottedQuantity > 0), "/Production/PotBatch/Index", "warning");
+                Add("Pot batches waiting for your READY confirmation", batches.Count(b => PotBatchRules.CanConfirmReady(User, b.AreaId) && b.PottedQuantity > 0), "/Production/PotBatch/Index", "warning");
                 Add("Pot batches overdue", batches.Count(b => b.Readiness(today) == PotBatchRules.DueOverdue), "/Production/PotBatch/Index", "danger");
                 Add("Pot batches due today / within 7 days", batches.Count(b => b.Readiness(today) is PotBatchRules.DueToday or PotBatchRules.DueSoon), "/Production/PotBatch/Index", "info");
             }

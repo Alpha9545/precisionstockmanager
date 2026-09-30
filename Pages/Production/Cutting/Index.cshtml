@@ -23,24 +23,96 @@
         <div class="alert alert-success">@TempData["Success"]</div>
     }
 
-    <form method="get" class="row g-2 align-items-end mb-3">
-        <div class="col-auto">
-            <label class="form-label mb-0">From</label>
-            <input type="date" name="from" value="@Model.From.ToString("yyyy-MM-dd")" class="form-control" />
+    @foreach (var notice in Model.Notices)
+    {
+        <div class="alert alert-warning py-2">@notice</div>
+    }
+
+    @* Filters: all optional, combined with AND, applied by the database. The chosen values stay selected. *@
+    <form method="get" class="card card-body mb-3 py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">From</label>
+                <input type="date" name="from" value="@Model.From.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">To</label>
+                <input type="date" name="to" value="@Model.To.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Area</label>
+                <select name="areaId" class="form-select form-select-sm">
+                    <option value="">All Areas</option>
+                    @foreach (var o in Model.Options.Areas) { <option value="@o.Id" selected="@(Model.AreaId == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Polyhouse</label>
+                <select name="polyhouseId" class="form-select form-select-sm">
+                    <option value="">All Polyhouses</option>
+                    @foreach (var o in Model.Options.Polyhouses) { <option value="@o.Id" selected="@(Model.PolyhouseId == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Mother Plant</label>
+                <select name="motherPlantId" class="form-select form-select-sm">
+                    <option value="">All Mother Plants</option>
+                    @foreach (var o in Model.Options.MotherPlants) { <option value="@o.Id" selected="@(Model.MotherPlantId == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Variety</label>
+                <select name="speciesId" class="form-select form-select-sm">
+                    <option value="">All varieties</option>
+                    @foreach (var o in Model.Options.Varieties) { <option value="@o.Id" selected="@(Model.SpeciesId == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Supervisor</label>
+                <select name="supervisorId" class="form-select form-select-sm">
+                    <option value="">All supervisors</option>
+                    @foreach (var o in Model.Options.Supervisors) { <option value="@o.Id" selected="@(Model.SupervisorId == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Destination</label>
+                <select name="destination" class="form-select form-select-sm">
+                    <option value="">All destinations</option>
+                    @foreach (var o in PlantStockManager.Services.CuttingProductionFilter.DestinationOptions) { <option value="@o.Value" selected="@(Model.Destination == o.Value)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Main Office Area</label>
+                <select name="destinationAreaId" class="form-select form-select-sm">
+                    <option value="">Any</option>
+                    @foreach (var o in Model.Options.DestinationAreas) { <option value="@o.Id" selected="@(Model.DestinationAreaId == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Delivery status</label>
+                <select name="deliveryStatus" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in PlantStockManager.Services.CuttingProductionFilter.DeliveryStatusOptions) { <option value="@o.Value" selected="@(Model.DeliveryStatus == o.Value)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-12 col-md-4 d-flex gap-2">
+                <button class="btn btn-primary btn-sm">Search</button>
+                <a asp-page="/Production/Cutting/Index" class="btn btn-outline-secondary btn-sm">Clear filters</a>
+            </div>
         </div>
-        <div class="col-auto">
-            <label class="form-label mb-0">To</label>
-            <input type="date" name="to" value="@Model.To.ToString("yyyy-MM-dd")" class="form-control" />
-        </div>
-        <div class="col-auto"><button class="btn btn-primary">Show</button></div>
     </form>
+
+    <div class="small text-muted mb-2">
+        @Model.Items.Count.ToString("N0") record(s), @Model.Items.Sum(i => i.Quantity).ToString("N0") cuttings,
+        @Model.From.ToString("dd/MM/yyyy") &ndash; @Model.To.ToString("dd/MM/yyyy")@(Model.FilterActive ? " (filtered)" : "")
+    </div>
 
     <div class="table-responsive">
         <table class="table table-bordered table-striped table-sm">
             <thead class="table-light">
                 <tr>
-                    <th>Code</th><th>Date</th><th>Mother Plant</th><th>Variety</th><th>Colour</th><th>Area</th>
-                    <th class="text-end">Cuttings</th><th>Supervisor</th><th>Remarks</th>
+                    <th>Code</th><th>Date</th><th>Mother Plant</th><th>Variety</th><th>Colour</th><th>Area</th><th>Polyhouse</th>
+                    <th class="text-end">Cuttings</th><th>Destination</th><th>Main Office delivery</th><th>Supervisor</th><th>Remarks</th>
                 </tr>
             </thead>
             <tbody>
@@ -53,20 +125,33 @@
                         <td>@c.SpeciesName <span class="text-muted">(@c.PlantTypeName)</span></td>
                         <td>@(c.Color ?? "-")</td>
                         <td>@c.AreaName</td>
+                        <td>@(c.PolyhouseName ?? "-")</td>
                         <td class="text-end">@c.Quantity.ToString("N0")</td>
+                        <td>@(c.DestinationType == null ? "-" : PlantStockManager.Services.CuttingDestination.Label(c.DestinationType))@if (c.DestinationType == PlantStockManager.Services.CuttingDestination.MainOffice && c.DestinationAreaName != null) { <span class="text-muted"> (@c.DestinationAreaName)</span> }</td>
+                        <td>
+                            @if (c.TransferCode != null)
+                            {
+                                <span>@c.TransferCode</span>
+                                <span class="badge @(c.TransferStatus == "Completed" ? "bg-success" : c.TransferStatus == "PendingConfirmation" ? "bg-warning text-dark" : "bg-secondary")">@(c.TransferStatus == "PendingConfirmation" ? "Awaiting Main Office" : c.TransferStatus)</span>
+                            }
+                            else
+                            {
+                                <span class="text-muted">-</span>
+                            }
+                        </td>
                         <td>@(c.SupervisorName ?? "-")</td>
                         <td>@(c.Remarks ?? "")</td>
                     </tr>
                 }
                 @if (!Model.Items.Any())
                 {
-                    <tr><td colspan="9" class="text-center text-muted">No cuttings recorded in this period.</td></tr>
+                    <tr><td colspan="12" class="text-center text-muted">@(Model.FilterActive ? "No cutting records match these filters." : "No cuttings recorded in this period.")</td></tr>
                 }
             </tbody>
             @if (Model.Items.Any())
             {
                 <tfoot>
-                    <tr class="fw-bold"><td colspan="6">Total</td><td class="text-end">@Model.Items.Sum(i => i.Quantity).ToString("N0")</td><td colspan="2"></td></tr>
+                    <tr class="fw-bold"><td colspan="7">Total</td><td class="text-end">@Model.Items.Sum(i => i.Quantity).ToString("N0")</td><td colspan="4"></td></tr>
                 </tfoot>
             }
         </table>

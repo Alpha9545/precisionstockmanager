@@ -59,6 +59,9 @@
                 <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@(Model.SeedSowing.Status == "Sown" ? "Growing (awaiting Supervisor Approval)" : Model.SeedSowing.Status)</dd>
                 <dt class="col-sm-5">Actual Ready Seedlings</dt><dd class="col-sm-7">@Model.SeedSowing.ConfirmedReadyQuantity.ToString("N0")</dd>
                 <dt class="col-sm-5">Wastage</dt><dd class="col-sm-7">@Model.SeedSowing.WastageQuantity.ToString("N0") (@Model.SeedSowing.WastagePercent.ToString("0.00")%)</dd>
+                <dt class="col-sm-5">Trays Alive</dt><dd class="col-sm-7">@(Model.SeedSowing.TraysAliveQuantity?.ToString("N0") ?? "-") @(Model.SeedSowing.TraysAliveDate.HasValue ? $"(on {Model.SeedSowing.TraysAliveDate:dd/MM/yyyy})" : "")</dd>
+                <dt class="col-sm-5">Hardening Alive</dt><dd class="col-sm-7">@(Model.SeedSowing.HardeningAliveQuantity?.ToString("N0") ?? "-") @(Model.SeedSowing.HardeningAliveDate.HasValue ? $"(on {Model.SeedSowing.HardeningAliveDate:dd/MM/yyyy})" : "")</dd>
+                <dt class="col-sm-5">Location</dt><dd class="col-sm-7">@(Model.SeedSowing.Location ?? "-")@(string.IsNullOrEmpty(Model.SeedSowing.LocationDescription) ? "" : $" - {Model.SeedSowing.LocationDescription}")</dd>
                 <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.SeedSowing.ResponsiblePersonName</dd>
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.SeedSowing.SupervisorName</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.SeedSowing.Remarks</dd>

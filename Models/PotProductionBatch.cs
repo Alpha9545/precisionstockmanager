@@ -11,6 +11,11 @@ namespace PlantStockManager.Models
         public int SourceCuttingStockId { get; set; }
         public int SpeciesId { get; set; }
         public int AreaId { get; set; }
+        // Optional: the Polyhouse (inside AreaId) this batch is physically
+        // produced in. When given, it must belong to AreaId (validated in
+        // PotBatchRepository.CreateAsync via the existing
+        // DirectSowingRules.ResolveGrowingLocation cross-check).
+        public int? PolyhouseId { get; set; }
         public string PotSize { get; set; } = string.Empty;
         public int EmptyPotInventoryId { get; set; }
         public decimal CuttingAllocated { get; set; }
@@ -35,6 +40,7 @@ namespace PlantStockManager.Models
         public string? PlantTypeName { get; set; }
         public string? Color { get; set; }
         public string? AreaName { get; set; }
+        public string? PolyhouseName { get; set; }
         public string? SourceAreaName { get; set; }
         public string? SupervisorName { get; set; }
         public string? CreatedByName { get; set; }

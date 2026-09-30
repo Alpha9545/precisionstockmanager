@@ -1,73 +1,212 @@
 @page
 @model PlantStockManager.Pages.Production.CuttingStock.MyTransactionsModel
+@using PlantStockManager.Services
 @{
-    ViewData["Title"] = "My Cutting Transactions";
+    ViewData["Title"] = "Cutting Delivery History";
+}
+
+@functions {
+    // A value the database does not hold is said so -- never guessed.
+    private static Microsoft.AspNetCore.Html.IHtmlContent NotRecorded(string title = "This information was not recorded")
+        => new Microsoft.AspNetCore.Html.HtmlString($"<span class=\"text-muted fst-italic\" title=\"{title}\">Not recorded</span>");
+
+    private static string Local(DateTime? utc, string format) => utc.HasValue ? utc.Value.ToLocalTime().ToString(format) : "";
 }
 
 <div class="container-fluid mt-4">
-    <h2 class="mb-3">My Cutting Transactions</h2>
-
-    <form method="get" class="row g-2 align-items-end mb-4">
-        <div class="col-md-4">
-            <label class="form-label fw-bold">Area</label>
-            <select name="areaId" class="form-select" onchange="this.form.submit()">
-                <option value="">-- Select Area --</option>
-                @foreach (var a in Model.Areas)
-                {
-                    <option value="@a.Id" selected="@(Model.SelectedAreaId == a.Id)">@a.Name (@a.AreaType)</option>
-                }
-            </select>
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <h3 class="mb-0">Cutting Delivery History</h3>
+        <div class="d-flex gap-2">
+            <a asp-page="/Production/Cutting/Index" class="btn btn-outline-secondary btn-sm">Cutting Production</a>
+            <a asp-page="/Production/CuttingStock/Index" class="btn btn-outline-secondary btn-sm">Cutting Stock</a>
         </div>
+    </div>
+    <p class="text-muted small mb-3">
+        Where every cutting went: the Cutting Entry it came from (Area, Polyhouse, Mother Plant, supervisor), the delivery to Main Office
+        (entered by, received or rejected by, quantities) or, for cuttings kept for Pot Production, no delivery. Older deliveries that were
+        never linked to a Cutting Entry show "Not recorded" for their source details.
+    </p>
+
+    @foreach (var notice in Model.Notices)
+    {
+        <div class="alert alert-warning py-2">@notice</div>
+    }
+
+    <form method="get" class="card card-body mb-3 py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-6 col-md-2"><label class="form-label mb-0 small">From</label><input type="date" name="From" value="@Model.From?.ToString("yyyy-MM-dd")" class="form-control form-control-sm" /></div>
+            <div class="col-6 col-md-2"><label class="form-label mb-0 small">To</label><input type="date" name="To" value="@Model.To?.ToString("yyyy-MM-dd")" class="form-control form-control-sm" /></div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Source Area</label>
+                <select name="SourceAreaId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in Model.Options.SourceAreas) { <option value="@o.Id" selected="@(Model.SourceAreaId == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Source Polyhouse</label>
+                <select name="SourcePolyhouseId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in Model.Options.SourcePolyhouses) { <option value="@o.Id" selected="@(Model.SourcePolyhouseId == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Mother Plant</label>
+                <select name="MotherPlantId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in Model.Options.MotherPlants) { <option value="@o.Id" selected="@(Model.MotherPlantId == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Cutting Supervisor</label>
+                <select name="SupervisorId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in Model.Options.Supervisors) { <option value="@o.Id" selected="@(Model.SupervisorId == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Destination</label>
+                <select name="Destination" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in CuttingDeliveryHistoryFilter.DestinationOptions) { <option value="@o.Value" selected="@(Model.Destination == o.Value)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Destination Area</label>
+                <select name="DestinationAreaId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in Model.Options.DestinationAreas) { <option value="@o.Id" selected="@(Model.DestinationAreaId == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Delivery status</label>
+                <select name="DeliveryStatus" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in CuttingDeliveryHistoryFilter.StatusOptions) { <option value="@o.Value" selected="@(Model.DeliveryStatus == o.Value)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Entered By</label>
+                <select name="EnteredBy" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in Model.Options.EnteredBy) { <option value="@o.Value" selected="@(Model.EnteredBy == o.Value)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Received By (Main Office)</label>
+                <select name="ReceivedById" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in Model.Options.ReceivedBy) { <option value="@o.Id" selected="@(Model.ReceivedById == o.Id)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-12 col-md-2 d-flex gap-2">
+                <button class="btn btn-primary btn-sm">Search</button>
+                <a asp-page="/Production/CuttingStock/MyTransactions" class="btn btn-outline-secondary btn-sm">Clear filters</a>
+            </div>
+        </div>
+        <div class="small text-muted mt-1">Destination Polyhouse is not filterable: a cutting delivery does not record one.</div>
     </form>
 
-    @if (Model.SelectedAreaId.HasValue)
-    {
-        <div class="table-responsive">
-            <table class="table table-striped table-hover align-middle">
-                <thead>
+    <div class="small text-muted mb-2">
+        <strong>@Model.Rows.Count.ToString("N0")</strong> record@(Model.Rows.Count == 1 ? "" : "s") found@(Model.FilterActive ? " (filtered)" : ""),
+        total <strong>@Model.TotalQuantity.ToString("N0")</strong> cuttings
+        @if (Model.Rows.Any(r => r.HasDelivery))
+        {
+            <text> &mdash; received @Model.TotalReceived.ToString("N0"), transit loss @Model.TotalTransitLoss.ToString("N0")</text>
+        }
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-striped table-sm align-middle" style="font-size:.85rem">
+            <thead class="table-light">
+                <tr>
+                    <th>Date</th><th>Cutting Production</th><th>Mother Plant</th><th>Cutting Supervisor</th>
+                    <th>Source Area</th><th>Source Polyhouse</th><th>Variety</th><th class="text-end">Quantity</th>
+                    <th>Destination</th><th>Destination Area</th><th>Destination Polyhouse</th>
+                    <th>Delivery Status</th><th>Entered By</th><th>Received / Rejected By</th><th>Delivery Date</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Rows)
+                {
+                    var rowId = "d" + (r.HasEntry ? "e" + r.ProductionId : "t" + r.TransferId);
                     <tr>
-                        <th>Transfer Code</th>
-                        <th>Source Area</th>
-                        <th>Destination</th>
-                        <th>Variety</th>
-                        <th>Sent</th>
-                        <th>Confirmed</th>
-                        <th>Status</th>
-                        <th>Date</th>
+                        <td class="text-nowrap">@r.RecordDate.ToString("dd/MM/yyyy")</td>
+                        <td>@if (r.HasEntry) { @r.ProductionCode } else { @NotRecorded("An older delivery that is not linked to a Cutting Entry") }</td>
+                        <td>@if (r.MotherPlantCode != null) { @r.MotherPlantCode } else { @NotRecorded("Older deliveries do not record which Mother Plant they came from") }</td>
+                        <td>@if (r.SupervisorName != null) { @r.SupervisorName } else { @NotRecorded("Older deliveries do not record the supervisor") }</td>
+                        <td>@r.SourceAreaName</td>
+                        <td>@if (r.SourcePolyhouseName != null) { @r.SourcePolyhouseName } else { @NotRecorded(r.HasEntry ? "This Mother Plant has no Polyhouse assigned" : "Older deliveries do not record the source Polyhouse") }</td>
+                        <td>@r.SpeciesName @if (!string.IsNullOrEmpty(r.Color)) { <span class="text-muted">(@r.Color)</span> }</td>
+                        <td class="text-end">@r.Quantity.ToString("N0")</td>
+                        <td>@if (r.DestinationType == PlantStockManager.Services.CuttingProductionFilter.DestinationNotRecorded) { @NotRecorded("Entered before destinations existed") } else { @CuttingProductionFilter.DestinationLabel(r.DestinationType) }</td>
+                        <td>@if (r.DestinationAreaName != null) { @r.DestinationAreaName } else if (r.DestinationType == PlantStockManager.Services.CuttingProductionFilter.DestinationNotRecorded) { @NotRecorded() } else { <span>-</span> }</td>
+                        <td>@NotRecorded("A cutting delivery does not record a Polyhouse at the destination")</td>
+                        <td>
+                            @switch (r.StatusKey)
+                            {
+                                case "PendingConfirmation": <span class="badge bg-warning text-dark">Awaiting Main Office</span> break;
+                                case "Completed": <span class="badge bg-success">Completed - received in full</span> break;
+                                case "CompletedShortfall": <span class="badge bg-warning text-dark">Completed - shortfall @((r.TransitLoss ?? 0).ToString("N0"))</span> break;
+                                case "Rejected": <span class="badge bg-danger">Rejected</span> break;
+                                case "None":
+                                    if (r.DestinationType == "PotProduction") { <span class="badge bg-secondary">No delivery - kept for Pot Production</span> }
+                                    else { <span class="badge bg-secondary">No delivery recorded</span> }
+                                    break;
+                                default: <span class="badge bg-secondary">@r.TransferStatus</span> break;
+                            }
+                        </td>
+                        <td>@if (!string.IsNullOrEmpty(r.EnteredByName)) { <span>@r.EnteredByName</span> <span class="text-muted">(@r.EnteredBy)</span> } else if (!string.IsNullOrEmpty(r.EnteredBy)) { @r.EnteredBy } else { @NotRecorded() }</td>
+                        <td>
+                            @if (r.StatusKey == "Completed" || r.StatusKey == "CompletedShortfall")
+                            {
+                                <span>@(r.ConfirmedByName ?? (r.ConfirmedById.HasValue ? "User #" + r.ConfirmedById : "Not recorded"))</span>
+                                <div class="text-muted">@Local(r.ConfirmedDate, "dd/MM/yyyy HH:mm")</div>
+                            }
+                            else if (r.StatusKey == "Rejected")
+                            {
+                                <span>@(r.RejectedBy ?? "Not recorded")</span> <span class="text-muted">(rejected)</span>
+                                <div class="text-muted">@Local(r.RejectedDate, "dd/MM/yyyy HH:mm")</div>
+                            }
+                            else if (r.StatusKey == "PendingConfirmation") { <span class="text-muted">Awaiting confirmation</span> }
+                            else { <span>-</span> }
+                        </td>
+                        <td class="text-nowrap">@if (r.DeliveryDate.HasValue) { @Local(r.DeliveryDate, "dd/MM/yyyy HH:mm") } else { <span>-</span> }</td>
+                        <td><button class="btn btn-outline-secondary btn-sm py-0" type="button" data-bs-toggle="collapse" data-bs-target="#@rowId">Details</button></td>
                     </tr>
-                </thead>
-                <tbody>
-                    @foreach (var t in Model.Transactions)
-                    {
-                        <tr>
-                            <td>@t.TransferCode</td>
-                            <td>@t.SourceAreaName</td>
-                            <td>@(t.DestinationAreaName ?? t.PendingConfirmationAreaName)</td>
-                            <td>@t.SpeciesName</td>
-                            <td>@t.Quantity.ToString("N0")</td>
-                            <td>@t.ConfirmedQuantity?.ToString("N0")</td>
-                            <td>
-                                @{
-                                    var badgeClass = t.Status switch
-                                    {
-                                        "Transplanted" => "bg-success",
-                                        "Rejected" => "bg-danger",
-                                        "Cancelled" => "bg-secondary",
-                                        "ConfirmedAwaitingTransplant" => "bg-info",
-                                        _ => "bg-warning text-dark"
-                                    };
-                                }
-                                <span class="badge @badgeClass">@t.Status</span>
-                            </td>
-                            <td>@t.CreatedDate.ToString("yyyy-MM-dd")</td>
-                        </tr>
-                    }
-                    @if (!Model.Transactions.Any())
-                    {
-                        <tr><td colspan="8" class="text-center text-muted">No Cutting transactions for this Area yet.</td></tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    }
+                    <tr class="collapse" id="@rowId">
+                        <td colspan="16" class="bg-light">
+                            <div class="row g-2 small">
+                                <div class="col-md-3">
+                                    <div><strong>Delivery / Transfer:</strong> @if (r.HasDelivery) { <text>@r.TransferCode (ID @r.TransferId)</text> } else { <text>none</text> }</div>
+                                    <div><strong>Cutting Production:</strong> @if (r.HasEntry) { <text>@r.ProductionCode (ID @r.ProductionId), cut on @r.ProductionDate?.ToString("dd/MM/yyyy")</text> } else { <text>not linked (older delivery)</text> }</div>
+                                    <div><strong>Plant type:</strong> @r.PlantTypeName</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div><strong>Sent:</strong> @r.Quantity.ToString("N0")</div>
+                                    <div><strong>Received (confirmed):</strong> @(r.ConfirmedQuantity.HasValue ? r.ConfirmedQuantity.Value.ToString("N0") : "-")</div>
+                                    <div><strong>Shortfall / transit loss:</strong> @(r.TransitLoss.HasValue ? r.TransitLoss.Value.ToString("N0") : "-")</div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div><strong>Cutting Supervisor:</strong> @(r.SupervisorName ?? "Not recorded")</div>
+                                    <div><strong>Delivery entered by:</strong> @(r.EnteredByName ?? r.EnteredBy ?? "Not recorded")</div>
+                                    <div><strong>@(r.StatusKey == "Rejected" ? "Rejected by" : "Received / confirmed by"):</strong> @(r.StatusKey == "Rejected" ? (r.RejectedBy ?? "Not recorded") : (r.ConfirmedByName ?? "-"))</div>
+                                    <div><strong>Destination Polyhouse:</strong> Not recorded</div>
+                                </div>
+                                <div class="col-md-3">
+                                    @if (!string.IsNullOrWhiteSpace(r.Reason)) { <div><strong>@(r.StatusKey == "Rejected" ? "Rejection reason" : "Shortfall reason"):</strong> @r.Reason</div> }
+                                    @if (!string.IsNullOrWhiteSpace(r.EntryRemarks)) { <div><strong>Entry remarks:</strong> @r.EntryRemarks</div> }
+                                    @if (!string.IsNullOrWhiteSpace(r.DeliveryRemarks)) { <div><strong>Delivery remarks:</strong> @r.DeliveryRemarks</div> }
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Rows.Any())
+                {
+                    <tr><td colspan="16" class="text-center text-muted">@(Model.FilterActive ? "No records match the selected filters." : "No cutting deliveries recorded yet.")</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
 </div>

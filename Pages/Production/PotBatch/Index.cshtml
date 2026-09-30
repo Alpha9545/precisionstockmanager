@@ -36,7 +36,7 @@
                 <tr>
                     <th>Batch</th><th>Variety</th><th>Colour</th><th>Pot Size</th><th>Area</th>
                     <th class="text-end">Cuttings</th><th class="text-end">Potted</th><th class="text-end">Ready</th>
-                    <th>Expected Ready</th><th>Status</th><th>Supervisor</th><th></th>
+                    <th>Expected Ready</th><th>Status</th><th>Ready Confirmation By</th><th></th>
                 </tr>
             </thead>
             <tbody>
@@ -56,7 +56,13 @@
                         <td>@b.ExpectedReadyDate.ToString("dd/MM/yyyy")</td>
                         <td><span class="badge @badge">@readiness</span></td>
                         <td>@b.SupervisorName @if (me == b.SupervisorId) { <span class="badge bg-primary">you</span> }</td>
-                        <td><a asp-page="/Production/PotBatch/Details" asp-route-id="@b.Id" class="btn btn-sm btn-outline-primary">Open</a></td>
+                        <td class="text-nowrap">
+                            <a asp-page="/Production/PotBatch/Details" asp-route-id="@b.Id" class="btn btn-sm btn-outline-primary">Open</a>
+                            @if (b.Status == PlantStockManager.Services.PotBatchRules.InProduction && PlantStockManager.Services.PotBatchRules.CanConfirmReady(User, b.AreaId) && b.PottedQuantity > 0)
+                            {
+                                <a asp-page="/Production/PotBatch/Details" asp-route-id="@b.Id" asp-fragment="confirm-ready" class="btn btn-sm btn-success">Confirm Ready Stock</a>
+                            }
+                        </td>
                     </tr>
                 }
                 @if (!Model.Batches.Any())

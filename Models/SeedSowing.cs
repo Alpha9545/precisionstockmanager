@@ -132,5 +132,23 @@ namespace PlantStockManager.Models
         // Quantity still awaiting Supervisor Approval (Phase B: wastage counts
         // as accounted for). 0 once the sowing is Completed.
         public decimal RemainingReadyQuantity => QuantitySown - ConfirmedReadyQuantity - WastageQuantity;
+
+        // Phase H (2026-09-30): optional survivorship checkpoints recorded
+        // after sowing -- the useful part of the retired legacy
+        // dbo.SeedEntries pipeline (TraysAlive/TraysDate, HardeningAlive/
+        // HardeningDate, AliveCount/InventoryDate, location/locationdesc)
+        // carried into the new SeedSowing workflow. Purely informational:
+        // never gate stock, wastage or Ready Confirmation -- ReadyConfirmation
+        // remains the one "Final Ready/Alive" event (AliveCount's true
+        // successor), unchanged by this addition. NULL means "not yet
+        // recorded", never zero. Set via SeedSowingRepository.
+        // UpdateSurvivorshipAsync, not subject to TR_SeedSowings_ImmutableTrayData
+        // (that trigger only checks a fixed, named list of other columns).
+        public decimal? TraysAliveQuantity { get; set; }
+        public DateTime? TraysAliveDate { get; set; }
+        public decimal? HardeningAliveQuantity { get; set; }
+        public DateTime? HardeningAliveDate { get; set; }
+        public string? Location { get; set; }
+        public string? LocationDescription { get; set; }
     }
 }

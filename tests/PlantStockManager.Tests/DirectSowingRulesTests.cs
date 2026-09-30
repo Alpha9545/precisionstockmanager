@@ -196,5 +196,49 @@ namespace PlantStockManager.Tests
             Assert.False(DirectSowingRules.IsOwnSowing(null, "Pratik", 6, "Akshay"));
             Assert.False(DirectSowingRules.IsOwnSowing(null, null, 6, "Akshay"));
         }
+
+        // ---- Survivorship checkpoints (Phase H, 2026-09-30) ------------------
+        // Trays Alive / Hardening Alive -- optional, informational counts
+        // recorded after sowing. Never gate stock/wastage/Ready Confirmation.
+
+        [Fact]
+        public void SurvivorshipCheckpoint_NotProvided_IsAlwaysValid()
+        {
+            var (ok, error) = DirectSowingRules.ValidateSurvivorshipCheckpoint(null, 500, "Trays Alive Quantity");
+            Assert.True(ok);
+            Assert.Null(error);
+        }
+
+        [Fact]
+        public void SurvivorshipCheckpoint_ZeroOrWithinSown_IsValid()
+        {
+            Assert.True(DirectSowingRules.ValidateSurvivorshipCheckpoint(0, 500, "Trays Alive Quantity").Ok);
+            Assert.True(DirectSowingRules.ValidateSurvivorshipCheckpoint(500, 500, "Trays Alive Quantity").Ok);
+            Assert.True(DirectSowingRules.ValidateSurvivorshipCheckpoint(120, 500, "Hardening Alive Quantity").Ok);
+        }
+
+        [Fact]
+        public void SurvivorshipCheckpoint_Negative_IsRefused()
+        {
+            var (ok, error) = DirectSowingRules.ValidateSurvivorshipCheckpoint(-1, 500, "Trays Alive Quantity");
+            Assert.False(ok);
+            Assert.Contains("cannot be negative", error);
+        }
+
+        [Fact]
+        public void SurvivorshipCheckpoint_Fractional_IsRefused()
+        {
+            var (ok, error) = DirectSowingRules.ValidateSurvivorshipCheckpoint(10.5m, 500, "Hardening Alive Quantity");
+            Assert.False(ok);
+            Assert.Contains("whole number", error);
+        }
+
+        [Fact]
+        public void SurvivorshipCheckpoint_ExceedsQuantitySown_IsRefused()
+        {
+            var (ok, error) = DirectSowingRules.ValidateSurvivorshipCheckpoint(600, 500, "Trays Alive Quantity");
+            Assert.False(ok);
+            Assert.Contains("cannot exceed", error);
+        }
     }
 }

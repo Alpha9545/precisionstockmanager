@@ -107,6 +107,8 @@ SELECT
     sw.BatchNo, sw.SeedSourceId, src.Name AS SeedSourceName,
     sw.CavityType, sw.NumberOfTrays, sw.QuantitySown, sw.SeedQuantity, sw.SowingDate, sw.ReadyStockDays, sw.ExpectedReadyDate, sw.Status,
     sw.ConfirmedReadyQuantity,
+    sw.TraysAliveQuantity, sw.TraysAliveDate, sw.HardeningAliveQuantity, sw.HardeningAliveDate,
+    sw.Location, sw.LocationDescription,
     sw.ResponsiblePersonId, r.Name AS ResponsiblePersonName,
     sw.SupervisorId, sup.Name AS SupervisorName,
     sw.Remarks, sw.CreatedDate, sw.CreatedBy, sw.CreatedById, sw.ModifiedDate, sw.ModifiedBy,
@@ -155,6 +157,67 @@ LEFT JOIN dbo.IMSUsers sup ON sw.SupervisorId = sup.Id";
                 return Map(reader);
             }
             return null;
+        }
+
+        // Phase H (2026-09-30): the "Monthly Wise Sowing" replacement's data
+        // source -- flat (Area, Plant Type, Species, Day) grouped rows for a
+        // given Month/Year; Services/SeedSowingMonthlyReportRules.BuildPivot
+        // reshapes these into the display grid. Cancelled Sowings are always
+        // excluded (same convention as IndexModel.TotalSown and
+        // ManagementDashboardRepository.GetSowingVsReadyTrendAsync). Area
+        // security is enforced HERE, in SQL, via the same parameterized
+        // IN-list pattern already used by CuttingProductionRepository
+        // (never string-concatenated) -- allowedAreaIds is null for a
+        // full-access user or when SeedlingAreaScope.EnforceAreaScope is
+        // off (see SeedlingAreaScope.GetAccessibleAreaIdsOrNull), meaning no
+        // restriction; otherwise only those Areas' rows are ever returned by
+        // SQL, never loaded into memory and filtered afterward.
+        public async Task<List<SeedSowingMonthlyPivotRow>> GetMonthlyPivotAsync(
+            int month, int year, int? areaId, int? plantTypeId, IReadOnlyCollection<int>? allowedAreaIds)
+        {
+            var list = new List<SeedSowingMonthlyPivotRow>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+
+            const string sql = @"
+SELECT a.Id AS AreaId, a.Name AS AreaName, pt.Id AS PlantTypeId, pt.Name AS PlantTypeName,
+       ps.Id AS SpeciesId, ps.Name AS SpeciesName, ps.Color AS SpeciesColor,
+       DAY(sw.SowingDate) AS Day, SUM(sw.QuantitySown) AS Quantity
+FROM dbo.SeedSowings sw
+INNER JOIN dbo.Area a ON sw.AreaId = a.Id
+INNER JOIN dbo.PlantSpecies ps ON sw.SpeciesId = ps.Id
+INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
+WHERE sw.Status <> 'Cancelled'
+  AND YEAR(sw.SowingDate) = @Year AND MONTH(sw.SowingDate) = @Month
+  AND (@AreaId IS NULL OR sw.AreaId = @AreaId)
+  AND (@PlantTypeId IS NULL OR pt.Id = @PlantTypeId)
+  AND (@Allowed IS NULL OR sw.AreaId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Allowed, ',')))
+GROUP BY a.Id, a.Name, pt.Id, pt.Name, ps.Id, ps.Name, ps.Color, DAY(sw.SowingDate)
+ORDER BY a.Name, pt.Name, ps.Name, Day";
+
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@Year", year);
+            cmd.Parameters.AddWithValue("@Month", month);
+            cmd.Parameters.AddWithValue("@AreaId", (object?)areaId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@PlantTypeId", (object?)plantTypeId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Allowed", allowedAreaIds == null ? DBNull.Value : string.Join(",", allowedAreaIds.Distinct()));
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                list.Add(new SeedSowingMonthlyPivotRow
+                {
+                    AreaId = reader.GetInt32(reader.GetOrdinal("AreaId")),
+                    AreaName = reader.GetString(reader.GetOrdinal("AreaName")),
+                    PlantTypeId = reader.GetInt32(reader.GetOrdinal("PlantTypeId")),
+                    PlantTypeName = reader.GetString(reader.GetOrdinal("PlantTypeName")),
+                    SpeciesId = reader.GetInt32(reader.GetOrdinal("SpeciesId")),
+                    SpeciesName = reader.GetString(reader.GetOrdinal("SpeciesName")),
+                    SpeciesColor = reader.IsDBNull(reader.GetOrdinal("SpeciesColor")) ? null : reader.GetString(reader.GetOrdinal("SpeciesColor")),
+                    Day = reader.GetInt32(reader.GetOrdinal("Day")),
+                    Quantity = reader.GetDecimal(reader.GetOrdinal("Quantity"))
+                });
+            }
+            return list;
         }
 
         public async Task<List<SeedSowing>> GetByAreaAsync(int areaId)
@@ -550,6 +613,65 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
             }
         }
 
+        // Phase H (2026-09-30): the two intermediate survivorship checkpoints
+        // (Trays Alive, Hardening Alive) plus Location -- purely informational,
+        // never gate stock/wastage/Ready Confirmation, so (unlike Remarks vs.
+        // everything else) no lock/transaction is needed. Outside the reach of
+        // TR_SeedSowings_ImmutableTrayData (that trigger only checks a fixed,
+        // named list of other columns), so these fields remain editable after
+        // the sowing is saved, same as Remarks.
+        public async Task<(bool Success, string? Message)> UpdateSurvivorshipAsync(
+            int id, decimal? traysAliveQuantity, DateTime? traysAliveDate,
+            decimal? hardeningAliveQuantity, DateTime? hardeningAliveDate,
+            string? location, string? locationDescription, string? modifiedBy)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            try
+            {
+                decimal quantitySown;
+                using (var lookupCmd = new SqlCommand(
+                    "SELECT QuantitySown FROM dbo.SeedSowings WHERE Id = @Id AND Status <> 'Cancelled'", conn))
+                {
+                    lookupCmd.Parameters.AddWithValue("@Id", id);
+                    var result = await lookupCmd.ExecuteScalarAsync();
+                    if (result == null)
+                        return (false, "Seed Sowing record not found, or it is already Cancelled.");
+                    quantitySown = (decimal)result;
+                }
+
+                var (traysOk, traysError) = DirectSowingRules.ValidateSurvivorshipCheckpoint(traysAliveQuantity, quantitySown, "Trays Alive Quantity");
+                if (!traysOk)
+                    return (false, traysError);
+                var (hardeningOk, hardeningError) = DirectSowingRules.ValidateSurvivorshipCheckpoint(hardeningAliveQuantity, quantitySown, "Hardening Alive Quantity");
+                if (!hardeningOk)
+                    return (false, hardeningError);
+
+                const string updateSql = @"
+UPDATE dbo.SeedSowings
+SET TraysAliveQuantity = @TraysAliveQuantity, TraysAliveDate = @TraysAliveDate,
+    HardeningAliveQuantity = @HardeningAliveQuantity, HardeningAliveDate = @HardeningAliveDate,
+    Location = @Location, LocationDescription = @LocationDescription,
+    ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @ModifiedBy
+WHERE Id = @Id AND Status <> 'Cancelled'";
+                using var cmd = new SqlCommand(updateSql, conn);
+                cmd.Parameters.AddWithValue("@Id", id);
+                cmd.Parameters.AddWithValue("@TraysAliveQuantity", (object?)traysAliveQuantity ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@TraysAliveDate", (object?)traysAliveDate?.Date ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@HardeningAliveQuantity", (object?)hardeningAliveQuantity ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@HardeningAliveDate", (object?)hardeningAliveDate?.Date ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Location", (object?)location ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@LocationDescription", (object?)locationDescription ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@ModifiedBy", (object?)modifiedBy ?? DBNull.Value);
+                var rows = await cmd.ExecuteNonQueryAsync();
+                return rows > 0 ? (true, null) : (false, "Seed Sowing record not found, or it is already Cancelled.");
+            }
+            catch (Exception ex)
+            {
+                return (false, ex.Message);
+            }
+        }
+
         // Phase D -- CUTTING TRAY SOWING. Same tray rule and the same
         // Supervisor Approval -> Ready Stock chain as seed sowing, but the
         // material comes from Cutting Stock:
@@ -616,14 +738,6 @@ WHERE cs.Id = @Id", conn, tx);
                 entry.NumberOfTrays = trays;
                 entry.QuantitySown = used;
 
-                var approvers = (await _userRoleRepo.GetSowingApproversAsync(conn, tx)).Select(a => a.EmployeeID).ToList();
-                var (supervisorOk, supervisorError) = DirectSowingRules.ValidateSupervisorAssignment(entry.SupervisorId, entry.CreatedById ?? userId, approvers);
-                if (!supervisorOk)
-                {
-                    tx.Rollback();
-                    return (false, supervisorError, 0);
-                }
-
                 // Growing location: the chosen Area, else the Cutting Stock's own Area.
                 int? polyhouseAreaId = null;
                 if (entry.PolyhouseId is > 0)
@@ -657,6 +771,20 @@ WHERE cs.Id = @Id", conn, tx);
                 {
                     tx.Rollback();
                     return (false, "You are not authorized to sow in this Area.", 0);
+                }
+
+                // The Sowing Supervisor is chosen for the GROWING Area: an active
+                // user assigned to it who can approve sowings (SowingSupervisorRules),
+                // recorder included. Checked against the live assignments under
+                // this transaction; the user's Id is what is stored below. The
+                // recorder may choose themselves when they meet the same rules.
+                var supervisorCandidates = (await _userRoleRepo.GetCuttingSowingSupervisorsAsync(growingAreaId, conn, tx))
+                    .Select(a => a.EmployeeID).ToList();
+                var (supervisorOk, supervisorError) = SowingSupervisorRules.ValidateAssignment(entry.SupervisorId, supervisorCandidates);
+                if (!supervisorOk)
+                {
+                    tx.Rollback();
+                    return (false, supervisorError, 0);
                 }
 
                 var species = await _plantSpeciesRepo.GetByIdAsync(speciesId);
@@ -839,6 +967,12 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 ExpectedReadyDate = reader.IsDBNull(reader.GetOrdinal("ExpectedReadyDate")) ? null : reader.GetDateTime(reader.GetOrdinal("ExpectedReadyDate")),
                 Status = reader.GetString(reader.GetOrdinal("Status")),
                 ConfirmedReadyQuantity = reader.GetDecimal(reader.GetOrdinal("ConfirmedReadyQuantity")),
+                TraysAliveQuantity = reader.IsDBNull(reader.GetOrdinal("TraysAliveQuantity")) ? null : reader.GetDecimal(reader.GetOrdinal("TraysAliveQuantity")),
+                TraysAliveDate = reader.IsDBNull(reader.GetOrdinal("TraysAliveDate")) ? null : reader.GetDateTime(reader.GetOrdinal("TraysAliveDate")),
+                HardeningAliveQuantity = reader.IsDBNull(reader.GetOrdinal("HardeningAliveQuantity")) ? null : reader.GetDecimal(reader.GetOrdinal("HardeningAliveQuantity")),
+                HardeningAliveDate = reader.IsDBNull(reader.GetOrdinal("HardeningAliveDate")) ? null : reader.GetDateTime(reader.GetOrdinal("HardeningAliveDate")),
+                Location = reader.IsDBNull(reader.GetOrdinal("Location")) ? null : reader.GetString(reader.GetOrdinal("Location")),
+                LocationDescription = reader.IsDBNull(reader.GetOrdinal("LocationDescription")) ? null : reader.GetString(reader.GetOrdinal("LocationDescription")),
                 ResponsiblePersonId = reader.IsDBNull(reader.GetOrdinal("ResponsiblePersonId")) ? null : reader.GetInt32(reader.GetOrdinal("ResponsiblePersonId")),
                 ResponsiblePersonName = reader.IsDBNull(reader.GetOrdinal("ResponsiblePersonName")) ? null : reader.GetString(reader.GetOrdinal("ResponsiblePersonName")),
                 SupervisorId = reader.IsDBNull(reader.GetOrdinal("SupervisorId")) ? null : reader.GetInt32(reader.GetOrdinal("SupervisorId")),

@@ -96,15 +96,21 @@ namespace PlantStockManager.Services
         // ---- Approval authority --------------------------------------------
         // A sowing is approved ONLY by the supervisor assigned to it
         // (SeedSowings.SupervisorId). Holding ReadyStock.Confirm is necessary
-        // (page permission) but not sufficient, and nobody approves a sowing
-        // they recorded. Applied by ReadyConfirmationRepository.ConfirmAsync
-        // under the sowing's row lock, and by the pages for their messages.
+        // (page permission) but not sufficient. A SEED sowing (sourceType null
+        // or 'Seed') is never approved by the person who recorded it. A CUTTING
+        // TRAY sowing may be: its recorder can be chosen as the supervisor
+        // (SowingSupervisorRules) and then approves it as that supervisor -- the
+        // assigned-supervisor check below still applies to them.
+        // Applied by ReadyConfirmationRepository.ConfirmAsync under the sowing's
+        // row lock, and by the pages for their messages.
         public static (bool Ok, string? Error) CanApprove(
-            int? assignedSupervisorId, int? createdById, string? createdBy, int? approverId, string? approverName)
+            int? assignedSupervisorId, int? createdById, string? createdBy, int? approverId, string? approverName,
+            string? sourceType = null)
         {
             if (!approverId.HasValue)
                 return (false, "Your user could not be identified.");
-            if (IsOwnSowing(createdById, createdBy, approverId, approverName))
+            var recorderMayApprove = sourceType == Models.SeedSowing.SourceCutting;
+            if (!recorderMayApprove && IsOwnSowing(createdById, createdBy, approverId, approverName))
                 return (false, OwnSowingMessage);
             if (!assignedSupervisorId.HasValue)
                 return (false, NoSupervisorMessage);
@@ -238,8 +244,107 @@ namespace PlantStockManager.Services
             return (true, trays, seedlings, wastage, WastagePercent(wastage, seedsUsed), null);
         }
 
+        // ---- Cutting Tray Sowing: more ready trays than were sown -------------
+        // UNITS -- read this first. The supervisor ALWAYS enters TRAYS
+        // (ActualReadyTrays). Every stock comparison is made in CUTTINGS:
+        //   ReadyCuttings = ActualReadyTrays x cavity          (cavity = cuttings per tray)
+        //   Available     = Physical - In-Transit               (cuttings)
+        // Example: cavity 24, 500 trays = 12,000 cuttings; "600" in the approval
+        // field means 600 TRAYS = 14,400 cuttings.
+        //
+        // Cutting sowings only. The sowing's own cuttings (QuantitySown, in
+        // cuttings = SownTrays x cavity) were already taken out of Cutting Stock
+        // when it was recorded and are never taken again. When ActualReadyTrays is
+        // more than the trays the sowing still expects, only the EXTRA is taken
+        // from the same Cutting Stock pool at approval:
+        //   ExtraTrays    = ActualReadyTrays - SownTrays                (first approval)
+        //   ExtraCuttings = ExtraTrays x cavity
+        //                 = ReadyCuttings - (QuantitySown - already approved)
+        // ActualReadyTrays <= SownTrays: nothing extra, no stock check.
+        // Seed sowings (and any other source) never take anything extra: 0.
+        // stillExpectedCuttings = QuantitySown - ConfirmedReadyQuantity - WastageQuantity (cuttings).
+        public static decimal ExtraCuttingsNeeded(string? sourceType, decimal actualReadyTrays, string? cavityType, decimal stillExpectedCuttings)
+        {
+            if (sourceType != Models.SeedSowing.SourceCutting || actualReadyTrays <= 0)
+                return 0;
+            var cavity = CavityCount(cavityType);
+            if (cavity == null)
+                return 0;
+            var readyCuttings = actualReadyTrays * cavity.Value;
+            return readyCuttings > stillExpectedCuttings ? readyCuttings - stillExpectedCuttings : 0;
+        }
+
+        // The same extra, counted in TRAYS (extra cuttings / cavity): for display and messages.
+        public static decimal ExtraTrays(decimal extraCuttings, string? cavityType)
+        {
+            var cavity = CavityCount(cavityType);
+            return cavity == null || extraCuttings <= 0 ? 0 : extraCuttings / cavity.Value;
+        }
+
+        // The stock rule for that extra, entirely in CUTTINGS: the TOTAL ready
+        // cuttings (ActualReadyTrays x cavity) may not be more than the pool's
+        // AVAILABLE Cutting Stock (Physical - In-Transit; in-transit cuttings can
+        // never be used), and the extra cuttings themselves must obviously be
+        // covered too (never negative stock). Nothing to check when there is no
+        // extra. actualReadyTrays / cavity are optional and only make the message
+        // spell out the tray -> cutting conversion.
+        public static (bool Ok, decimal Available, string? Error) CheckCuttingOverage(
+            decimal actualReadyCuttings, decimal extraCuttings, decimal physical, decimal inTransit,
+            decimal? actualReadyTrays = null, int? cavity = null)
+        {
+            var available = physical - inTransit;
+            if (extraCuttings <= 0)
+                return (true, available, null);
+            if (actualReadyCuttings > available || extraCuttings > available)
+            {
+                var ready = actualReadyTrays.HasValue && cavity.HasValue
+                    ? $"{actualReadyTrays.Value:N0} Actual Ready Trays x {cavity.Value}-cavity = {actualReadyCuttings:N0} cuttings"
+                    : $"The Actual Ready quantity ({actualReadyCuttings:N0} cuttings)";
+                var extraTrays = cavity.HasValue && cavity.Value > 0 ? $" ({extraCuttings / cavity.Value:N0} extra trays)" : "";
+                return (false, available,
+                    $"{ready} is more than the available Cutting Stock ({available:N0} cuttings, in-transit excluded). "
+                    + $"It would need {extraCuttings:N0} extra cuttings{extraTrays} beyond the cuttings already sown, and only available stock can be used.");
+            }
+            return (true, available, null);
+        }
+
+        // The most TRAYS the supervisor can enter right now: never fewer than the
+        // trays the sowing still expects (those need no extra stock), otherwise as
+        // many WHOLE trays as the available stock covers in total
+        // (floor(Available cuttings / cavity)). Always consistent with
+        // ExtraCuttingsNeeded + CheckCuttingOverage.
+        public static decimal MaxReadyTrays(decimal stillExpectedCuttings, string? cavityType, decimal availableCuttings)
+        {
+            var cavity = CavityCount(cavityType);
+            if (cavity == null)
+                return 0;
+            var expectedTrays = decimal.Floor(Math.Max(stillExpectedCuttings, 0) / cavity.Value);
+            var stockTrays = decimal.Floor(Math.Max(availableCuttings, 0) / cavity.Value);
+            return Math.Max(expectedTrays, stockTrays);
+        }
+
         public static decimal WastagePercent(decimal wastage, decimal seedsUsed)
             => seedsUsed > 0 ? Math.Round(wastage / seedsUsed * 100m, 2, MidpointRounding.AwayFromZero) : 0m;
+
+        // ---- Survivorship checkpoints (Phase H) -----------------------------
+        // Trays Alive / Hardening Alive: optional, informational counts
+        // recorded after sowing (the useful part of the retired legacy
+        // dbo.SeedEntries pipeline). They never gate stock, wastage or Ready
+        // Confirmation -- only a sanity check that a provided value is a
+        // non-negative whole number and cannot exceed what was actually sown
+        // (a checkpoint can only report on the batch it was taken from).
+        public static (bool Ok, string? Error) ValidateSurvivorshipCheckpoint(decimal? quantity, decimal quantitySown, string label)
+        {
+            if (!quantity.HasValue)
+                return (true, null);
+            if (quantity.Value < 0)
+                return (false, $"{label} cannot be negative.");
+            if (!IsWholeNumber(quantity.Value))
+                return (false, $"{label} must be a whole number.");
+            if (quantity.Value > quantitySown)
+                return (false, $"{label} cannot exceed the Sowing's Quantity Used ({quantitySown:N0}).");
+            return (true, null);
+        }
 
         public static (bool Ok, decimal Wastage, string? Error) ComputeApproval(
             decimal quantitySown, decimal alreadyReady, decimal alreadyWasted, decimal readyNow, string? wastageReason)

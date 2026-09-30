@@ -75,10 +75,28 @@
                 <option value="Cancelled">Cancelled</option>
             </select>
         </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small fw-bold mb-1">Booking By</label>
+            <select name="SelectedBookedBy" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">All</option>
+                @foreach (var option in Model.BookedByOptions)
+                {
+                    <option value="@option.Value" selected="@(Model.SelectedBookedBy == option.Value)">@option.Label</option>
+                }
+            </select>
+        </div>
+
+        @if (Model.Notice != null)
+        {
+            <div class="col-12"><div class="alert alert-warning py-1 mb-0 small">@Model.Notice</div></div>
+        }
+
         <!-- Actions -->
         <div class="col-12 d-grid gap-2 d-md-flex justify-content-md-end mt-1">
+            <a asp-page="/Data/BookingsRecord" class="btn btn-outline-secondary btn-sm">Clear filters</a>
             <a asp-page="/Data/BookingsRecord"
                asp-route-handler="GeneratePdf"
+               asp-route-SelectedBookedBy="@Model.SelectedBookedBy"
                asp-route-SelectedPlantType="@Model.SelectedPlantType"
                asp-route-SelectedSpecies="@Model.SelectedSpecies"
                asp-route-SelectedMonth="@Model.SelectedMonth"
@@ -92,6 +110,8 @@
 
 
     </form>
+
+    <div class="small text-muted mb-1">@Model.Bookings.Count.ToString("N0") record@(Model.Bookings.Count == 1 ? "" : "s") found@(Model.BookedByActive ? " (filtered by Booking By)" : "")</div>
 
     <!-- Table -->
     <div class="card shadow-sm p-2">
@@ -127,9 +147,13 @@
                             <td>@ToTitle(booking.SpeciesName)</td>
                             <td>@booking.Quantity</td>
                             <td>@booking.AdvanceTakenAmount</td>
-                            <td>@ToTitle((booking.BookedById == 0 ? booking.BookedByOther : booking.BookedByName))</td>
+                            <td>@ToTitle(PlantStockManager.Services.BookedByFilter.Display(booking.BookedById, booking.BookedByName, booking.BookedByOther))</td>
                             <td>@booking.Contact</td>
                         </tr>
+                    }
+                    @if (!Model.Bookings.Any())
+                    {
+                        <tr><td colspan="12" class="text-center text-muted">No records match the selected filters.</td></tr>
                     }
                 </tbody>
             </table>

@@ -5,6 +5,15 @@
 
     <h3 class="mb-3">Available Fertilizer Stock</h3>
 
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
     <div class="table-responsive">
         <table class="table table-bordered table-hover align-middle">
             <thead class="table-dark">
@@ -112,10 +121,14 @@
 
                     <div class="mb-2">
                         <label class="form-label">Received By</label>
-                        <input asp-for="Usage.ReceivedBy"
-                               class="form-control"
-                               placeholder="Receiver Name"
-                               required />
+                        <select asp-for="Usage.ReceivedById" class="form-select" required>
+                            <option value="">-- Select who received it --</option>
+                            @foreach (var person in Model.Receivers)
+                            {
+                                <option value="@person.Value">@person.Label</option>
+                            }
+                        </select>
+                        <div class="form-text">The person who actually received the fertilizer. Issued by: you (recorded automatically).</div>
                     </div>
 
                     <div class="mb-2">
@@ -169,6 +182,16 @@
         document.getElementById("qtyError").innerText = "";
         document.getElementById("issueBtn").disabled = true;
     }
+
+    // one click, one issue: the button is switched off as soon as the form is sent (the server also ignores an identical repeat)
+    document.addEventListener("DOMContentLoaded", function () {
+        var form = document.querySelector("#usageModal form");
+        if (form) {
+            form.addEventListener("submit", function () {
+                setTimeout(function () { document.getElementById("issueBtn").disabled = true; }, 0);
+            });
+        }
+    });
 
      function validateQuantity() {
 

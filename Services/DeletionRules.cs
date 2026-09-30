@@ -29,6 +29,7 @@ namespace PlantStockManager.Services
     {
         public const string AreaTable = "dbo.Area";
         public const string MotherPlantTable = "dbo.MotherPlants";
+        public const string FertilizerStockTable = "dbo.FertilizerStock";
 
         // Every column known to hold a dbo.Area.Id. Most are foreign keys;
         // the Outlet item / wastage OutletAreaId columns are only reached
@@ -79,6 +80,12 @@ namespace PlantStockManager.Services
             Dbo("Cutting Deliveries", "CuttingDeliveries", "MotherPlantId"),
             Dbo("Propagation Batches", "PropagationBatches", "MotherPlantId"),
             Dbo("Cutting Productions", "CuttingProductions", "MotherPlantId"),
+        };
+
+        // Correction I3 -- the only foreign key to dbo.FertilizerStock.Id (FK_FertilizerUsage_Stock).
+        public static readonly IReadOnlyList<DependencyDefinition> FertilizerStockDependencies = new[]
+        {
+            Dbo("Fertilizer Usage", "FertilizerUsage", "StockId"),
         };
 
         // An Area can be deactivated only when it holds no CURRENT stock or

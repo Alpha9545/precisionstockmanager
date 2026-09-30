@@ -41,8 +41,14 @@
                                         data-species="@b.SpeciesName (@b.PlantTypeName)"
                                         data-potsize="@b.PotSize"
                                         data-area="@(b.AreaName ?? "Unassigned")"
-                                        data-remaining="@b.RemainingQuantity.ToString("0.####")">
-                                    @b.BookingCode &mdash; @b.CustomerName &mdash; @b.SpeciesName / @b.PotSize (Remaining @b.RemainingQuantity.ToString("N2") of @b.Quantity.ToString("N2"))
+                                        data-booked="@b.Quantity.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)"
+                                        data-dispatched="@b.DispatchedQuantity.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)"
+                                        data-remaining="@b.RemainingQuantity.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)"
+                                        data-stock-physical="@(b.StockPhysicalQuantity?.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))"
+                                        data-stock-reserved="@(b.StockReservedQuantity?.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))"
+                                        data-stock-available="@(b.StockAvailableQuantity?.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))"
+                                        data-status="@b.Status">
+                                    @b.BookingCode &mdash; @b.CustomerName &mdash; @b.SpeciesName / @b.PotSize (Remaining @b.RemainingQuantity.ToString("N0") of @b.Quantity.ToString("N0"))
                                 </option>
                             }
                         </select>
@@ -54,18 +60,40 @@
                     </div>
 
                     <div class="col-12" id="bookingPreview" style="display:none;">
-                        <div class="alert alert-secondary mb-0">
+                        <div class="alert alert-secondary mb-2">
                             <strong>Species:</strong> <span id="prevSpecies"></span> &mdash;
                             <strong>Pot Size:</strong> <span id="prevPotSize"></span> &mdash;
                             <strong>Area:</strong> <span id="prevArea"></span> &mdash;
-                            <strong>Remaining:</strong> <span id="prevRemaining"></span>
+                            <strong>Status:</strong> <span id="prevStatus"></span>
                         </div>
+                        <div class="table-responsive">
+                        <table class="table table-sm table-bordered mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th class="text-end">Booked</th><th class="text-end">Fulfilled (dispatched)</th><th class="text-end">Remaining</th>
+                                    <th class="text-end">Stock physical</th><th class="text-end">Stock reserved (all bookings)</th><th class="text-end">Stock available (unreserved)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="text-end" id="prevBooked"></td><td class="text-end" id="prevDispatched"></td><td class="text-end fw-bold" id="prevRemaining"></td>
+                                    <td class="text-end" id="prevPhysical"></td><td class="text-end" id="prevReserved"></td><td class="text-end" id="prevAvailable"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        </div>
+                        <div class="small text-muted mt-1">Dispatching hands the plants over from this Booking's own reservation: the reservation and the physical stock both go down by the dispatched quantity.</div>
                     </div>
 
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Quantity to Dispatch Now</label>
-                        <input type="number" step="0.01" min="0.01" asp-for="Dispatch.Quantity" id="quantityInput" class="form-control" required />
-                        <div class="form-text">Defaults to the full remaining quantity. Reduce it for a partial dispatch.</div>
+                        <input type="number" step="1" min="1" asp-for="Dispatch.Quantity" id="quantityInput" class="form-control" required />
+                        <input type="hidden" asp-for="ExpectedDispatched" id="expectedDispatched" />
+                        <div class="form-text">Whole plants. Defaults to the full remaining quantity; reduce it for a partial dispatch. It cannot be more than the remaining quantity.</div>
+                        <div class="text-danger small d-none" id="qtyError"></div>
+                        <div class="small mt-1 d-none" id="afterBox">
+                            After this dispatch: <strong id="afterFulfilled"></strong> fulfilled, <strong id="afterRemaining"></strong> remaining &mdash; status <strong id="afterStatus"></strong>.
+                        </div>
                     </div>
 
                     <div class="col-md-6">
@@ -93,21 +121,48 @@
 @section Scripts {
     <script>
         $(function () {
-            $('#bookingSelect').on('change', function () {
-                const opt = $(this).find('option:selected');
-                if (!opt.val()) {
-                    $('#bookingPreview').hide();
-                    return;
-                }
+            const fmt = n => (n === '' || n === undefined || n === null || isNaN(Number(n))) ? '-' : Number(n).toLocaleString('en-IN');
+            // Advisory only: the server applies every rule again, under the Booking's lock.
+            function showAfter() {
+                const opt = $('#bookingSelect').find('option:selected');
+                const q = Number($('#quantityInput').val());
+                const booked = Number(opt.data('booked')), dispatched = Number(opt.data('dispatched')), remaining = Number(opt.data('remaining'));
+                const err = $('#qtyError'), box = $('#afterBox');
+                err.addClass('d-none'); box.addClass('d-none');
+                if (!opt.val() || !$('#quantityInput').val()) return;
+                if (!(q > 0) || q !== Math.floor(q)) { err.text('Enter a whole number of plants greater than zero.').removeClass('d-none'); return; }
+                if (q > remaining) { err.text('Only ' + fmt(remaining) + ' plants remain on this Booking.').removeClass('d-none'); return; }
+                $('#afterFulfilled').text(fmt(dispatched + q) + ' of ' + fmt(booked));
+                $('#afterRemaining').text(fmt(remaining - q));
+                $('#afterStatus').text(dispatched + q >= booked ? 'Dispatched' : 'PartiallyDispatched');
+                box.removeClass('d-none');
+            }
+            // fresh = a Booking was just chosen (fill the quantity); otherwise (page re-shown after an error)
+            // keep what the user typed but always reload the Booking's CURRENT figures and the opened-at value.
+            function load(fresh) {
+                const opt = $('#bookingSelect').find('option:selected');
+                if (!opt.val()) { $('#bookingPreview').hide(); $('#expectedDispatched').val(''); return; }
                 $('#prevSpecies').text(opt.data('species'));
                 $('#prevPotSize').text(opt.data('potsize'));
                 $('#prevArea').text(opt.data('area'));
-                const remaining = opt.data('remaining');
-                $('#prevRemaining').text(remaining);
-                $('#quantityInput').attr('max', remaining);
-                $('#quantityInput').val(remaining);
+                $('#prevStatus').text(opt.data('status'));
+                $('#prevBooked').text(fmt(opt.data('booked')));
+                $('#prevDispatched').text(fmt(opt.data('dispatched')));
+                $('#prevRemaining').text(fmt(opt.data('remaining')));
+                $('#prevPhysical').text(fmt(opt.data('stock-physical')));
+                $('#prevReserved').text(fmt(opt.data('stock-reserved')));
+                $('#prevAvailable').text(fmt(opt.data('stock-available')));
+                $('#expectedDispatched').val(opt.data('dispatched'));
+                $('#quantityInput').attr('max', opt.data('remaining'));
+                if (fresh) $('#quantityInput').val(opt.data('remaining'));
                 $('#bookingPreview').show();
-            });
+                showAfter();
+            }
+            $('#bookingSelect').on('change', () => load(true));
+            $('#quantityInput').on('input', showAfter);
+            // never let a double click submit twice
+            $('form').on('submit', function () { $(this).find('button[type=submit]').prop('disabled', true); });
+            load(false);
         });
     </script>
 }

@@ -1,0 +1,129 @@
+@page
+@model PlantStockManager.Pages.Fertilizer.TransactionsModel
+@{
+    ViewData["Title"] = "Fertilizer Transactions";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Fertilizer Transactions</h3>
+        <div class="d-flex gap-2">
+            <a asp-page="/Fertilizer/View" class="btn btn-outline-secondary">Fertilizer Report</a>
+        </div>
+    </div>
+
+    @foreach (var notice in Model.Notices)
+    {
+        <div class="alert alert-warning py-2">@notice</div>
+    }
+
+    @* Filters: all optional, combined with AND, applied by the database. The chosen values stay selected. *@
+    <form method="get" class="card card-body mb-3 py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Date from</label>
+                <input type="date" name="from" value="@(Model.From?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Date to</label>
+                <input type="date" name="to" value="@(Model.To?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Fertilizer</label>
+                <select name="fertilizerId" class="form-select form-select-sm">
+                    <option value="">All fertilizers</option>
+                    @foreach (var o in Model.Options.Fertilizers) { <option value="@o.Value" selected="@(Model.FertilizerId.ToString() == o.Value)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Transaction type</label>
+                <select class="form-select form-select-sm" disabled title="Only issues are recorded">
+                    <option>Issue</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Source</label>
+                <select name="sourceId" class="form-select form-select-sm">
+                    <option value="">All sources</option>
+                    @foreach (var o in Model.Options.Sources) { <option value="@o.Value" selected="@(Model.SourceId.ToString() == o.Value)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Received by</label>
+                <select name="receiver" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in Model.Options.Receivers) { <option value="@o.Value" selected="@(Model.Receiver == o.Value)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label mb-0 small">Entered by</label>
+                <select name="enteredBy" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var o in Model.Options.EnteredBy) { <option value="@o.Value" selected="@(Model.EnteredBy == o.Value)">@o.Label</option> }
+                </select>
+            </div>
+            <div class="col-12 col-md-4 d-flex gap-2">
+                <button class="btn btn-primary btn-sm">Search</button>
+                <a asp-page="/Fertilizer/Transactions" class="btn btn-outline-secondary btn-sm">Clear filters</a>
+            </div>
+        </div>
+    </form>
+
+    <div class="small text-muted mb-2">
+        @Model.Rows.Count.ToString("N0") record(s)@(Model.FilterActive ? " (filtered)" : "")
+    </div>
+
+    @if (Model.Rows.Count == 0)
+    {
+        <div class="alert alert-info">No fertilizer transactions match the selected filters.</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table table-bordered table-striped table-sm">
+                <thead class="table-light">
+                    <tr>
+                        <th>Date</th><th>Fertilizer</th><th>Type</th><th>Batch</th><th class="text-end">Quantity</th><th>Unit</th>
+                        <th>Source</th><th>Received by</th><th>Entered by</th><th>Remark</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in Model.Rows)
+                    {
+                        <tr>
+                            <td>@t.IssueDate.ToString("dd/MM/yyyy")</td>
+                            <td>@t.FertilizerName@if (!string.IsNullOrWhiteSpace(t.FertilizerType)) { <span class="text-muted"> (@t.FertilizerType)</span> }</td>
+                            <td>@t.TransactionType</td>
+                            <td>@(string.IsNullOrWhiteSpace(t.BatchNumber) ? "-" : t.BatchNumber)</td>
+                            <td class="text-end">@t.Quantity.ToString("0.###")</td>
+                            <td>@t.UnitName</td>
+                            <td>@(string.IsNullOrWhiteSpace(t.SourceName) ? "-" : t.SourceName)</td>
+                            <td>
+                                @if (t.ReceiverLabel == PlantStockManager.Services.FertilizerIssueRules.NotRecordedLabel)
+                                {
+                                    <span class="text-muted">@t.ReceiverLabel</span>
+                                }
+                                else
+                                {
+                                    @t.ReceiverLabel
+                                    @if (t.ReceiverIsTypedName) { <span class="text-muted small"> (typed)</span> }
+                                }
+                            </td>
+                            <td>
+                                @if (t.EnteredByLabel == PlantStockManager.Services.FertilizerIssueRules.NotRecordedLabel)
+                                {
+                                    <span class="text-muted">@t.EnteredByLabel</span>
+                                }
+                                else
+                                {
+                                    @t.EnteredByLabel
+                                }
+                            </td>
+                            <td>@(string.IsNullOrWhiteSpace(t.Remarks) ? "-" : t.Remarks)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

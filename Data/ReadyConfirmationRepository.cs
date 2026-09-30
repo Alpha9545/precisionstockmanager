@@ -38,13 +38,17 @@ namespace PlantStockManager.Data
         private readonly DatabaseHelper _dbHelper;
         private readonly BatchNumberRepository _batchNumberRepo;
         private readonly ReadyStockRepository _readyStockRepo;
+        // Cutting Tray Sowing: extra cuttings taken at approval / returned on cancel.
+        private readonly CuttingStockRepository _cuttingStockRepo;
 
         public ReadyConfirmationRepository(
-            DatabaseHelper dbHelper, BatchNumberRepository batchNumberRepo, ReadyStockRepository readyStockRepo)
+            DatabaseHelper dbHelper, BatchNumberRepository batchNumberRepo, ReadyStockRepository readyStockRepo,
+            CuttingStockRepository cuttingStockRepo)
         {
             _dbHelper = dbHelper;
             _batchNumberRepo = batchNumberRepo;
             _readyStockRepo = readyStockRepo;
+            _cuttingStockRepo = cuttingStockRepo;
         }
 
         private const string BaseSelect = @"
@@ -143,9 +147,22 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
         // sowing; Actual Ready Seedlings (= trays x sowing cavity) and Wastage
         // (= Seeds Used - seedlings) are calculated here. No seedling,
         // wastage or cavity value is accepted from the caller.
+        //
+        // CUTTING TRAY SOWING ONLY: a supervisor may report more ready TRAYS than
+        // were sown (actualReadyTrays is always TRAYS). The sowing's own cuttings
+        // (SownTrays x cavity) were taken from its Cutting Stock pool when it was
+        // recorded; only the EXTRA -- (actualReadyTrays - SownTrays) x cavity
+        // CUTTINGS (DirectSowingRules.ExtraCuttingsNeeded) -- is taken from that
+        // same pool now, under the pool's row lock, from AVAILABLE stock only
+        // (Physical - In-Transit, in cuttings). It is refused if the TOTAL ready
+        // cuttings (actualReadyTrays x cavity) or the extra cuttings are not covered.
+        // It is written to the Cutting Stock ledger as a 'Sown' row (a negative
+        // number of CUTTINGS) referencing this approval.
+        // canUseSourceArea: may this user use cuttings held in the pool's Area
+        // (same rule as recording the sowing); only consulted when there IS an extra.
         public async Task<(bool Success, string? Message, int Id)> ConfirmAsync(
             int seedSowingId, decimal actualReadyTrays, string? wastageReason, int? responsiblePersonId,
-            string? remarks, string? createdBy, int? userId)
+            string? remarks, string? createdBy, int? userId, Func<int, bool>? canUseSourceArea = null)
         {
             if (actualReadyTrays <= 0 || !DirectSowingRules.IsWholeNumber(actualReadyTrays))
                 return (false, "Actual Ready Trays must be a whole number of at least 1.", 0);
@@ -159,7 +176,7 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                 // 1) Lock the source Sowing.
                 var lockCmd = new SqlCommand(
                     "SELECT SpeciesId, AreaId, PolyhouseId, SowingCode, BatchNo, CavityType, NumberOfTrays, SowingDate, QuantitySown, " +
-                    "ConfirmedReadyQuantity, WastageQuantity, Status, CreatedById, CreatedBy, SupervisorId " +
+                    "ConfirmedReadyQuantity, WastageQuantity, Status, CreatedById, CreatedBy, SupervisorId, SourceType, SourceCuttingStockId " +
                     "FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", seedSowingId);
@@ -168,8 +185,8 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                 string sowingCode, seedLotNo, cavityType, status;
                 DateTime sowingDate;
                 decimal quantitySown, confirmedSoFar, wastedSoFar;
-                int? sowingCreatedById, assignedSupervisorId, sowingTrays;
-                string? sowingCreatedBy;
+                int? sowingCreatedById, assignedSupervisorId, sowingTrays, sourceCuttingStockId;
+                string? sowingCreatedBy, sowingSourceType;
                 using (var reader = await lockCmd.ExecuteReaderAsync())
                 {
                     if (!await reader.ReadAsync())
@@ -193,6 +210,8 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                     sowingCreatedById = reader.IsDBNull(reader.GetOrdinal("CreatedById")) ? null : reader.GetInt32(reader.GetOrdinal("CreatedById"));
                     sowingCreatedBy = reader.IsDBNull(reader.GetOrdinal("CreatedBy")) ? null : reader.GetString(reader.GetOrdinal("CreatedBy"));
                     assignedSupervisorId = reader.IsDBNull(reader.GetOrdinal("SupervisorId")) ? null : reader.GetInt32(reader.GetOrdinal("SupervisorId"));
+                    sowingSourceType = reader.GetString(reader.GetOrdinal("SourceType"));
+                    sourceCuttingStockId = reader.IsDBNull(reader.GetOrdinal("SourceCuttingStockId")) ? null : reader.GetInt32(reader.GetOrdinal("SourceCuttingStockId"));
                 }
 
                 // 2) Eligibility.
@@ -202,9 +221,11 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                     return (false, $"This sowing batch is '{status}' and cannot be approved.", 0);
                 }
                 // Approval authority (under the row lock): ONLY the supervisor
-                // assigned to this sowing, and never the person who recorded it.
+                // assigned to this sowing. A seed sowing's recorder can never
+                // approve it; a cutting tray sowing's recorder can, when they
+                // are its assigned supervisor.
                 var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
-                    assignedSupervisorId, sowingCreatedById, sowingCreatedBy, userId, createdBy);
+                    assignedSupervisorId, sowingCreatedById, sowingCreatedBy, userId, createdBy, sowingSourceType);
                 if (!mayApprove)
                 {
                     tx.Rollback();
@@ -221,6 +242,49 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                     return (false, error, 0);
                 }
                 var reasonToStore = wastage > 0 ? wastageReason : null;
+
+                // 3b) Cutting sowing with MORE ready cuttings than it still expects:
+                //     lock the sowing's own Cutting Stock pool and check the extra
+                //     against its AVAILABLE quantity, before anything is written.
+                var extraCuttings = DirectSowingRules.ExtraCuttingsNeeded(
+                    sowingSourceType, actualTrays, cavityType, quantitySown - confirmedSoFar - wastedSoFar);
+                if (extraCuttings > 0)
+                {
+                    if (!sourceCuttingStockId.HasValue)
+                    {
+                        tx.Rollback();
+                        return (false, "This cutting sowing has no Cutting Stock source, so more trays than sown cannot be approved.", 0);
+                    }
+                    var poolCmd = new SqlCommand(
+                        "SELECT AreaId, PhysicalQuantity, InTransitQuantity FROM dbo.CuttingStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
+                    poolCmd.Parameters.AddWithValue("@Id", sourceCuttingStockId.Value);
+                    int poolAreaId; decimal poolPhysical, poolInTransit;
+                    using (var poolReader = await poolCmd.ExecuteReaderAsync())
+                    {
+                        if (!await poolReader.ReadAsync())
+                        {
+                            poolReader.Close();
+                            tx.Rollback();
+                            return (false, "The sowing's Cutting Stock record was not found.", 0);
+                        }
+                        poolAreaId = poolReader.GetInt32(0);
+                        poolPhysical = poolReader.GetDecimal(1);
+                        poolInTransit = poolReader.GetDecimal(2);
+                    }
+                    if (canUseSourceArea != null && !canUseSourceArea(poolAreaId))
+                    {
+                        tx.Rollback();
+                        return (false, "You are not authorized to use cuttings from this Area.", 0);
+                    }
+                    // readyQuantity = ActualReadyTrays x cavity, in cuttings; the pool is in cuttings too
+                    var (stockOk, _, stockError) = DirectSowingRules.CheckCuttingOverage(
+                        readyQuantity, extraCuttings, poolPhysical, poolInTransit, actualTrays, DirectSowingRules.CavityCount(cavityType));
+                    if (!stockOk)
+                    {
+                        tx.Rollback();
+                        return (false, stockError, 0);
+                    }
+                }
 
                 var confirmationCode = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "RDY", DateTime.UtcNow.Year);
 
@@ -253,6 +317,22 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 cmd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
                 var newId = (int)(await cmd.ExecuteScalarAsync())!;
+
+                // The extra cuttings leave the sowing's Cutting Stock pool, in this
+                // same transaction (the ledger/CHECK constraints refuse a negative
+                // balance). Only the EXTRA -- the sowing's own cuttings were taken
+                // when it was recorded and are never taken again.
+                if (extraCuttings > 0)
+                {
+                    var (cutOk, cutMessage) = await _cuttingStockRepo.RecordTransactionAsync(
+                        conn, tx, sourceCuttingStockId!.Value, -extraCuttings, "Sown", "ReadyConfirmation", newId, userId,
+                        $"Extra {DirectSowingRules.ExtraTrays(extraCuttings, cavityType):N0} trays ({extraCuttings:N0} cuttings) beyond the sown trays: approval of batch {sowingCode}");
+                    if (!cutOk)
+                    {
+                        tx.Rollback();
+                        return (false, cutMessage, 0);
+                    }
+                }
 
                 // Ready Stock grows by exactly the approved Ready quantity
                 // (no ledger row when the whole batch was wastage).
@@ -317,14 +397,16 @@ WHERE Id = @Id", conn, tx);
             try
             {
                 var lockCmd = new SqlCommand(
-                    "SELECT rc.SeedSowingId, rc.ReadyStockId, rc.ConfirmedQuantity, rc.WastageQuantity, rc.Status, sw.SupervisorId AS SowingSupervisorId " +
+                    "SELECT rc.SeedSowingId, rc.ReadyStockId, rc.ConfirmedQuantity, rc.WastageQuantity, rc.Status, sw.SupervisorId AS SowingSupervisorId, " +
+                    "sw.SourceType AS SowingSourceType, sw.SourceCuttingStockId AS SowingCuttingStockId " +
                     "FROM dbo.ReadyConfirmations rc WITH (UPDLOCK, HOLDLOCK) INNER JOIN dbo.SeedSowings sw ON sw.Id = rc.SeedSowingId WHERE rc.Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", id);
                 int seedSowingId, readyStockId;
                 decimal confirmedQuantity, wastageQuantity;
                 string status;
-                int? sowingSupervisorId;
+                int? sowingSupervisorId, sowingCuttingStockId;
+                string sowingSourceType;
                 using (var reader = await lockCmd.ExecuteReaderAsync())
                 {
                     if (!await reader.ReadAsync())
@@ -339,6 +421,8 @@ WHERE Id = @Id", conn, tx);
                     wastageQuantity = reader.GetDecimal(reader.GetOrdinal("WastageQuantity"));
                     status = reader.GetString(reader.GetOrdinal("Status"));
                     sowingSupervisorId = reader.IsDBNull(reader.GetOrdinal("SowingSupervisorId")) ? null : reader.GetInt32(reader.GetOrdinal("SowingSupervisorId"));
+                    sowingSourceType = reader.GetString(reader.GetOrdinal("SowingSourceType"));
+                    sowingCuttingStockId = reader.IsDBNull(reader.GetOrdinal("SowingCuttingStockId")) ? null : reader.GetInt32(reader.GetOrdinal("SowingCuttingStockId"));
                 }
 
                 if (!userId.HasValue || sowingSupervisorId != userId)
@@ -389,6 +473,35 @@ WHERE Id = @Id", conn, tx);
                     {
                         tx.Rollback();
                         return (false, reversalMessage);
+                    }
+                }
+
+                // Cutting Tray Sowing: give back ONLY the extra CUTTINGS (not trays) this
+                // approval took at approval time (never the sowing's own cuttings -- those
+                // return only if the sowing itself is cancelled). The amount is read
+                // from the Cutting Stock ledger under this approval's row lock, as
+                // (taken - already returned) for this approval and pool, so it can
+                // never be returned twice; nothing at all for seed sowings or for a
+                // cutting approval that took no extra.
+                if (sowingSourceType == SeedSowing.SourceCutting && sowingCuttingStockId.HasValue)
+                {
+                    var netCmd = new SqlCommand(@"
+SELECT ISNULL(-SUM(Quantity), 0) FROM dbo.CuttingStockTransactions
+WHERE CuttingStockId = @Pool AND ReferenceType = N'ReadyConfirmation' AND ReferenceId = @Id
+  AND TransactionType IN (N'Sown', N'ReversalReturn')", conn, tx);
+                    netCmd.Parameters.AddWithValue("@Pool", sowingCuttingStockId.Value);
+                    netCmd.Parameters.AddWithValue("@Id", id);
+                    var extraToReturn = Convert.ToDecimal(await netCmd.ExecuteScalarAsync());
+                    if (extraToReturn > 0)
+                    {
+                        var (returnOk, returnMessage) = await _cuttingStockRepo.RecordTransactionAsync(
+                            conn, tx, sowingCuttingStockId.Value, extraToReturn, "ReversalReturn", "ReadyConfirmation", id, userId,
+                            "Supervisor Approval cancelled: extra cuttings returned");
+                        if (!returnOk)
+                        {
+                            tx.Rollback();
+                            return (false, returnMessage);
+                        }
                     }
                 }
 

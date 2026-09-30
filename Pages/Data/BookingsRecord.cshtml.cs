@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 
 namespace PlantStockManager.Pages.Data
@@ -32,6 +33,14 @@ namespace PlantStockManager.Pages.Data
 
         [BindProperty(SupportsGet = true)]
         public string SelectedStatus { get; set; } = "Pending"; // Default status
+
+        // Correction #6: "Booking By" -- "" = all, "U:<id>" a person, "O:<name>" a free-text name, "X:none" not recorded.
+        [BindProperty(SupportsGet = true)]
+        public string? SelectedBookedBy { get; set; }
+
+        public List<BookedByFilter.Option> BookedByOptions { get; set; } = new();
+        public string? Notice { get; set; }
+        public bool BookedByActive { get; set; }
 
         public BookingsRecordModel(
             BookingRepository bookingRepository,
@@ -72,7 +81,15 @@ namespace PlantStockManager.Pages.Data
                 PlantSpecies = await _plantSpeciesRepository.GetSpeciesByPlantType(SelectedPlantType.Value);
             }
 
-            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId);
+            // Booking By: parsed and normalised; the value stays selected after searching. A value that is not understood
+            // is ignored (everyone shown) with a notice. It only narrows the list the user is already allowed to see.
+            var (bookedBy, notice) = BookedByFilter.Parse(SelectedBookedBy);
+            SelectedBookedBy = bookedBy.Value;
+            BookedByActive = bookedBy.IsActive;
+            Notice = notice;
+            BookedByOptions = await _bookingRepository.GetBookedByOptionsAsync();
+
+            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId, bookedBy);
         }
 
         public async Task<IActionResult> OnGetGeneratePdfAsync()
@@ -85,7 +102,8 @@ namespace PlantStockManager.Pages.Data
             }
             // Load filtered data with the same parameters used by the page
             Bookings = await _bookingRepository.GetBookingRecords(
-                SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId);
+                SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId,
+                BookedByFilter.Parse(SelectedBookedBy).Filter);
 
             using (var ms = new MemoryStream())
             {

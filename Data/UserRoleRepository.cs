@@ -63,6 +63,74 @@ namespace PlantStockManager.Data
                 .ToList();
         }
 
+        // Pot batch READY confirmation: one grant per dbo.UserRoles row, with
+        // the permission codes of that row's role (see PotBatchRules).
+        // Pass conn/tx to read inside an existing transaction.
+        public async Task<List<PotBatchRules.ReadyConfirmerGrant>> GetReadyConfirmerGrantsAsync(SqlConnection? conn = null, SqlTransaction? tx = null)
+            => (await GetAreaUserGrantsAsync(conn, tx))
+                .Select(g => new PotBatchRules.ReadyConfirmerGrant(g.UserId, g.UserName, g.AreaId, g.IsActive, g.PermissionCodes))
+                .ToList();
+
+        // Cutting Tray Sowing supervisor: active users assigned to the sowing's
+        // growing Area who hold the approval permission -- any role, the person
+        // recording the sowing included (see SowingSupervisorRules).
+        public async Task<List<Employee>> GetCuttingSowingSupervisorsAsync(int areaId, SqlConnection? conn = null, SqlTransaction? tx = null)
+        {
+            var grants = await GetAreaUserGrantsAsync(conn, tx);
+            return SowingSupervisorRules.EligibleForArea(grants, areaId)
+                .Select(u => new Employee { EmployeeID = u.UserId, Name = u.UserName })
+                .ToList();
+        }
+
+        // One grant per dbo.UserRoles row: the user (with active flag), the Area
+        // of that assignment and the permission codes of the row's role.
+        public async Task<List<AreaUserGrant>> GetAreaUserGrantsAsync(SqlConnection? conn = null, SqlTransaction? tx = null)
+        {
+            const string sql = @"
+SELECT ur.Id, u.Id, u.Name, ur.AreaId, CAST(ISNULL(u.IsActive, 0) AS BIT) AS IsActive, p.Code
+FROM dbo.UserRoles ur
+INNER JOIN dbo.IMSUsers u ON u.Id = ur.UserId
+LEFT JOIN dbo.RolePermissions rp ON rp.RoleId = ur.RoleId
+LEFT JOIN dbo.Permissions p ON p.Id = rp.PermissionId";
+            var owns = conn == null;
+            var c = conn ?? _dbHelper.GetConnection();
+            try
+            {
+                if (owns) await c.OpenAsync();
+                using var cmd = new SqlCommand(sql, c, tx);
+                var rows = new Dictionary<int, (int UserId, string Name, int? AreaId, bool Active, List<string> Codes)>();
+                using var reader = await cmd.ExecuteReaderAsync();
+                while (await reader.ReadAsync())
+                {
+                    var userRoleId = reader.GetInt32(0);
+                    if (!rows.TryGetValue(userRoleId, out var row))
+                    {
+                        row = (reader.GetInt32(1), reader.GetString(2).Trim(), reader.IsDBNull(3) ? null : reader.GetInt32(3), reader.GetBoolean(4), new List<string>());
+                        rows[userRoleId] = row;
+                    }
+                    if (!reader.IsDBNull(5))
+                        row.Codes.Add(reader.GetString(5));
+                }
+                return rows.Values
+                    .Select(r => new AreaUserGrant(r.UserId, r.Name, r.AreaId, r.Active, r.Codes))
+                    .ToList();
+            }
+            finally
+            {
+                if (owns) c.Dispose();
+            }
+        }
+
+        // The "Ready Confirmation By" list for a production Area: active users
+        // assigned to it who hold a Pot Production permission -- any role.
+        public async Task<List<Employee>> GetReadyConfirmersAsync(int areaId, SqlConnection? conn = null, SqlTransaction? tx = null)
+        {
+            var grants = await GetReadyConfirmerGrantsAsync(conn, tx);
+            return PotBatchRules.EligibleReadyConfirmers(grants, areaId, PotBatchRules.ReadyConfirmPermissions)
+                .Select(u => new Employee { EmployeeID = u.UserId, Name = u.UserName })
+                .ToList();
+        }
+
         public async Task<List<SupervisorRules.RoleAssignment>> GetRoleAssignmentsAsync(SqlConnection? conn = null, SqlTransaction? tx = null)
         {
             const string sql = @"

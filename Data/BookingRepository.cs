@@ -1,6 +1,7 @@
 ﻿using DocumentFormat.OpenXml.Spreadsheet;
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -205,6 +206,14 @@ VALUES (@BookingId, @TransactionType, @Quantity, GETDATE(), @UpdatedBy, GETDATE(
         //        return bookings;
         //    }
 
+        // The "Booking By" dropdown of the seedling booking lists: the people / names that occur on dbo.Bookings.
+        public async Task<List<BookedByFilter.Option>> GetBookedByOptionsAsync()
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return await BookedBySql.LoadOptionsAsync(conn, "dbo.Bookings b", "b", null, null);
+        }
+
         // userId: unused. It used to silently restrict every user except Id 1 to
         // only their own BookedById rows -- dbo.Bookings has no Area scoping, so
         // that arbitrary per-user filter (not the page's own Booking.View/
@@ -212,7 +221,13 @@ VALUES (@BookingId, @TransactionType, @Quantity, GETDATE(), @UpdatedBy, GETDATE(
         // this global report's rows from every ordinary user. Removed; kept in
         // the signature to avoid touching every call site for a parameter that
         // may still be wired up for a future, genuinely Area-scoped filter.
-        public async Task<List<Booking>> GetBookingRecords(int? plantTypeId, int? speciesId, int month, int year, string status, int? userId)
+        //
+        // bookedBy (Correction #6): the optional "Booking By" filter on the existing BookedById / BookedByOther columns.
+        // It is one more AND on the same WHERE (parameters only); null / "All" leaves the result exactly as it was.
+        // dbo.Bookings has no Area, so which bookings a user may list is decided by the pages' permissions, unchanged --
+        // the filter can only narrow that list.
+        public async Task<List<Booking>> GetBookingRecords(int? plantTypeId, int? speciesId, int month, int year, string status, int? userId,
+            BookedByFilter? bookedBy = null)
         {
             var bookings = new List<Booking>();
 
@@ -257,10 +272,12 @@ WHERE YEAR(b.DeliveryDate) = @Year
                 if (plantTypeId.HasValue) sql += "  AND b.PlantId = @PlantTypeId";
                 if (speciesId.HasValue) sql += "  AND b.SpeciesId = @SpeciesId";
                 if (month > 0) sql += "  AND MONTH(b.DeliveryDate) = @Month";
+                sql += BookedBySql.Clause("b.BookedById", "b.BookedByOther");
 
                 sql += " ORDER BY b.DeliveryDate;";
 
                 using var cmd = new SqlCommand(sql, conn);
+                BookedBySql.AddParameters(cmd, bookedBy);
                 cmd.Parameters.AddWithValue("@Year", year);
                 cmd.Parameters.AddWithValue("@Status", status);
                 if (plantTypeId.HasValue) cmd.Parameters.AddWithValue("@PlantTypeId", plantTypeId.Value);

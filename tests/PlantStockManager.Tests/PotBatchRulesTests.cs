@@ -3,44 +3,52 @@ using PlantStockManager.Services;
 namespace PlantStockManager.Tests
 {
     // Pot production batch: cuttings allocated -> daily production (using
-    // the Area's own empty pots) -> READY by the assigned supervisor.
+    // the Area's own empty pots) -> READY by any authorized user of the Area.
     public class PotBatchRulesTests
     {
         private static readonly DateTime Start = new(2026, 9, 1);
         private const int Creator = 22, Supervisor = 40, OtherSupervisor = 41;
+        // users eligible to confirm READY for the Area (the creator is one of them)
         private static readonly int[] AreaSupervisors = { Creator, Supervisor, OtherSupervisor };
 
         // ---- starting a batch ------------------------------------------
 
         [Fact]
-        public void Create_Valid() => Assert.True(PotBatchRules.ValidateCreate(8000, 10000, Start, Start.AddDays(60), Supervisor, Creator, AreaSupervisors).Ok);
+        public void Create_Valid() => Assert.True(PotBatchRules.ValidateCreate(8000, 10000, Start, Start.AddDays(60), Supervisor, AreaSupervisors).Ok);
 
         [Theory]
         [InlineData(0)]
         [InlineData(-1)]
         [InlineData(100.5)]
         public void Create_InvalidAllocation_IsRefused(decimal allocated)
-            => Assert.False(PotBatchRules.ValidateCreate(allocated, 10000, Start, Start.AddDays(60), Supervisor, Creator, AreaSupervisors).Ok);
+            => Assert.False(PotBatchRules.ValidateCreate(allocated, 10000, Start, Start.AddDays(60), Supervisor, AreaSupervisors).Ok);
 
         [Fact]
         public void Create_MoreThanCuttingStock_IsRefused()
-            => Assert.False(PotBatchRules.ValidateCreate(10001, 10000, Start, Start.AddDays(60), Supervisor, Creator, AreaSupervisors).Ok);
+            => Assert.False(PotBatchRules.ValidateCreate(10001, 10000, Start, Start.AddDays(60), Supervisor, AreaSupervisors).Ok);
 
         [Fact]
-        public void Create_SelfAsSupervisor_IsRefused()
+        public void Create_CreatorAsReadyConfirmer_IsAllowed()
         {
-            var (ok, error) = PotBatchRules.ValidateCreate(8000, 10000, Start, Start.AddDays(60), Creator, Creator, AreaSupervisors);
-            Assert.False(ok);
-            Assert.Contains("another supervisor", error);
+            // no "other than you" restriction any more
+            var (ok, error) = PotBatchRules.ValidateCreate(8000, 10000, Start, Start.AddDays(60), Creator, AreaSupervisors);
+            Assert.True(ok, error);
         }
 
         [Fact]
-        public void Create_SupervisorFromAnotherArea_IsRefused()
-            => Assert.False(PotBatchRules.ValidateCreate(8000, 10000, Start, Start.AddDays(60), 99, Creator, AreaSupervisors).Ok);
+        public void Create_NoReadyConfirmerChosen_IsRefused()
+        {
+            Assert.False(PotBatchRules.ValidateCreate(8000, 10000, Start, Start.AddDays(60), null, AreaSupervisors).Ok);
+            Assert.False(PotBatchRules.ValidateCreate(8000, 10000, Start, Start.AddDays(60), 0, AreaSupervisors).Ok);
+        }
+
+        [Fact]
+        public void Create_ReadyConfirmerFromAnotherArea_IsRefused()
+            => Assert.False(PotBatchRules.ValidateCreate(8000, 10000, Start, Start.AddDays(60), 99, AreaSupervisors).Ok);
 
         [Fact]
         public void Create_ReadyDateBeforeStart_IsRefused()
-            => Assert.False(PotBatchRules.ValidateCreate(8000, 10000, Start, Start.AddDays(-1), Supervisor, Creator, AreaSupervisors).Ok);
+            => Assert.False(PotBatchRules.ValidateCreate(8000, 10000, Start, Start.AddDays(-1), Supervisor, AreaSupervisors).Ok);
 
         // ---- daily production: 600 + 500 + 200 = 1,300 ----------------
 

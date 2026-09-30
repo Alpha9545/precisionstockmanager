@@ -1,77 +1,76 @@
-﻿@page
-@model PlantStockManager.Pages.Data.MonthWiseSowingModel
-@using System.Globalization
+@page
+@model PlantStockManager.Pages.Data.SeedSowingMonthlyReportModel
 @{
-    ViewData["Title"] = "Sowing Monthwise Report";
+    ViewData["Title"] = "Sowing Monthly Report";
 }
-
-@functions {
-    private static string ToTitle(string s)
-    {
-        if (string.IsNullOrWhiteSpace(s)) return s;
-        s = s.ToLowerInvariant();
-        return CultureInfo.CurrentCulture.TextInfo.ToTitleCase(s);
-    }
-}
-
 
 <div class="p-3">
-    <h2>Sowing Daywise Monthly Records</h2>
+    <h2>Sowing Daywise Monthly Report</h2>
+    <div class="small text-muted mb-2">
+        From the current Seed Sowing workflow (dbo.SeedSowings). Cancelled sowings are excluded.
+    </div>
+
+    @if (Model.FilterNotice != null)
+    {
+        <div class="alert alert-warning">@Model.FilterNotice</div>
+    }
+
     <form method="get" class="mb-3" id="filterForm">
         <div class="row g-2 align-items-end">
-            <div class="col-md-3">
-                <label>Polyhouse</label>
-                <select name="polyhouseId" class="form-control">
-                    <option value="0" selected="@(Model.SelectedPolyhouseId == 0)">All</option>
-                    @foreach (var ph in Model.Polyhouses)
+            <div class="col-6 col-md-3">
+                <label>Area</label>
+                <select name="AreaId" class="form-control" onchange="this.form.submit()">
+                    <option value="">All (accessible)</option>
+                    @foreach (var a in Model.Areas)
                     {
-                        <option value="@ph.Id" selected="@(Model.SelectedPolyhouseId == ph.Id)">@ph.Name</option>
+                        <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option>
                     }
                 </select>
             </div>
-            <div class="col-md-3">
+            <div class="col-6 col-md-3">
                 <label>Plant Type</label>
-                <select name="plantTypeId" class="form-control">
+                <select name="PlantTypeId" class="form-control" onchange="this.form.submit()">
+                    <option value="">All</option>
                     @foreach (var pt in Model.PlantTypes)
                     {
-                        <option value="@pt.Id" selected="@(Model.SelectedPlantTypeId == pt.Id)">@pt.Name</option>
+                        <option value="@pt.Id" selected="@(Model.PlantTypeId == pt.Id)">@pt.Name</option>
                     }
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-6 col-md-2">
                 <label>Month</label>
-                <select name="month" class="form-control">
+                <select name="Month" class="form-control" onchange="this.form.submit()">
                     @for (int m = 1; m <= 12; m++)
                     {
-                        <option value="@m" selected="@(Model.SelectedMonth == m)">
-                            @CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)
-                        </option>
+                        <option value="@m" selected="@(Model.Month == m)">@System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName(m)</option>
                     }
                 </select>
             </div>
-            <div class="col-md-2">
+            <div class="col-6 col-md-2">
                 <label>Year</label>
-                <select name="year" class="form-control">
-                    @for (int y = DateTime.Now.Year - 5; y <= DateTime.Now.Year; y++)
+                <select name="Year" class="form-control" onchange="this.form.submit()">
+                    @foreach (var y in Model.YearOptions)
                     {
-                        <option value="@y" selected="@(Model.SelectedYear == y)">@y</option>
+                        <option value="@y" selected="@(Model.Year == y)">@y</option>
                     }
                 </select>
             </div>
-            <div class="col-md-1">
+            <div class="col-6 col-md-1">
                 <button type="submit" class="btn btn-primary w-100">Filter</button>
             </div>
-            <div class="col-md-1 print-button">
+            <div class="col-6 col-md-1 print-button">
                 <button type="button" onclick="printTable()" class="btn btn-secondary w-100">Print</button>
             </div>
         </div>
     </form>
 
+    <h5>@Model.MonthName</h5>
+
     <div class="table-container">
         <table class="custom-table" id="sowingTable">
             <thead>
                 <tr>
-                    <th>Polyhouse</th>
+                    <th>Area</th>
                     <th>Plant Type</th>
                     <th>Species</th>
                     @for (int day = 1; day <= Model.DaysInMonth; day++)
@@ -82,20 +81,37 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach (var record in Model.SowingData)
+                @if (Model.Rows.Count == 0)
+                {
+                    <tr><td colspan="@(Model.DaysInMonth + 4)" class="text-center text-muted">No sowings recorded for this month.</td></tr>
+                }
+                @foreach (var row in Model.Rows)
                 {
                     <tr>
-                        <td>@ToTitle(record.PolyhouseName)</td>
-                        <td>@ToTitle(record.PlantTypeName)</td>
-                        <td>@ToTitle(record.SpeciesName)</td>
-                        @foreach (var count in record.DailyCounts)
+                        <td>@row.AreaName</td>
+                        <td>@row.PlantTypeName</td>
+                        <td>@row.SpeciesName</td>
+                        @foreach (var qty in row.DailyQuantities)
                         {
-                            <td>@count</td>
+                            <td>@(qty > 0 ? qty.ToString("N0") : "")</td>
                         }
-                        <td><strong>@record.MonthTotal</strong></td>
+                        <td><strong>@row.MonthTotal.ToString("N0")</strong></td>
                     </tr>
                 }
             </tbody>
+            @if (Model.Rows.Count > 0)
+            {
+                <tfoot>
+                    <tr>
+                        <th colspan="3">Day Total</th>
+                        @foreach (var qty in Model.DailyTotals)
+                        {
+                            <th>@(qty > 0 ? qty.ToString("N0") : "")</th>
+                        }
+                        <th>@Model.GrandTotal.ToString("N0")</th>
+                    </tr>
+                </tfoot>
+            }
         </table>
     </div>
 </div>
@@ -129,6 +145,12 @@
         position: sticky;
         top: 0;
         z-index: 2;
+    }
+
+    .custom-table tfoot th {
+        background-color: #eef2f5;
+        position: sticky;
+        bottom: 0;
     }
 
     .custom-table tbody tr:nth-child(even) {
@@ -171,8 +193,6 @@
             height: auto !important;
             width: 100% !important;
         }
-
-       
     }
 
     @@media (max-width: 768px) {
@@ -182,24 +202,22 @@
     }
 </style>
 
-
-
 <script>
     function printTable() {
         const tableContent = document.querySelector('.table-container').innerHTML;
         const form = document.getElementById("filterForm");
 
-        const polyhouse = form.polyhouseId?.selectedOptions[0]?.text || '';
-        const plantType = form.plantTypeId?.selectedOptions[0]?.text || '';
-        const month = form.month?.selectedOptions[0]?.text || '';
-        const year = form.year?.selectedOptions[0]?.text || '';
+        const area = form.AreaId?.selectedOptions[0]?.text || 'All (accessible)';
+        const plantType = form.PlantTypeId?.selectedOptions[0]?.text || 'All';
+        const month = form.Month?.selectedOptions[0]?.text || '';
+        const year = form.Year?.selectedOptions[0]?.text || '';
 
         const filterSummary = `
             <div style="margin-bottom: 10px; font-size: 10px;">
                 <strong>Filters : </strong>
-                Polyhouse: ${polyhouse} &nbsp;&nbsp; | 
-                Plant Type: ${plantType} &nbsp;&nbsp; | 
-                Month: ${month} &nbsp;&nbsp; | 
+                Area: ${area} &nbsp;&nbsp; |
+                Plant Type: ${plantType} &nbsp;&nbsp; |
+                Month: ${month} &nbsp;&nbsp; |
                 Year: ${year}
             </div>
         `;
@@ -231,5 +249,3 @@
         window.location.reload();
     }
 </script>
-
-

@@ -177,15 +177,15 @@
     </div>
 
     <form method="get" class="row g-2 align-items-end mb-4 p-3 border rounded bg-light">
-        <div class="col-auto">
+        <div class="col-6 col-md-auto">
             <label class="form-label small mb-0">From</label>
             <input type="date" name="FromDate" value="@(Model.FromDate?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
         </div>
-        <div class="col-auto">
+        <div class="col-6 col-md-auto">
             <label class="form-label small mb-0">To</label>
             <input type="date" name="ToDate" value="@(Model.ToDate?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
         </div>
-        <div class="col-auto">
+        <div class="col-6 col-md-auto">
             <label class="form-label small mb-0">Area</label>
             <select name="AreaId" class="form-select form-select-sm">
                 <option value="">All Areas</option>
@@ -195,7 +195,7 @@
                 }
             </select>
         </div>
-        <div class="col-auto">
+        <div class="col-6 col-md-auto">
             <label class="form-label small mb-0">Plant / Variety</label>
             <select name="SpeciesId" class="form-select form-select-sm">
                 <option value="">All Varieties</option>
@@ -205,7 +205,7 @@
                 }
             </select>
         </div>
-        <div class="col-auto">
+        <div class="col-6 col-md-auto">
             <label class="form-label small mb-0">Pot Size</label>
             <select name="PotSize" class="form-select form-select-sm">
                 <option value="">All Pot Sizes</option>
@@ -224,35 +224,35 @@
     <!-- Section A: Overall Production Summary -->
     <h5>Overall Production Summary <span class="badge bg-secondary">Balance</span></h5>
     <div class="row g-3 mb-4">
-        <div class="col-md-2">
+        <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
                 <div class="text-muted small">Mother Plants</div>
                 <div class="fs-4">@Model.Dashboard.Production.MotherPlantActiveQuantity.ToString("N0")</div>
                 <div class="text-muted small">plants &middot; @Model.Dashboard.Production.MotherPlantActiveCount active batches</div>
             </div></div>
         </div>
-        <div class="col-md-2">
+        <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
                 <div class="text-muted small">Cutting Stock</div>
                 <div class="fs-4">@Model.Dashboard.Production.CuttingStockPhysical.ToString("N0")</div>
                 <div class="text-muted small">cuttings &middot; @Model.Dashboard.Production.CuttingStockInTransit.ToString("N0") in transit</div>
             </div></div>
         </div>
-        <div class="col-md-2">
+        <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
                 <div class="text-muted small">Potted Plant Stock</div>
                 <div class="fs-4">@Model.Dashboard.Production.PottedPlantPhysical.ToString("N0")</div>
                 <div class="text-muted small">plants &middot; @Model.Dashboard.Production.PottedPlantAvailable.ToString("N0") available</div>
             </div></div>
         </div>
-        <div class="col-md-2">
+        <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
                 <div class="text-muted small">Ready Stock</div>
                 <div class="fs-4">@Model.Dashboard.Production.ReadyStockQuantity.ToString("N0")</div>
                 <div class="text-muted small">plants confirmed Ready</div>
             </div></div>
         </div>
-        <div class="col-md-2">
+        <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
                 <div class="text-muted small">Seed Stock</div>
                 @if (Model.Dashboard.Production.SeedStock.Any())
@@ -268,7 +268,7 @@
                 }
             </div></div>
         </div>
-        <div class="col-md-2">
+        <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
                 <div class="text-muted small">Empty Pot Stock</div>
                 <div class="fs-4">@Model.Dashboard.Production.EmptyPotPhysical.ToString("N0")</div>
@@ -281,29 +281,29 @@
     <!-- Section B: Ready Stock / Production Readiness -->
     <h5>Ready Stock / Production Readiness</h5>
     <div class="row g-3 mb-4">
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Sown</div>
             <div class="fs-5">@Model.Dashboard.ReadyStock.SownQuantity.ToString("N0")</div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Confirmed Ready</div>
             <div class="fs-5">@Model.Dashboard.ReadyStock.ConfirmedReadyQuantity.ToString("N0")</div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Remaining</div>
             <div class="fs-5">@Model.Dashboard.ReadyStock.RemainingQuantity.ToString("N0")</div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100 border-danger"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100 border-danger"><div class="card-body">
             <div class="text-danger small">Overdue</div>
             <div class="fs-5">@Model.Dashboard.ReadyStock.OverdueCount <span class="text-muted small">batches</span></div>
             <div class="text-muted small">@Model.Dashboard.ReadyStock.OverdueQuantity.ToString("N0") remaining</div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100 border-warning"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100 border-warning"><div class="card-body">
             <div class="text-warning-emphasis small">Ready Today</div>
             <div class="fs-5">@Model.Dashboard.ReadyStock.ReadyTodayCount <span class="text-muted small">batches</span></div>
             <div class="text-muted small">@Model.Dashboard.ReadyStock.ReadyTodayQuantity.ToString("N0") remaining</div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100 border-success"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100 border-success"><div class="card-body">
             <div class="text-success small">Ready Soon</div>
             <div class="fs-5">@Model.Dashboard.ReadyStock.ReadySoonCount <span class="text-muted small">batches</span></div>
             <div class="text-muted small">@Model.Dashboard.ReadyStock.ReadySoonQuantity.ToString("N0") remaining</div>
@@ -317,29 +317,29 @@
     <!-- Section D: Outlet / Sales Summary -->
     <h5>Outlet / Sales Summary</h5>
     <div class="row g-3 mb-4">
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Outlet Stock</div>
             <div class="fs-5">@Model.Dashboard.OutletSales.OutletStockPhysical.ToString("N0")</div>
             <div class="text-muted small">@Model.Dashboard.OutletSales.OutletStockAvailable.ToString("N0") available</div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Pending Bookings</div>
             <div class="fs-5">@Model.Dashboard.OutletSales.PendingBookings</div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Partially Dispatched</div>
             <div class="fs-5">@Model.Dashboard.OutletSales.PartiallyDispatchedBookings</div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Remaining Booking Qty</div>
             <div class="fs-5">@Model.Dashboard.OutletSales.RemainingBookingQuantity.ToString("N0")</div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Completed Dispatches</div>
             <div class="fs-5">@Model.Dashboard.OutletSales.CompletedDispatchCountInRange</div>
             <div class="text-muted small">@Model.Dashboard.OutletSales.CompletedDispatchQuantityInRange.ToString("N0") plants <span class="badge bg-primary">Movement</span></div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Cancelled Bookings</div>
             <div class="fs-5">@Model.Dashboard.OutletSales.CancelledBookings</div>
         </div></div></div>
@@ -351,7 +351,7 @@
     <!-- Section E: Seed Summary -->
     <h5>Seed Summary</h5>
     <div class="row g-3 mb-4">
-        <div class="col-md-3"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Main Office Seed Stock <span class="badge bg-secondary">Balance</span></div>
             @if (Model.Dashboard.Seed.MainOfficeSeedStock.Any())
             {
@@ -362,17 +362,17 @@
             }
             else { <div class="text-muted small">No stock</div> }
         </div></div></div>
-        <div class="col-md-3"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Seed Issue (historical, retired) <span class="badge bg-primary">Movement</span></div>
             <div class="fs-6">Issued: @Model.Dashboard.Seed.SeedIssuedQuantityInRange.ToString("N1")</div>
             <div class="fs-6">Received: @Model.Dashboard.Seed.SeedReceivedQuantityInRange.ToString("N1")</div>
         </div></div></div>
-        <div class="col-md-3"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Sown (range) <span class="badge bg-primary">Movement</span></div>
             <div class="fs-5">@Model.Dashboard.Seed.SeedSownQuantityInRange.ToString("N1")</div>
             <div class="text-muted small">@Model.Dashboard.Seed.SowingActivityCountInRange sowing events</div>
         </div></div></div>
-        <div class="col-md-3"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Pending Seed Receipts (legacy Seed Issue) <span class="badge bg-secondary">Balance</span></div>
             <div class="fs-5">@Model.Dashboard.Seed.PendingSeedReceipts</div>
         </div></div></div>
@@ -385,23 +385,23 @@
     <!-- Section F: Cutting Summary -->
     <h5>Cutting Summary</h5>
     <div class="row g-3 mb-3">
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Cutting Available</div>
             <div class="fs-5">@Model.Dashboard.Cutting.CuttingAvailable.ToString("N0")</div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">In Transit</div>
             <div class="fs-5">@Model.Dashboard.Cutting.CuttingInTransit.ToString("N0")</div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Pending Confirmation</div>
             <div class="fs-5">@Model.Dashboard.Cutting.PendingConfirmationCount <span class="text-muted small">(@Model.Dashboard.Cutting.PendingConfirmationQuantity.ToString("N0"))</span></div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Confirmed, Awaiting Transplant</div>
             <div class="fs-5">@Model.Dashboard.Cutting.ConfirmedAwaitingTransplantCount <span class="text-muted small">(@Model.Dashboard.Cutting.ConfirmedAwaitingTransplantQuantity.ToString("N0"))</span></div>
         </div></div></div>
-        <div class="col-md-2"><div class="card h-100"><div class="card-body">
+        <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Transplanted (range)</div>
             <div class="fs-5">@Model.Dashboard.Cutting.TransplantedCountInRange <span class="text-muted small">(@Model.Dashboard.Cutting.TransplantedQuantityInRange.ToString("N0"))</span></div>
         </div></div></div>
@@ -455,13 +455,13 @@
         <div class="col-lg-6">
             <div class="card h-100"><div class="card-body">
                 <div class="fw-semibold">Sowing vs. Confirmed Ready <span class="text-muted small">(daily, selected range, unit: quantity)</span></div>
-                @Html.Raw(RenderGroupedBarChart(Model.Dashboard.SowingVsReadyTrend, "Sown", "Confirmed Ready"))
+                <div class="chart-scroll">@Html.Raw(RenderGroupedBarChart(Model.Dashboard.SowingVsReadyTrend, "Sown", "Confirmed Ready"))</div>
             </div></div>
         </div>
         <div class="col-lg-6">
             <div class="card h-100"><div class="card-body">
                 <div class="fw-semibold">Outlet Dispatch Trend <span class="text-muted small">(daily, selected range, unit: plants)</span></div>
-                @Html.Raw(RenderSingleSeriesBarChart(Model.Dashboard.OutletDispatchTrend, "plants"))
+                <div class="chart-scroll">@Html.Raw(RenderSingleSeriesBarChart(Model.Dashboard.OutletDispatchTrend, "plants"))</div>
             </div></div>
         </div>
     </div>

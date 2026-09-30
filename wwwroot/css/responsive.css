@@ -1,0 +1,165 @@
+/* ============================================================================
+   Global mobile-responsive hardening (audit-driven, additive only).
+   Loaded AFTER Bootstrap/site.css/dashboard.css in _Layout.cshtml so these
+   rules win on specificity order without !important. Nothing here removes or
+   overrides desktop appearance above the ~768px breakpoint unless said so
+   explicitly. See the audit report for what each block fixes and why.
+   ============================================================================ */
+
+/* ---- 1. Viewport-height hardening (mobile browser chrome) -----------------
+   .main-content already uses calc(100vh - 100px) as its scroll box (site.css);
+   iOS Safari's 100vh can include/exclude the address bar inconsistently.
+   100dvh (dynamic viewport height) is the modern fix; @supports keeps this a
+   no-op on browsers that don't understand it (nothing regresses there). */
+@supports (height: 100dvh) {
+    @media (max-width: 768px) {
+        .main-content {
+            max-height: calc(100dvh - 60px);
+        }
+    }
+}
+
+/* ---- 2. Touch targets -------------------------------------------------------
+   Bootstrap's default control height (~38px) and btn-sm (~31px) are under the
+   44px touch-target guideline. Raised only on touch-capable / small screens;
+   desktop mouse users keep the existing sizes exactly as they are. Padding
+   (not font-size) is increased, so text does not get visually bigger --
+   "Preserve existing colors/status meaning" / "do not shrink text" both hold. */
+@media (max-width: 768px), (pointer: coarse) {
+    .btn:not(.btn-sm):not(.btn-lg) {
+        min-height: 44px;
+        padding-top: .5rem;
+        padding-bottom: .5rem;
+    }
+
+    .btn-sm {
+        min-height: 38px;
+    }
+
+    .form-control:not(.form-control-sm),
+    .form-select:not(.form-select-sm) {
+        min-height: 44px;
+    }
+
+    .form-check-input {
+        width: 1.25em;
+        height: 1.25em;
+    }
+
+    /* row-action buttons inside tables (Edit/Delete/etc.) keep their compact
+       size but get breathing room so adjacent buttons don't touch each other */
+    td .btn + .btn,
+    td .btn + form,
+    td form + .btn,
+    td form + form {
+        margin-top: 4px;
+    }
+}
+
+/* ---- 3. Tables --------------------------------------------------------------
+   table-responsive already exists on every table that needs it (see audit);
+   this only makes the scroll itself smoother on touch devices and keeps a
+   sticky header (where a page already uses one) from being clipped. */
+.table-responsive {
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ---- 4. Modals ---------------------------------------------------------------
+   Bootstrap modals already work down to small screens; this is a defensive
+   net so a modal with unusually tall content on a short mobile viewport
+   scrolls INSIDE itself instead of pushing its footer buttons off-screen. */
+@media (max-width: 576px) {
+    .modal-dialog {
+        margin: .5rem;
+    }
+
+    .modal-content {
+        max-height: calc(100dvh - 1rem);
+    }
+
+    .modal-body {
+        overflow-y: auto;
+    }
+}
+
+/* ---- 5. Filters / forms ------------------------------------------------------
+   Most filter/entry forms already use Bootstrap's mobile-first col-md-* grid
+   (confirmed in the audit) and need nothing here. This only stops a long
+   label/value or a long button row from overflowing its column on very
+   narrow screens, and keeps filter Apply/Clear buttons reachable. */
+@media (max-width: 575.98px) {
+    .form-label {
+        word-break: break-word;
+    }
+
+    /* a row of buttons at the end of a filter form: let them wrap onto their
+       own lines with normal gap instead of being squeezed side by side */
+    form .d-flex.gap-2 > .btn,
+    form .d-flex.gap-2 > a.btn {
+        flex: 1 1 auto;
+    }
+}
+
+/* ---- 6. Charts (Management Dashboard inline SVGs) ---------------------------
+   The SVGs already scale via viewBox + width:100% so they never overflow, but
+   their text labels shrink proportionally and become illegible under ~500px
+   of rendered width. .chart-scroll keeps the chart at a legible native size
+   and lets the user pan horizontally instead, only when the viewport is too
+   narrow to show it at full size -- unchanged on desktop/tablet. */
+@media (max-width: 899px) {
+    .chart-scroll {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .chart-scroll > svg {
+        width: 900px !important;
+        max-width: none !important;
+    }
+}
+
+/* ---- 7. Dashboard / KPI cards -------------------------------------------------
+   Opt-in utility for a 2-up mobile grid where a page's cards would otherwise
+   go fully one-per-row below md (col-md-2 etc. with no smaller breakpoint). */
+@media (max-width: 767.98px) {
+    .kpi-2col > [class*="col-"] {
+        flex: 0 0 50%;
+        max-width: 50%;
+    }
+}
+
+/* ---- 8. Breadcrumbs / page titles / alerts ------------------------------------
+   Long page titles or alert text must wrap, never force horizontal scroll. */
+.header-title,
+h1, h2, h3, h4, h5, h6 {
+    overflow-wrap: break-word;
+}
+
+.alert {
+    overflow-wrap: break-word;
+}
+
+/* ---- 8b. Page header bars (title + action button(s)) --------------------------
+   ~30 pages use the same "d-flex justify-content-between align-items-center" bar
+   for their title + Create/Back/etc. button(s); about a third of those already
+   have flex-wrap (added in earlier corrections). Without it, a longer title on a
+   narrow screen squeezes or overlaps the button instead of wrapping onto its own
+   line. Wrapping never causes overflow, so this is safe to apply uniformly rather
+   than editing ~30 files individually -- desktop (>=768px) is untouched, matching
+   what the pages that already have flex-wrap look like today. */
+@media (max-width: 767.98px) {
+    .d-flex.justify-content-between {
+        flex-wrap: wrap;
+        row-gap: .5rem;
+    }
+}
+
+/* ---- 9. Pagination -------------------------------------------------------------
+   Bootstrap's .pagination is already flex-wrap; this only tightens spacing so
+   a long page list does not need horizontal scroll on narrow screens. */
+@media (max-width: 575.98px) {
+    .pagination {
+        flex-wrap: wrap;
+        row-gap: .25rem;
+    }
+}

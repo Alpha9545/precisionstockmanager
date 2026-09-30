@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -107,10 +108,12 @@ LEFT JOIN dbo.IMSUsers su ON d.SupervisorId = su.Id";
 
             const string sql = @"
 SELECT bk.Id, bk.BookingCode, bk.PottedPlantStockId, bk.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
-       bk.PotSize, bk.AreaId, a.Name AS AreaName, bk.Quantity, bk.DispatchedQuantity, bk.CustomerName, bk.Status
+       bk.PotSize, bk.AreaId, a.Name AS AreaName, bk.Quantity, bk.DispatchedQuantity, bk.CustomerName, bk.Status,
+       st.PhysicalQuantity AS StockPhysical, st.ReservedQuantity AS StockReserved, st.AvailableQuantity AS StockAvailable
 FROM dbo.PottedPlantBookings bk
 INNER JOIN dbo.PlantSpecies ps ON bk.SpeciesId = ps.Id
 INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
+INNER JOIN dbo.PottedPlantStock st ON st.Id = bk.PottedPlantStockId
 LEFT JOIN dbo.Area a ON bk.AreaId = a.Id
 WHERE bk.Status IN ('Pending', 'PartiallyDispatched')
 ORDER BY bk.BookingDate";
@@ -133,21 +136,39 @@ ORDER BY bk.BookingDate";
                     Quantity = reader.GetDecimal(reader.GetOrdinal("Quantity")),
                     DispatchedQuantity = reader.GetDecimal(reader.GetOrdinal("DispatchedQuantity")),
                     CustomerName = reader.GetString(reader.GetOrdinal("CustomerName")),
-                    Status = reader.GetString(reader.GetOrdinal("Status"))
+                    Status = reader.GetString(reader.GetOrdinal("Status")),
+                    StockPhysicalQuantity = reader.GetDecimal(reader.GetOrdinal("StockPhysical")),
+                    StockReservedQuantity = reader.GetDecimal(reader.GetOrdinal("StockReserved")),
+                    StockAvailableQuantity = reader.GetDecimal(reader.GetOrdinal("StockAvailable"))
                 });
             }
             return list;
         }
 
-        public async Task<(bool Success, string? Message, int Id)> InsertAsync(Dispatch entry, int? userId)
+        // FULFILMENT OF A BOOKING (Correction #4). One atomic transaction, every rule enforced here on
+        // the server (the page only mirrors them):
+        //   * quantity: a whole number > 0, never more than the booking's REMAINING (Booked - Dispatched);
+        //   * only a Pending / PartiallyDispatched booking (never Cancelled / already Dispatched);
+        //   * canAccessArea: may this user act on the booking's stock Area (null = no per-user check);
+        //   * expectedDispatched: the DispatchedQuantity the form was opened with -- a stale or
+        //     repeated form is refused (double-submit), see DispatchRules.CheckFormIsCurrent;
+        //   * stock: the booking's own Potted Plant Stock row (never taken from the caller). The
+        //     reservation is RELEASED FIRST and only then is physical stock deducted. Both go down
+        //     by the same quantity, but the stock rules (Physical >= Reserved, also a CHECK
+        //     constraint) hold after each step ONLY in that order: deducting physical first is refused
+        //     unless spare, unreserved plants exist -- which made every normal dispatch fail;
+        //   * everything (dispatch row, both ledger rows, sold total, booking totals/status) commits
+        //     together or not at all.
+        public async Task<(bool Success, string? Message, int Id)> InsertAsync(
+            Dispatch entry, int? userId, Func<int?, bool>? canAccessArea = null, decimal? expectedDispatched = null)
         {
             // Phase 21/Phase G: entry.Quantity is now the CALLER-SUPPLIED
             // amount to dispatch NOW -- it may be a partial amount, not
             // necessarily the Booking's full Quantity. Validated below
             // against what's actually still remaining on the Booking,
             // under the Booking row's own lock.
-            if (entry.Quantity <= 0)
-                return (false, "Quantity must be greater than zero.", 0);
+            if (entry.Quantity <= 0 || !DirectSowingRules.IsWholeNumber(entry.Quantity))
+                return (false, "Dispatch quantity must be a whole number greater than zero.", 0);
 
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
@@ -173,12 +194,6 @@ ORDER BY bk.BookingDate";
                     return (false, "Selected Booking not found.", 0);
                 }
                 var status = bookingReader.GetString(bookingReader.GetOrdinal("Status"));
-                if (status != "Pending" && status != "PartiallyDispatched")
-                {
-                    bookingReader.Close();
-                    tx.Rollback();
-                    return (false, $"This Booking is '{status}' and cannot be dispatched (only Pending or PartiallyDispatched bookings can be dispatched).", 0);
-                }
                 var bookingQuantity = bookingReader.GetDecimal(bookingReader.GetOrdinal("Quantity"));
                 var dispatchedSoFar = bookingReader.GetDecimal(bookingReader.GetOrdinal("DispatchedQuantity"));
                 entry.PottedPlantStockId = bookingReader.GetInt32(bookingReader.GetOrdinal("PottedPlantStockId"));
@@ -191,11 +206,29 @@ ORDER BY bk.BookingDate";
                 // quantity -> rejected"): the precise, lock-protected
                 // check -- fn_Dispatches_MatchesBooking's own CHECK is
                 // only the coarse "<= full Quantity" backstop.
-                var remaining = bookingQuantity - dispatchedSoFar;
-                if (entry.Quantity > remaining)
+                // Status first (a Cancelled / fully Dispatched booking is refused whatever else is wrong),
+                // then the Area, then a stale / repeated form, then the quantity against what remains.
+                if (!DispatchRules.CanDispatchStatus(status))
                 {
                     tx.Rollback();
-                    return (false, $"Dispatch quantity ({entry.Quantity:N2}) exceeds this Booking's remaining quantity ({remaining:N2}).", 0);
+                    return (false, DispatchRules.ValidateBookingDispatch(status, bookingQuantity, dispatchedSoFar, entry.Quantity).Error, 0);
+                }
+                if (canAccessArea != null && !canAccessArea(entry.AreaId))
+                {
+                    tx.Rollback();
+                    return (false, "You are not authorized to dispatch stock for this Booking's Area.", 0);
+                }
+                var (currentOk, currentError) = DispatchRules.CheckFormIsCurrent(expectedDispatched, dispatchedSoFar);
+                if (!currentOk)
+                {
+                    tx.Rollback();
+                    return (false, currentError, 0);
+                }
+                var (quantityOk, remaining, quantityError) = DispatchRules.ValidateBookingDispatch(status, bookingQuantity, dispatchedSoFar, entry.Quantity);
+                if (!quantityOk)
+                {
+                    tx.Rollback();
+                    return (false, quantityError, 0);
                 }
 
                 var dispatchCode = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "DIS", entry.DispatchDate.Year);
@@ -227,7 +260,22 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
                 var newId = (int)await cmd.ExecuteScalarAsync();
 
-                // 3) Physical stock actually leaves -- exactly the
+                // 3) The portion of the booking's reservation this dispatch
+                // fulfils comes off Reserved FIRST (same as a cancellation
+                // would). Doing it first is what keeps Physical >= Reserved
+                // true after every step: the plants leave the reservation,
+                // and only then leave the shelf. (Deducting Physical first
+                // was refused whenever Physical - quantity < Reserved, i.e.
+                // whenever there were no spare unreserved plants.)
+                var (releaseSuccess, releaseMessage) = await _pottedPlantStockRepo.RecordReservationAsync(
+                    conn, tx, entry.PottedPlantStockId, -entry.Quantity, "ReservationRelease", "Dispatch", newId, userId, "Booking dispatched");
+                if (!releaseSuccess)
+                {
+                    tx.Rollback();
+                    return (false, $"The stock reserved for this Booking cannot cover {entry.Quantity:N0}: {releaseMessage}", 0);
+                }
+
+                // 3b) Physical stock actually leaves -- exactly the
                 // (possibly partial) entry.Quantity, not the Booking's
                 // full Quantity.
                 var (dispatchSuccess, dispatchMessage) = await _pottedPlantStockRepo.RecordTransactionAsync(
@@ -238,7 +286,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                     return (false, dispatchMessage, 0);
                 }
 
-                // 3b) Phase 21/Phase G: SoldDispatchedQuantity has existed
+                // 3c) Phase 21/Phase G: SoldDispatchedQuantity has existed
                 // on dbo.PottedPlantStock since Phase 7 as a "cumulative,
                 // informational running total" but was never actually
                 // incremented anywhere -- a pre-existing dormant-field gap
@@ -253,16 +301,6 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 soldDispatchedCmd.Parameters.AddWithValue("@Id", entry.PottedPlantStockId);
                 await soldDispatchedCmd.ExecuteNonQueryAsync();
 
-                // 4) The portion of the reservation this dispatch fulfils
-                // comes off Reserved same as a cancellation would.
-                var (releaseSuccess, releaseMessage) = await _pottedPlantStockRepo.RecordReservationAsync(
-                    conn, tx, entry.PottedPlantStockId, -entry.Quantity, "ReservationRelease", "Dispatch", newId, userId, "Booking dispatched");
-                if (!releaseSuccess)
-                {
-                    tx.Rollback();
-                    return (false, releaseMessage, 0);
-                }
-
                 // 5) Update the Booking's running DispatchedQuantity and
                 // resulting Status -- 'Dispatched' only once fully
                 // consumed, 'PartiallyDispatched' otherwise. A single
@@ -271,7 +309,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 // 'Pending' -> 'Dispatched', byte-for-byte the same
                 // outcome as before Phase 21.
                 var newDispatchedQuantity = dispatchedSoFar + entry.Quantity;
-                var newBookingStatus = newDispatchedQuantity >= bookingQuantity ? "Dispatched" : "PartiallyDispatched";
+                var newBookingStatus = DispatchRules.StatusAfterDispatch(bookingQuantity, newDispatchedQuantity);
                 var updateBookingCmd = new SqlCommand(@"
 UPDATE dbo.PottedPlantBookings
 SET DispatchedQuantity = @DispatchedQuantity,
@@ -292,9 +330,15 @@ WHERE Id = @Id", conn, tx);
                 entry.Status = "Completed";
                 return (true, null, newId);
             }
+            catch (SqlException ex) when (ex.Number == 547)
+            {
+                // a database stock rule (CHECK constraint) refused it: nothing was changed
+                try { tx.Rollback(); } catch { }
+                return (false, "The database refused the dispatch because it would break a stock rule. Nothing was dispatched. (" + ex.Message + ")", 0);
+            }
             catch (Exception ex)
             {
-                tx.Rollback();
+                try { tx.Rollback(); } catch { }
                 return (false, ex.Message, 0);
             }
         }

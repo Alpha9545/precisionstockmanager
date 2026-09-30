@@ -23,6 +23,24 @@
         </div>
     </div>
 
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success py-2">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger py-2">@TempData["Error"]</div>
+    }
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div class="alert alert-danger py-2">
+            @foreach (var error in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+            {
+                <div>@error.ErrorMessage</div>
+            }
+        </div>
+    }
+
     <!-- STOCK ENTRY FORM -->
     <div class="card mb-3 shadow-sm">
         <div class="card-header bg-primary text-white py-2">

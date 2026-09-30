@@ -169,6 +169,7 @@ namespace PlantStockManager.Authorization
                 ["/Fertilizer/Stock"] = R("Fertilizer.View", "Fertilizer.Enter"),
                 ["/Fertilizer/Usage"] = R("Fertilizer.Enter"),
                 ["/Fertilizer/View"] = R("Fertilizer.View"),
+                ["/Fertilizer/Transactions"] = R("Fertilizer.View"),   // Correction #8: same permission as the Fertilizer Report
                 ["/Fertilizer/Fertilizer"] = R("Fertilizer.View", "Fertilizer.Manage"),
                 ["/Fertilizer/Type"] = R("Fertilizer.View", "Fertilizer.Manage"),
                 ["/Fertilizer/UnitMaster"] = R("Fertilizer.View", "Fertilizer.Manage"),
@@ -182,11 +183,15 @@ namespace PlantStockManager.Authorization
                 // REPORTS -> Old System: the old seed pipeline (dbo.SeedEntries /
                 // dbo.Inventory) -- history only, read-only (the only POST is an
                 // Excel export); no new workflow writes to or reads these tables.
+                // 2026-09-30: Sowing Records / Month-wise Sowing / Stock Sync /
+                // Sowing-Booking Sync removed (Phase 1 of the old-system
+                // cleanup); Booking History intentionally kept -- out of scope
+                // for this pass.
                 ["/Data/BookingHistory"] = R("Booking.View|Booking.Direct|Dispatch.View|Reports.View"),
-                ["/Data/SowingPlants"] = R("Sowing.View|Reports.View"),
-                ["/Data/MonthWiseSowing"] = R("Sowing.View|Reports.View"),
-                ["/Data/TotalStockSync"] = R("Reports.View|Sowing.View|Booking.View"),
-                ["/Data/SowingBookingSync"] = R("Reports.View|Sowing.View|Booking.View"),
+                // Phase H (2026-09-30): Month-wise Sowing's replacement --
+                // same permission codes as the retired route, over the new
+                // dbo.SeedSowings table instead of dbo.SeedEntries.
+                ["/Data/SeedSowingMonthlyReport"] = R("Sowing.View|Reports.View"),
             };
 
         // "/Admin/Users", "/admin/users/", "/Production/X/Index", "/" and

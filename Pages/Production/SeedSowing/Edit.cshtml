@@ -28,6 +28,7 @@
                 <div class="alert alert-danger">@TempData["Error"]</div>
             }
 
+            <div class="table-responsive">
             <table class="table table-sm table-bordered mb-3">
                 <tbody>
                     <tr><th class="w-50">Source</th><td>@(s.IsCuttingSource ? "Cutting Stock" : "Seed lot " + s.BatchNo)</td></tr>
@@ -39,6 +40,7 @@
                     <tr><th>Expected Ready Date</th><td>@(s.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "-")</td></tr>
                 </tbody>
             </table>
+            </div>
             <div class="small text-muted mb-3">
                 These values are final once the sowing is saved. If something is wrong, cancel the sowing
                 (the @unit.ToLower() go back to stock) and record it again.
@@ -54,9 +56,47 @@
                     <input type="hidden" asp-for="Id" />
                     <label class="form-label fw-bold">Remarks</label>
                     <textarea asp-for="Remarks" class="form-control" rows="2"></textarea>
+
+                    <hr />
+                    <h6 class="fw-bold">Growth Checkpoints (optional)</h6>
+                    <div class="small text-muted mb-2">
+                        Informational only -- these never affect stock, wastage or Ready Confirmation.
+                        Record a count whenever it's actually taken; leave blank if it wasn't.
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label class="form-label">Trays Alive Quantity</label>
+                            <input asp-for="TraysAliveQuantity" type="number" step="1" min="0" class="form-control" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Trays Alive Date</label>
+                            <input asp-for="TraysAliveDate" type="date" class="form-control" />
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-6">
+                            <label class="form-label">Hardening Alive Quantity</label>
+                            <input asp-for="HardeningAliveQuantity" type="number" step="1" min="0" class="form-control" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Hardening Alive Date</label>
+                            <input asp-for="HardeningAliveDate" type="date" class="form-control" />
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">Location</label>
+                            <input asp-for="Location" class="form-control" maxlength="100" placeholder="e.g. Inside / Outside" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Location Description</label>
+                            <input asp-for="LocationDescription" class="form-control" maxlength="200" />
+                        </div>
+                    </div>
+
                     <div class="text-center mt-3">
                         <a asp-page="/Production/SeedSowing/Index" class="btn btn-secondary me-2">Back</a>
-                        <button type="submit" class="btn btn-success">Save Remarks</button>
+                        <button type="submit" class="btn btn-success">Save</button>
                     </div>
                 </form>
             }

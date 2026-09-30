@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using System.Security.Claims;
 
 namespace PlantStockManager.Pages.Bookings
@@ -28,6 +29,13 @@ namespace PlantStockManager.Pages.Bookings
         [BindProperty(SupportsGet = true)] public int SelectedMonth { get; set; } = DateTime.Now.Month;
         [BindProperty(SupportsGet = true)] public int SelectedYear { get; set; } = DateTime.Now.Year;
         [BindProperty(SupportsGet = true)] public string SelectedStatus { get; set; } = "Pending";
+
+        // Correction #6: "Booking By" (same value format and query as Seedling Booking Records): "" = all,
+        // "U:<id>" a person, "O:<name>" a free-text name, "X:none" not recorded.
+        [BindProperty(SupportsGet = true)] public string? SelectedBookedBy { get; set; }
+        public List<BookedByFilter.Option> BookedByOptions { get; set; } = new();
+        public string? Notice { get; set; }
+        public bool BookedByActive { get; set; }
 
         [BindProperty] public Booking Booking { get; set; }
 
@@ -81,7 +89,13 @@ namespace PlantStockManager.Pages.Bookings
             if (SelectedPlantType.HasValue)
                 PlantSpecies = await _plantSpeciesRepository.GetSpeciesByPlantType(SelectedPlantType.Value);
 
-            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId);
+            var (bookedBy, notice) = BookedByFilter.Parse(SelectedBookedBy);
+            SelectedBookedBy = bookedBy.Value;
+            BookedByActive = bookedBy.IsActive;
+            Notice = notice;
+            BookedByOptions = await _bookingRepository.GetBookedByOptionsAsync();
+
+            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId, bookedBy);
 
             var uid = User.FindFirstValue(ClaimTypes.NameIdentifier);
             ViewData["CurrentUserId"] = uid ?? "0";
@@ -91,6 +105,7 @@ namespace PlantStockManager.Pages.Bookings
         {
             // Remove filter validation noise
             ModelState.Remove("SelectedStatus");
+            ModelState.Remove("SelectedBookedBy");
             ModelState.Remove("SelectedPlantType");
             ModelState.Remove("SelectedSpecies");
             ModelState.Remove("SelectedMonth");

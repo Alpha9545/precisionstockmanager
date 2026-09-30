@@ -8,8 +8,9 @@ using PlantStockManager.Services;
 namespace PlantStockManager.Pages.Production.PotBatch
 {
     // One pot batch: daily production entries (running total shown), the
-    // READY confirmation (assigned supervisor only), cancel before any
-    // production, and the expected ready date.
+    // READY confirmation (any authorized user assigned to the batch Area --
+    // PotBatchRules.CanConfirmReady), cancel before any production, and the
+    // expected ready date.
     public class DetailsModel : PageModel
     {
         private readonly PotBatchRepository _batchRepo;
@@ -23,7 +24,11 @@ namespace PlantStockManager.Pages.Production.PotBatch
 
         public PotProductionBatch Batch { get; set; } = new();
         public List<PotProductionEntry> Entries { get; set; } = new();
-        public bool IsAssignedSupervisor { get; set; }
+        // Pot Production permission + assignment to the batch Area.
+        public bool CanConfirmReady { get; set; }
+        // The "Ready Confirmation By" user named on the batch (may confirm, like
+        // any other authorized Area user; also keeps the cancel / expected-date rights).
+        public bool IsDesignatedConfirmer { get; set; }
         public bool IsCreator { get; set; }
         public IReadOnlyList<string> WastageReasons => DirectSowingRules.WastageReasons;
 
@@ -54,9 +59,9 @@ namespace PlantStockManager.Pages.Production.PotBatch
             if (!await LoadAsync(id))
                 return Denied();
             var me = User.GetUserId();
-            if (!me.HasValue || !IsAssignedSupervisor)
+            if (!me.HasValue || !CanConfirmReady)
             {
-                TempData["Error"] = "Only the supervisor assigned to this batch can confirm it READY.";
+                TempData["Error"] = "You cannot confirm this batch READY: it needs Pot Production permission and assignment to this batch's Area.";
                 return RedirectToPage(new { id });
             }
             var (ok, message) = await _batchRepo.ConfirmReadyAsync(id, ReadyQuantity, WastageReason, UnusedCuttingAction, ReadyRemarks, me.Value, User.Identity?.Name);
@@ -95,7 +100,8 @@ namespace PlantStockManager.Pages.Production.PotBatch
             Batch = batch;
             Entries = await _batchRepo.GetEntriesAsync(id);
             var me = User.GetUserId();
-            IsAssignedSupervisor = me.HasValue && me.Value == batch.SupervisorId && me.Value != batch.CreatedById;
+            CanConfirmReady = PotBatchRules.CanConfirmReady(User, batch.AreaId);
+            IsDesignatedConfirmer = me.HasValue && me.Value == batch.SupervisorId;
             IsCreator = me.HasValue && me.Value == batch.CreatedById;
             NewExpectedReadyDate = batch.ExpectedReadyDate;
             return true;

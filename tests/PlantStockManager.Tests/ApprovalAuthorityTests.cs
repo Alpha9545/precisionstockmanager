@@ -116,15 +116,20 @@ namespace PlantStockManager.Tests
 
         // Phase D: a saved sowing's supervisor can never be changed (so
         // nobody can re-assign a sowing to themselves and then approve it).
-        // The Edit page accepts only the sowing id and its Remarks.
+        // Phase H (2026-09-30) added the optional, informational survivorship
+        // checkpoints (Trays Alive / Hardening Alive / Location) alongside
+        // Remarks -- everything else on a sowing is still immutable
+        // (TR_SeedSowings_ImmutableTrayData).
         [Fact]
-        public void EditPage_BindsOnlyIdAndRemarks()
+        public void EditPage_BindsOnlyIdRemarksAndSurvivorshipCheckpoints()
         {
             var bound = typeof(PlantStockManager.Pages.Production.SeedSowing.EditModel)
                 .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
                 .Where(p => System.Reflection.CustomAttributeExtensions.GetCustomAttribute<Microsoft.AspNetCore.Mvc.BindPropertyAttribute>(p) != null)
                 .Select(p => p.Name).OrderBy(n => n).ToArray();
-            Assert.Equal(new[] { "Id", "Remarks" }, bound);
+            Assert.Equal(
+                new[] { "HardeningAliveDate", "HardeningAliveQuantity", "Id", "Location", "LocationDescription", "Remarks", "TraysAliveDate", "TraysAliveQuantity" },
+                bound);
         }
 
         [Fact]

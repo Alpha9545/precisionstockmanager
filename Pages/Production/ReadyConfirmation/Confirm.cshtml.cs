@@ -31,17 +31,29 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
         private readonly SeedSowingRepository _seedSowingRepo;
         private readonly ReadyConfirmationRepository _readyConfirmationRepo;
         private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
+        private readonly AreaAccessService _cuttingAreaAccess;   // Cutting Stock Area isolation (strict: not the seedling-only scope)
 
         public ConfirmModel(
             SeedSowingRepository seedSowingRepo, ReadyConfirmationRepository readyConfirmationRepo,
-            SeedlingAreaScope areaAccessService)
+            SeedlingAreaScope areaAccessService, AreaAccessService cuttingAreaAccess)
         {
             _seedSowingRepo = seedSowingRepo;
             _readyConfirmationRepo = readyConfirmationRepo;
             _areaAccessService = areaAccessService;
+            _cuttingAreaAccess = cuttingAreaAccess;
         }
 
         public SeedSowingModel SeedSowing { get; set; } = new();
+
+        // Cutting Tray Sowing only: the Available Cutting Stock of the sowing's own
+        // pool, in CUTTINGS (Physical - In-Transit), shown when this user may use
+        // cuttings held in that Area (else null). Read-only display; the save
+        // re-checks it under the pool's lock.
+        public decimal? AvailableCuttingStock { get; set; }
+
+        // The most TRAYS that can be entered right now (never fewer than the trays the
+        // sowing still expects; otherwise floor(available cuttings / cavity)). Display only.
+        public decimal? MaxReadyTrays { get; set; }
 
         [BindProperty]
         public int SeedSowingId { get; set; }
@@ -87,7 +99,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             }
             // Only the supervisor assigned to this sowing (and never its creator).
             var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
-                sowing.SupervisorId, sowing.CreatedById, sowing.CreatedBy, User.GetUserId(), User.Identity?.Name);
+                sowing.SupervisorId, sowing.CreatedById, sowing.CreatedBy, User.GetUserId(), User.Identity?.Name, sowing.SourceType);
             if (!mayApprove)
             {
                 TempData["Error"] = authorityError;
@@ -96,7 +108,28 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
 
             SeedSowing = sowing;
             SeedSowingId = sowing.Id;
+            LoadCuttingStock(sowing);
             return Page();
+        }
+
+        // Cutting sowings draw extra cuttings from the pool they were sown from --
+        // only when the user may use cuttings held in that pool's Area (the same
+        // Area-isolation rule as recording the sowing, CuttingRules.CanUseAsSource).
+        private bool CanUseSourceArea(int areaId)
+            => CuttingRules.CanUseAsSource(_cuttingAreaAccess.CanAccessArea(User, areaId));
+
+        private void LoadCuttingStock(SeedSowingModel sowing)
+        {
+            AvailableCuttingStock = null;
+            MaxReadyTrays = null;
+            if (!sowing.IsCuttingSource || !sowing.SourceCuttingStockId.HasValue || sowing.SourceAreaId <= 0)
+                return;
+            if (CanUseSourceArea(sowing.SourceAreaId))
+            {
+                AvailableCuttingStock = sowing.SourceAvailableQuantity;
+                if (AvailableCuttingStock.HasValue)
+                    MaxReadyTrays = DirectSowingRules.MaxReadyTrays(sowing.RemainingReadyQuantity, sowing.CavityType, AvailableCuttingStock.Value);
+            }
         }
 
         public async Task<IActionResult> OnPostAsync()
@@ -118,7 +151,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
 
             // Approval authority (the repository re-applies it under lock).
             var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
-                sowing.SupervisorId, sowing.CreatedById, sowing.CreatedBy, User.GetUserId(), User.Identity?.Name);
+                sowing.SupervisorId, sowing.CreatedById, sowing.CreatedBy, User.GetUserId(), User.Identity?.Name, sowing.SourceType);
             if (!mayApprove)
             {
                 TempData["Error"] = authorityError;
@@ -134,6 +167,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             {
                 ModelState.AddModelError(string.Empty, error!);
                 SeedSowing = sowing;
+                LoadCuttingStock(sowing);
                 return Page();
             }
             var userIdClaim = User.FindFirst("UserId")?.Value;
@@ -143,16 +177,19 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             // No generic "Responsible Person": the assigned Sowing Supervisor
             // (already checked above) is who is accountable for this approval.
             var (success, message, _) = await _readyConfirmationRepo.ConfirmAsync(
-                sowing.Id, ActualReadyTrays, WastageReason, null, Remarks, createdBy, userId);
+                sowing.Id, ActualReadyTrays, WastageReason, null, Remarks, createdBy, userId, CanUseSourceArea);
 
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to record the Supervisor Approval.");
                 SeedSowing = sowing;
+                LoadCuttingStock(sowing);
                 return Page();
             }
 
-            TempData["Success"] = $"Batch {sowing.SowingCode} approved: {ActualReadyTrays:N0} trays x {sowing.CavityType} = {seedlings:N0} seedlings added to Ready Stock; wastage {wastage:N0} ({wastagePct:0.00}%). The sowing is now Completed.";
+            var extra = DirectSowingRules.ExtraCuttingsNeeded(sowing.SourceType, ActualReadyTrays, sowing.CavityType, sowing.RemainingReadyQuantity);
+            TempData["Success"] = $"Batch {sowing.SowingCode} approved: {ActualReadyTrays:N0} trays x {sowing.CavityType} = {seedlings:N0} seedlings added to Ready Stock; wastage {wastage:N0} ({wastagePct:0.00}%). The sowing is now Completed."
+                + (extra > 0 ? $" {DirectSowingRules.ExtraTrays(extra, sowing.CavityType):N0} extra trays = {extra:N0} extra cuttings were taken from Cutting Stock." : "");
             return RedirectToPage("/Production/ReadyConfirmation/History", new { id = sowing.Id });
         }
 
@@ -169,7 +206,40 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             var (ok, _, seedlings, wastage, wastagePct, error) = DirectSowingRules.ComputeTrayApproval(
                 sowing.QuantitySown, sowing.NumberOfTrays, sowing.CavityType, sowing.ConfirmedReadyQuantity, sowing.WastageQuantity,
                 trays, DirectSowingRules.WastageReasons[0]);
-            return new JsonResult(new { ok, seedlings = ok ? seedlings : (decimal?)null, wastage, wastagePercent = wastagePct, error });
+
+            // Cutting Tray Sowing: how many extra trays / extra cuttings this many TRAYS
+            // would take from Cutting Stock, and whether the pool (in CUTTINGS) can cover
+            // them (advisory only -- the save decides, under the pool's lock). Never
+            // reported for seed sowings.
+            var calculated = ok;   // the tray arithmetic itself; a stock problem below does not hide the numbers
+            var extra = ok ? DirectSowingRules.ExtraCuttingsNeeded(sowing.SourceType, trays, sowing.CavityType, sowing.RemainingReadyQuantity) : 0m;
+            decimal? available = null;
+            if (ok && sowing.IsCuttingSource)
+            {
+                if (extra > 0 && !CanUseSourceArea(sowing.SourceAreaId))
+                {
+                    ok = false;
+                    error = "You are not authorized to use cuttings from this Area.";
+                }
+                else if (sowing.SourceAvailableQuantity.HasValue && CanUseSourceArea(sowing.SourceAreaId))
+                {
+                    available = sowing.SourceAvailableQuantity;
+                    var (stockOk, _, stockError) = DirectSowingRules.CheckCuttingOverage(
+                        seedlings, extra, available.Value, 0, trays, DirectSowingRules.CavityCount(sowing.CavityType));
+                    if (!stockOk)
+                    {
+                        ok = false;
+                        error = stockError;
+                    }
+                }
+            }
+            var extraTrays = DirectSowingRules.ExtraTrays(extra, sowing.CavityType);
+            decimal? maxTrays = available.HasValue ? DirectSowingRules.MaxReadyTrays(sowing.RemainingReadyQuantity, sowing.CavityType, available.Value) : null;
+            return new JsonResult(new
+            {
+                ok, seedlings = calculated ? seedlings : (decimal?)null, wastage, wastagePercent = wastagePct,
+                extraTrays, extraCuttings = extra, availableCuttings = available, maxReadyTrays = maxTrays, error
+            });
         }
 
     }

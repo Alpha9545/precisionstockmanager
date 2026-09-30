@@ -387,48 +387,18 @@ ORDER BY t.CreatedDate ASC";
                 }
                 else if (entry.StockType == "Cutting")
                 {
-                    if (!entry.SourceCuttingStockId.HasValue)
+                    // The reservation + pending header live in CreateCuttingDeliveryAsync
+                    // (shared with the Cutting Entry, which needs them inside ITS transaction).
+                    var delivery = await CreateCuttingDeliveryAsync(conn, tx, entry, userId);
+                    if (!delivery.Success)
                     {
                         tx.Rollback();
-                        return (false, "Source Species / Area is required.", 0);
+                        return (false, delivery.Message, 0);
                     }
-
-                    // Reserve against AvailableQuantity (PhysicalQuantity -
-                    // InTransitQuantity) rather than a bare lock -- this is
-                    // what stops the same physical cuttings being sent
-                    // twice while an earlier transfer of theirs is still
-                    // in flight. Nothing is written to
-                    // CuttingStock.PhysicalQuantity or the ledger here --
-                    // only InTransitQuantity rises.
-                    var (reserveSuccess, reserveMessage, srcAreaId, _) = await _cuttingStockRepo.ReserveInTransitAsync(
-                        conn, tx, entry.SourceCuttingStockId.Value, entry.Quantity);
-                    if (!reserveSuccess)
-                    {
-                        tx.Rollback();
-                        return (false, reserveMessage, 0);
-                    }
-
-                    entry.SourceAreaId = srcAreaId;
-
-                    if (entry.SourceAreaId == entry.PendingConfirmationAreaId)
-                    {
-                        tx.Rollback();
-                        return (false, "Source Area and the Main Office Area you're sending to must be different.", 0);
-                    }
-
-                    // Cutting deliveries are ALWAYS created pending -- only
-                    // InTransitQuantity is reserved here. Quantity records
-                    // what was sent and is never altered; stock moves when
-                    // Main Office confirms what it received
-                    // (ConfirmReceiptAsync).
-                    entry.Status = "PendingConfirmation";
-                    entry.DestinationAreaId = null;
-
-                    var newId = await InsertHeaderAsync(conn, tx, entry, userId);
 
                     tx.Commit();
-                    entry.Id = newId;
-                    return (true, null, newId);
+                    entry.Id = delivery.Id;
+                    return (true, null, delivery.Id);
                 }
                 else if (entry.StockType == "MainOfficeIssue" || entry.StockType == "GrowingPartnerToOutlet")
                 {
@@ -450,18 +420,58 @@ ORDER BY t.CreatedDate ASC";
             }
         }
 
+        // A Cutting delivery to Main Office, created INSIDE the caller's open transaction
+        // (the caller commits or rolls back):
+        //   * reserves entry.Quantity against the source pool's AvailableQuantity
+        //     (PhysicalQuantity - InTransitQuantity) -- this is what stops the same
+        //     physical cuttings being sent twice while an earlier delivery is in flight.
+        //     Nothing is written to CuttingStock.PhysicalQuantity or the ledger here,
+        //     only InTransitQuantity rises;
+        //   * the source Area is derived from the pool itself, never from the caller, and
+        //     must differ from the Main Office Area;
+        //   * cutting deliveries are ALWAYS created PendingConfirmation. Quantity records
+        //     what was sent and is never altered; stock moves when Main Office confirms what
+        //     it received (ConfirmReceiptAsync).
+        // Used by InsertAsync (Send Cuttings to Main Office) and by the Cutting Entry
+        // (destination Main Office), so both go through exactly the same rules.
+        public async Task<(bool Success, string? Message, int Id)> CreateCuttingDeliveryAsync(
+            SqlConnection conn, SqlTransaction tx, InternalTransfer entry, int? userId)
+        {
+            if (!entry.SourceCuttingStockId.HasValue)
+                return (false, "Source Species / Area is required.", 0);
+
+            var (reserveSuccess, reserveMessage, srcAreaId, _) = await _cuttingStockRepo.ReserveInTransitAsync(
+                conn, tx, entry.SourceCuttingStockId.Value, entry.Quantity);
+            if (!reserveSuccess)
+                return (false, reserveMessage, 0);
+
+            entry.SourceAreaId = srcAreaId;
+
+            if (entry.SourceAreaId == entry.PendingConfirmationAreaId)
+                return (false, "Source Area and the Main Office Area you're sending to must be different.", 0);
+
+            entry.Status = "PendingConfirmation";
+            entry.DestinationAreaId = null;
+
+            var newId = await InsertHeaderAsync(conn, tx, entry, userId);
+            return (true, null, newId);
+        }
+
         private async Task<int> InsertHeaderAsync(SqlConnection conn, SqlTransaction tx, InternalTransfer entry, int? userId)
         {
             var transferCode = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "TR", DateTime.Today.Year);
             var status = string.IsNullOrWhiteSpace(entry.Status) ? "Completed" : entry.Status;
 
-            const string insertSql = @"
+            // SourceCuttingProductionId is written only for a delivery created by a Cutting
+            // Entry, so every other transfer uses exactly the columns it always did.
+            var withProduction = entry.SourceCuttingProductionId.HasValue;
+            var insertSql = $@"
 INSERT INTO dbo.InternalTransfers
 (TransferCode, StockType, SourceEmptyPotInventoryId, SourcePottedPlantStockId, SourceCuttingStockId, SourceReadyStockId, SourceAreaId,
- DestinationAreaId, PendingConfirmationAreaId, Quantity, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy)
+ DestinationAreaId, PendingConfirmationAreaId, Quantity, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy{(withProduction ? ", SourceCuttingProductionId" : "")})
 VALUES
 (@TransferCode, @StockType, @SourceEmptyPotInventoryId, @SourcePottedPlantStockId, @SourceCuttingStockId, @SourceReadyStockId, @SourceAreaId,
- @DestinationAreaId, @PendingConfirmationAreaId, @Quantity, @Status, @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy);
+ @DestinationAreaId, @PendingConfirmationAreaId, @Quantity, @Status, @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy{(withProduction ? ", @SourceCuttingProductionId" : "")});
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             using var cmd = new SqlCommand(insertSql, conn, tx);
@@ -480,6 +490,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             cmd.Parameters.AddWithValue("@SupervisorId", (object?)entry.SupervisorId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Remarks", (object?)entry.Remarks ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@CreatedBy", (object?)entry.CreatedBy ?? DBNull.Value);
+            if (withProduction)
+                cmd.Parameters.AddWithValue("@SourceCuttingProductionId", entry.SourceCuttingProductionId!.Value);
 
             var newId = (int)await cmd.ExecuteScalarAsync();
             entry.Id = newId;

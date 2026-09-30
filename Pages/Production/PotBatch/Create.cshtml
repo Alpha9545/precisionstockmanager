@@ -57,6 +57,13 @@
                         <div class="text-warning small d-none" id="potWarning">Fewer empty pots than cuttings: issue more pots to this Area before potting them all.</div>
                     </div>
                     <div class="col-md-4">
+                        <label class="form-label">Polyhouse <span class="text-muted fw-normal">(optional)</span></label>
+                        <select asp-for="PolyhouseId" id="polyhouseSelect" class="form-select">
+                            <option value="">-- No Polyhouse --</option>
+                        </select>
+                        <small class="text-muted">Only the Polyhouses of the pot pool's Area.</small>
+                    </div>
+                    <div class="col-md-4">
                         <label class="form-label fw-bold">Production Start Date</label>
                         <input type="date" asp-for="ProductionStartDate" class="form-control" required />
                     </div>
@@ -65,11 +72,10 @@
                         <input type="date" asp-for="ExpectedReadyDate" class="form-control" required />
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Supervisor (confirms READY)</label>
-                        <select asp-for="SupervisorId" id="supervisor" class="form-select" required>
+                        <label class="form-label fw-bold">Ready Confirmation By</label>
+                        <select asp-for="ReadyConfirmerId" id="readyConfirmer" class="form-select" required>
                             <option value="">-- Select empty pots first --</option>
                         </select>
-                        <div class="form-text">A Mother Plant Supervisor of the Area, other than you.</div>
                     </div>
                     <div class="col-12">
                         <label class="form-label">Remarks</label>
@@ -89,7 +95,7 @@
     <script>
         $(function () {
             const url = '@Url.Page("/Production/PotBatch/Create")';
-            const selectedSupervisor = '@(Model.SupervisorId > 0 ? Model.SupervisorId.ToString() : "")';
+            const selectedConfirmer = '@(Model.ReadyConfirmerId > 0 ? Model.ReadyConfirmerId.ToString() : "")';
             function checkAlloc() {
                 const a = parseFloat($('#stock option:selected').data('available'));
                 const q = parseFloat($('#allocated').val());
@@ -97,23 +103,31 @@
                 $('#allocWarning').toggleClass('d-none', !(!isNaN(a) && !isNaN(q) && q > a));
                 $('#potWarning').toggleClass('d-none', !(!isNaN(pots) && !isNaN(q) && q > pots));
             }
-            function loadSupervisors() {
+            function loadReadyConfirmers() {
                 const areaId = $('#pool option:selected').data('area');
-                const $s = $('#supervisor');
+                const $s = $('#readyConfirmer');
                 if (!areaId) { $s.empty().append('<option value="">-- Select empty pots first --</option>'); return; }
-                $.getJSON(url, { handler: 'Supervisors', areaId: areaId }, function (list) {
-                    $s.empty().append($('<option value="">').text(list.length ? '-- Select supervisor --' : '-- No other Mother Plant Supervisor in this Area --'));
+                $.getJSON(url, { handler: 'ReadyConfirmers', areaId: areaId }, function (list) {
+                    $s.empty().append($('<option value="">').text(list.length ? '-- Select user --' : '-- No authorized user is assigned to this Area --'));
                     list.forEach(function (u) {
                         const $o = $('<option>').val(u.id).text(u.name);
-                        if (String(u.id) === selectedSupervisor || list.length === 1) $o.prop('selected', true);
+                        if (String(u.id) === selectedConfirmer || list.length === 1) $o.prop('selected', true);
                         $s.append($o);
                     });
                 });
             }
+            function loadPolyhouses() {
+                const areaId = $('#pool option:selected').data('area');
+                const $ph = $('#polyhouseSelect');
+                $.getJSON(url, { handler: 'Polyhouses', areaId: areaId || 0 }, function (list) {
+                    $ph.empty().append($('<option value="">').text('-- No Polyhouse --'));
+                    $.each(list, function (i, x) { $ph.append($('<option>').val(x.id).text(x.name)); });
+                });
+            }
             $('#stock').on('change', checkAlloc);
             $('#allocated').on('input', checkAlloc);
-            $('#pool').on('change', function () { loadSupervisors(); checkAlloc(); });
-            loadSupervisors(); checkAlloc();
+            $('#pool').on('change', function () { loadReadyConfirmers(); loadPolyhouses(); checkAlloc(); });
+            loadReadyConfirmers(); loadPolyhouses(); checkAlloc();
         });
     </script>
 }

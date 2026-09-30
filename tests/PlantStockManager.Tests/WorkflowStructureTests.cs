@@ -73,12 +73,17 @@ namespace PlantStockManager.Tests
         [Fact]
         public void CuttingProduction_TakesNoVarietyOrArea_FromTheForm()
         {
-            // The variety and Area always come from the Mother Plant.
+            // The variety and the SOURCE Area always come from the Mother Plant. The only additions
+            // are the destination choice (Correction #1) and the one-time form token: the
+            // destination Area is a Main Office Area picked among the DB's Main Office Areas,
+            // never the source Area, and is re-validated by the repository.
             var bound = typeof(PlantStockManager.Pages.Production.Cutting.CreateModel)
                 .GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.GetCustomAttribute<BindPropertyAttribute>() != null)
                 .Select(p => p.Name).OrderBy(n => n).ToArray();
-            Assert.Equal(new[] { "CuttingDate", "MotherPlantId", "Quantity", "Remarks", "SupervisorId" }, bound);
+            Assert.Equal(new[] { "CuttingDate", "Destination", "MainOfficeAreaId", "MotherPlantId", "Quantity", "Remarks", "SubmissionToken", "SupervisorId" }, bound);
+            Assert.DoesNotContain("AreaId", bound);
+            Assert.DoesNotContain("SpeciesId", bound);
         }
 
         [Fact]
@@ -150,11 +155,7 @@ namespace PlantStockManager.Tests
         }
 
         [Theory]
-        [InlineData("/Data/SowingPlants")]
-        [InlineData("/Data/MonthWiseSowing")]
         [InlineData("/Data/BookingHistory")]
-        [InlineData("/Data/TotalStockSync")]
-        [InlineData("/Data/SowingBookingSync")]
         public void OldSystemReports_AreReadOnly(string page)
         {
             // only GET handlers (and an Excel export) -- they never change data
@@ -163,6 +164,46 @@ namespace PlantStockManager.Tests
                 .Single(t => t.FullName == "PlantStockManager.Pages" + page.Replace('/', '.') + "Model");
             var posts = type.GetMethods().Where(m => m.Name.StartsWith("OnPost")).Select(m => m.Name).ToList();
             Assert.All(posts, n => Assert.Contains("Export", n));
+        }
+
+        [Fact]
+        public void SeedSowingMonthlyReport_IsReadOnly_WithSameCodesAsRetiredRoute()
+        {
+            // Phase H (2026-09-30): the "Monthly Wise Sowing" replacement --
+            // same permission codes as the retired /Data/MonthWiseSowing
+            // route, read-only (no OnPost handler at all: unlike the retired
+            // route this one has no Excel/PDF export handler either), and
+            // Area-scoped in SQL, not the old page's zero-security shape.
+            var rule = FeatureAuthorizationConventions.GetRule("/Data/SeedSowingMonthlyReport");
+            Assert.Equal("Sowing.View|Reports.View", rule.Read);
+            Assert.Null(rule.Write);
+            var type = typeof(PlantStockManager.Pages.Data.SeedSowingMonthlyReportModel);
+            Assert.Empty(type.GetMethods().Where(m => m.Name.StartsWith("OnPost")));
+        }
+
+        [Fact]
+        public void SeedSowingMonthlyReport_UsesGetMonthlyPivotAsync_WithParameterizedAreaScope()
+        {
+            // Structural guard against ever regressing to string-concatenated
+            // SQL for the Area IN-list (the CuttingProductionRepository
+            // pattern this reuses always parameterizes @Allowed).
+            var method = typeof(PlantStockManager.Data.SeedSowingRepository).GetMethod("GetMonthlyPivotAsync");
+            Assert.NotNull(method);
+            var paramNames = method!.GetParameters().Select(p => p.Name).ToArray();
+            Assert.Contains("allowedAreaIds", paramNames);
+        }
+
+        [Fact]
+        public void SeedSowingModel_HasSurvivorshipCheckpointFields()
+        {
+            var props = typeof(PlantStockManager.Models.SeedSowing).GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Select(p => p.Name).ToArray();
+            Assert.Contains("TraysAliveQuantity", props);
+            Assert.Contains("TraysAliveDate", props);
+            Assert.Contains("HardeningAliveQuantity", props);
+            Assert.Contains("HardeningAliveDate", props);
+            Assert.Contains("Location", props);
+            Assert.Contains("LocationDescription", props);
         }
     }
 }

@@ -22,6 +22,7 @@
                 </div>
             }
 
+            <div class="table-responsive">
             <table class="table table-sm table-bordered">
                 <tbody>
                     <tr><th class="w-50">From Area</th><td>@Model.Transfer.SourceAreaName</td></tr>
@@ -30,6 +31,7 @@
                     <tr><th>Delivered (sent)</th><td class="fw-bold" id="sent" data-value="@Model.Transfer.Quantity.ToString(System.Globalization.CultureInfo.InvariantCulture)">@Model.Transfer.Quantity.ToString("N0")</td></tr>
                 </tbody>
             </table>
+            </div>
 
             <form method="post">
                 <div class="mb-3">

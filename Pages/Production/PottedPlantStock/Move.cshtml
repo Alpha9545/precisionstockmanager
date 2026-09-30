@@ -24,6 +24,7 @@
                 </div>
             }
 
+            <div class="table-responsive">
             <table class="table table-sm table-bordered">
                 <tbody>
                     <tr><th class="w-50">Variety</th><td>@s.SpeciesName?.Trim() (@s.PlantTypeName)@(s.SpeciesColor != null ? " - " + s.SpeciesColor : "")</td></tr>
@@ -32,6 +33,7 @@
                     <tr><th>Available to send</th><td class="fw-bold">@sendable.ToString("N0")</td></tr>
                 </tbody>
             </table>
+            </div>
 
             <form method="post">
                 <div class="mb-3">

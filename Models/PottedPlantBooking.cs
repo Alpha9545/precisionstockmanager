@@ -75,5 +75,9 @@ namespace PlantStockManager.Models
         // this booking reserves against, AS OF the moment it was
         // loaded (populated only where the repository joins it in).
         public decimal? StockAvailableQuantity { get; set; }
+
+        // Display-only (Dispatch form): the same pool's Physical and Reserved (all bookings) quantities.
+        public decimal? StockPhysicalQuantity { get; set; }
+        public decimal? StockReservedQuantity { get; set; }
     }
 }

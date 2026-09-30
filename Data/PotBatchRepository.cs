@@ -34,7 +34,7 @@ namespace PlantStockManager.Data
 
         private const string BaseSelect = @"
 SELECT b.Id, b.BatchCode, b.SourceCuttingStockId, b.SpeciesId, ps.Name AS SpeciesName, ps.Color, pt.Name AS PlantTypeName,
-       b.AreaId, a.Name AS AreaName, csa.Name AS SourceAreaName, b.PotSize, b.EmptyPotInventoryId, epi.PhysicalQuantity AS EmptyPotsAvailable,
+       b.AreaId, a.Name AS AreaName, csa.Name AS SourceAreaName, b.PolyhouseId, ph.Name AS PolyhouseName, b.PotSize, b.EmptyPotInventoryId, epi.PhysicalQuantity AS EmptyPotsAvailable,
        b.CuttingAllocated, b.ProductionStartDate, b.ExpectedReadyDate, b.SupervisorId, sup.Name AS SupervisorName,
        b.Status, b.ReadyQuantity, b.WastageReason, b.UnusedCuttingAction, b.ReadyConfirmedById, rcb.Name AS ReadyConfirmedByName,
        b.ReadyDate, b.ReadyRemarks, b.PottedPlantStockId, b.Remarks, b.CreatedById, cb.Name AS CreatedByName, b.CreatedBy, b.CreatedDate,
@@ -46,6 +46,7 @@ INNER JOIN dbo.Area a ON a.Id = b.AreaId
 INNER JOIN dbo.CuttingStock cs ON cs.Id = b.SourceCuttingStockId
 INNER JOIN dbo.Area csa ON csa.Id = cs.AreaId
 INNER JOIN dbo.EmptyPotInventory epi ON epi.Id = b.EmptyPotInventoryId
+LEFT JOIN dbo.Polyhouses ph ON ph.Id = b.PolyhouseId
 LEFT JOIN dbo.IMSUsers sup ON sup.Id = b.SupervisorId
 LEFT JOIN dbo.IMSUsers rcb ON rcb.Id = b.ReadyConfirmedById
 LEFT JOIN dbo.IMSUsers cb ON cb.Id = b.CreatedById
@@ -102,16 +103,20 @@ OUTER APPLY (SELECT SUM(e.Quantity) AS Potted FROM dbo.PotProductionEntries e WH
 
         // Starts a batch: the cuttings leave Cutting Stock now (allocated to the
         // batch) and the batch is tied to the production Area's own empty pots.
-        public async Task<(bool Success, string? Message, int Id)> CreateAsync(PotProductionBatch entry, int userId)
+        // canUseSourceArea (Cutting Stock AREA ISOLATION, CuttingRules.CanUseAsSource):
+        // may this user use cuttings held in the POOL's own Area? Checked under the
+        // pool's lock, before anything is written; null = no per-user check (callers
+        // without a signed-in user).
+        public async Task<(bool Success, string? Message, int Id)> CreateAsync(PotProductionBatch entry, int userId, Func<int, bool>? canUseSourceArea = null)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
             using var tx = conn.BeginTransaction();
             try
             {
-                var csCmd = new SqlCommand("SELECT SpeciesId, PhysicalQuantity, InTransitQuantity FROM dbo.CuttingStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
+                var csCmd = new SqlCommand("SELECT SpeciesId, PhysicalQuantity, InTransitQuantity, AreaId FROM dbo.CuttingStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
                 csCmd.Parameters.AddWithValue("@Id", entry.SourceCuttingStockId);
-                int speciesId; decimal physical, inTransit;
+                int speciesId, poolAreaId; decimal physical, inTransit;
                 using (var r = await csCmd.ExecuteReaderAsync())
                 {
                     if (!await r.ReadAsync())
@@ -123,6 +128,12 @@ OUTER APPLY (SELECT SUM(e.Quantity) AS Potted FROM dbo.PotProductionEntries e WH
                     speciesId = r.GetInt32(0);
                     physical = r.GetDecimal(1);
                     inTransit = r.GetDecimal(2);
+                    poolAreaId = r.GetInt32(3);
+                }
+                if (canUseSourceArea != null && !canUseSourceArea(poolAreaId))
+                {
+                    tx.Rollback();
+                    return (false, "You are not authorized to use cuttings from this Area.", 0);
                 }
 
                 var areaCmd = new SqlCommand("SELECT IsActive, AreaType FROM dbo.Area WHERE Id = @Id", conn, tx);
@@ -145,14 +156,38 @@ OUTER APPLY (SELECT SUM(e.Quantity) AS Potted FROM dbo.PotProductionEntries e WH
                     return (false, "Choose a pot size from the list.", 0);
                 }
 
-                var eligible = (await _userRoleRepo.GetUsersInRoleAsync(SupervisorRules.MotherPlantSupervisor, entry.AreaId, conn, tx))
+                var eligible = (await _userRoleRepo.GetReadyConfirmersAsync(entry.AreaId, conn, tx))
                     .Select(u => u.EmployeeID).ToList();
                 var (ok, error) = PotBatchRules.ValidateCreate(entry.CuttingAllocated, physical - inTransit, entry.ProductionStartDate,
-                    entry.ExpectedReadyDate, entry.SupervisorId, userId, eligible);
+                    entry.ExpectedReadyDate, entry.SupervisorId, eligible);
                 if (!ok)
                 {
                     tx.Rollback();
                     return (false, error, 0);
+                }
+
+                // Polyhouse is optional; when given it must belong to the
+                // batch's Area -- never trust a posted PolyhouseId alone.
+                // Reuses the exact same cross-check every other Area ->
+                // Polyhouse cascade in this app already uses.
+                if (entry.PolyhouseId is > 0)
+                {
+                    var phCmd = new SqlCommand("SELECT AreaId FROM dbo.Polyhouses WHERE Id = @PolyhouseId", conn, tx);
+                    phCmd.Parameters.AddWithValue("@PolyhouseId", entry.PolyhouseId.Value);
+                    var phAreaObj = await phCmd.ExecuteScalarAsync();
+                    if (phAreaObj == null)
+                    {
+                        tx.Rollback();
+                        return (false, "Selected Polyhouse does not exist.", 0);
+                    }
+                    var polyhouseAreaId = phAreaObj == DBNull.Value ? (int?)null : (int)phAreaObj;
+                    var (locationOk, _, _, locationError) = DirectSowingRules.ResolveGrowingLocation(
+                        entry.AreaId, entry.AreaId, entry.PolyhouseId, polyhouseAreaId);
+                    if (!locationOk)
+                    {
+                        tx.Rollback();
+                        return (false, locationError, 0);
+                    }
                 }
 
                 var poolId = await _emptyPotRepo.GetOrCreateLockedAsync(conn, tx, entry.PotSize!, entry.AreaId, entry.CreatedBy);
@@ -160,15 +195,16 @@ OUTER APPLY (SELECT SUM(e.Quantity) AS Potted FROM dbo.PotProductionEntries e WH
 
                 var insert = new SqlCommand(@"
 INSERT INTO dbo.PotProductionBatches
-(BatchCode, SourceCuttingStockId, SpeciesId, AreaId, PotSize, EmptyPotInventoryId, CuttingAllocated, ProductionStartDate, ExpectedReadyDate,
+(BatchCode, SourceCuttingStockId, SpeciesId, AreaId, PolyhouseId, PotSize, EmptyPotInventoryId, CuttingAllocated, ProductionStartDate, ExpectedReadyDate,
  SupervisorId, Status, Remarks, CreatedById, CreatedBy)
 VALUES
-(@Code, @SourceCuttingStockId, @SpeciesId, @AreaId, @PotSize, @PoolId, @Allocated, @Start, @Expected, @SupervisorId, N'InProduction', @Remarks, @CreatedById, @CreatedBy);
+(@Code, @SourceCuttingStockId, @SpeciesId, @AreaId, @PolyhouseId, @PotSize, @PoolId, @Allocated, @Start, @Expected, @SupervisorId, N'InProduction', @Remarks, @CreatedById, @CreatedBy);
 SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                 insert.Parameters.AddWithValue("@Code", code);
                 insert.Parameters.AddWithValue("@SourceCuttingStockId", entry.SourceCuttingStockId);
                 insert.Parameters.AddWithValue("@SpeciesId", speciesId);
                 insert.Parameters.AddWithValue("@AreaId", entry.AreaId);
+                insert.Parameters.AddWithValue("@PolyhouseId", (object?)entry.PolyhouseId ?? DBNull.Value);
                 insert.Parameters.AddWithValue("@PotSize", entry.PotSize!);
                 insert.Parameters.AddWithValue("@PoolId", poolId);
                 insert.Parameters.AddWithValue("@Allocated", entry.CuttingAllocated);
@@ -274,8 +310,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             }
         }
 
-        // READY: only the assigned supervisor (never the batch creator), who
-        // must still be an active Mother Plant Supervisor of the batch Area.
+        // READY: any active user assigned to the batch Area (the page has
+        // already checked the Pot Production permission; the batch creator may
+        // confirm too). The actual confirming user is recorded in
+        // ReadyConfirmedById with ReadyDate / ModifiedBy / ModifiedDate.
         // Ready pots become Potted Plant Stock of the batch Area; lost pots are
         // wastage; cuttings never potted go back to Cutting Stock or are
         // recorded as wastage. Zero ready pots closes the batch as a complete
@@ -289,10 +327,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             try
             {
                 var bCmd = new SqlCommand(@"
-SELECT Status, CuttingAllocated, SupervisorId, CreatedById, SpeciesId, PotSize, AreaId, EmptyPotInventoryId, SourceCuttingStockId, BatchCode
+SELECT Status, CuttingAllocated, SpeciesId, PotSize, AreaId, EmptyPotInventoryId, SourceCuttingStockId, BatchCode
 FROM dbo.PotProductionBatches WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
                 bCmd.Parameters.AddWithValue("@Id", batchId);
-                string status, potSize, code; decimal allocated; int supervisorId, createdById, speciesId, areaId, poolId, cuttingStockId;
+                string status, potSize, code; decimal allocated; int speciesId, areaId, poolId, cuttingStockId;
                 using (var r = await bCmd.ExecuteReaderAsync())
                 {
                     if (!await r.ReadAsync())
@@ -303,26 +341,21 @@ FROM dbo.PotProductionBatches WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx
                     }
                     status = r.GetString(0);
                     allocated = r.GetDecimal(1);
-                    supervisorId = r.GetInt32(2);
-                    createdById = r.GetInt32(3);
-                    speciesId = r.GetInt32(4);
-                    potSize = r.GetString(5);
-                    areaId = r.GetInt32(6);
-                    poolId = r.GetInt32(7);
-                    cuttingStockId = r.GetInt32(8);
-                    code = r.GetString(9);
+                    speciesId = r.GetInt32(2);
+                    potSize = r.GetString(3);
+                    areaId = r.GetInt32(4);
+                    poolId = r.GetInt32(5);
+                    cuttingStockId = r.GetInt32(6);
+                    code = r.GetString(7);
                 }
-                if (userId != supervisorId || userId == createdById)
+                // The batch Area is the boundary: the confirming user must be
+                // active and assigned to THIS batch's Area, verified against the
+                // live role assignments (same test as TR_PotBatches_Update).
+                var grants = await _userRoleRepo.GetReadyConfirmerGrantsAsync(conn, tx);
+                if (!PotBatchRules.IsActiveAssignedToArea(grants, userId, areaId))
                 {
                     tx.Rollback();
-                    return (false, "Only the supervisor assigned to this batch can confirm it READY.");
-                }
-                var stillSupervisor = (await _userRoleRepo.GetUsersInRoleAsync(SupervisorRules.MotherPlantSupervisor, areaId, conn, tx))
-                    .Any(u => u.EmployeeID == userId);
-                if (!stillSupervisor)
-                {
-                    tx.Rollback();
-                    return (false, "You are no longer an active Mother Plant Supervisor of this batch's Area.");
+                    return (false, "You are not authorized to confirm READY for this batch's Area: you must be an active user assigned to it.");
                 }
 
                 var sumCmd = new SqlCommand("SELECT ISNULL(SUM(Quantity), 0) FROM dbo.PotProductionEntries WHERE BatchId = @Id", conn, tx);
@@ -485,6 +518,8 @@ WHERE Id = @Id AND Status = N'InProduction' AND ProductionStartDate <= @Date AND
             AreaId = r.GetInt32(r.GetOrdinal("AreaId")),
             AreaName = r.GetString(r.GetOrdinal("AreaName")),
             SourceAreaName = r.GetString(r.GetOrdinal("SourceAreaName")),
+            PolyhouseId = r.IsDBNull(r.GetOrdinal("PolyhouseId")) ? null : r.GetInt32(r.GetOrdinal("PolyhouseId")),
+            PolyhouseName = r.IsDBNull(r.GetOrdinal("PolyhouseName")) ? null : r.GetString(r.GetOrdinal("PolyhouseName")),
             PotSize = r.GetString(r.GetOrdinal("PotSize")),
             EmptyPotInventoryId = r.GetInt32(r.GetOrdinal("EmptyPotInventoryId")),
             EmptyPotsAvailable = r.GetDecimal(r.GetOrdinal("EmptyPotsAvailable")),

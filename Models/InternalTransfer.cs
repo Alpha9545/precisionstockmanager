@@ -26,6 +26,9 @@ namespace PlantStockManager.Models
         public int? SourcePottedPlantStockId { get; set; }
         public int? SourceCuttingStockId { get; set; }
         public int? SourceReadyStockId { get; set; }
+        // Cutting deliveries created by a Cutting Entry (destination Main Office) point
+        // back at that entry (dbo.CuttingProductions.Id); null for every other transfer.
+        public int? SourceCuttingProductionId { get; set; }
         public int SourceAreaId { get; set; }
 
         // Nullable as of Phase 15: for StockType = 'Cutting', the

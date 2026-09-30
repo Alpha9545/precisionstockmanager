@@ -20,5 +20,47 @@ namespace PlantStockManager.Services
                 return (false, $"Only {available:N0} plants are available (not reserved or in transit).");
             return (true, null);
         }
+
+        // ---- Potted Plant Booking -> Dispatch (fulfilment of a booking) --------------------------------
+        // A booking reserves stock when it is made (Reserved goes up, Physical does not move). Each
+        // dispatch (partial or full) hands over plants: Reserved AND Physical both go down by the
+        // dispatched quantity. Statuses: Pending -> PartiallyDispatched -> Dispatched (Cancelled aside).
+        //   Booked = Quantity; Fulfilled = DispatchedQuantity; Remaining = Booked - Fulfilled.
+        public const string StatusPending = "Pending";
+        public const string StatusPartiallyDispatched = "PartiallyDispatched";
+        public const string StatusDispatched = "Dispatched";
+
+        public static bool CanDispatchStatus(string? status)
+            => status == StatusPending || status == StatusPartiallyDispatched;
+
+        // The status a booking has once `dispatchedTotal` of `booked` has been handed over.
+        public static string StatusAfterDispatch(decimal booked, decimal dispatchedTotal)
+            => dispatchedTotal >= booked ? StatusDispatched : StatusPartiallyDispatched;
+
+        // Every quantity rule of one dispatch, applied by the repository under the booking's lock (the
+        // page uses the same function for its messages): plants are whole units, greater than zero,
+        // only an open (Pending / PartiallyDispatched) booking, and never more than what is still
+        // remaining on the booking.
+        public static (bool Ok, decimal Remaining, string? Error) ValidateBookingDispatch(
+            string? status, decimal booked, decimal dispatchedSoFar, decimal quantity)
+        {
+            var remaining = booked - dispatchedSoFar;
+            if (quantity <= 0 || !DirectSowingRules.IsWholeNumber(quantity))
+                return (false, remaining, "Dispatch quantity must be a whole number greater than zero.");
+            if (!CanDispatchStatus(status))
+                return (false, remaining, $"This Booking is '{status}' and cannot be dispatched (only Pending or PartiallyDispatched bookings can be dispatched).");
+            if (quantity > remaining)
+                return (false, remaining, $"Dispatch quantity ({quantity:N0}) exceeds this Booking's remaining quantity ({remaining:N0}).");
+            return (true, remaining, null);
+        }
+
+        // Double-submit / stale-form guard. The dispatch form remembers how much of the booking had been
+        // dispatched when it was opened; if that changed since (the same form submitted twice, or another
+        // user dispatched meanwhile) the dispatch is refused instead of being applied a second time.
+        public static (bool Ok, string? Error) CheckFormIsCurrent(decimal? expectedDispatched, decimal dispatchedSoFar)
+            => !expectedDispatched.HasValue || expectedDispatched.Value == dispatchedSoFar
+                ? (true, null)
+                : (false, $"This Booking has changed since you opened the form ({dispatchedSoFar:N0} already dispatched, not {expectedDispatched.Value:N0}). "
+                          + "Nothing was dispatched: reload the page, check the remaining quantity and dispatch again.");
     }
 }

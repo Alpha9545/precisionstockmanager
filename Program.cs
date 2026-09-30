@@ -22,7 +22,6 @@ builder.Services.AddScoped<SeedSourcesRepository>();
 builder.Services.AddScoped<PolyhouseRepository>();
 builder.Services.AddScoped<PlantTypeRepository>();
 builder.Services.AddScoped<PlantSpeciesRepository>();
-builder.Services.AddScoped<SeedEntryRepository>();
 builder.Services.AddScoped<InventoryRepository>();
 builder.Services.AddScoped<BookingRepository>();
 builder.Services.AddScoped<VendorPurchaseRepository>();
@@ -49,6 +48,9 @@ builder.Services.AddScoped<OutletSaleRepository>(); // Phase E: multi-item direc
 builder.Services.AddScoped<OutletBookingRepository>(); // Phase E: multi-item customer booking
 builder.Services.AddScoped<OutletWastageRepository>(); // Phase E: Outlet's own potted/tray wastage
 builder.Services.AddScoped<InternalTransferRepository>(); // Phase 8
+builder.Services.AddScoped<CuttingDeliveryHistoryRepository>(); // Correction #7 (read-only history)
+builder.Services.AddScoped<FertilizerTransactionRepository>(); // Correction #8 (fertilizer issue + history)
+builder.Services.AddScoped<FertilizerStockRepository>(); // Correction I3 (fertilizer stock edit/delete hole)
 builder.Services.AddScoped<PottedPlantBookingRepository>(); // Phase 9
 builder.Services.AddScoped<DispatchRepository>(); // Phase 10
 builder.Services.AddScoped<VendorRepository>(); // Phase 11

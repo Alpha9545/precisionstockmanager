@@ -33,9 +33,10 @@
                     <tr><th>Colour</th><td>@(b.Color ?? "-")</td></tr>
                     <tr><th>Pot Size</th><td>@b.PotSize</td></tr>
                     <tr><th>Production Area</th><td>@b.AreaName</td></tr>
+                    <tr><th>Polyhouse</th><td>@(b.PolyhouseName ?? "-")</td></tr>
                     <tr><th>Cuttings from</th><td>@b.SourceAreaName Cutting Stock</td></tr>
                     <tr><th>Start / Expected Ready</th><td>@b.ProductionStartDate.ToString("dd/MM/yyyy") &rarr; <strong>@b.ExpectedReadyDate.ToString("dd/MM/yyyy")</strong></td></tr>
-                    <tr><th>Assigned Supervisor (confirms READY)</th><td>@(b.SupervisorName ?? "-")</td></tr>
+                    <tr><th>Ready Confirmation By</th><td>@(b.SupervisorName ?? "-")</td></tr>
                     <tr><th>Created by</th><td>@(b.CreatedByName ?? b.CreatedBy)</td></tr>
                     @if (!string.IsNullOrEmpty(b.Remarks))
                     {
@@ -56,7 +57,7 @@
                         <tr class="@(b.Status == "Lost" ? "table-danger" : "table-success")"><th>Ready pots (to Potted Plant Stock)</th><td class="text-end fw-bold">@b.ReadyQuantity!.Value.ToString("N0")@(b.Status == "Lost" ? " - complete loss" : "")</td></tr>
                         <tr><th>Pots lost (wastage)</th><td class="text-end">@b.PotWastage.ToString("N0") @(b.WastageReason != null ? "(" + b.WastageReason + ")" : "")</td></tr>
                         <tr><th>Unused cuttings</th><td class="text-end">@b.UnusedCuttings.ToString("N0") @(b.UnusedCuttingAction == "ReturnedToStock" ? "(returned to Cutting Stock)" : b.UnusedCuttingAction == "Wastage" ? "(wastage)" : "")</td></tr>
-                        <tr><th>@(b.Status == "Lost" ? "Closed as complete loss by" : "Confirmed READY by")</th><td>@b.ReadyConfirmedByName on @b.ReadyDate?.ToLocalTime().ToString("dd/MM/yyyy")</td></tr>
+                        <tr><th>@(b.Status == "Lost" ? "Closed as complete loss by" : "Confirmed READY by")</th><td>@b.ReadyConfirmedByName on @b.ReadyDate?.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td></tr>
                     }
                 </tbody>
             </table>
@@ -113,9 +114,9 @@
         </div>
     }
 
-    @if (inProduction && Model.IsAssignedSupervisor)
+    @if (inProduction && Model.CanConfirmReady)
     {
-        <div class="card border-success mb-3">
+        <div class="card border-success mb-3" id="confirm-ready">
             <div class="card-body">
                 <h6 class="card-title">Confirm READY</h6>
                 <form method="post" asp-page-handler="Ready" asp-route-id="@b.Id" class="row g-2" onsubmit="return confirm(document.getElementById('readyQty').value === '0' ? 'Close this batch as a COMPLETE LOSS? Nothing is added to stock and the batch is closed.' : 'Confirm this batch READY? The ready pots are added to Potted Plant Stock and the batch is closed.');">
@@ -161,10 +162,10 @@
     }
     else if (inProduction)
     {
-        <div class="alert alert-info">Only @b.SupervisorName (the batch's assigned supervisor) can confirm this batch READY.</div>
+        <div class="alert alert-info">This batch can be confirmed READY by any user with Pot Production permission who is assigned to @b.AreaName.</div>
     }
 
-    @if (inProduction && (Model.IsCreator || Model.IsAssignedSupervisor))
+    @if (inProduction && (Model.IsCreator || Model.IsDesignatedConfirmer))
     {
         <div class="d-flex flex-wrap gap-3 align-items-end">
             <form method="post" asp-page-handler="ExpectedDate" asp-route-id="@b.Id" class="d-flex gap-2 align-items-end">

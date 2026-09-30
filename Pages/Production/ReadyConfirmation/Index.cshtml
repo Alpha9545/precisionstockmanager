@@ -77,7 +77,7 @@
                             @{
                                 var (mayApprove, authorityError) = PlantStockManager.Services.DirectSowingRules.CanApprove(
                                     sw.SupervisorId, sw.CreatedById, sw.CreatedBy,
-                                    PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.GetUserId(User), User.Identity?.Name);
+                                    PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.GetUserId(User), User.Identity?.Name, sw.SourceType);
                             }
                             @if (canApprove && mayApprove)
                             {

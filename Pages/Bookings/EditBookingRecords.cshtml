@@ -112,7 +112,28 @@
                 <option value="Cancelled">Cancelled</option>
             </select>
         </div>
+
+        <div class="col-md-3">
+            <label class="form-label">Booking By</label>
+            <select name="SelectedBookedBy" class="form-control" onchange="this.form.submit()">
+                <option value="">All</option>
+                @foreach (var option in Model.BookedByOptions)
+                {
+                    <option value="@option.Value" selected="@(Model.SelectedBookedBy == option.Value)">@option.Label</option>
+                }
+            </select>
+        </div>
+
+        <div class="col-md-2 d-flex align-items-end">
+            <a asp-page="/Bookings/EditBookingRecords" class="btn btn-outline-secondary">Clear filters</a>
+        </div>
     </form>
+
+    @if (Model.Notice != null)
+    {
+        <div class="alert alert-warning py-1 mt-2 mb-0 small">@Model.Notice</div>
+    }
+    <div class="small text-muted mt-2">@Model.Bookings.Count.ToString("N0") record@(Model.Bookings.Count == 1 ? "" : "s") found@(Model.BookedByActive ? " (filtered by Booking By)" : "")@(Model.Bookings.Count == 0 ? " - No records match the selected filters." : "")</div>
 
     <!-- Table -->
     <div class="table-responsive" style="max-height: 570px; overflow-y:auto; border:1px solid #ddd; margin-top:10px;">
@@ -163,7 +184,7 @@
                         <td class="hidden-column">@booking.AdvanceTaken</td>
                         <td>@booking.AdvanceTakenAmount</td>
                         <td class="hidden-column">@booking.AdvanceTakenDetails</td>
-                        <td>@ToTitle((booking.BookedById == 0 ? booking.BookedByOther : booking.BookedByName))</td>
+                        <td>@ToTitle(PlantStockManager.Services.BookedByFilter.Display(booking.BookedById, booking.BookedByName, booking.BookedByOther))</td>
                         <td class="hidden-column">@booking.BookedById</td>
                         <td class="hidden-column">@booking.BookedByOther</td>
                         <td class="hidden-column">@booking.StateId</td>

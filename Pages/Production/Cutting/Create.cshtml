@@ -8,7 +8,7 @@
     <div class="card shadow-sm mx-auto" style="max-width: 760px;">
         <div class="card-header">
             <h4 class="mb-0">Record Cuttings</h4>
-            <small class="text-muted">Cuttings taken from a Mother Plant go into its Area's Cutting Stock.</small>
+            <small class="text-muted">Cuttings taken from a Mother Plant are recorded in its Area's Cutting Stock. Choose where they are going.</small>
         </div>
         <div class="card-body">
             @if (!ModelState.IsValid)
@@ -27,7 +27,8 @@
                 <div class="alert alert-warning">No active Mother Plant with an Area is available to you.</div>
             }
 
-            <form method="post">
+            <form method="post" id="cuttingForm">
+                <input type="hidden" asp-for="SubmissionToken" />
                 <div class="row g-3">
                     <div class="col-12">
                         <label class="form-label fw-bold">Mother Plant</label>
@@ -68,13 +69,40 @@
                         </select>
                     </div>
                     <div class="col-12">
+                        <label class="form-label fw-bold">Give To / Destination</label>
+                        <div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" asp-for="Destination" id="destMain" value="@PlantStockManager.Services.CuttingDestination.MainOffice" required />
+                                <label class="form-check-label" for="destMain">Main Office</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input" type="radio" asp-for="Destination" id="destPot" value="@PlantStockManager.Services.CuttingDestination.PotProduction" required />
+                                <label class="form-check-label" for="destPot">Use for Pot Production</label>
+                            </div>
+                        </div>
+                        <div class="form-text" id="destHelp">Main Office: a delivery is created that Main Office must confirm; the cuttings become Main Office stock once received. Use for Pot Production: the cuttings stay in this Area's Cutting Stock for Pot Production and Cutting Tray Sowing.</div>
+                    </div>
+                    @if (Model.MainOfficeAreas.Count > 1)
+                    {
+                        <div class="col-md-6 d-none" id="mainOfficeAreaBox">
+                            <label class="form-label fw-bold">Main Office Area</label>
+                            <select asp-for="MainOfficeAreaId" id="mainOfficeArea" class="form-select">
+                                <option value="">-- Select Main Office Area --</option>
+                                @foreach (var a in Model.MainOfficeAreas)
+                                {
+                                    <option value="@a.Id">@a.Name</option>
+                                }
+                            </select>
+                        </div>
+                    }
+                    <div class="col-12">
                         <label class="form-label">Remarks</label>
                         <textarea asp-for="Remarks" class="form-control" rows="2"></textarea>
                     </div>
                 </div>
                 <div class="text-center mt-4">
                     <a asp-page="/Production/Cutting/Index" class="btn btn-secondary me-2">Back</a>
-                    <button type="submit" class="btn btn-success">Save Cuttings</button>
+                    <button type="submit" class="btn btn-success" id="saveBtn">Save Cuttings</button>
                 </div>
             </form>
         </div>
@@ -105,6 +133,21 @@
             }
             $('#motherPlant').on('change', onMotherPlant);
             onMotherPlant();
+
+            // The Main Office Area picker only exists (and only matters) when there is more than one.
+            function onDestination() {
+                const main = $('#destMain').is(':checked');
+                $('#mainOfficeAreaBox').toggleClass('d-none', !main);
+                $('#mainOfficeArea').prop('required', main);
+            }
+            $('input[name="Destination"]').on('change', onDestination);
+            onDestination();
+
+            // One click, one save: the button locks on submit (the server also ignores a repeated form token).
+            $('#cuttingForm').on('submit', function () {
+                if (!this.checkValidity()) return;
+                $('#saveBtn').prop('disabled', true).text('Saving...');
+            });
         });
     </script>
 }
