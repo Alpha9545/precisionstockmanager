@@ -213,6 +213,7 @@ WHERE Status = 'Sown'
             }
 
             result.ReadyStockQuantity = await GetReadyStockTotalAsync(conn, filters);
+            result.ReadyStockQuantityByPlantType = await GetReadyStockByPlantTypeAsync(conn, filters);
             return result;
         }
 
@@ -767,6 +768,34 @@ WHERE (@AreaId IS NULL OR AreaId = @AreaId)
   AND (@SpeciesId IS NULL OR SpeciesId = @SpeciesId)", conn);
             AddAreaSpecies(cmd, filters);
             return (decimal)(await cmd.ExecuteScalarAsync() ?? 0m);
+        }
+
+        // Step 8B/8D (Daily Report by Plant Type): the exact same Balance
+        // formula as GetReadyStockTotalAsync above (Quantity - DispatchedQuantity),
+        // grouped by dbo.PlantTypes instead of collapsed into one total.
+        // Starts FROM dbo.PlantTypes (LEFT JOIN out to PlantSpecies/ReadyStock)
+        // so every current PlantType is always one entry in the result, 0
+        // when it has no Ready Stock -- never a missing entry. ORDER BY pt.Id
+        // is preserved into the returned List itself (a plain reader loop
+        // appending in row order) so a caller never has to re-sort or depend
+        // on a Dictionary's unordered enumeration to get a stable sequence.
+        private static async Task<List<ReadyStockPlantTypeQuantity>> GetReadyStockByPlantTypeAsync(SqlConnection conn, ManagementDashboardFilters filters)
+        {
+            var result = new List<ReadyStockPlantTypeQuantity>();
+            using var cmd = new SqlCommand(@"
+SELECT pt.Name, ISNULL(SUM(rs.Quantity - rs.DispatchedQuantity), 0)
+FROM dbo.PlantTypes pt
+LEFT JOIN dbo.PlantSpecies ps ON ps.PlantTypeId = pt.Id
+LEFT JOIN dbo.ReadyStock rs ON rs.SpeciesId = ps.Id
+  AND (@AreaId IS NULL OR rs.AreaId = @AreaId)
+  AND (@SpeciesId IS NULL OR rs.SpeciesId = @SpeciesId)
+GROUP BY pt.Id, pt.Name
+ORDER BY pt.Id", conn);
+            AddAreaSpecies(cmd, filters);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                result.Add(new ReadyStockPlantTypeQuantity(reader.GetString(0), reader.GetDecimal(1)));
+            return result;
         }
 
         private static async Task<List<UnitQuantity>> GetSeedStockByUnitAsync(SqlConnection conn, ManagementDashboardFilters filters, bool mainOfficeOnly)

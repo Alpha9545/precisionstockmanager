@@ -78,9 +78,16 @@
                         }
                         else
                         {
-                            <input type="number" step="1" min="1" max="@(s.NumberOfTrays ?? 0)" asp-for="ActualReadyTrays"
+                            @* Direct Seed Sowing: more trays than were sown are allowed too (Approved Change 3 /
+                               Database/PhaseG_ReadyConfirmationTrayOverage.sql removed this cap at the database level
+                               for every source type -- no browser maximum here either). *@
+                            <input type="number" step="1" min="1" asp-for="ActualReadyTrays"
                                    id="actualTrays" class="form-control" required />
-                            <div class="form-text">Whole trays, 1 to @(s.NumberOfTrays?.ToString("N0") ?? "-"). The only quantity you enter.</div>
+                            <div class="form-text">
+                                Whole trays, at least 1. This sowing has @(s.NumberOfTrays?.ToString("N0") ?? "-") trays recorded;
+                                approving more than that is a legitimate business outcome (e.g. the sowing under-counted trays) and is
+                                accepted with zero wastage. The only quantity you enter.
+                            </div>
                         }
                     </div>
                     <div class="col-md-8">

@@ -70,6 +70,52 @@ namespace PlantStockManager.Tests
             Assert.Equal(0, r.Wastage);
         }
 
+        // Reported bug: Sowing Tray Count = 291, browser refused Actual Ready
+        // Trays = 300 ("Value must be less than or equal to 291") on a Direct
+        // Seed Sowing's Supervisor Approval screen. Root cause was a stray
+        // max="@(s.NumberOfTrays ?? 0)" in Confirm.cshtml's seed branch --
+        // Approved Change 3 already removed this cap everywhere else (the
+        // database trigger, the CHECK constraints and this rule itself never
+        // distinguish source type). These scenarios pin the real business
+        // rule with the reported numbers.
+        [Fact]
+        public void TrayOverageScenarios_SowingTrayCount291()
+        {
+            const decimal seedsUsed = 291 * 24m;
+            const int sowingTrays = 291;
+            const string cavity = "24 Cavity";
+
+            // A: Actual Ready Trays == Sowing Tray Count -> accepted.
+            var a = DirectSowingRules.ComputeTrayApproval(seedsUsed, sowingTrays, cavity, 0, 0, 291, null);
+            Assert.True(a.Ok, a.Error);
+            Assert.Equal(0, a.Wastage);
+
+            // B: Actual Ready Trays (300) > Sowing Tray Count (291) -- the exact
+            // reported scenario -- accepted, zero wastage.
+            var b = DirectSowingRules.ComputeTrayApproval(seedsUsed, sowingTrays, cavity, 0, 0, 300, null);
+            Assert.True(b.Ok, b.Error);
+            Assert.Equal(300, b.ActualTrays);
+            Assert.Equal(300 * 24m, b.ActualSeedlings);
+            Assert.Equal(0, b.Wastage);
+
+            // C: a larger overage (350) is accepted too -- no other business
+            // maximum exists for a Direct Seed Sowing (no stock pool to cap it).
+            var c = DirectSowingRules.ComputeTrayApproval(seedsUsed, sowingTrays, cavity, 0, 0, 350, null);
+            Assert.True(c.Ok, c.Error);
+            Assert.Equal(350, c.ActualTrays);
+            Assert.Equal(0, c.Wastage);
+
+            // D: 0 trays -- the genuine minimum (>= 1 complete tray) is preserved.
+            var d = DirectSowingRules.ComputeTrayApproval(seedsUsed, sowingTrays, cavity, 0, 0, 0, null);
+            Assert.False(d.Ok);
+            Assert.Contains("at least 1 complete tray", d.Error);
+
+            // E: a genuinely invalid value under the real business rule --
+            // fractional trays are rejected regardless of the overage allowance.
+            var e = DirectSowingRules.ComputeTrayApproval(seedsUsed, sowingTrays, cavity, 0, 0, 291.5m, null);
+            Assert.False(e.Ok);
+        }
+
         [Theory]
         [InlineData(100.5)]
         [InlineData(0.5)]

@@ -100,7 +100,31 @@ namespace PlantStockManager.Models
         public decimal ReadySoonQuantity { get; set; }
 
         public decimal ReadyStockQuantity { get; set; } // Balance -- dbo.ReadyStock, confirmed Ready only
+
+        // Step 8B/8D (Daily Report by Plant Type): the SAME Balance figure as
+        // ReadyStockQuantity above (dbo.ReadyStock.Quantity - DispatchedQuantity,
+        // identical formula to GetReadyStockTotalAsync and to
+        // Pages/Production/ReadyStock/Index.cshtml.cs's own TotalQuantity),
+        // broken out per dbo.PlantTypes.Name. PlantTypeName is the exact,
+        // live dbo.PlantTypes.Name string (verified on PlantsIMS2_Test: "MERI
+        // GOLD", "CHRYSANTHEMUM", "ZINNIA", "SEASONAL VARITIES", Ids 1-4; the
+        // "VARITIES" spelling is the real data, not a typo introduced here) --
+        // never hand-typed by a caller, always read off this query's own
+        // result. A List, not a Dictionary: GetReadyStockByPlantTypeAsync's
+        // own `ORDER BY pt.Id` is preserved explicitly here (a Dictionary's
+        // enumeration order is not a guaranteed contract), so callers that
+        // need a stable Plant-Type order (Step 8D's WhatsApp template) never
+        // have to depend on arbitrary SQL/enumeration order themselves.
+        // Every current PlantType is always present as one entry, Quantity 0
+        // when it has no Ready Stock -- never missing, never null.
+        public List<ReadyStockPlantTypeQuantity> ReadyStockQuantityByPlantType { get; set; } = new();
     }
+
+    // Step 8D: one Plant Type's name (verbatim from dbo.PlantTypes.Name) and
+    // its Ready Stock Balance quantity. A struct record so a "not found"
+    // lookup (default value) and a genuine zero quantity are both simply 0 --
+    // exactly the "display 0, never blank" rule the WhatsApp template needs.
+    public readonly record struct ReadyStockPlantTypeQuantity(string PlantTypeName, decimal Quantity);
 
     public class GrowingPartnerSummaryRow
     {

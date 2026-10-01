@@ -11,7 +11,10 @@ namespace PlantStockManager.Tests
     //   * only the EXTRA cuttings (ready - still expected) are taken from the sowing's own pool at
     //     approval; the sowing's own cuttings were already taken when it was recorded;
     //   * cancelling the approval returns only the extra;
-    //   * Direct Seed Sowing is untouched.
+    //   * Direct Seed Sowing's OWN overage rule is untouched by this correction -- it already allowed
+    //     (and still allows) more trays than sown, from the earlier, source-type-agnostic Approved
+    //     Change 3; it simply has no stock pool to draw extra cuttings from, so none of this
+    //     correction's pool-locking/overage-stock logic applies to it.
     // These are the pure-rule and wiring tests; CuttingSowingOverageE2ETests runs the real code against
     // a scratch database copy.
     public class CuttingSowingOverageTests
@@ -333,13 +336,23 @@ namespace PlantStockManager.Tests
         }
 
         [Fact]
-        public void ApprovalView_DirectSeedSowing_KeepsItsMaximumAndItsHint()
+        public void ApprovalView_DirectSeedSowing_HasNoBrowserMaximumEither()
         {
+            // Approved Change 3 (Database/PhaseG_ReadyConfirmationTrayOverage.sql) removed the
+            // "ActualTrayQuantity > sw.NumberOfTrays" cap at the database level for every source
+            // type, not only Cutting Tray Sowing -- confirmed by DirectSowingRules.ComputeTrayApproval
+            // taking no sourceType parameter at all (TrayApprovalTests.MoreTraysThanSown_IsAcceptedWithZeroWastage)
+            // and by the ZZTEST fixture that exercised exactly this on a SourceType='Seed' sowing
+            // (Database/ZZTEST_SeedData.sql's ZZTEST-SOW-001, "demonstration of the new 'overage
+            // allowed' rule (Approved Change 3)"). A browser max="291" here only blocks a value the
+            // server and database both already accept -- it must not render one.
             var view = Repo("Pages", "Production", "ReadyConfirmation", "Confirm.cshtml");
             var elseStart = view.IndexOf("else", view.IndexOf("@if (s.IsCuttingSource)", StringComparison.Ordinal), StringComparison.Ordinal);
             var seedBranch = view.Substring(elseStart, 700);
-            Assert.Contains("max=\"@(s.NumberOfTrays ?? 0)\"", seedBranch);
-            Assert.Contains("Whole trays, 1 to @(s.NumberOfTrays?.ToString(\"N0\") ?? \"-\")", seedBranch);
+            Assert.DoesNotContain("max=", seedBranch);
+            Assert.Contains("min=\"1\"", seedBranch);
+            Assert.Contains("step=\"1\"", seedBranch);
+            Assert.Contains("Whole trays, at least 1", seedBranch);
         }
 
         [Fact]
