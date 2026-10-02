@@ -47,6 +47,7 @@ namespace PlantStockManager.Tests
             services.AddSingleton<IConfiguration>(new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:DefaultConnection"] = cs }).Build());
             services.AddSingleton<DatabaseHelper>();
+            services.AddSingleton<Microsoft.Extensions.Options.IOptions<PlantStockManager.Authorization.SecurityOptions>>(Microsoft.Extensions.Options.Options.Create(new PlantStockManager.Authorization.SecurityOptions()));   // UserRoleRepository (via ReadyConfirmationRepository)
             // Same reflection-based auto-registration every *Repository E2E
             // test class in this project already uses, so DailyReportService's
             // full dependency graph (ManagementDashboardRepository ->

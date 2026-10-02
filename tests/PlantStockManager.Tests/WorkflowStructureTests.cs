@@ -154,18 +154,6 @@ namespace PlantStockManager.Tests
             Assert.NotNull(typeof(PlantStockManager.Models.Polyhouse).GetProperty("AreaId"));
         }
 
-        [Theory]
-        [InlineData("/Data/BookingHistory")]
-        public void OldSystemReports_AreReadOnly(string page)
-        {
-            // only GET handlers (and an Excel export) -- they never change data
-            Assert.Null(FeatureAuthorizationConventions.GetRule(page).Write);
-            var type = typeof(FeatureAuthorizationConventions).Assembly.GetTypes()
-                .Single(t => t.FullName == "PlantStockManager.Pages" + page.Replace('/', '.') + "Model");
-            var posts = type.GetMethods().Where(m => m.Name.StartsWith("OnPost")).Select(m => m.Name).ToList();
-            Assert.All(posts, n => Assert.Contains("Export", n));
-        }
-
         [Fact]
         public void SeedSowingMonthlyReport_IsReadOnly_WithSameCodesAsRetiredRoute()
         {

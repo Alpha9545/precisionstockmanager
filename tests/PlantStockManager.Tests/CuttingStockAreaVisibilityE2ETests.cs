@@ -332,13 +332,14 @@ namespace PlantStockManager.Tests
         // ---- authorized access still works ----
 
         [SkippableFact]
-        public async Task AuthorizedUsers_CanStillUseTheirOwnAreasStock_GreenBlessAndMainOffice()
+        public async Task AuthorizedUsers_CanStillUseGreenBlessStock_ButNotSowItAtMainOfficeItself()
         {
             var env = await OpenAsync();
             var access = env.Get<AreaAccessService>();
             var sowingRepo = env.Get<SeedSowingRepository>();
 
-            // Green Bless supervisor sows from Green Bless's own pool (166): 240 of the 500
+            // Green Bless supervisor sows from Green Bless's own pool (166): 240 of the 500,
+            // destination = Green Bless itself (a real growing Area) -- still works exactly as before.
             var vasant = await env.LoginAsync(GreenBlessUser);
             var poolBefore = await env.ScalarAsync<decimal>("SELECT PhysicalQuantity FROM dbo.CuttingStock WHERE Id = @P", ("@P", GreenBlessPool));
             var own = new SeedSowing
@@ -351,7 +352,13 @@ namespace PlantStockManager.Tests
             Assert.True(ok, message);
             Assert.Equal(poolBefore - 240, await env.ScalarAsync<decimal>("SELECT PhysicalQuantity FROM dbo.CuttingStock WHERE Id = @P", ("@P", GreenBlessPool)));
 
-            // a Main Office sowing user sows from Main Office stock (165), supervised by a Main Office sowing supervisor
+            // Business rule (this change): Main Office stock (pool 165) MAY be
+            // sown from, but the destination is now a REQUIRED real growing
+            // Polyhouse, never a bare AreaId -- a sowing that still only sets
+            // AreaId (the old shape, defaulting to Main Office itself) is
+            // refused atomically (no partial Sown/Wastage deduction left
+            // behind). See CuttingSowingDestinationRulesTests for the Main
+            // Office / Outlet exclusion rule itself (pure, DB-free).
             var maya = await env.LoginAsync(9);
             var mainBefore = await env.ScalarAsync<decimal>("SELECT PhysicalQuantity FROM dbo.CuttingStock WHERE Id = 165");
             var office = new SeedSowing
@@ -361,8 +368,9 @@ namespace PlantStockManager.Tests
             };
             var (officeOk, officeMessage, _) = await sowingRepo.InsertFromCuttingAsync(office, 9, id => access.CanAccessArea(maya, id),
                 id => CuttingRules.CanUseAsSource(access.CanAccessArea(maya, id)));
-            Assert.True(officeOk, officeMessage);
-            Assert.Equal(mainBefore - 240, await env.ScalarAsync<decimal>("SELECT PhysicalQuantity FROM dbo.CuttingStock WHERE Id = 165"));
+            Assert.False(officeOk);
+            Assert.Contains("Main Area / Polyhouse", officeMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(mainBefore, await env.ScalarAsync<decimal>("SELECT PhysicalQuantity FROM dbo.CuttingStock WHERE Id = 165"));
         }
 
         [SkippableFact]

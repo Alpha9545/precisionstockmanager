@@ -16,6 +16,37 @@ namespace PlantStockManager.Data
             _fulfilmentRepo = fulfilmentRepo;
         }
 
+        // Daily Report (Step 3A): "new seedling bookings created TODAY" is
+        // BookingDate, NOT DeliveryDate -- the only date GetBookingRecords
+        // (above) and SeedlingFulfilmentRepository.ListBookingsAsync filter
+        // by is DeliveryDate ("scheduled for delivery"), which answers a
+        // different question. This is a new, minimal, read-only aggregate
+        // (count + quantity only, not the full booking-detail row shape
+        // GetBookingRecords returns, since the daily report needs neither
+        // customer/address/etc. nor a full in-memory list). Exclusive upper
+        // bound (never "<= to.Date") because BookingDate is a DATETIME
+        // column, unlike the pure DATE columns elsewhere in this app.
+        // Counts every status (Pending/Confirmed/Cancelled/...) -- "how many
+        // booking requests came in today," the same convention
+        // ManagementDashboardRepository.GetOutletSalesSummaryAsync already
+        // uses for TotalBookingsInRange (potted-plant bookings), which has
+        // no status filter either.
+        public async Task<(int Count, decimal Quantity)> GetBookingCountByBookingDateAsync(DateTime from, DateTime toExclusive)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new SqlCommand(@"
+SELECT COUNT(*), CAST(ISNULL(SUM(Quantity), 0) AS DECIMAL(18,2))
+FROM dbo.Bookings
+WHERE BookingDate >= @From AND BookingDate < @To", conn);
+            cmd.Parameters.AddWithValue("@From", from.Date);
+            cmd.Parameters.AddWithValue("@To", toExclusive.Date);
+            using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+                return (reader.GetInt32(0), reader.GetDecimal(1));
+            return (0, 0m);
+        }
+
         public async Task<int> InsertBookingAsync(Booking entry)
         {
             using var conn = _dbHelper.GetConnection();

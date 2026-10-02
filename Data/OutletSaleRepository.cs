@@ -43,6 +43,28 @@ FROM dbo.OutletSaleItems i
 INNER JOIN dbo.PlantSpecies ps ON ps.Id = i.SpeciesId
 INNER JOIN dbo.PlantTypes pt ON pt.Id = ps.PlantTypeId";
 
+        // Daily Report (Step 3A): only a COUNT is needed, so this is a
+        // dedicated SQL-side-filtered aggregate rather than reusing
+        // GetAllAsync (which loads every historical sale's full header +
+        // items -- unnecessary for a count). SaleDate is a DATE column
+        // (confirmed against PlantsIMS2_Test), but the range predicate is
+        // still exclusive-upper-bound for consistency with every other
+        // date-ranged query in this app (ManagementDashboardRepository's
+        // own documented convention).
+        public async Task<int> GetSalesCountByDateRangeAsync(DateTime from, DateTime toExclusive, int? outletAreaId = null)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new SqlCommand(@"
+SELECT COUNT(*) FROM dbo.OutletSales
+WHERE SaleDate >= @From AND SaleDate < @To
+  AND (@AreaId IS NULL OR OutletAreaId = @AreaId)", conn);
+            cmd.Parameters.AddWithValue("@From", from.Date);
+            cmd.Parameters.AddWithValue("@To", toExclusive.Date);
+            cmd.Parameters.AddWithValue("@AreaId", (object?)outletAreaId ?? DBNull.Value);
+            return (int)(await cmd.ExecuteScalarAsync() ?? 0);
+        }
+
         public async Task<List<OutletSale>> GetAllAsync(int? outletAreaId = null)
         {
             var list = new List<OutletSale>();

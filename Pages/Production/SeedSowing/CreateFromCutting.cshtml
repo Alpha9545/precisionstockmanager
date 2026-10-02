@@ -1,16 +1,20 @@
 @page
 @model PlantStockManager.Pages.Production.SeedSowing.CreateFromCuttingModel
 @{
-    ViewData["Title"] = "Cutting Tray Sowing";
+    ViewData["Title"] = "Confirm Cutting Sowing";
 }
 
 <div class="container mt-4">
     <div class="card shadow-sm mx-auto" style="max-width: 900px;">
         <div class="card-header">
-            <h4 class="mb-0">Cutting Tray Sowing</h4>
-            <small class="text-muted">Cuttings from Cutting Stock are placed in complete trays. Leftover cuttings stay in Cutting Stock.</small>
+            <h4 class="mb-0">Confirm Cutting Sowing</h4>
+            <small class="text-muted">Enter the Actual Cutting Quantity, Tray Cavity, Main Area / Polyhouse and Sowing Supervisor. Leftover cuttings below one complete tray are recorded as waste automatically -- never returned to Cutting Stock.</small>
         </div>
         <div class="card-body">
+            @if (TempData["Success"] != null)
+            {
+                <div class="alert alert-success">@TempData["Success"]</div>
+            }
             @if (!ModelState.IsValid)
             {
                 <div class="alert alert-danger">
@@ -26,29 +30,51 @@
             {
                 <div class="alert alert-warning">No Cutting Stock with available cuttings in your Areas.</div>
             }
+            @if (!Model.Destinations.Any())
+            {
+                <div class="alert alert-warning">No active growing Main Area / Polyhouse is available to sow into.</div>
+            }
 
             <form method="post">
+                <input type="hidden" asp-for="TransferId" />
                 <div class="row g-3">
                     <div class="col-md-8">
                         <label class="form-label fw-bold">Cutting Stock</label>
-                        <select asp-for="CuttingStockId" id="stock" class="form-select" required data-searchable>
-                            <option value="">-- Select variety / Area --</option>
-                            @foreach (var s in Model.StockPools)
-                            {
-                                <option value="@s.Id" data-available="@s.AvailableQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)">
-                                    @s.SpeciesName?.Trim()@(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")") - @s.AreaName - available @s.AvailableQuantity.ToString("N0")
-                                </option>
-                            }
-                        </select>
+                        @{ var anchored = Model.TransferId.HasValue; }
+                        @if (anchored)
+                        {
+                            // Reached straight from Main Office Confirm Receipt for ONE
+                            // specific delivery: the Cutting Stock is automatically
+                            // selected (never a picker to switch away from here -- that
+                            // would detach the Confirmed Cutting Quantity below from the
+                            // delivery it belongs to). CuttingStockId still posts via the
+                            // hidden field since a disabled <select> posts nothing.
+                            var current = Model.SelectedStock;
+                            <input type="text" class="form-control" readonly
+                                   value="@(current?.SpeciesName?.Trim())@(string.IsNullOrEmpty(current?.SpeciesColor) ? "" : " (" + current!.SpeciesColor + ")") - @(current?.AreaName)" />
+                            <input type="hidden" asp-for="CuttingStockId" />
+                        }
+                        else
+                        {
+                            <select asp-for="CuttingStockId" id="stock" class="form-select" required data-searchable>
+                                <option value="">-- Select variety / Area --</option>
+                                @foreach (var s in Model.StockPools)
+                                {
+                                    <option value="@s.Id" data-available="@s.AvailableQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)">
+                                        @s.SpeciesName?.Trim()@(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")") - @s.AreaName - available @s.AvailableQuantity.ToString("N0")
+                                    </option>
+                                }
+                            </select>
+                        }
                     </div>
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Sowing Date</label>
                         <input type="date" asp-for="SowingDate" class="form-control" required />
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Cutting Quantity</label>
-                        <input type="number" step="1" min="1" asp-for="CuttingQuantity" id="qty" class="form-control" required />
-                        <div class="text-danger small d-none" id="qtyWarning">More than the available cuttings.</div>
+                        <label class="form-label fw-bold">Confirmed Cutting Quantity</label>
+                        <input type="number" step="1" min="1" asp-for="CuttingQuantity" id="qty" class="form-control" readonly />
+                        <div class="form-text">The confirmed/available quantity for the selected Cutting Stock -- not editable.</div>
                     </div>
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Tray Cavity</label>
@@ -61,21 +87,15 @@
                         </select>
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label">Growing Area <span class="text-muted">(optional)</span></label>
-                        <select asp-for="AreaId" id="areaSelect" class="form-select">
-                            <option value="">-- Cutting Stock's Area --</option>
-                            @foreach (var a in Model.Areas)
+                        <label class="form-label fw-bold">Main Area / Polyhouse</label>
+                        <select asp-for="PolyhouseId" id="polyhouseSelect" class="form-select" required>
+                            <option value="">-- Select Main Area Polyhouse --</option>
+                            @foreach (var p in Model.Destinations)
                             {
-                                <option value="@a.Id">@a.Name</option>
+                                <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.AreaName - @p.Name</option>
                             }
                         </select>
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Polyhouse <span class="text-muted">(optional)</span></label>
-                        <select asp-for="PolyhouseId" id="polyhouseSelect" class="form-select">
-                            <option value="">-- No Polyhouse --</option>
-                        </select>
-                        <small class="text-muted">Only the Polyhouses of the selected Area.</small>
+                        <small class="text-muted">Select a Polyhouse from a Main Area.</small>
                     </div>
 
                     <div class="col-md-4">
@@ -87,21 +107,22 @@
                         <input type="text" id="used" class="form-control" readonly placeholder="calculated" />
                     </div>
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Remaining Cutting (stays in stock)</label>
+                        <label class="form-label fw-bold">Remaining Cutting / Waste</label>
                         <input type="text" id="remaining" class="form-control" readonly placeholder="calculated" />
+                        <div class="form-text">Any cutting not used for sowing is recorded as waste automatically -- it is never left in Cutting Stock.</div>
                     </div>
                     <div class="col-12"><div class="text-danger small d-none" id="trayError"></div></div>
 
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Sowing Supervisor <span class="text-muted fw-normal">(the only person who can approve)</span></label>
-                        <select asp-for="SupervisorId" id="supervisorSelect" class="form-select" required>
-                            <option value="">@(Model.Supervisors.Any() ? "-- Select supervisor --" : "-- Choose the Cutting Stock / Area first --")</option>
+                        <select asp-for="SupervisorId" id="supervisorSelect" class="form-select" required disabled="@(Model.Supervisors.Any() ? null : "disabled")">
+                            <option value="">@(Model.Supervisors.Any() ? "-- Select supervisor --" : "-- Choose the Main Area / Polyhouse first --")</option>
                             @foreach (var s in Model.Supervisors)
                             {
                                 <option value="@s.EmployeeID" selected="@(Model.SupervisorId == s.EmployeeID)">@s.Name</option>
                             }
                         </select>
-                        <div class="form-text">Active users assigned to the sowing's Area who can approve sowings - you may choose yourself. Cannot be changed after saving.</div>
+                        <div class="form-text">Active users assigned to the destination Area who can approve sowings - you may choose yourself. Cannot be changed after saving.</div>
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Remarks</label>
@@ -110,7 +131,7 @@
                 </div>
                 <div class="text-center mt-4">
                     <a asp-page="/Production/CuttingStock/Index" class="btn btn-secondary me-2">Back</a>
-                    <button type="submit" class="btn btn-success">Save Tray Sowing</button>
+                    <button type="submit" class="btn btn-success">Confirm Sowing</button>
                 </div>
             </form>
         </div>
@@ -121,50 +142,39 @@
     <script>
         $(function () {
             const url = '@Url.Page("/Production/SeedSowing/CreateFromCutting")';
-            const selectedPolyhouse = '@(Model.PolyhouseId.HasValue ? Model.PolyhouseId.ToString() : "")';
             let keepSupervisor = '@(Model.SupervisorId.HasValue ? Model.SupervisorId.ToString() : "")';
-            function loadPolyhouses() {
-                const areaId = $('#areaSelect').val();
-                const $ph = $('#polyhouseSelect');
-                // Polyhouse is optional: the Area's Polyhouses plus those with no Area yet.
-                $.getJSON(url, { handler: 'Polyhouses', areaId: areaId || 0 }, function (list) {
-                    $ph.empty().append($('<option value="">').text('-- No Polyhouse --'));
-                    $.each(list, function (i, x) { $ph.append($('<option>').val(x.id).text(x.name)); });
-                    if (selectedPolyhouse && $ph.find('option[value="' + selectedPolyhouse + '"]').length) $ph.val(selectedPolyhouse);
-                    loadSupervisors();
-                });
-            }
-            // The Sowing Supervisor list follows the sowing's Area: the Growing Area, else
-            // the Polyhouse's Area, else the Cutting Stock's Area (resolved on the server).
             function loadSupervisors() {
                 const $s = $('#supervisorSelect');
-                const stockId = $('#stock').val(), areaId = $('#areaSelect').val(), polyhouseId = $('#polyhouseSelect').val();
+                const polyhouseId = $('#polyhouseSelect').val();
                 const current = keepSupervisor || $s.val();
-                if (!stockId && !areaId) { $s.empty().append($('<option value="">').text('-- Choose the Cutting Stock / Area first --')); return; }
-                $.getJSON(url, { handler: 'Supervisors', areaId: areaId || 0, cuttingStockId: stockId || 0, polyhouseId: polyhouseId || 0 }, function (list) {
+                if (!polyhouseId) {
+                    $s.empty().append($('<option value="">').text('-- Choose the Main Area / Polyhouse first --')).prop('disabled', true);
+                    return;
+                }
+                $.getJSON(url, { handler: 'Supervisors', polyhouseId: polyhouseId }, function (list) {
                     $s.empty().append($('<option value="">').text(list.length ? '-- Select supervisor --' : '-- No eligible supervisor is assigned to this Area --'));
                     $.each(list, function (i, u) {
                         const $o = $('<option>').val(u.id).text(u.name);
                         if (String(u.id) === String(current)) $o.prop('selected', true);
                         $s.append($o);
                     });
+                    $s.prop('disabled', list.length === 0);
                     keepSupervisor = '';
                 });
             }
-            $('#areaSelect').on('change', function () { keepSupervisor = ''; loadPolyhouses(); });
-            $('#stock').on('change', loadSupervisors);
-            $('#polyhouseSelect').on('change', loadSupervisors);
-            loadPolyhouses();
-            function check() {
-                const a = parseFloat($('#stock option:selected').data('available'));
-                const q = parseFloat($('#qty').val());
-                $('#qtyWarning').toggleClass('d-none', !(!isNaN(a) && !isNaN(q) && q > a));
+            $('#polyhouseSelect').on('change', function () { keepSupervisor = ''; loadSupervisors(); });
+            loadSupervisors();
+            // Confirmed Cutting Quantity is never typed: it always mirrors the
+            // selected Cutting Stock's own Available Quantity (display only --
+            // the server independently re-derives and enforces this on submit).
+            function syncQuantityFromStock() {
+                const a = $('#stock option:selected').data('available');
+                $('#qty').val(a !== undefined ? a : '');
             }
             function calc() {
                 const q = $('#qty').val(), c = $('#cavity').val();
                 $('#trays, #used, #remaining').val('');
                 $('#trayError').addClass('d-none').text('');
-                check();
                 if (!q || !c) return;
                 $.getJSON(url, { handler: 'TrayCalculation', quantity: q, cavityType: c }, function (r) {
                     if (r.ok) { $('#trays').val(r.trays); $('#used').val(r.used); $('#remaining').val(r.remaining); }
@@ -172,8 +182,8 @@
                     if (msg) $('#trayError').removeClass('d-none').text(msg);
                 });
             }
-            $('#qty').on('input', calc);
-            $('#cavity, #stock').on('change', calc);
+            $('#stock').on('change', function () { syncQuantityFromStock(); calc(); });
+            $('#cavity').on('change', calc);
             calc();
         });
     </script>

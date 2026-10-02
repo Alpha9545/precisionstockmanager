@@ -84,8 +84,38 @@ LEFT JOIN dbo.GrowingPartners gp ON a.GrowingPartnerId = gp.Id";
         // row and locks that instead. Must be called from inside an
         // existing transaction -- used by InternalTransferRepository to
         // resolve/create the destination pool.
+        //
+        // Race note (2026-10-02, mechanical port of the fix already proven
+        // in TrayStockRepository.GetOrCreateLockedAsync): the
+        // "SELECT ... WITH (UPDLOCK, HOLDLOCK)" below only locks rows it
+        // actually finds. For the FIRST-EVER allocation of a given
+        // (PotSize, AreaId) pair, no row exists yet, so that hint locks
+        // nothing -- two concurrent callers could both see "not found" and
+        // race on the INSERT. UQ_EmptyPotInventory_PotSize_AreaId stops the
+        // duplicate ROW, but the loser got a raw constraint-violation
+        // exception rather than a clean outcome. sp_getapplock takes an
+        // exclusive, transaction-scoped mutex on this exact key FIRST --
+        // AreaId can be NULL (a global/unassigned pool), so the lock key
+        // spells that out explicitly rather than losing it to a NULL
+        // parameter. The lock releases automatically when the transaction
+        // ends, so no manual release is needed on either path. Every other
+        // (PotSize, AreaId) pair uses a different key and is completely
+        // unaffected.
         public async Task<int> GetOrCreateLockedAsync(SqlConnection conn, SqlTransaction tx, string potSize, int? areaId, string? createdBy)
         {
+            var lockKey = $"EmptyPotInventory:{potSize}:{areaId?.ToString() ?? "NULL"}";
+            var appLockCmd = new SqlCommand("sp_getapplock", conn, tx) { CommandType = System.Data.CommandType.StoredProcedure };
+            appLockCmd.Parameters.AddWithValue("@Resource", lockKey);
+            appLockCmd.Parameters.AddWithValue("@LockMode", "Exclusive");
+            appLockCmd.Parameters.AddWithValue("@LockOwner", "Transaction");
+            appLockCmd.Parameters.AddWithValue("@LockTimeout", 15000);
+            var returnValue = appLockCmd.Parameters.Add("@ReturnValue", System.Data.SqlDbType.Int);
+            returnValue.Direction = System.Data.ParameterDirection.ReturnValue;
+            await appLockCmd.ExecuteNonQueryAsync();
+            var lockResult = (int)returnValue.Value;
+            if (lockResult < 0)
+                throw new InvalidOperationException($"Could not reserve {potSize} pot stock for this Area right now -- another request is in progress. Please try again.");
+
             var lockCmd = new SqlCommand(
                 "SELECT Id FROM dbo.EmptyPotInventory WITH (UPDLOCK, HOLDLOCK) WHERE PotSize = @PotSize AND (AreaId = @AreaId OR (AreaId IS NULL AND @AreaId IS NULL))",
                 conn, tx);

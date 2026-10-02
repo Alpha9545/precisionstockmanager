@@ -72,7 +72,8 @@ namespace PlantStockManager.Data
             AreaRepository areaRepo,
             PlantSpeciesRepository plantSpeciesRepo,
             UserRoleRepository userRoleRepo,
-            CuttingStockRepository cuttingStockRepo)
+            CuttingStockRepository cuttingStockRepo,
+            TrayStockRepository trayStockRepo)
         {
             _dbHelper = dbHelper;
             _batchNumberRepo = batchNumberRepo;
@@ -81,11 +82,17 @@ namespace PlantStockManager.Data
             _plantSpeciesRepo = plantSpeciesRepo;
             _userRoleRepo = userRoleRepo;
             _cuttingStockRepo = cuttingStockRepo;
+            _trayStockRepo = trayStockRepo;
         }
 
         private readonly UserRoleRepository _userRoleRepo;
         // Phase D: cutting tray sowing consumes Cutting Stock instead of a seed lot.
         private readonly CuttingStockRepository _cuttingStockRepo;
+        // 2026-10-02: Tray Stock -- consumed automatically when the sowing's
+        // destination Polyhouse is a Main Office Polyhouse (TrayStockRepository.
+        // IsMainOfficePolyhouseAsync); every other destination Polyhouse is
+        // completely unaffected by this feature.
+        private readonly TrayStockRepository _trayStockRepo;
 
         // Phase 24: added ph.Name AS PolyhouseName (LEFT JOIN dbo.Polyhouses
         // via the Area's own PolyhouseId -- never a second Polyhouse
@@ -572,6 +579,16 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                     }
                 }
 
+                // 2026-10-02: Tray Stock -- only when the destination Polyhouse
+                // is a Main Office Polyhouse; a no-op for every other Area.
+                var (trayOk, trayMessage) = await ConsumeTrayStockIfApplicableAsync(
+                    conn, tx, entry.PolyhouseId, entry.CavityType, entry.SeedQuantity, newId, userId, $"Used for Sowing {sowingCode}");
+                if (!trayOk)
+                {
+                    tx.Rollback();
+                    return (false, trayMessage, 0);
+                }
+
                 tx.Commit();
                 entry.Id = newId;
                 entry.SowingCode = sowingCode;
@@ -677,8 +694,21 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
         // material comes from Cutting Stock:
         //   Complete Trays  = FLOOR(Cutting Quantity / cavity)
         //   Used Cutting    = trays x cavity      ('Sown' ledger entry)
-        //   Remaining       = the rest -- stays in Cutting Stock (never wastage)
-        public async Task<(bool Success, string? Message, int Id)> InsertFromCuttingAsync(SeedSowing entry, int? userId, Func<int, bool>? canAccessArea = null, Func<int, bool>? canUseSourceArea = null)
+        //   Remaining       = the rest -- wasted automatically ('Wastage'
+        //                     ledger entry, same transaction, never added
+        //                     back to Cutting Stock) -- mirrors Direct Seed
+        //                     Sowing's own sub-tray remainder rule exactly.
+        // The Sowing Supervisor records the quantity, cavity, destination
+        // Main Area / Polyhouse and Sowing Supervisor together in ONE step
+        // (never the Mother Plant Supervisor, who only delivers cuttings to
+        // Main Office). The destination must be a real, active Polyhouse --
+        // never Outlet (CuttingSowingDestinationRules.ValidateDestination) --
+        // re-checked here under the pool's lock even though the page already
+        // filters the dropdown to growing Polyhouses only. A real Polyhouse
+        // filed under a Main Office-type Area is a valid destination (only
+        // that Area's own Cutting Stock depot concept is excluded, never its
+        // named physical Polyhouses).
+        public async Task<(bool Success, string? Message, int Id)> InsertFromCuttingAsync(SeedSowing entry, int? userId, Func<int, bool>? canAccessArea = null, Func<int, bool>? canUseSourceArea = null, int? transferId = null)
         {
             entry.SourceType = SeedSowing.SourceCutting;
             entry.SourceSeedStockId = 0;
@@ -725,6 +755,70 @@ WHERE cs.Id = @Id", conn, tx);
                     tx.Rollback();
                     return (false, "The selected Cutting Stock does not belong to the selected Variety.", 0);
                 }
+
+                // 2026-10-02: when this sowing is anchored to ONE specific
+                // confirmed delivery (Confirm Cutting Sowing reached straight
+                // from Confirm Receipt), that delivery's own ConfirmedQuantity
+                // is the SOLE authority for how much is sown -- re-read and
+                // re-validated here under its OWN row lock (never trusting
+                // whatever entry.SeedQuantity the caller passed), and marked
+                // consumed (ConsumedBySeedSowingId) before this transaction
+                // commits so the SAME delivery can never be used for a second
+                // sowing. The row lock is what makes two concurrent
+                // submissions of the same transferId race-safe: the second
+                // transaction blocks on this SELECT until the first commits,
+                // then sees ConsumedBySeedSowingId already set and is refused.
+                if (transferId.HasValue)
+                {
+                    var transferLockCmd = new SqlCommand(@"
+SELECT StockType, Status, ConfirmedQuantity, DestinationAreaId, SourceCuttingStockId, ConsumedBySeedSowingId
+FROM dbo.InternalTransfers WITH (UPDLOCK, HOLDLOCK)
+WHERE Id = @TransferId", conn, tx);
+                    transferLockCmd.Parameters.AddWithValue("@TransferId", transferId.Value);
+                    string tStockType, tStatus; decimal? tConfirmedQuantity; int? tDestinationAreaId, tSourceCuttingStockId, tConsumedBy;
+                    using (var tReader = await transferLockCmd.ExecuteReaderAsync())
+                    {
+                        if (!await tReader.ReadAsync())
+                        {
+                            tReader.Close();
+                            tx.Rollback();
+                            return (false, "The linked delivery was not found.", 0);
+                        }
+                        tStockType = tReader.GetString(0);
+                        tStatus = tReader.GetString(1);
+                        tConfirmedQuantity = tReader.IsDBNull(2) ? null : tReader.GetDecimal(2);
+                        tDestinationAreaId = tReader.IsDBNull(3) ? null : tReader.GetInt32(3);
+                        tSourceCuttingStockId = tReader.IsDBNull(4) ? null : tReader.GetInt32(4);
+                        tConsumedBy = tReader.IsDBNull(5) ? null : tReader.GetInt32(5);
+                    }
+                    if (tStockType != "Cutting" || tStatus != "Completed" || !tConfirmedQuantity.HasValue || tConfirmedQuantity.Value <= 0)
+                    {
+                        tx.Rollback();
+                        return (false, "The linked delivery is not a confirmed Cutting delivery.", 0);
+                    }
+                    if (tConsumedBy.HasValue)
+                    {
+                        tx.Rollback();
+                        return (false, "This delivery has already been used for a Cutting Sowing and cannot be sown again.", 0);
+                    }
+                    if (tDestinationAreaId != stockAreaId || !tSourceCuttingStockId.HasValue)
+                    {
+                        tx.Rollback();
+                        return (false, "The linked delivery does not match the selected Cutting Stock.", 0);
+                    }
+                    var transferSpeciesCmd = new SqlCommand("SELECT SpeciesId FROM dbo.CuttingStock WHERE Id = @Id", conn, tx);
+                    transferSpeciesCmd.Parameters.AddWithValue("@Id", tSourceCuttingStockId.Value);
+                    var transferSpeciesObj = await transferSpeciesCmd.ExecuteScalarAsync();
+                    if (transferSpeciesObj == null || transferSpeciesObj == DBNull.Value || (int)transferSpeciesObj != speciesId)
+                    {
+                        tx.Rollback();
+                        return (false, "The linked delivery does not match the selected Cutting Stock's Variety.", 0);
+                    }
+                    // Authoritative: overrides whatever quantity the caller passed in.
+                    cuttingQuantity = tConfirmedQuantity.Value;
+                    entry.SeedQuantity = cuttingQuantity;
+                }
+
                 // Under the stock lock: whole number, complete trays, quantity
                 // available; used = cuttings placed in complete trays.
                 var (planOk, trays, used, _, _, planError) = DirectSowingRules.PlanSowing(
@@ -738,42 +832,48 @@ WHERE cs.Id = @Id", conn, tx);
                 entry.NumberOfTrays = trays;
                 entry.QuantitySown = used;
 
-                // Growing location: the chosen Area, else the Cutting Stock's own Area.
-                int? polyhouseAreaId = null;
-                if (entry.PolyhouseId is > 0)
+                // Destination: a REQUIRED real growing Polyhouse (never Main Office /
+                // Outlet). Its Area becomes the sowing's AreaId -- there is no
+                // separate "growing Area" choice independent of the Polyhouse.
+                if (entry.PolyhouseId is not > 0)
                 {
-                    var phCmd = new SqlCommand("SELECT AreaId FROM dbo.Polyhouses WHERE Id = @PolyhouseId", conn, tx);
-                    phCmd.Parameters.AddWithValue("@PolyhouseId", entry.PolyhouseId.Value);
-                    var ph = await phCmd.ExecuteScalarAsync();
-                    if (ph == null)
+                    tx.Rollback();
+                    return (false, Services.CuttingSowingDestinationRules.PolyhouseRequiredMessage, 0);
+                }
+                var phCmd = new SqlCommand(@"
+SELECT p.AreaId, a.IsActive, a.AreaType
+FROM dbo.Polyhouses p
+LEFT JOIN dbo.Area a ON a.Id = p.AreaId
+WHERE p.Id = @PolyhouseId", conn, tx);
+                phCmd.Parameters.AddWithValue("@PolyhouseId", entry.PolyhouseId.Value);
+                int? destinationAreaId; bool destinationAreaActive; string? destinationAreaType;
+                using (var phReader = await phCmd.ExecuteReaderAsync())
+                {
+                    if (!await phReader.ReadAsync())
                     {
+                        phReader.Close();
                         tx.Rollback();
                         return (false, "Selected Polyhouse does not exist.", 0);
                     }
-                    polyhouseAreaId = ph == DBNull.Value ? null : (int)ph;
+                    destinationAreaId = phReader.IsDBNull(0) ? null : phReader.GetInt32(0);
+                    destinationAreaActive = !phReader.IsDBNull(1) && phReader.GetBoolean(1);
+                    destinationAreaType = phReader.IsDBNull(2) ? null : phReader.GetString(2);
                 }
-                var (locationOk, growingAreaId, growingPolyhouseId, locationError) = DirectSowingRules.ResolveGrowingLocation(
-                    stockAreaId, entry.AreaId > 0 ? entry.AreaId : null, entry.PolyhouseId, polyhouseAreaId);
-                if (!locationOk)
+                var (destinationOk, destinationError) = Services.CuttingSowingDestinationRules.ValidateDestination(
+                    destinationAreaId, destinationAreaActive, destinationAreaType);
+                if (!destinationOk)
                 {
                     tx.Rollback();
-                    return (false, locationError, 0);
+                    return (false, destinationError, 0);
                 }
-                var areaCmd = new SqlCommand("SELECT IsActive FROM dbo.Area WHERE Id = @AreaId", conn, tx);
-                areaCmd.Parameters.AddWithValue("@AreaId", growingAreaId);
-                var areaActive = await areaCmd.ExecuteScalarAsync();
-                if (areaActive == null || areaActive == DBNull.Value || !(bool)areaActive)
-                {
-                    tx.Rollback();
-                    return (false, "Selected Area does not exist or is inactive.", 0);
-                }
+                var growingAreaId = destinationAreaId!.Value;
                 if (canAccessArea != null && !canAccessArea(growingAreaId))
                 {
                     tx.Rollback();
                     return (false, "You are not authorized to sow in this Area.", 0);
                 }
 
-                // The Sowing Supervisor is chosen for the GROWING Area: an active
+                // The Sowing Supervisor is chosen for the destination Area: an active
                 // user assigned to it who can approve sowings (SowingSupervisorRules),
                 // recorder included. Checked against the live assignments under
                 // this transaction; the user's Id is what is stored below. The
@@ -798,7 +898,6 @@ WHERE cs.Id = @Id", conn, tx);
                 var sowingCode = await _batchNumberRepo.GetNextSowingBatchNumberAsync(conn, tx, entry.SowingDate.Date);
                 entry.SpeciesId = speciesId;
                 entry.AreaId = growingAreaId;
-                entry.PolyhouseId = growingPolyhouseId;
                 entry.BatchNo = TruncateBatch($"CUT-{stockAreaName}");   // traceability: the cutting pool's Area
                 entry.SeedSourceId = null;
                 entry.ResponsiblePersonId = null;
@@ -833,13 +932,66 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 cmd.Parameters.AddWithValue("@CreatedById", (object?)(entry.CreatedById ?? userId) ?? DBNull.Value);
                 var newId = (int)(await cmd.ExecuteScalarAsync())!;
 
-                // Only the cuttings placed in complete trays leave Cutting Stock.
+                if (transferId.HasValue)
+                {
+                    var consumeCmd = new SqlCommand(@"
+UPDATE dbo.InternalTransfers SET ConsumedBySeedSowingId = @NewId
+WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
+                    consumeCmd.Parameters.AddWithValue("@NewId", newId);
+                    consumeCmd.Parameters.AddWithValue("@TransferId", transferId.Value);
+                    var consumedRows = await consumeCmd.ExecuteNonQueryAsync();
+                    if (consumedRows != 1)
+                    {
+                        tx.Rollback();
+                        return (false, "This delivery was already used for a Cutting Sowing by another request.", 0);
+                    }
+                }
+
+                // Only the cuttings placed in complete trays leave Cutting Stock
+                // via the 'Sown' entry below.
                 var (success, message) = await _cuttingStockRepo.RecordTransactionAsync(
                     conn, tx, entry.SourceCuttingStockId.Value, -entry.QuantitySown, "Sown", "SeedSowing", newId, userId, entry.Remarks);
                 if (!success)
                 {
                     tx.Rollback();
                     return (false, message, 0);
+                }
+
+                // Business rule (this change): the sub-tray remainder
+                // (SeedQuantity - QuantitySown, always less than one complete
+                // tray) is no longer silently left in Cutting Stock. It is
+                // wasted automatically, in this SAME database transaction,
+                // mirroring EXACTLY the already-approved Direct Seed Sowing
+                // rule above (InsertAsync's own seedRemainder -> 'Wastage'):
+                // no reason prompt, no second ledger pool, never added back
+                // to available stock. Skipped entirely when the quantity
+                // divides evenly into whole trays, so no zero-quantity waste
+                // row is ever created.
+                var cuttingRemainder = entry.SeedQuantity - entry.QuantitySown;
+                if (cuttingRemainder > 0)
+                {
+                    var (wasteOk, wasteMessage) = await _cuttingStockRepo.RecordTransactionAsync(
+                        conn, tx, entry.SourceCuttingStockId.Value, -cuttingRemainder, "Wastage", "SeedSowing", newId, userId,
+                        "Automatic: sub-tray remainder wasted at sowing");
+                    if (!wasteOk)
+                    {
+                        tx.Rollback();
+                        return (false, wasteMessage, 0);
+                    }
+                }
+
+                // 2026-10-02: Tray Stock -- only when the destination Polyhouse
+                // is a Main Office Polyhouse; a no-op for every other Area.
+                // Uses the AUTHORITATIVE confirmed quantity (entry.SeedQuantity,
+                // already resolved from the locked delivery/pool above, never
+                // a client-trusted value) -- NOT the same figure as
+                // QuantitySown (FLOOR-based, complete trays only).
+                var (trayOk, trayMessage) = await ConsumeTrayStockIfApplicableAsync(
+                    conn, tx, entry.PolyhouseId, entry.CavityType, entry.SeedQuantity, newId, userId, $"Used for Sowing {sowingCode}");
+                if (!trayOk)
+                {
+                    tx.Rollback();
+                    return (false, trayMessage, 0);
                 }
 
                 tx.Commit();
@@ -853,6 +1005,38 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 try { tx.Rollback(); } catch { }
                 return (false, ex.Message, 0);
             }
+        }
+
+        // 2026-10-02: Tray Stock integration, shared by InsertAsync (Seed)
+        // and InsertFromCuttingAsync (Cutting). Only applies when the
+        // sowing's destination Polyhouse is a Main Office Polyhouse (the
+        // explicit business rule: trays belong to Main Office Polyhouses
+        // only) -- every other destination (no Polyhouse at all, or a
+        // growing-site Polyhouse like Green Bless Nursery) is completely
+        // unaffected, exactly as scoped; returns (true, null) immediately
+        // for those, no TrayStock row is ever touched or created.
+        // Required trays = CEILING(confirmed quantity / cavity count) --
+        // deliberately NOT the same as NumberOfTrays (FLOOR -- only
+        // fully-packed trays, used for the Sown/Wastage plant-count split):
+        // a physical tray is still consumed for the sub-tray remainder even
+        // though it is not "complete". Called from inside the caller's own
+        // transaction, after the SeedSowings row exists (for ReferenceId)
+        // and after the Sown/Wastage plant-quantity ledger entries -- a
+        // failure here rolls back the whole sowing, exactly like every
+        // other step.
+        private async Task<(bool Success, string? Message)> ConsumeTrayStockIfApplicableAsync(
+            SqlConnection conn, SqlTransaction tx, int? polyhouseId, string? cavityType, decimal confirmedQuantity,
+            int seedSowingId, int? userId, string? remarks)
+        {
+            if (!polyhouseId.HasValue)
+                return (true, null);
+            if (!await _trayStockRepo.IsMainOfficePolyhouseAsync(conn, tx, polyhouseId.Value))
+                return (true, null);
+            var cavity = DirectSowingRules.CavityCount(cavityType);
+            if (cavity is not > 0)
+                return (true, null); // CavityType is already validated by the caller; defensive only
+            var requiredTrays = Math.Ceiling(confirmedQuantity / cavity.Value);
+            return await _trayStockRepo.ConsumeForSowingAsync(conn, tx, polyhouseId.Value, cavityType!, requiredTrays, seedSowingId, userId, remarks);
         }
 
         private static string TruncateBatch(string value) => value.Length <= 50 ? value : value[..50];
@@ -915,6 +1099,19 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 {
                     tx.Rollback();
                     return (false, message);
+                }
+
+                // 2026-10-02: Tray Stock -- return exactly what this sowing's
+                // own original consumption ledger shows (never recalculated
+                // from quantity/cavity/polyhouse); a clean no-op for a
+                // legacy sowing, a non-Main-Office destination, or one with
+                // no tray transaction at all.
+                var (trayReversalOk, trayReversalMessage) = await _trayStockRepo.ReverseConsumptionAsync(
+                    conn, tx, "SeedSowing", id, userId, "Reversal of cancelled Sowing");
+                if (!trayReversalOk)
+                {
+                    tx.Rollback();
+                    return (false, trayReversalMessage);
                 }
 
                 var updateCmd = new SqlCommand(

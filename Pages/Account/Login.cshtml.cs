@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.Logging;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 
@@ -13,12 +14,17 @@ namespace PlantStockManager.Pages.Account
         private readonly IConfiguration _config;
         private readonly DatabaseHelper _db;
         private readonly UserClaimsFactory _claimsFactory;
+        private readonly UserLoginHistoryRepository _loginHistoryRepo;
+        private readonly ILogger<LoginModel> _logger;
 
-        public LoginModel(IConfiguration config, DatabaseHelper db, UserClaimsFactory claimsFactory)
+        public LoginModel(IConfiguration config, DatabaseHelper db, UserClaimsFactory claimsFactory,
+            UserLoginHistoryRepository loginHistoryRepo, ILogger<LoginModel> logger)
         {
             _config = config;
             _db = db;
             _claimsFactory = claimsFactory;
+            _loginHistoryRepo = loginHistoryRepo;
+            _logger = logger;
         }
 
         [BindProperty] public string Username { get; set; } = "";
@@ -76,6 +82,16 @@ WHERE u.Username = @u and u.IsActive = 1;";
                         new UserClaimsFactory.UserIdentityRow(userId, dbUsername, designationId, designationName));
 
                     await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+
+                    // Step 3B: best-effort login-history record. Never
+                    // blocks or fails the login itself -- RecordLoginAsync
+                    // never throws (it catches internally); this call is
+                    // AFTER SignInAsync has already succeeded, and only a
+                    // warning is logged on failure, nothing more.
+                    var (recorded, recordError) = await _loginHistoryRepo.RecordLoginAsync(userId);
+                    if (!recorded)
+                        _logger.LogWarning("Login succeeded for user {UserId} but recording login history failed: {Error}", userId, recordError);
+
                     return RedirectToPage("/Index");
                 }
             }

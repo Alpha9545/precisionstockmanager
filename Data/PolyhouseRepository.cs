@@ -44,6 +44,40 @@ LEFT JOIN dbo.Area a ON a.Id = p.AreaId";
             return await ReadListAsync(cmd);
         }
 
+        // Cutting Tray Sowing destination choices: real, actual Polyhouses
+        // (named physical facilities) a cutting may be sown into. Excludes:
+        //   - Outlet (OutletRules.AreaType) -- customer-facing, never a
+        //     growing destination;
+        //   - a Polyhouse with no Area assigned at all -- choosing one would
+        //     leave DirectSowingRules.ResolveGrowingLocation nothing to
+        //     resolve to except the stock's own (Main Office) Area, silently
+        //     reproducing the exact bug this list exists to prevent;
+        //   - any inactive Area.
+        // 2026-10-02 correction: Main Office (DirectSowingRules.
+        // MainOfficeAreaType) is NOT excluded here. The earlier blanket
+        // exclusion conflated two different things: the Main Office Cutting
+        // Stock DEPOT (a stock pool, never itself a sowing destination -- a
+        // sowing is never silently defaulted to it because PolyhouseId is
+        // mandatory with no blank/fallback option) versus the ACTUAL, named
+        // Polyhouses (e.g. "Facility-5") that are organisationally filed
+        // under a Main Office-type Area and are real growing sites like any
+        // other -- those must be selectable. Every other AreaType (including
+        // the documented-but-currently-unused 'Kunjir'/'Kiran', and a
+        // legacy/plain Area with AreaType NULL) is likewise a legitimate
+        // growing destination -- this is an EXCLUDE list (Outlet + inactive +
+        // unassigned only), not an allow-list of specific types.
+        public async Task<List<Polyhouse>> GetGrowingDestinationsAsync()
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new SqlCommand(BaseSelect + @"
+WHERE p.AreaId IS NOT NULL AND a.IsActive = 1
+  AND (a.AreaType IS NULL OR a.AreaType <> @Outlet)
+ORDER BY a.Name, p.Name", conn);
+            cmd.Parameters.AddWithValue("@Outlet", Services.OutletRules.AreaType);
+            return await ReadListAsync(cmd);
+        }
+
         public async Task<Polyhouse?> GetByIdAsync(int id)
         {
             using var conn = _dbHelper.GetConnection();

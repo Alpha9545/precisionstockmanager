@@ -9,28 +9,38 @@ using SeedSowingModel = PlantStockManager.Models.SeedSowing;
 
 namespace PlantStockManager.Pages.Production.SeedSowing
 {
-    // Cutting Tray Sowing: cuttings from Cutting Stock are placed in trays.
+    // Cutting Tray Sowing: the Sowing Supervisor records the actual quantity,
+    // Tray Cavity, destination Main Area / Polyhouse and Sowing Supervisor in
+    // ONE confirmation screen (never the Mother Plant Supervisor -- their
+    // involvement ends at Cutting Stock/GiveToMainOffice; this page is
+    // Sowing.Enter only). The destination is REQUIRED: a real, active
+    // Polyhouse (never Outlet, never inactive, never unassigned --
+    // PolyhouseRepository.GetGrowingDestinationsAsync excludes those; a real
+    // named Polyhouse filed under a Main Office-type Area IS a valid
+    // destination), and the growing Area is always derived FROM the chosen
+    // Polyhouse -- there is no separate Area dropdown.
     //   Complete Trays  = FLOOR(Cutting Quantity / Cavity)
-    //   Used Cutting    = Complete Trays x Cavity   (leaves Cutting Stock)
-    //   Remaining       = the rest                   (stays in Cutting Stock)
-    // Then the same Supervisor Approval -> Ready Seedling Stock as seed sowing.
+    //   Used Cutting    = Complete Trays x Cavity   (leaves Cutting Stock, 'Sown')
+    //   Remaining       = the rest                   (wasted automatically, 'Wastage' --
+    //                                                  never left in or returned to Cutting Stock)
     public class CreateFromCuttingModel : PageModel
     {
         private readonly SeedSowingRepository _seedSowingRepo;
         private readonly CuttingStockRepository _cuttingStockRepo;
         private readonly UserRoleRepository _userRoleRepo;
-        private readonly AreaRepository _areaRepo;
         private readonly PolyhouseRepository _polyhouseRepo;
+        private readonly InternalTransferRepository _internalTransferRepo;
         private readonly AreaAccessService _areaAccess;
 
         public CreateFromCuttingModel(SeedSowingRepository seedSowingRepo, CuttingStockRepository cuttingStockRepo,
-            UserRoleRepository userRoleRepo, AreaRepository areaRepo, PolyhouseRepository polyhouseRepo, AreaAccessService areaAccess)
+            UserRoleRepository userRoleRepo, PolyhouseRepository polyhouseRepo, InternalTransferRepository internalTransferRepo,
+            AreaAccessService areaAccess)
         {
             _seedSowingRepo = seedSowingRepo;
             _cuttingStockRepo = cuttingStockRepo;
             _userRoleRepo = userRoleRepo;
-            _areaRepo = areaRepo;
             _polyhouseRepo = polyhouseRepo;
+            _internalTransferRepo = internalTransferRepo;
             _areaAccess = areaAccess;
         }
 
@@ -38,36 +48,119 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         [BindProperty] public decimal CuttingQuantity { get; set; }
         [BindProperty] public string? CavityType { get; set; }
         [BindProperty] public DateTime SowingDate { get; set; } = DateTime.Today;
-        [BindProperty] public int? AreaId { get; set; }
         [BindProperty] public int? PolyhouseId { get; set; }
         [BindProperty] public int? SupervisorId { get; set; }
         [BindProperty] public string? Remarks { get; set; }
+        // Set only when this page was reached straight from Main Office
+        // Confirm Receipt for ONE specific delivery (ConfirmReceipt.cshtml.cs's
+        // redirect). When present, Cutting Quantity is anchored to THAT
+        // delivery's own dbo.InternalTransfers.ConfirmedQuantity -- never the
+        // pool's combined total, which could include other deliveries. Absent
+        // (page reached via Cutting Stock's own "Confirm Sowing" button, not
+        // tied to one delivery) falls back to the pool's Available Quantity.
+        [BindProperty] public int? TransferId { get; set; }
 
         public List<CuttingStockModel> StockPools { get; set; } = new();
-        public List<Area> Areas { get; set; } = new();
+        // The chosen Cutting Stock pool, for display in the anchored (one
+        // specific delivery) view -- resolved directly, not from StockPools,
+        // since a pool a delivery just fully consumed (Available = 0) is
+        // correctly absent from that list but must still display here.
+        public CuttingStockModel? SelectedStock { get; set; }
+        // Every valid growing destination Polyhouse this user may sow into
+        // (active, belongs to a real growing Area -- never Main Office /
+        // Outlet / Area-less / inactive). Required: the page never offers "no
+        // destination".
+        public List<Polyhouse> Destinations { get; set; } = new();
         public List<Employee> Supervisors { get; set; } = new();
         public IReadOnlyList<string> CavityTypes => DirectSowingRules.CavityTypes;
 
-        public async Task OnGetAsync(int? cuttingStockId)
+        public async Task<IActionResult> OnGetAsync(int? cuttingStockId, int? transferId = null)
         {
             await LoadAsync();
-            if (cuttingStockId.HasValue && StockPools.Any(s => s.Id == cuttingStockId))
-                CuttingStockId = cuttingStockId.Value;
+            if (cuttingStockId.HasValue)
+            {
+                // StockPools (the generic "pick a variety" list) only ever
+                // contains pools with Available > 0 -- correct for that picker,
+                // but WRONG to gate a transfer-anchored view on: a delivery
+                // that already consumed the pool down to zero (the normal
+                // outcome of sowing it) must still resolve far enough to be
+                // recognised as "already consumed" and redirected, not silently
+                // fall through to an empty generic picker. So when a
+                // transferId is present, the pool is read directly instead of
+                // from the filtered list.
+                var stock = StockPools.FirstOrDefault(s => s.Id == cuttingStockId)
+                    ?? (transferId.HasValue ? await _cuttingStockRepo.GetByIdAsync(cuttingStockId.Value) : null);
+                if (stock != null && CanUseSource(stock))
+                {
+                    CuttingStockId = cuttingStockId.Value;
+                    SelectedStock = stock;
+                    // Cutting Quantity is never typed. Anchored to the specific
+                    // delivery when we were sent here for one (its own confirmed
+                    // quantity); otherwise the chosen pool's Available Quantity.
+                    // Display only -- OnPostAsync/InsertFromCuttingAsync re-derive
+                    // this themselves and never trust a posted value.
+                    if (transferId.HasValue)
+                    {
+                        var (match, quantity) = await MatchTransferAsync(transferId.Value, stock);
+                        if (match == TransferMatch.AlreadyConsumed)
+                        {
+                            TempData["Error"] = "This delivery has already been used for a Cutting Sowing and cannot be sown again.";
+                            return RedirectToPage("/Production/CuttingStock/Index");
+                        }
+                        if (match == TransferMatch.Available)
+                        {
+                            TransferId = transferId;
+                            CuttingQuantity = quantity;
+                        }
+                        else
+                        {
+                            CuttingQuantity = stock.AvailableQuantity;
+                        }
+                    }
+                    else
+                    {
+                        CuttingQuantity = stock.AvailableQuantity;
+                    }
+                }
+            }
             await LoadSupervisorsAsync();
+            return Page();
         }
 
-        // Sowing Supervisor list for the GROWING Area (the Area chosen here, else the
-        // Polyhouse's Area, else the Cutting Stock's own Area -- the same resolution
-        // the save uses): active users assigned to that Area who can approve
-        // sowings, whatever their role is called -- the person recording the sowing
-        // included, who may choose themselves. Reloaded by the page whenever the
-        // Area, Cutting Stock or Polyhouse changes.
-        public async Task<JsonResult> OnGetSupervisorsAsync(int areaId, int cuttingStockId, int polyhouseId)
+        private enum TransferMatch { Unusable, AlreadyConsumed, Available }
+
+        // Whether a specific, completed Cutting delivery may be used to
+        // anchor this sowing's quantity: it must genuinely have landed in the
+        // chosen pool (same destination Area and Species as the pool's own
+        // source pool) -- a stale or tampered transferId can never substitute
+        // an unrelated delivery's quantity -- AND must not already be
+        // consumed by an earlier sowing (dbo.InternalTransfers.
+        // ConsumedBySeedSowingId). This is the page-level check (fast,
+        // friendly messages); InsertFromCuttingAsync repeats the same
+        // decision under a row lock as the actual authority.
+        private async Task<(TransferMatch Match, decimal Quantity)> MatchTransferAsync(int transferId, CuttingStockModel stock)
         {
-            var growingAreaId = await ResolveGrowingAreaAsync(areaId > 0 ? areaId : null, cuttingStockId, polyhouseId > 0 ? polyhouseId : null);
-            if (!growingAreaId.HasValue || !_areaAccess.CanAccessArea(User, growingAreaId))
+            var transfer = await _internalTransferRepo.GetByIdAsync(transferId);
+            if (transfer == null || transfer.StockType != "Cutting" || transfer.Status != "Completed"
+                || !transfer.ConfirmedQuantity.HasValue || transfer.ConfirmedQuantity.Value <= 0
+                || transfer.DestinationAreaId != stock.AreaId || !transfer.SourceCuttingStockId.HasValue)
+                return (TransferMatch.Unusable, 0);
+            var sourcePool = await _cuttingStockRepo.GetByIdAsync(transfer.SourceCuttingStockId.Value);
+            if (sourcePool == null || sourcePool.SpeciesId != stock.SpeciesId)
+                return (TransferMatch.Unusable, 0);
+            if (transfer.ConsumedBySeedSowingId.HasValue)
+                return (TransferMatch.AlreadyConsumed, 0);
+            return (TransferMatch.Available, transfer.ConfirmedQuantity.Value);
+        }
+
+        // Sowing Supervisor list for the chosen destination Polyhouse's Area --
+        // only when that Polyhouse is one of this user's valid destinations.
+        public async Task<JsonResult> OnGetSupervisorsAsync(int polyhouseId)
+        {
+            var destination = (await LoadDestinationsAsync()).FirstOrDefault(p => p.Id == polyhouseId);
+            if (destination == null)
                 return new JsonResult(Array.Empty<object>());
-            var list = await _userRoleRepo.GetCuttingSowingSupervisorsAsync(growingAreaId.Value);
+            var list = await _userRoleRepo.GetCuttingSowingSupervisorsAsync(destination.AreaId!.Value);
             return new JsonResult(list.Select(u => new { id = u.EmployeeID, name = u.Name }));
         }
 
@@ -78,24 +171,42 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             return new JsonResult(new { ok, trays, used, remaining, wholeNumber = DirectSowingRules.IsWholeNumber(quantity), error });
         }
 
-        // Area first: only the Polyhouses assigned to the selected Area (plus
-        // Polyhouses with no Area assigned yet, same as Direct Seed Sowing's
-        // own OnGetPolyhousesAsync) -- never another Area's Polyhouses.
-        public async Task<JsonResult> OnGetPolyhousesAsync(int areaId)
-        {
-            if (areaId > 0 && !_areaAccess.CanAccessArea(User, areaId))
-                return new JsonResult(Array.Empty<object>());
-            var list = (await _polyhouseRepo.GetAllPolyhouses())
-                .Where(p => !p.AreaId.HasValue || (areaId > 0 && p.AreaId == areaId))
-                .OrderBy(p => p.Name);
-            return new JsonResult(list.Select(p => new { id = p.Id, name = p.AreaId.HasValue ? p.Name : p.Name + " (no Area assigned)" }));
-        }
-
         public async Task<IActionResult> OnPostAsync()
         {
             var stock = await _cuttingStockRepo.GetByIdAsync(CuttingStockId);
+            SelectedStock = stock;
             if (stock == null || !CanUseSource(stock))
                 ModelState.AddModelError(string.Empty, "Choose a Cutting Stock you can use.");
+            else if (TransferId.HasValue)
+            {
+                // SECURITY: Cutting Quantity is never a user-editable value --
+                // whatever the browser posted for it (including a tampered
+                // value from dev tools) is discarded. The posted TransferId is
+                // likewise never trusted as-is: it is re-resolved the same way
+                // OnGetAsync does, against the live database, and only
+                // accepted when it still genuinely matches this pool's own
+                // species/Area AND has not already been used for a sowing.
+                // (InsertFromCuttingAsync repeats this exact check again under
+                // a row lock -- the real authority, race-safe; this is the
+                // early, friendly rejection.)
+                var (match, quantity) = await MatchTransferAsync(TransferId.Value, stock);
+                if (match == TransferMatch.AlreadyConsumed)
+                    ModelState.AddModelError(string.Empty, "This delivery has already been used for a Cutting Sowing and cannot be sown again.");
+                else if (match == TransferMatch.Unusable)
+                    ModelState.AddModelError(string.Empty, "The linked delivery no longer matches the selected Cutting Stock.");
+                else
+                    CuttingQuantity = quantity;
+            }
+            else
+            {
+                // No specific delivery behind this page view (reached via
+                // Cutting Stock's own "Confirm Sowing" button): Cutting
+                // Quantity is the pool's own Available Quantity, freshly read
+                // for THIS specific (SpeciesId, AreaId) pool -- never a
+                // generic Main Office total, never a client-trusted figure.
+                CuttingQuantity = stock.AvailableQuantity;
+            }
+
             if (!DirectSowingRules.IsValidCavityType(CavityType))
                 ModelState.AddModelError(string.Empty, $"Tray size must be one of: {string.Join(", ", DirectSowingRules.CavityTypes)}.");
             else if (stock != null)
@@ -105,19 +216,25 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 if (!ok)
                     ModelState.AddModelError(string.Empty, error!);
             }
-            // Supervisor: eligible for the GROWING Area (re-checked by the repository
-            // under its transaction; this gives the message before anything is locked).
-            var growingAreaId = await ResolveGrowingAreaAsync(AreaId, CuttingStockId, PolyhouseId);
-            if (growingAreaId.HasValue)
+
+            // Destination: a required, real growing Polyhouse (never Main Office / Outlet),
+            // re-loaded from the database -- the posted PolyhouseId is never trusted as-is.
+            var destinations = await LoadDestinationsAsync();
+            var destination = destinations.FirstOrDefault(p => p.Id == PolyhouseId);
+            if (PolyhouseId is not > 0)
+                ModelState.AddModelError(string.Empty, CuttingSowingDestinationRules.PolyhouseRequiredMessage);
+            else if (destination == null)
+                ModelState.AddModelError(string.Empty, CuttingSowingDestinationRules.InvalidDestinationMessage);
+
+            if (!SupervisorId.HasValue || SupervisorId.Value <= 0)
+                ModelState.AddModelError(string.Empty, CuttingSowingDestinationRules.SupervisorRequiredMessage);
+            else if (destination != null)
             {
-                var eligible = (await _userRoleRepo.GetCuttingSowingSupervisorsAsync(growingAreaId.Value))
-                    .Select(a => a.EmployeeID).ToList();
+                var eligible = (await _userRoleRepo.GetCuttingSowingSupervisorsAsync(destination.AreaId!.Value)).Select(e => e.EmployeeID).ToList();
                 var (supervisorOk, supervisorError) = SowingSupervisorRules.ValidateAssignment(SupervisorId, eligible);
                 if (!supervisorOk)
                     ModelState.AddModelError(string.Empty, supervisorError!);
             }
-            if (AreaId.HasValue && !_areaAccess.CanAccessArea(User, AreaId))
-                ModelState.AddModelError(string.Empty, "You are not authorized to sow in the selected Area.");
 
             if (!ModelState.IsValid)
             {
@@ -133,17 +250,19 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 SeedQuantity = CuttingQuantity,
                 CavityType = CavityType!,
                 SowingDate = SowingDate,
-                AreaId = AreaId ?? 0,
-                PolyhouseId = PolyhouseId,
+                AreaId = destination!.AreaId!.Value,
+                PolyhouseId = destination.Id,
                 SupervisorId = SupervisorId,
                 Remarks = Remarks,
                 CreatedBy = User.Identity?.Name ?? "System",
                 CreatedById = User.GetUserId()
             };
-            // Area isolation: the repository re-checks both the growing Area and the pool's own Area under its lock.
+            // Area isolation: the repository re-checks both the growing Area and the pool's own Area under its lock,
+            // and re-validates the destination is a real growing Area (never Main Office / Outlet).
             var (success, message, _) = await _seedSowingRepo.InsertFromCuttingAsync(sowing, User.GetUserId(),
                 areaId => _areaAccess.CanAccessArea(User, areaId),
-                areaId => CuttingRules.CanUseAsSource(_areaAccess.CanAccessArea(User, areaId)));
+                areaId => CuttingRules.CanUseAsSource(_areaAccess.CanAccessArea(User, areaId)),
+                TransferId);
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to record the cutting tray sowing.");
@@ -152,8 +271,10 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 return Page();
             }
 
-            TempData["Success"] = $"Tray sowing {sowing.SowingCode} recorded: {sowing.NumberOfTrays:N0} complete trays, {sowing.QuantitySown:N0} cuttings used; "
-                + $"{sowing.SeedQuantity - sowing.QuantitySown:N0} remaining cuttings stay in Cutting Stock. Expected ready: {sowing.ExpectedReadyDate:dd-MM-yyyy}.";
+            var cuttingRemainder = sowing.SeedQuantity - sowing.QuantitySown;
+            TempData["Success"] = $"Tray sowing {sowing.SowingCode} recorded: {sowing.NumberOfTrays:N0} complete trays, {sowing.QuantitySown:N0} cuttings used"
+                + (cuttingRemainder > 0 ? $"; {cuttingRemainder:N0} remaining cuttings recorded as waste (never returned to Cutting Stock)." : ".")
+                + $" Expected ready: {sowing.ExpectedReadyDate:dd-MM-yyyy}.";
             return RedirectToPage("/Production/SeedSowing/Details", new { id = sowing.Id });
         }
 
@@ -161,42 +282,31 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         private bool CanUseSource(CuttingStockModel s)
             => CuttingRules.CanUseAsSource(_areaAccess.CanAccessArea(User, s.AreaId));
 
+        // Every valid growing destination (GetGrowingDestinationsAsync already excludes
+        // Main Office / Outlet / Area-less / inactive) that THIS user may also sow into.
+        private async Task<List<Polyhouse>> LoadDestinationsAsync()
+            => (await _polyhouseRepo.GetGrowingDestinationsAsync())
+                .Where(p => _areaAccess.CanAccessArea(User, p.AreaId!.Value))
+                .ToList();
+
         private async Task LoadAsync()
         {
             StockPools = (await _cuttingStockRepo.GetAllAsync())
                 .Where(s => s.AvailableQuantity > 0 && CanUseSource(s))
                 .OrderBy(s => s.SpeciesName).ThenBy(s => s.AreaName)
                 .ToList();
-            Areas = (await _areaRepo.GetAllAreas()).Where(a => a.IsActive && _areaAccess.CanAccessArea(User, a.Id)).OrderBy(a => a.Name).ToList();
+            Destinations = await LoadDestinationsAsync();
         }
 
-        // The supervisors of the growing Area the form currently resolves to (used
-        // to draw the list on first load and after a failed save, so the chosen
-        // person stays selected). Empty until a Cutting Stock or Area is chosen.
+        // The supervisors of the currently chosen destination Polyhouse (used to
+        // draw the list on first load and after a failed save, so the chosen
+        // person stays selected). Empty until a Polyhouse is chosen.
         private async Task LoadSupervisorsAsync()
         {
-            var growingAreaId = await ResolveGrowingAreaAsync(AreaId, CuttingStockId, PolyhouseId);
-            Supervisors = growingAreaId.HasValue && _areaAccess.CanAccessArea(User, growingAreaId)
-                ? await _userRoleRepo.GetCuttingSowingSupervisorsAsync(growingAreaId.Value)
+            var destination = PolyhouseId is > 0 ? (await LoadDestinationsAsync()).FirstOrDefault(p => p.Id == PolyhouseId) : null;
+            Supervisors = destination != null
+                ? await _userRoleRepo.GetCuttingSowingSupervisorsAsync(destination.AreaId!.Value)
                 : new List<Employee>();
-        }
-
-        // The growing Area exactly as the save resolves it: the chosen Area, else
-        // the chosen Polyhouse's Area, else the Cutting Stock's own Area.
-        private async Task<int?> ResolveGrowingAreaAsync(int? requestedAreaId, int cuttingStockId, int? polyhouseId)
-        {
-            var stockAreaId = 0;
-            if (cuttingStockId > 0)
-            {
-                var stock = await _cuttingStockRepo.GetByIdAsync(cuttingStockId);
-                if (stock != null && CanUseSource(stock))
-                    stockAreaId = stock.AreaId;
-            }
-            int? polyhouseAreaId = null;
-            if (polyhouseId is > 0)
-                polyhouseAreaId = (await _polyhouseRepo.GetAllPolyhouses()).FirstOrDefault(p => p.Id == polyhouseId)?.AreaId;
-            var (ok, areaId, _, _) = DirectSowingRules.ResolveGrowingLocation(stockAreaId, requestedAreaId, polyhouseId, polyhouseAreaId);
-            return ok && areaId > 0 ? areaId : null;
         }
     }
 }

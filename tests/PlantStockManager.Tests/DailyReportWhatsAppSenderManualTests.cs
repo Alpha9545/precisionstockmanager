@@ -57,6 +57,7 @@ namespace PlantStockManager.Tests
                 services.AddScoped(t);
             services.AddScoped<DailyReportService>();
             services.Configure<SendviseOptions>(configuration.GetSection(SendviseOptions.SectionName));
+            services.Configure<DailyReportWhatsAppOptions>(configuration.GetSection(DailyReportWhatsAppOptions.SectionName));
             services.AddHttpClient<SendviseClient>();
             services.AddLogging(b => b.AddProvider(NullLoggerProvider.Instance));
             services.AddScoped<DailyReportWhatsAppSender>();

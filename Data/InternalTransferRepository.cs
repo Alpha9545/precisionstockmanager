@@ -55,6 +55,7 @@ SELECT
     t.PendingConfirmationAreaId, pca.Name AS PendingConfirmationAreaName,
     t.Quantity, t.Status,
     t.ConfirmedQuantity, t.ConfirmedBy, cb.Name AS ConfirmedByName, t.ConfirmedDate, t.DiscrepancyReason,
+    t.ConsumedBySeedSowingId,
     t.ResponsiblePersonId, r.Name AS ResponsiblePersonName,
     t.SupervisorId, sup.Name AS SupervisorName,
     t.Remarks, t.CreatedDate, t.CreatedBy, t.ModifiedDate, t.ModifiedBy,
@@ -507,7 +508,15 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         //   delivery     : Completed, ConfirmedQuantity = received
         // Delivered -> Received -> Main Office Cutting Stock; the shortfall is
         // production wastage (it left the sending Area and never arrived).
-        public async Task<(bool Success, string? Message)> ConfirmReceiptAsync(
+        // DestinationCuttingStockId: the Main Office pool the received cuttings
+        // landed in (null when confirmedQuantity is 0 -- nothing arrived, so
+        // nothing to sow). Lets the caller (ConfirmReceipt.cshtml.cs) send the
+        // Sowing Supervisor straight into Cutting Tray Sowing Confirmation for
+        // THIS delivery, instead of leaving them to find it themselves --
+        // business-rule connection only; the receipt's own fields/logic above
+        // (ConfirmedQuantity, DiscrepancyReason, the transactions it writes)
+        // are completely unchanged.
+        public async Task<(bool Success, string? Message, int? DestinationCuttingStockId)> ConfirmReceiptAsync(
             int id, decimal confirmedQuantity, string? discrepancyReason, int? confirmedByUserId, string? modifiedBy)
         {
             using var conn = _dbHelper.GetConnection();
@@ -529,7 +538,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                     {
                         reader.Close();
                         tx.Rollback();
-                        return (false, "Cutting delivery not found.");
+                        return (false, "Cutting delivery not found.", null);
                     }
                     stockType = reader.GetString(reader.GetOrdinal("StockType"));
                     sourceCuttingStockId = reader.IsDBNull(reader.GetOrdinal("SourceCuttingStockId")) ? null : reader.GetInt32(reader.GetOrdinal("SourceCuttingStockId"));
@@ -541,18 +550,18 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 if (stockType != "Cutting" || !sourceCuttingStockId.HasValue || !mainOfficeAreaId.HasValue)
                 {
                     tx.Rollback();
-                    return (false, "Only a pending Cutting delivery can be confirmed here.");
+                    return (false, "Only a pending Cutting delivery can be confirmed here.", null);
                 }
                 if (status != "PendingConfirmation")
                 {
                     tx.Rollback();
-                    return (false, $"This delivery is already '{status}' and cannot be confirmed again.");
+                    return (false, $"This delivery is already '{status}' and cannot be confirmed again.", null);
                 }
                 var (ok, transitLoss, error) = Services.CuttingRules.ConfirmDelivery(sentQuantity, confirmedQuantity, discrepancyReason);
                 if (!ok)
                 {
                     tx.Rollback();
-                    return (false, error);
+                    return (false, error, null);
                 }
 
                 var speciesCmd = new SqlCommand("SELECT SpeciesId FROM dbo.CuttingStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
@@ -561,7 +570,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 if (speciesObj == null || speciesObj == DBNull.Value)
                 {
                     tx.Rollback();
-                    return (false, "The sending Cutting Stock no longer exists.");
+                    return (false, "The sending Cutting Stock no longer exists.", null);
                 }
                 var speciesId = (int)speciesObj;
 
@@ -570,7 +579,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 if (!releaseOk)
                 {
                     tx.Rollback();
-                    return (false, releaseMessage);
+                    return (false, releaseMessage, null);
                 }
 
                 // 2) It leaves the sending Area: received part as a transfer,
@@ -582,7 +591,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                     if (!outOk)
                     {
                         tx.Rollback();
-                        return (false, outMessage);
+                        return (false, outMessage, null);
                     }
                 }
                 if (transitLoss > 0)
@@ -592,11 +601,12 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                     if (!lossOk)
                     {
                         tx.Rollback();
-                        return (false, lossMessage);
+                        return (false, lossMessage, null);
                     }
                 }
 
                 // 3) What arrived is Main Office Cutting Stock.
+                int? destinationCuttingStockId = null;
                 if (confirmedQuantity > 0)
                 {
                     var destId = await _cuttingStockRepo.GetOrCreateLockedAsync(conn, tx, speciesId, mainOfficeAreaId.Value, modifiedBy);
@@ -605,8 +615,9 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                     if (!inOk)
                     {
                         tx.Rollback();
-                        return (false, inMessage);
+                        return (false, inMessage, null);
                     }
+                    destinationCuttingStockId = destId;
                 }
 
                 var updateCmd = new SqlCommand(@"
@@ -628,12 +639,12 @@ WHERE Id = @Id", conn, tx);
                 await updateCmd.ExecuteNonQueryAsync();
 
                 tx.Commit();
-                return (true, null);
+                return (true, null, destinationCuttingStockId);
             }
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message);
+                return (false, ex.Message, null);
             }
         }
 
@@ -1051,6 +1062,7 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
                 ConfirmedByName = reader.IsDBNull(reader.GetOrdinal("ConfirmedByName")) ? null : reader.GetString(reader.GetOrdinal("ConfirmedByName")),
                 ConfirmedDate = reader.IsDBNull(reader.GetOrdinal("ConfirmedDate")) ? null : reader.GetDateTime(reader.GetOrdinal("ConfirmedDate")),
                 DiscrepancyReason = reader.IsDBNull(reader.GetOrdinal("DiscrepancyReason")) ? null : reader.GetString(reader.GetOrdinal("DiscrepancyReason")),
+                ConsumedBySeedSowingId = reader.IsDBNull(reader.GetOrdinal("ConsumedBySeedSowingId")) ? null : reader.GetInt32(reader.GetOrdinal("ConsumedBySeedSowingId")),
                 ResponsiblePersonId = reader.IsDBNull(reader.GetOrdinal("ResponsiblePersonId")) ? null : reader.GetInt32(reader.GetOrdinal("ResponsiblePersonId")),
                 ResponsiblePersonName = reader.IsDBNull(reader.GetOrdinal("ResponsiblePersonName")) ? null : reader.GetString(reader.GetOrdinal("ResponsiblePersonName")),
                 SupervisorId = reader.IsDBNull(reader.GetOrdinal("SupervisorId")) ? null : reader.GetInt32(reader.GetOrdinal("SupervisorId")),

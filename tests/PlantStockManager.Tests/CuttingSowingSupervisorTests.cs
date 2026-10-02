@@ -134,28 +134,26 @@ namespace PlantStockManager.Tests
         }
 
         [Fact]
-        public void Page_LoadsSupervisorsForTheResolvedGrowingArea()
+        public void Page_LoadsSupervisorsForTheChosenDestinationPolyhouse()
         {
             var type = typeof(PlantStockManager.Pages.Production.SeedSowing.CreateFromCuttingModel);
             var handler = type.GetMethod("OnGetSupervisorsAsync");
             Assert.NotNull(handler);
-            Assert.Equal(new[] { "areaId", "cuttingStockId", "polyhouseId" }, handler!.GetParameters().Select(p => p.Name).ToArray());
+            Assert.Equal(new[] { "polyhouseId" }, handler!.GetParameters().Select(p => p.Name).ToArray());
             var cs = Repo("Pages", "Production", "SeedSowing", "CreateFromCutting.cshtml.cs");
             Assert.Contains("GetCuttingSowingSupervisorsAsync", cs);
-            Assert.Contains("DirectSowingRules.ResolveGrowingLocation", cs);      // same Area resolution as the save
+            Assert.Contains("GetGrowingDestinationsAsync", cs);                   // Area is derived FROM the destination Polyhouse
             Assert.DoesNotContain("GetSowingApproversAsync", cs);                 // the role-name list is gone from this page
-            Assert.DoesNotContain("ValidateSupervisorAssignment", cs);
         }
 
         [Fact]
-        public void Page_ReloadsTheListWhenTheAreaCuttingStockOrPolyhouseChanges()
+        public void Page_ReloadsTheSupervisorListWhenThePolyhouseChanges()
         {
             var html = Repo("Pages", "Production", "SeedSowing", "CreateFromCutting.cshtml");
             Assert.Contains("handler: 'Supervisors'", html);
-            Assert.Contains("$('#areaSelect').on('change'", html);
-            Assert.Contains("$('#stock').on('change', loadSupervisors)", html);
-            Assert.Contains("$('#polyhouseSelect').on('change', loadSupervisors)", html);
+            Assert.Contains("$('#polyhouseSelect').on('change'", html);
             Assert.Contains("id=\"supervisorSelect\"", html);
+            Assert.Contains("id=\"polyhouseSelect\"", html);
         }
 
         [Fact]
@@ -173,15 +171,15 @@ namespace PlantStockManager.Tests
         }
 
         [Fact]
-        public void RepositoryChecksTheSupervisorAgainstTheGrowingArea_UnderItsTransaction()
+        public void RepositoryChecksTheSupervisorAgainstTheDestinationArea_UnderItsTransaction()
         {
             var repo = Repo("Data", "SeedSowingRepository.cs");
             var start = repo.IndexOf("InsertFromCuttingAsync(", StringComparison.Ordinal);
             Assert.True(start > 0);
             var body = repo.Substring(start);
-            var location = body.IndexOf("DirectSowingRules.ResolveGrowingLocation", StringComparison.Ordinal);
+            var destination = body.IndexOf("CuttingSowingDestinationRules.ValidateDestination", StringComparison.Ordinal);
             var supervisor = body.IndexOf("GetCuttingSowingSupervisorsAsync(growingAreaId", StringComparison.Ordinal);
-            Assert.True(location > 0 && supervisor > location, "the supervisor is checked AFTER the growing Area is resolved");
+            Assert.True(destination > 0 && supervisor > destination, "the supervisor is checked AFTER the destination Area is resolved");
             Assert.Contains("SowingSupervisorRules.ValidateAssignment", body);
             Assert.Contains("conn, tx)", body.Substring(supervisor, 200));           // same connection/transaction as the insert
         }

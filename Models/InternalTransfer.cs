@@ -66,6 +66,16 @@ namespace PlantStockManager.Models
         public decimal? ConfirmedQuantity { get; set; }
         public int? ConfirmedBy { get; set; }
         public DateTime? ConfirmedDate { get; set; }
+
+        // 2026-10-02: set exactly once, by SeedSowingRepository.
+        // InsertFromCuttingAsync, when a Cutting delivery's own confirmed
+        // quantity is used to create a Cutting Sowing (Confirm Cutting Sowing
+        // reached directly from Confirm Receipt). NULL means this delivery
+        // has not yet been sown -- true for every row before this feature.
+        // Prevents the SAME delivery being used for a second sowing (the
+        // pooled dbo.CuttingStock balance alone cannot detect that, since it
+        // mixes multiple deliveries of the same Species/Area together).
+        public int? ConsumedBySeedSowingId { get; set; }
         // Required by the application whenever ConfirmedQuantity differs
         // from Quantity, or when the transfer is Rejected outright.
         public string? DiscrepancyReason { get; set; }

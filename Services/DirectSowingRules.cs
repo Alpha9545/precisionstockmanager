@@ -41,11 +41,16 @@ namespace PlantStockManager.Services
 
         // NoOfTrays = FLOOR(SeedQuantity / TraySize) -- complete trays only,
         // never rounded to nearest and never rounded up. SeedsUsed = the seeds
-        // that fill those complete trays; RemainingSeeds = the rest.
+        // that fill those complete trays; RemainingSeeds = the rest. This is
+        // pure arithmetic only -- it does not itself touch any stock ledger
+        // or decide what happens to RemainingSeeds; that is each caller's own
+        // business decision (SeedSowingRepository.InsertAsync/
+        // InsertFromCuttingAsync both waste it automatically in the same
+        // transaction as the 'Sown' deduction -- see their own comments).
         // The server always recalculates with this function; any tray count
         // sent by the browser is ignored.
         // The same rule serves cutting tray sowing (quantityLabel "Cutting
-        // Quantity"): only complete trays are produced, the rest stays in stock.
+        // Quantity"): only complete trays are produced from either material.
         public static (bool Ok, int Trays, decimal SeedsUsed, decimal RemainingSeeds, string? Error) CalculateTrays(
             decimal seedQuantity, string? cavityType, string quantityLabel = SeedQuantityLabel)
         {

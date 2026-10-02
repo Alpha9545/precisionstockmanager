@@ -1,0 +1,72 @@
+@page
+@model PlantStockManager.Pages.Production.TrayStock.AllocateModel
+@{
+    ViewData["Title"] = "Allocate Trays";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header">
+            <h4 class="mb-0">Allocate Trays</h4>
+            <small class="text-muted">Give empty trays to a specific Main Office Polyhouse.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (!Model.Polyhouses.Any())
+            {
+                <div class="alert alert-warning">No active Polyhouse is configured under a Main Office Area.</div>
+            }
+
+            <form method="post">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Date</label>
+                        <input type="date" asp-for="Date" class="form-control" required />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Polyhouse</label>
+                        <select asp-for="PolyhouseId" class="form-select" required>
+                            <option value="">-- Select Main Office Polyhouse --</option>
+                            @foreach (var p in Model.Polyhouses)
+                            {
+                                <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.AreaName - @p.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Tray Size</label>
+                        <select asp-for="TraySize" class="form-select" required>
+                            <option value="">-- Select --</option>
+                            @foreach (var t in Model.TraySizes)
+                            {
+                                <option value="@t" selected="@(Model.TraySize == t)">@t</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Quantity</label>
+                        <input type="number" step="1" min="1" asp-for="Quantity" class="form-control" required />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Remarks</label>
+                        <textarea asp-for="Remarks" class="form-control" rows="2" placeholder="e.g. Initial tray allocation"></textarea>
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/TrayStock/Index" class="btn btn-secondary me-2">Back</a>
+                    <button type="submit" class="btn btn-success">Allocate</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

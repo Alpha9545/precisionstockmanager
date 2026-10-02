@@ -1,0 +1,15 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "psm-scratch",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--no-build", "--no-launch-profile", "--project", "PlantStockManager.csproj", "--urls", "http://localhost:5013"],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Server=localhost\\MSSQLSERVER02;Database=PlantsIMS2_Scratch_Confirmer_20261001;Trusted_Connection=True;TrustServerCertificate=True;"
+      },
+      "port": 5013
+    }
+  ]
+}

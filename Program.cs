@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
+using PlantStockManager.Endpoints;
 using PlantStockManager.Models;
 using PlantStockManager.Services;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -22,7 +23,6 @@ builder.Services.AddScoped<SeedSourcesRepository>();
 builder.Services.AddScoped<PolyhouseRepository>();
 builder.Services.AddScoped<PlantTypeRepository>();
 builder.Services.AddScoped<PlantSpeciesRepository>();
-builder.Services.AddScoped<InventoryRepository>();
 builder.Services.AddScoped<BookingRepository>();
 builder.Services.AddScoped<VendorPurchaseRepository>();
 builder.Services.AddScoped<EmployeeRepository>();
@@ -61,9 +61,14 @@ builder.Services.AddScoped<LabRequestRepository>(); // Phase 12
 builder.Services.AddScoped<RoleRepository>();
 builder.Services.AddScoped<PermissionRepository>();
 builder.Services.AddScoped<UserRoleRepository>();
+builder.Services.AddScoped<UserLoginHistoryRepository>(); // Step 3B: employee login tracking (dbo.UserLoginHistory)
 
 // Mother Plant workflow: location-scoped raw cutting stock (Phase 15)
 builder.Services.AddScoped<CuttingStockRepository>();
+
+// Tray Stock (2026-10-02): empty tray inventory held at specific Main
+// Office Polyhouses, consumed automatically by Seed/Cutting Sowing.
+builder.Services.AddScoped<TrayStockRepository>();
 
 // Growing Partner foundation (Phase 17) -- deliberately separate from
 // VendorRepository/dbo.Vendors (Phase 11), see GrowingPartner.cs.
@@ -101,6 +106,18 @@ builder.Services.AddScoped<SeedlingFulfilmentRepository>(); // Phase C: Ready St
 // reporting repository -- never a duplicate of any operational
 // repository above, see Data/ManagementDashboardRepository.cs.
 builder.Services.AddScoped<ManagementDashboardRepository>();
+builder.Services.AddScoped<DailyReportService>(); // Step 3A: read-only daily report data assembly (no WhatsApp/scheduler yet)
+
+// Step 8A/8G: Sendvise WhatsApp template sending -- DailyReportService ->
+// DailyReportWhatsAppFormatter (pure, no DI needed) -> SendviseClient ->
+// Sendvise API. No scheduler/BackgroundService registered anywhere -- both
+// DailyReportWhatsAppSender.SendTestReportAsync (Sendvise:TestRecipient,
+// manual test only) and SendDailyReportAsync (DailyReportWhatsApp:Recipients,
+// the production multi-recipient path) still require a manual/future trigger.
+builder.Services.Configure<SendviseOptions>(builder.Configuration.GetSection(SendviseOptions.SectionName));
+builder.Services.Configure<DailyReportWhatsAppOptions>(builder.Configuration.GetSection(DailyReportWhatsAppOptions.SectionName));
+builder.Services.AddHttpClient<SendviseClient>();
+builder.Services.AddScoped<DailyReportWhatsAppSender>();
 
 
 builder.Services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
@@ -218,6 +235,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapRazorPages();
+
+// Daily Report / Sendvise webhook RECEIVER ONLY (see
+// Endpoints/DailyReportWebhookEndpoints.cs) -- no report generation, no
+// WhatsApp sending yet.
+app.MapDailyReportWebhookEndpoints();
 
 app.Run();
 

@@ -34,7 +34,7 @@
                 <dt class="col-sm-5">Tray Cavity</dt><dd class="col-sm-7">@Model.SeedSowing.CavityType</dd>
                 <dt class="col-sm-5">Complete Trays</dt><dd class="col-sm-7">@(Model.SeedSowing.NumberOfTrays?.ToString("N0") ?? "-")</dd>
                 <dt class="col-sm-5">@Model.SeedSowing.UnitName Used (in complete trays)</dt><dd class="col-sm-7">@Model.SeedSowing.QuantitySown.ToString("N0")</dd>
-                <dt class="col-sm-5">Remaining @Model.SeedSowing.UnitName @(Model.SeedSowing.IsCuttingSource ? $"(stay in {Model.SeedSowing.SourceLabel})" : "(automatically wasted)")</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedQuantity > 0 ? Model.SeedSowing.RemainingSeeds.ToString("N0") : "-")</dd>
+                <dt class="col-sm-5">Remaining @Model.SeedSowing.UnitName (automatically wasted)</dt><dd class="col-sm-7">@(Model.SeedSowing.SeedQuantity > 0 ? Model.SeedSowing.RemainingSeeds.ToString("N0") : "-")</dd>
                 <dt class="col-sm-5">Sowing Date</dt><dd class="col-sm-7">@Model.SeedSowing.SowingDate.ToString("dd/MM/yyyy")</dd>
                 <dt class="col-sm-5">Ready Stock Days</dt><dd class="col-sm-7">@(Model.SeedSowing.ReadyStockDays?.ToString() ?? "-")</dd>
                 <dt class="col-sm-5">Expected Ready Date</dt><dd class="col-sm-7">@(Model.SeedSowing.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</dd>

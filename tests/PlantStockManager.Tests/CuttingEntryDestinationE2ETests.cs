@@ -144,7 +144,7 @@ namespace PlantStockManager.Tests
 
             // Main Office confirms what arrived (existing ConfirmReceipt flow): 240 of 250
             var transfers = env.Get<InternalTransferRepository>();
-            var (confirmed, confirmMessage) = await transfers.ConfirmReceiptAsync(entry.TransferId!.Value, 240, "10 damaged in transit", 1, "e2e-test");
+            var (confirmed, confirmMessage, _) = await transfers.ConfirmReceiptAsync(entry.TransferId!.Value, 240, "10 damaged in transit", 1, "e2e-test");
             Assert.True(confirmed, confirmMessage);
             Assert.Equal((p0, t0, a0), await env.PoolAsync(species, AreaA));                   // +250 harvest -240 delivered -10 transit loss; hold released
             Assert.Equal(mp0 + 240, (await env.PoolAsync(species, MainOfficeArea)).Physical);   // NOW it is Main Office stock (what arrived)
@@ -333,7 +333,7 @@ namespace PlantStockManager.Tests
             Assert.Null(await env.ScalarAsync<int?>("SELECT SourceCuttingProductionId FROM dbo.InternalTransfers WHERE Id = @Id", ("@Id", id)));
 
             // Main Office confirms all 100
-            var (confirmed, cm) = await transfers.ConfirmReceiptAsync(id, 100, null, 1, "e2e-test");
+            var (confirmed, cm, _) = await transfers.ConfirmReceiptAsync(id, 100, null, 1, "e2e-test");
             Assert.True(confirmed, cm);
             Assert.Equal((p0 - 100, t0, a0 - 100), await env.PoolAsync(species, AreaA));
             Assert.Equal(mp0 + 100, (await env.PoolAsync(species, MainOfficeArea)).Physical);

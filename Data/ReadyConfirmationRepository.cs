@@ -40,15 +40,21 @@ namespace PlantStockManager.Data
         private readonly ReadyStockRepository _readyStockRepo;
         // Cutting Tray Sowing: extra cuttings taken at approval / returned on cancel.
         private readonly CuttingStockRepository _cuttingStockRepo;
+        // 2026-10-02: the same extra-overage approval also consumes the
+        // corresponding PHYSICAL trays (CEILING-based, Main Office
+        // Polyhouses only) -- a completely separate ledger/transaction from
+        // the CuttingStock one above, never a replacement for it.
+        private readonly TrayStockRepository _trayStockRepo;
 
         public ReadyConfirmationRepository(
             DatabaseHelper dbHelper, BatchNumberRepository batchNumberRepo, ReadyStockRepository readyStockRepo,
-            CuttingStockRepository cuttingStockRepo)
+            CuttingStockRepository cuttingStockRepo, TrayStockRepository trayStockRepo)
         {
             _dbHelper = dbHelper;
             _batchNumberRepo = batchNumberRepo;
             _readyStockRepo = readyStockRepo;
             _cuttingStockRepo = cuttingStockRepo;
+            _trayStockRepo = trayStockRepo;
         }
 
         private const string BaseSelect = @"
@@ -332,6 +338,32 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                         tx.Rollback();
                         return (false, cutMessage, 0);
                     }
+
+                    // 2026-10-02: the extra cuttings above also need the
+                    // matching PHYSICAL trays, only when the destination is
+                    // a Main Office Polyhouse (Seed-source overage never
+                    // reaches here at all -- extraCuttings is always 0 for
+                    // SourceType=Seed, per DirectSowingRules.ExtraCuttingsNeeded).
+                    // Reuses the existing ExtraTrays formula -- no new
+                    // calculation -- and tags the ledger to THIS approval's
+                    // own Id, not the sowing's, so a later cancellation of
+                    // just this approval can return exactly this amount.
+                    if (polyhouseId.HasValue && await _trayStockRepo.IsMainOfficePolyhouseAsync(conn, tx, polyhouseId.Value))
+                    {
+                        var requiredExtraTrays = Math.Ceiling(DirectSowingRules.ExtraTrays(extraCuttings, cavityType));
+                        if (requiredExtraTrays > 0)
+                        {
+                            var extraTrayStockId = await _trayStockRepo.GetOrCreateLockedAsync(conn, tx, polyhouseId.Value, cavityType, null);
+                            var (trayOk, trayMessage) = await _trayStockRepo.RecordTransactionAsync(
+                                conn, tx, extraTrayStockId, -requiredExtraTrays, "Sowing", "ReadyConfirmation", newId, userId,
+                                $"Extra {requiredExtraTrays:N0} trays ({extraCuttings:N0} cuttings) beyond the sown trays: approval of batch {sowingCode}");
+                            if (!trayOk)
+                            {
+                                tx.Rollback();
+                                return (false, trayMessage, 0);
+                            }
+                        }
+                    }
                 }
 
                 // Ready Stock grows by exactly the approved Ready quantity
@@ -503,6 +535,21 @@ WHERE CuttingStockId = @Pool AND ReferenceType = N'ReadyConfirmation' AND Refere
                             return (false, returnMessage);
                         }
                     }
+                }
+
+                // 2026-10-02: return exactly the physical trays THIS
+                // approval consumed (if any) -- same generic method R1
+                // uses, scoped to ReferenceType="ReadyConfirmation" so it
+                // never touches the sowing's own original tray consumption
+                // or any other approval's. A clean no-op when this approval
+                // never consumed trays (no overage, Seed source, or non-
+                // Main-Office destination).
+                var (trayReversalOk, trayReversalMessage) = await _trayStockRepo.ReverseConsumptionAsync(
+                    conn, tx, "ReadyConfirmation", id, userId, "Supervisor Approval cancelled: extra trays returned");
+                if (!trayReversalOk)
+                {
+                    tx.Rollback();
+                    return (false, trayReversalMessage);
                 }
 
                 var updateConfirmationCmd = new SqlCommand(

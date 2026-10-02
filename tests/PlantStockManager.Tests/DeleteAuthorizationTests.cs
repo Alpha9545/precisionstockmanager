@@ -142,6 +142,57 @@ namespace PlantStockManager.Tests
         public async Task MotherPlant_WithMotherPlantEnter_IsAuthorized(string url, string permissions)
             => AssertAuthorizedButNeedsAntiforgery(await SendAsync(HttpMethod.Post, url, permissions));
 
+        // ---- Outlet Sale (Issue 2: Mother Plant Supervisor can now send pots to customers) ----
+        // Real HTTP, through the real app pipeline and the real FeatureAuthorizationConventions
+        // policy -- no database involved (GET is refused by authorization alone; POST is stopped
+        // by anti-forgery before any page handler or repository runs). The header permission sets
+        // below are the role's ACTUAL dbo.RolePermissions grants: "old" = before this fix (what
+        // Mother Plant Supervisor had when the user reported being unable to send pots to
+        // customers), "new" = after it (the same set plus Outlet.Sell).
+
+        private const string MotherPlantSupervisorOldPermissions =
+            "Dashboard.View,MotherPlant.View,MotherPlant.Enter,InternalTransfer.View,InternalTransfer.Enter,PotProduction.View,ReadyStock.Confirm,ReadyStock.View";
+        private const string MotherPlantSupervisorNewPermissions = MotherPlantSupervisorOldPermissions + ",Outlet.Sell";
+
+        [Theory]
+        [InlineData("GET", "/Production/OutletSale/Create")]
+        [InlineData("POST", "/Production/OutletSale/Create")]
+        public async Task OutletSale_Anonymous_IsSentToLogin(string method, string url)
+            => AssertLoginRequired(await SendAsync(new HttpMethod(method), url, null));
+
+        [Theory]
+        [InlineData("GET", MotherPlantSupervisorOldPermissions)]                 // the exact pre-fix permission set -- reproduces the reported restriction
+        [InlineData("GET", "MotherPlant.Enter,MotherPlant.View")]                // Mother Plant access alone is not enough
+        [InlineData("GET", "Dashboard.View")]
+        [InlineData("GET", "Fertilizer.Enter,Fertilizer.View")]                  // a genuinely unrelated role stays unauthorized
+        public async Task OutletSaleCreate_WithoutOutletSell_GetsAccessDenied(string method, string permissions)
+            => AssertAccessDenied(await SendAsync(new HttpMethod(method), "/Production/OutletSale/Create", permissions));
+
+        [Theory]
+        [InlineData(MotherPlantSupervisorNewPermissions)]  // the exact post-fix permission set
+        [InlineData("Outlet.Sell")]                        // the permission alone is sufficient, nothing extra required
+        [InlineData("FULL")]                               // Admin behavior is unchanged
+        public async Task OutletSaleCreate_WithOutletSell_IsAuthorized(string permissions)
+            => AssertAuthorizedButNeedsAntiforgery(await SendAsync(HttpMethod.Post, "/Production/OutletSale/Create", permissions));
+
+        [Fact]
+        public async Task OutletSaleCreate_GET_WithOutletSell_Succeeds()
+        {
+            // GET has no anti-forgery gate, so a real 200 OK proves full access,
+            // not just "authorization passed."
+            var response = await SendAsync(HttpMethod.Get, "/Production/OutletSale/Create", MotherPlantSupervisorNewPermissions);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        [Fact]
+        public async Task MotherPlantSupervisorsNewPermission_DoesNotGrantAccessToUnrelatedAdminPages()
+        {
+            // No unrelated permission is accidentally usable elsewhere: the exact
+            // post-fix permission set still cannot delete/deactivate an Area
+            // (Admin.ManageAreas) -- the fix is scoped to Outlet.Sell only.
+            AssertAccessDenied(await SendAsync(HttpMethod.Post, "/Admin/Area?handler=Delete&id=1", MotherPlantSupervisorNewPermissions));
+        }
+
         // ---- Permission map -------------------------------------------------
 
         [Fact]
@@ -150,6 +201,13 @@ namespace PlantStockManager.Tests
             Assert.Equal("Admin.ManageAreas", FeatureAuthorizationConventions.GetRule("/Admin/Area").Read);
             Assert.True(FeatureAuthorizationConventions.IsMapped("/Production/MotherPlant/Delete"));
             Assert.Equal("MotherPlant.Enter", FeatureAuthorizationConventions.GetRule("/Production/MotherPlant/Delete").Read);
+        }
+
+        [Fact]
+        public void PermissionMap_OutletSaleCreate_RequiresOutletSell()
+        {
+            Assert.True(FeatureAuthorizationConventions.IsMapped("/Production/OutletSale/Create"));
+            Assert.Equal("Outlet.Sell", FeatureAuthorizationConventions.GetRule("/Production/OutletSale/Create").Read);
         }
     }
 }

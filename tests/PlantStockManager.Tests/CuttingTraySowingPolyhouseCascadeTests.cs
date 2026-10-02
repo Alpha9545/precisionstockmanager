@@ -3,15 +3,19 @@ using System.Text.RegularExpressions;
 
 namespace PlantStockManager.Tests
 {
-    // Gap found while reviewing the full Mother Plant -> Cutting Production ->
-    // Sowing -> Ready Stock workflow: Cutting Tray Sowing
-    // (Pages/Production/SeedSowing/CreateFromCutting) let the Sowing Supervisor
-    // pick a growing Area but never offered a Polyhouse -- even though
-    // Data/SeedSowingRepository.InsertFromCuttingAsync already accepted and
-    // cross-validated a PolyhouseId (DirectSowingRules.ResolveGrowingLocation,
-    // covered by DirectSowingRulesTests) exactly like Direct Seed Sowing
-    // (Pages/Production/SeedSowing/Create) already does. Only the page was
-    // missing the field; no repository/schema change was needed or made.
+    // History: Cutting Tray Sowing (Pages/Production/SeedSowing/CreateFromCutting)
+    // first gained an OPTIONAL Polyhouse field cascading from an OPTIONAL Growing
+    // Area dropdown (the gap this file originally documented). Business rule
+    // change (Sowing Destination): Cutting Stock may be held/managed at Main
+    // Office, but the cutting must always be SOWN at a real growing Main Area /
+    // Polyhouse -- never silently defaulted to Main Office because the operator
+    // left an optional field blank. The separate Area dropdown is gone; the
+    // destination Polyhouse (PolyhouseRepository.GetGrowingDestinationsAsync,
+    // which already excludes Main Office/Outlet/Area-less Polyhouses) is the
+    // single REQUIRED destination choice, server-rendered on this same page
+    // (never deferred to a later confirmation step), and the growing Area is
+    // always derived FROM it -- both on the page and, independently, inside
+    // SeedSowingRepository.InsertFromCuttingAsync itself.
     public class CuttingTraySowingPolyhouseCascadeTests
     {
         private static string RepoRoot()
@@ -25,26 +29,30 @@ namespace PlantStockManager.Tests
         }
 
         [Fact]
-        public void PageModel_HasPolyhouseIdAndPolyhousesHandler()
+        public void PageModel_HasRequiredPolyhouseId_NoSeparateAreaProperty_NoPolyhousesHandler()
         {
             var pageModelType = typeof(PlantStockManager.Pages.Production.SeedSowing.CreateFromCuttingModel);
             var property = pageModelType.GetProperty("PolyhouseId");
             Assert.NotNull(property);
             Assert.Equal(typeof(int?), property!.PropertyType);
+            Assert.Null(pageModelType.GetProperty("AreaId"));
+            Assert.NotNull(pageModelType.GetProperty("Destinations"));
 
-            var handler = pageModelType.GetMethod("OnGetPolyhousesAsync");
-            Assert.NotNull(handler);
-            Assert.Contains("areaId", handler!.GetParameters().Select(p => p.Name));
+            // The destination list is small and server-rendered (Model.Destinations);
+            // there is no AJAX "Polyhouses" handler to cascade from an Area choice.
+            Assert.Null(pageModelType.GetMethod("OnGetPolyhousesAsync"));
         }
 
         [Fact]
-        public void CshtmlHasPolyhouseDropdownBoundToPolyhouseId()
+        public void CshtmlHasRequiredPolyhouseDropdown_ServerRendered_NoAreaDropdown()
         {
             var path = Path.Combine(RepoRoot(), "Pages", "Production", "SeedSowing", "CreateFromCutting.cshtml");
             var html = File.ReadAllText(path);
             Assert.Matches(new Regex("asp-for=\"PolyhouseId\""), html);
             Assert.Contains("id=\"polyhouseSelect\"", html);
-            Assert.Contains("handler: 'Polyhouses'", html);
+            Assert.Contains("Model.Destinations", html);     // server-rendered from the filtered list, not an AJAX call
+            Assert.DoesNotContain("asp-for=\"AreaId\"", html);
+            Assert.DoesNotContain("handler: 'Polyhouses'", html);
         }
 
         [Fact]

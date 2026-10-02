@@ -107,6 +107,16 @@ namespace PlantStockManager.Authorization
                 ["/Production/CuttingStock/PendingConfirmations"] = R("MainOffice.View", "MainOffice.Confirm"),
                 ["/Production/CuttingStock/ConfirmReceipt"] = R("MainOffice.Confirm"),
 
+                // ---- Tray Stock (2026-10-02): empty tray inventory held at
+                // Main Office Polyhouses, consumed automatically by Seed/
+                // Cutting Sowing. Allocation is the Main Office Officer's own
+                // action -- same permission ConfirmReceipt already uses for
+                // that role. Viewing is open to the same roles that can
+                // already view Cutting Stock / Sowing Approvals.
+                ["/Production/TrayStock/Index"] = R("MainOffice.View|Sowing.View|Sowing.Enter"),
+                ["/Production/TrayStock/Allocate"] = R("MainOffice.Confirm"),
+                ["/Production/TrayStock/Transactions"] = R("MainOffice.View|Sowing.View|Sowing.Enter"),
+
                 // ---- Pot production (Phase D) ------------------------------
                 ["/Production/PotBatch/Index"] = R("PotProduction.View|MotherPlant.View|Kiran.View"),
                 ["/Production/PotBatch/Details"] = R("PotProduction.View|MotherPlant.View|Kiran.View", "PotProduction.Enter|MotherPlant.Enter|Kiran.Enter"),
@@ -180,14 +190,6 @@ namespace PlantStockManager.Authorization
                 // Phase D: current-ledger reports.
                 ["/Data/StockHistory"] = R("Reports.View|ReadyStock.View|SeedStock.View|PotProduction.View|MotherPlant.View|MainOffice.View"),
                 ["/Data/WastedStock"] = R("Reports.View|ReadyStock.View|PotProduction.View|MotherPlant.View"),
-                // REPORTS -> Old System: the old seed pipeline (dbo.SeedEntries /
-                // dbo.Inventory) -- history only, read-only (the only POST is an
-                // Excel export); no new workflow writes to or reads these tables.
-                // 2026-09-30: Sowing Records / Month-wise Sowing / Stock Sync /
-                // Sowing-Booking Sync removed (Phase 1 of the old-system
-                // cleanup); Booking History intentionally kept -- out of scope
-                // for this pass.
-                ["/Data/BookingHistory"] = R("Booking.View|Booking.Direct|Dispatch.View|Reports.View"),
                 // Phase H (2026-09-30): Month-wise Sowing's replacement --
                 // same permission codes as the retired route, over the new
                 // dbo.SeedSowings table instead of dbo.SeedEntries.

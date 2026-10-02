@@ -89,7 +89,7 @@ namespace PlantStockManager.Pages.Production.CuttingStock
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
             var modifiedBy = User.Identity?.Name ?? "System";
 
-            var (success, message) = await _internalTransferRepo.ConfirmReceiptAsync(id, ConfirmedQuantity, DiscrepancyReason, userId, modifiedBy);
+            var (success, message, destinationCuttingStockId) = await _internalTransferRepo.ConfirmReceiptAsync(id, ConfirmedQuantity, DiscrepancyReason, userId, modifiedBy);
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to confirm receipt.");
@@ -99,6 +99,17 @@ namespace PlantStockManager.Pages.Production.CuttingStock
             var loss = Transfer.Quantity - ConfirmedQuantity;
             TempData["Success"] = $"Delivery {Transfer.TransferCode} confirmed: {ConfirmedQuantity:N0} cuttings added to Main Office Cutting Stock"
                 + (loss > 0 ? $"; {loss:N0} recorded as transit loss." : ".");
+
+            // Receipt confirmation itself is unchanged (quantity only). What
+            // changes here is where it sends the user next: straight into
+            // Cutting Sowing Confirmation for the pool that was just credited
+            // -- the Sowing Supervisor is never left to separately discover
+            // Cutting Stock / a "Confirm Sowing" button themselves. Falls back
+            // to the pending-confirmations queue only when there is nothing to
+            // sow (confirmedQuantity was 0) or this user cannot use that page.
+            if (destinationCuttingStockId.HasValue && User.HasPermission("Sowing.Enter"))
+                return RedirectToPage("/Production/SeedSowing/CreateFromCutting", new { cuttingStockId = destinationCuttingStockId.Value, transferId = id });
+
             return RedirectToPage("/Production/CuttingStock/PendingConfirmations");
         }
     }
