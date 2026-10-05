@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 
@@ -12,7 +13,16 @@ namespace PlantStockManager.Pages.Bookings
     public class FulfilmentModel : PageModel
     {
         private readonly SeedlingFulfilmentRepository _repo;
-        public FulfilmentModel(SeedlingFulfilmentRepository repo) => _repo = repo;
+        private readonly BookingOwnershipService _ownership;
+
+        public FulfilmentModel(SeedlingFulfilmentRepository repo, BookingOwnershipService ownership)
+        {
+            _repo = repo;
+            _ownership = ownership;
+        }
+
+        // "Own bookings only" users (BookingOwnershipService): only their own bookings, in SQL.
+        public bool ShowingOwnBookingsOnly { get; set; }
 
         [BindProperty(SupportsGet = true)] public string? Status { get; set; } = "Pending";
         [BindProperty(SupportsGet = true)] public string? Search { get; set; }
@@ -26,7 +36,9 @@ namespace PlantStockManager.Pages.Bookings
         public async Task OnGetAsync()
         {
             var status = string.IsNullOrWhiteSpace(Status) || Status == "All" ? null : Status;
-            var list = await _repo.ListBookingsAsync(status, Search, From, To, null);
+            var owner = _ownership.OwnerFilter(User);
+            ShowingOwnBookingsOnly = owner.HasValue;
+            var list = await _repo.ListBookingsAsync(status, Search, From, To, null, owner);
             Stages = list.Select(b => b.Stage).Distinct().OrderBy(s => s).ToList();
             Bookings = string.IsNullOrWhiteSpace(Stage) ? list : list.Where(b => b.Stage == Stage).ToList();
         }

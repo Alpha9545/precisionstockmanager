@@ -11,9 +11,9 @@ namespace PlantStockManager.Data
     //     in exactly the shape Pages/Fertilizer/Stock.cshtml.cs already
     //     writes by hand -- that table has no ledger of its own, each
     //     purchase/receipt is its own batch row.
-    //   - 'EmptyPot' lines post a 'StockIn' entry to the existing
-    //     dbo.EmptyPotInventory ledger via EmptyPotInventoryRepository,
-    //     exactly like a manual "Add Stock" would.
+    //   - 'EmptyPot' lines are RETIRED: they can be neither ordered nor
+    //     received (EmptyPotPurchaseOrderRetiredMessage). Empty pots enter
+    //     stock only through Add Empty Pot Stock (Mother Plant Supervisor).
     //   - 'Other' lines are paperwork only -- no stock table exists for
     //     miscellaneous supplies.
     // Per Decision 2, dbo.VendorPurchases/VendorPurchaseRepository are
@@ -22,17 +22,17 @@ namespace PlantStockManager.Data
     {
         private readonly DatabaseHelper _dbHelper;
         private readonly BatchNumberRepository _batchNumberRepo;
-        private readonly EmptyPotInventoryRepository _emptyPotInventoryRepo;
 
         public PurchaseOrderRepository(
             DatabaseHelper dbHelper,
-            BatchNumberRepository batchNumberRepo,
-            EmptyPotInventoryRepository emptyPotInventoryRepo)
+            BatchNumberRepository batchNumberRepo)
         {
             _dbHelper = dbHelper;
             _batchNumberRepo = batchNumberRepo;
-            _emptyPotInventoryRepo = emptyPotInventoryRepo;
         }
+
+        public const string EmptyPotPurchaseOrderRetiredMessage =
+            "Empty pots can no longer be bought or received through a purchase order. The Mother Plant Supervisor adds them with Pot Production > Add Empty Pot Stock.";
 
         private const string OrderBaseSelect = @"
 SELECT po.Id, po.PurchaseOrderCode, po.VendorId, v.Name AS VendorName, po.OrderDate, po.ExpectedDeliveryDate,
@@ -195,10 +195,9 @@ ORDER BY ri.Id";
                         item.PotSize = null; item.AreaId = null; item.ItemName = null;
                         break;
                     case "EmptyPot":
-                        if (string.IsNullOrWhiteSpace(item.PotSize))
-                            return (false, "Empty Pot lines require a Pot Size.", 0);
-                        item.FertilizerId = null; item.FertilizerSourceId = null; item.FertilizerUnitId = null; item.ExpiryDate = null; item.ItemName = null;
-                        break;
+                        // Empty pots enter stock only through Add Empty Pot Stock (Mother Plant
+                        // Supervisor, own Area) -- never through a purchase order.
+                        return (false, EmptyPotPurchaseOrderRetiredMessage, 0);
                     case "Other":
                         if (string.IsNullOrWhiteSpace(item.ItemName))
                             return (false, "Other lines require an Item Name.", 0);
@@ -407,14 +406,10 @@ VALUES
                     }
                     else if (category == "EmptyPot")
                     {
-                        var emptyPotInventoryId = await _emptyPotInventoryRepo.GetOrCreateLockedAsync(conn, tx, potSize!, areaId, createdBy);
-                        var (stockInSuccess, stockInMessage) = await _emptyPotInventoryRepo.RecordTransactionAsync(
-                            conn, tx, emptyPotInventoryId, receivedQty, "StockIn", "PurchaseReceipt", newReceiptItemId, userId, remarks);
-                        if (!stockInSuccess)
-                        {
-                            tx.Rollback();
-                            return (false, stockInMessage, 0);
-                        }
+                        // Retired path: receiving a (historical) EmptyPot line must not add pots
+                        // to any Area -- see EmptyPotPurchaseOrderRetiredMessage.
+                        tx.Rollback();
+                        return (false, EmptyPotPurchaseOrderRetiredMessage, 0);
                     }
                     // 'Other' -- paperwork only, no stock table to post to.
                 }

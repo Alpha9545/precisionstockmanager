@@ -2,6 +2,7 @@ using iTextSharp.text;
 using iTextSharp.text.pdf;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using PlantStockManager.Services;
@@ -14,6 +15,10 @@ namespace PlantStockManager.Pages.Data
         private readonly BookingRepository _bookingRepository;
         private readonly PlantTypeRepository _plantTypeRepository;
         private readonly PlantSpeciesRepository _plantSpeciesRepository;
+        private readonly BookingOwnershipService _ownership;
+
+        // "Own bookings only" users (BookingOwnershipService): list and PDF show only their own bookings.
+        public bool ShowingOwnBookingsOnly { get; set; }
 
         public List<Booking> Bookings { get; set; } = new();
         public List<PlantType> PlantTypes { get; set; } = new();
@@ -45,9 +50,11 @@ namespace PlantStockManager.Pages.Data
         public BookingsRecordModel(
             BookingRepository bookingRepository,
             PlantTypeRepository plantTypeRepository,
-            PlantSpeciesRepository plantSpeciesRepository)
+            PlantSpeciesRepository plantSpeciesRepository,
+            BookingOwnershipService ownership)
         {
             _bookingRepository = bookingRepository;
+            _ownership = ownership;
             _plantTypeRepository = plantTypeRepository;
             _plantSpeciesRepository = plantSpeciesRepository;
         }
@@ -87,9 +94,11 @@ namespace PlantStockManager.Pages.Data
             SelectedBookedBy = bookedBy.Value;
             BookedByActive = bookedBy.IsActive;
             Notice = notice;
-            BookedByOptions = await _bookingRepository.GetBookedByOptionsAsync();
+            var owner = _ownership.OwnerFilter(User);
+            ShowingOwnBookingsOnly = owner.HasValue;
+            BookedByOptions = await _bookingRepository.GetBookedByOptionsAsync(owner);
 
-            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId, bookedBy);
+            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId, bookedBy, owner);
         }
 
         public async Task<IActionResult> OnGetGeneratePdfAsync()
@@ -103,7 +112,7 @@ namespace PlantStockManager.Pages.Data
             // Load filtered data with the same parameters used by the page
             Bookings = await _bookingRepository.GetBookingRecords(
                 SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId,
-                BookedByFilter.Parse(SelectedBookedBy).Filter);
+                BookedByFilter.Parse(SelectedBookedBy).Filter, _ownership.OwnerFilter(User));
 
             using (var ms = new MemoryStream())
             {

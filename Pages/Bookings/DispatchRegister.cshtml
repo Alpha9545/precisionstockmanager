@@ -6,6 +6,10 @@
 
 <div class="container-fluid mt-4">
     <h3>Seedling Dispatch Register</h3>
+    @if (Model.ShowingOwnBookingsOnly)
+    {
+        <div class="alert alert-info py-2 small mb-3">@PlantStockManager.Authorization.BookingOwnershipService.OwnBookingsNotice</div>
+    }
     <form method="get" class="row g-2 mb-3">
         <div class="col-md-2"><input type="date" name="From" value="@Model.From?.ToString("yyyy-MM-dd")" class="form-control" /></div>
         <div class="col-md-2"><input type="date" name="To" value="@Model.To?.ToString("yyyy-MM-dd")" class="form-control" /></div>

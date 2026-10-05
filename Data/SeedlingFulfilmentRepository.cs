@@ -709,7 +709,7 @@ WHERE Id = @Id", conn, tx);
         // ------------------------------------------------------------------
         private const string SummarySelect = @"
 SELECT b.Id, b.PlantId, b.SpeciesId, pt.Name AS PlantTypeName, ps.Name AS SpeciesName, b.Quantity, ISNULL(b.Status, 'Pending') AS Status,
-       b.CustomerName, b.Contact, b.Address, b.BookingDate, b.DeliveryDate, b.ActualDeliveryDate, b.AddedBy,
+       b.CustomerName, b.Contact, b.Address, b.BookingDate, b.DeliveryDate, b.ActualDeliveryDate, b.AddedBy, b.BookedById,
        b.ReservedQuantity, b.DispatchedQuantity, b.FulfilmentSource, b.RevisionNo, b.ParentBookingId,
        b.CancelledDate, cu.Name AS CancelledByName, b.CancellationReason, b.ModifiedDate, b.ModifiedBy,
        ISNULL(leg.Qty, 0) AS LegacyQty,
@@ -734,6 +734,7 @@ OUTER APPLY (SELECT SUM(CAST(it.QuantityUtilized AS DECIMAL(18,2))) AS Qty FROM 
                 SpeciesName = S("SpeciesName")?.Trim(),
                 Quantity = r.GetInt32(r.GetOrdinal("Quantity")),
                 Status = r.GetString(r.GetOrdinal("Status")),
+                BookedById = r.IsDBNull(r.GetOrdinal("BookedById")) ? null : r.GetInt32(r.GetOrdinal("BookedById")),
                 CustomerName = S("CustomerName"), Contact = S("Contact"), Address = S("Address"),
                 BookingDate = D("BookingDate"), DeliveryDate = D("DeliveryDate"), ActualDeliveryDate = D("ActualDeliveryDate"),
                 AddedBy = S("AddedBy"),
@@ -759,8 +760,23 @@ OUTER APPLY (SELECT SUM(CAST(it.QuantityUtilized AS DECIMAL(18,2))) AS Qty FROM 
             return await r.ReadAsync() ? MapSummary(r) : null;
         }
 
+        // The booking's owner (BookedById) for the "own bookings only" check, read
+        // straight from dbo.Bookings -- never from the posted form.
+        public async Task<(bool Exists, int? BookedById)> GetBookingOwnerAsync(int bookingId)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            var cmd = new SqlCommand("SELECT BookedById FROM dbo.Bookings WHERE Id = @Id", conn);
+            cmd.Parameters.AddWithValue("@Id", bookingId);
+            using var r = await cmd.ExecuteReaderAsync();
+            if (!await r.ReadAsync()) return (false, null);
+            return (true, r.IsDBNull(0) ? null : r.GetInt32(0));
+        }
+
         // Booking fulfilment report. Filters are optional; at most 1000 rows.
-        public async Task<List<SeedlingBookingSummary>> ListBookingsAsync(string? status, string? search, DateTime? deliveryFrom, DateTime? deliveryTo, int? speciesId)
+        // ownerUserId (BookingOwnershipService.OwnerFilter): only that user's bookings (BookedById); null = everyone's.
+        public async Task<List<SeedlingBookingSummary>> ListBookingsAsync(string? status, string? search, DateTime? deliveryFrom, DateTime? deliveryTo, int? speciesId,
+            int? ownerUserId = null)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
@@ -770,7 +786,9 @@ WHERE (@Status IS NULL OR b.Status = @Status)
   AND (@From IS NULL OR b.DeliveryDate >= @From)
   AND (@To IS NULL OR b.DeliveryDate <= @To)
   AND (@Species IS NULL OR b.SpeciesId = @Species)
+  AND (@Owner IS NULL OR b.BookedById = @Owner)
 ORDER BY b.DeliveryDate DESC, b.Id DESC", conn);
+            cmd.Parameters.Add("@Owner", System.Data.SqlDbType.Int).Value = (object?)ownerUserId ?? DBNull.Value;
             cmd.Parameters.AddWithValue("@Status", (object?)status ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Search", string.IsNullOrWhiteSpace(search) ? DBNull.Value : "%" + search.Trim() + "%");
             cmd.Parameters.AddWithValue("@SearchExact", string.IsNullOrWhiteSpace(search) ? DBNull.Value : search.Trim());
@@ -935,7 +953,8 @@ WHERE d.BookingId = @B ORDER BY d.Id", conn);
         }
 
         // Dispatch register (report): one row per batch line.
-        public async Task<List<SeedlingDispatchLine>> GetDispatchRegisterAsync(DateTime from, DateTime to, string? search)
+        // ownerUserId: only dispatches of that user's own bookings (BookedById); null = everyone's.
+        public async Task<List<SeedlingDispatchLine>> GetDispatchRegisterAsync(DateTime from, DateTime to, string? search, int? ownerUserId = null)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
@@ -944,7 +963,9 @@ WHERE d.DispatchDate >= @From AND d.DispatchDate <= @To
   AND (@Search IS NULL
        OR (@BatchMonth IS NOT NULL AND MONTH(sw.SowingDate) = @BatchMonth AND DAY(sw.SowingDate) = @BatchDay)
        OR (@BatchMonth IS NULL AND (d.CustomerName LIKE @Search OR d.DispatchCode LIKE @Search OR sw.SowingCode LIKE @Search)))
+  AND (@Owner IS NULL OR EXISTS (SELECT 1 FROM dbo.Bookings ob WHERE ob.Id = d.BookingId AND ob.BookedById = @Owner))
 ORDER BY d.DispatchDate DESC, d.Id DESC, l.Id", conn);
+            cmd.Parameters.Add("@Owner", System.Data.SqlDbType.Int).Value = (object?)ownerUserId ?? DBNull.Value;
             cmd.Parameters.AddWithValue("@From", from.Date);
             cmd.Parameters.AddWithValue("@To", to.Date);
             cmd.Parameters.AddWithValue("@Search", string.IsNullOrWhiteSpace(search) ? DBNull.Value : "%" + search.Trim() + "%");

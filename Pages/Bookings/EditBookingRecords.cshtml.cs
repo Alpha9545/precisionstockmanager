@@ -17,6 +17,10 @@ namespace PlantStockManager.Pages.Bookings
         private readonly PlantSpeciesRepository _plantSpeciesRepository;
         private readonly EmployeeRepository _employeeRepo;
         private readonly SeedlingFulfilmentRepository _fulfilmentRepo;
+        private readonly BookingOwnershipService _ownership;
+
+        // "Own bookings only" users (BookingOwnershipService): the list shows only their own bookings.
+        public bool ShowingOwnBookingsOnly { get; set; }
 
         public List<Booking> Bookings { get; set; } = new();
         public List<PlantType> PlantTypes { get; set; } = new();
@@ -47,9 +51,11 @@ namespace PlantStockManager.Pages.Bookings
             PlantTypeRepository plantTypeRepository,
             PlantSpeciesRepository plantSpeciesRepository,
             EmployeeRepository employeeRepo,
-            SeedlingFulfilmentRepository fulfilmentRepo)
+            SeedlingFulfilmentRepository fulfilmentRepo,
+            BookingOwnershipService ownership)
         {
             _fulfilmentRepo = fulfilmentRepo;
+            _ownership = ownership;
             _bookingRepository = bookingRepository;
             _plantTypeRepository = plantTypeRepository;
             _plantSpeciesRepository = plantSpeciesRepository;
@@ -93,9 +99,13 @@ namespace PlantStockManager.Pages.Bookings
             SelectedBookedBy = bookedBy.Value;
             BookedByActive = bookedBy.IsActive;
             Notice = notice;
-            BookedByOptions = await _bookingRepository.GetBookedByOptionsAsync();
+            var owner = _ownership.OwnerFilter(User);
+            ShowingOwnBookingsOnly = owner.HasValue;
+            if (owner.HasValue)
+                Employees = Employees.Where(e => e.EmployeeID == owner.Value).ToList();   // Booked By = themselves only
+            BookedByOptions = await _bookingRepository.GetBookedByOptionsAsync(owner);
 
-            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId, bookedBy);
+            Bookings = await _bookingRepository.GetBookingRecords(SelectedPlantType, SelectedSpecies, SelectedMonth, SelectedYear, SelectedStatus, userId, bookedBy, owner);
 
             var uid = User.FindFirstValue(ClaimTypes.NameIdentifier);
             ViewData["CurrentUserId"] = uid ?? "0";
@@ -110,6 +120,16 @@ namespace PlantStockManager.Pages.Bookings
             ModelState.Remove("SelectedSpecies");
             ModelState.Remove("SelectedMonth");
             ModelState.Remove("SelectedYear");
+
+            // "Own bookings only" users: the booking must be theirs (owner read from the
+            // database, not the form), and it stays booked by them.
+            if (!await _ownership.CanAccessBookingIdAsync(User, Booking.Id, _fulfilmentRepo))
+                return new JsonResult(new { success = false, message = BookingOwnershipService.NotFoundMessage });
+            if (_ownership.OwnerFilter(User) is int ownerId)
+            {
+                Booking.BookedById = ownerId;
+                ModelState.Remove("Booking.BookedById");
+            }
 
             // Set updater
             Booking.AddedBy = User.Identity?.Name ?? "System";
@@ -139,6 +159,8 @@ namespace PlantStockManager.Pages.Bookings
         // (history kept, reservations released, reason recorded).
         public async Task<IActionResult> OnPostDeleteBookingAsync(int id, string? reason)
         {
+            if (!await _ownership.CanAccessBookingIdAsync(User, id, _fulfilmentRepo))
+                return new JsonResult(new { success = false, message = BookingOwnershipService.NotFoundMessage });
             var (ok, message) = await _fulfilmentRepo.CancelAsync(id, reason,
                 new SeedlingFulfilmentRepository.Actor(User.Identity?.Name, User.GetUserId()));
             return new JsonResult(new { success = ok, message });

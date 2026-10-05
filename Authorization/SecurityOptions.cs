@@ -35,5 +35,14 @@ namespace PlantStockManager.Authorization
         // that role within this interval, without a new login).
         // 0 = re-check on every request.
         public int PrincipalRevalidationMinutes { get; set; } = 5;
+
+        // Seedling bookings (dbo.Bookings) "own bookings only" users, by
+        // dbo.IMSUsers.Id: each listed user sees and acts on ONLY the seedling
+        // bookings whose BookedById is their own Id (lists, search, filters,
+        // PDF, details, edit/revise/cancel, reserve/release, allocate/dispatch,
+        // dispatch register). Everyone else -- and any full-access user even
+        // if listed -- is unaffected. Empty / absent = nobody is restricted.
+        // See BookingOwnershipService.
+        public int[]? OwnBookingsOnlyUserIds { get; set; }
     }
 }

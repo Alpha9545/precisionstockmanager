@@ -152,7 +152,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
         // the automatic consumption written by PotProductionRepository.
         public async Task<(bool Success, string? Message)> RecordTransactionAsync(
             SqlConnection conn, SqlTransaction tx, int emptyPotInventoryId, decimal quantityDelta,
-            string transactionType, string? referenceType, int? referenceId, int? userId, string? remarks)
+            string transactionType, string? referenceType, int? referenceId, int? userId, string? remarks,
+            DateTime? transactionDate = null)
         {
             var lockCmd = new SqlCommand("SELECT PhysicalQuantity FROM dbo.EmptyPotInventory WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
             lockCmd.Parameters.AddWithValue("@Id", emptyPotInventoryId);
@@ -174,7 +175,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 INSERT INTO dbo.EmptyPotInventoryTransactions
 (EmptyPotInventoryId, TransactionDate, TransactionType, ReferenceType, ReferenceId, Quantity, BeforeQuantity, UserId, Remarks, CreatedAt)
 VALUES
-(@EmptyPotInventoryId, SYSUTCDATETIME(), @TransactionType, @ReferenceType, @ReferenceId, @Quantity, @BeforeQuantity, @UserId, @Remarks, SYSUTCDATETIME());";
+(@EmptyPotInventoryId, ISNULL(@TransactionDate, SYSUTCDATETIME()), @TransactionType, @ReferenceType, @ReferenceId, @Quantity, @BeforeQuantity, @UserId, @Remarks, SYSUTCDATETIME());";
 
             var ledgerCmd = new SqlCommand(ledgerSql, conn, tx);
             ledgerCmd.Parameters.AddWithValue("@EmptyPotInventoryId", emptyPotInventoryId);
@@ -185,9 +186,74 @@ VALUES
             ledgerCmd.Parameters.AddWithValue("@BeforeQuantity", before);
             ledgerCmd.Parameters.AddWithValue("@UserId", (object?)userId ?? DBNull.Value);
             ledgerCmd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
+            ledgerCmd.Parameters.Add("@TransactionDate", System.Data.SqlDbType.DateTime2).Value = (object?)transactionDate ?? DBNull.Value;
             await ledgerCmd.ExecuteNonQueryAsync();
 
             return (true, null);
+        }
+
+        // Add Empty Pot Stock: the Mother Plant Supervisor adds pots straight to
+        // one of their own Areas (replaces the retired Main Office Purchase ->
+        // Issue workflow). The caller (AddStock page) has already checked the
+        // user's Area access against the server-side claims; this method
+        // re-validates everything that lives in the database inside the SAME
+        // transaction as the ledger write: the pot size must be an active
+        // master value and the Area must be active and NOT a Main Office Area.
+        // Stock moves only through GetOrCreateLockedAsync + RecordTransactionAsync,
+        // so the existing app-lock / row-lock / non-negative protections apply.
+        public async Task<(bool Success, string? Message, int PoolId)> AddAreaStockAsync(
+            int areaId, string? potSize, decimal quantity, DateTime stockDate, string? remarks, int? userId, string? createdBy)
+        {
+            var (valid, error) = EmptyPotStockRules.ValidateAddStock(potSize, quantity, stockDate, DateTime.Today);
+            if (!valid)
+                return (false, error, 0);
+
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                var sizeCmd = new SqlCommand("SELECT COUNT(*) FROM dbo.PotSizes WHERE Name = @Name AND IsActive = 1", conn, tx);
+                sizeCmd.Parameters.AddWithValue("@Name", potSize!.Trim());
+                if ((int)(await sizeCmd.ExecuteScalarAsync())! == 0)
+                {
+                    tx.Rollback();
+                    return (false, "Choose a pot size from the list.", 0);
+                }
+
+                var areaCmd = new SqlCommand("SELECT AreaType, IsActive FROM dbo.Area WHERE Id = @Id", conn, tx);
+                areaCmd.Parameters.AddWithValue("@Id", areaId);
+                using (var ar = await areaCmd.ExecuteReaderAsync())
+                {
+                    var found = await ar.ReadAsync();
+                    var areaType = found && !ar.IsDBNull(0) ? ar.GetString(0) : null;
+                    var isActive = found && ar.GetBoolean(1);
+                    ar.Close();
+                    if (!EmptyPotStockRules.IsAllowedStockArea(found, areaType, isActive))
+                    {
+                        tx.Rollback();
+                        return (false, EmptyPotStockRules.AreaNotAllowedMessage, 0);
+                    }
+                }
+
+                var poolId = await GetOrCreateLockedAsync(conn, tx, potSize.Trim(), areaId, createdBy);
+                var note = string.IsNullOrWhiteSpace(remarks) ? "Empty pots added to Area stock" : remarks.Trim();
+                var (ok, message) = await RecordTransactionAsync(
+                    conn, tx, poolId, quantity, "StockIn", EmptyPotStockRules.AreaStockEntryReferenceType, null, userId, note, stockDate.Date);
+                if (!ok)
+                {
+                    tx.Rollback();
+                    return (false, message, 0);
+                }
+
+                tx.Commit();
+                return (true, null, poolId);
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { }
+                return (false, ex.Message, 0);
+            }
         }
 
         public async Task<List<EmptyPotInventoryTransaction>> GetTransactionsAsync(int emptyPotInventoryId)

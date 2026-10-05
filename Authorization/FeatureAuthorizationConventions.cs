@@ -125,8 +125,10 @@ namespace PlantStockManager.Authorization
                 ["/Production/PotBatch/Create"] = R("PotProduction.Enter|MotherPlant.Enter|Kiran.Enter"),
                 ["/Production/EmptyPotInventory/Index"] = R("PotProduction.View|Purchase.View|MotherPlant.View"),
                 ["/Production/EmptyPotInventory/Details"] = R("PotProduction.View|Purchase.View|MotherPlant.View"),
-                ["/Production/EmptyPotInventory/Purchase"] = R("Purchase.Enter"),       // Office Officer records pot purchases
-                ["/Production/EmptyPotInventory/Issue"] = R("InternalTransfer.Enter"),          // Main Office store keeper issues pots to an Area
+                ["/Production/EmptyPotInventory/AddStock"] = R("MotherPlant.Enter"),      // Mother Plant Supervisor adds pots to own Area (Area checked in the page)
+                // Retired Main Office workflow: System Administrator only (existing Office stock can still be issued).
+                ["/Production/EmptyPotInventory/Purchase"] = FullAccessOnlyRule,
+                ["/Production/EmptyPotInventory/Issue"] = FullAccessOnlyRule,
                 ["/Production/PottedPlantStock/Index"] = R("PotProduction.View|Outlet.View|Booking.View|Dispatch.View|InternalTransfer.View|MotherPlant.View"),
                 ["/Production/PottedPlantStock/Details"] = R("PotProduction.View|Outlet.View|Booking.View|Dispatch.View|InternalTransfer.View|MotherPlant.View"),
                 ["/Production/PottedPlantStock/Move"] = R("InternalTransfer.Enter|MainOffice.Confirm|Outlet.Sell"),   // per destination: transfer vs Outlet sale (MoveModel)

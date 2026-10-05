@@ -14,8 +14,22 @@ namespace PlantStockManager.Pages.Bookings
     public class BookingDetailsModel : PageModel
     {
         private readonly SeedlingFulfilmentRepository _repo;
+        private readonly BookingOwnershipService _ownership;
 
-        public BookingDetailsModel(SeedlingFulfilmentRepository repo) => _repo = repo;
+        public BookingDetailsModel(SeedlingFulfilmentRepository repo, BookingOwnershipService ownership)
+        {
+            _repo = repo;
+            _ownership = ownership;
+        }
+
+        // "Own bookings only" users: another user's booking is answered as "not found".
+        private async Task<IActionResult?> RejectIfNotOwnedAsync()
+        {
+            if (await _ownership.CanAccessBookingIdAsync(User, Id, _repo))
+                return null;
+            TempData["Error"] = BookingOwnershipService.NotFoundMessage;
+            return RedirectToPage("/Bookings/Fulfilment");
+        }
 
         [BindProperty(SupportsGet = true)]
         public int Id { get; set; }
@@ -46,6 +60,7 @@ namespace PlantStockManager.Pages.Bookings
 
         public async Task<IActionResult> OnPostReserveAsync()
         {
+            if (await RejectIfNotOwnedAsync() is { } rejected) return rejected;
             var (ok, message) = await _repo.ReserveAsync(Id, ReserveQuantity, Actor);
             TempData[ok ? "Success" : "Error"] = message;
             return RedirectToPage(new { id = Id });
@@ -53,6 +68,7 @@ namespace PlantStockManager.Pages.Bookings
 
         public async Task<IActionResult> OnPostReleaseAllAsync()
         {
+            if (await RejectIfNotOwnedAsync() is { } rejected) return rejected;
             var (ok, message) = await _repo.ReleaseAllAsync(Id, Actor);
             TempData[ok ? "Success" : "Error"] = message;
             return RedirectToPage(new { id = Id });
@@ -60,6 +76,7 @@ namespace PlantStockManager.Pages.Bookings
 
         public async Task<IActionResult> OnPostCancelAsync()
         {
+            if (await RejectIfNotOwnedAsync() is { } rejected) return rejected;
             var (ok, message) = await _repo.CancelAsync(Id, CancelReason, Actor);
             TempData[ok ? "Success" : "Error"] = message;
             return RedirectToPage(new { id = Id });
@@ -68,7 +85,11 @@ namespace PlantStockManager.Pages.Bookings
         private async Task<bool> LoadAsync()
         {
             Booking = await _repo.GetBookingAsync(Id);
-            if (Booking == null) return false;
+            if (Booking == null || !_ownership.CanAccessBooking(User, Booking.BookedById))
+            {
+                Booking = null;
+                return false;
+            }
             if (Booking.SpeciesId.HasValue)
                 Availability = await _repo.GetAvailabilityAsync(Booking.SpeciesId.Value);
             Allocations = await _repo.GetAllocationsAsync(Id);

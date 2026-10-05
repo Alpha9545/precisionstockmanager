@@ -3,7 +3,9 @@
 @inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
     ViewData["Title"] = "Empty Pot Stock";
-    var canPurchase = await FeatureAccess.CanAccessPageAsync(User, "/Production/EmptyPotInventory/Purchase");
+    // Purchase / Issue are the retired Main Office workflow (System Administrator only);
+    // empty pots are now added by the Mother Plant Supervisor straight to their own Area.
+    var canAddStock = await FeatureAccess.CanAccessPageAsync(User, "/Production/EmptyPotInventory/AddStock");
     var canIssue = await FeatureAccess.CanAccessPageAsync(User, "/Production/EmptyPotInventory/Issue");
     var office = Model.EmptyPotInventories.Where(e => e.AreaType == "MainOffice").ToList();
     var areas = Model.EmptyPotInventories.Where(e => e.AreaType != "MainOffice").ToList();
@@ -13,13 +15,9 @@
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h3 class="mb-0">Empty Pot Stock</h3>
         <div class="d-flex gap-2">
-            @if (canPurchase)
+            @if (canAddStock)
             {
-                <a asp-page="/Production/EmptyPotInventory/Purchase" class="btn btn-success">+ Purchase</a>
-            }
-            @if (canIssue)
-            {
-                <a asp-page="/Production/EmptyPotInventory/Issue" class="btn btn-primary">Issue to Area</a>
+                <a asp-page="/Production/EmptyPotInventory/AddStock" class="btn btn-success">+ Add Empty Pot Stock</a>
             }
         </div>
     </div>
@@ -28,9 +26,13 @@
     {
         <div class="alert alert-success">@TempData["Success"]</div>
     }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
 
     <p class="text-muted small">
-        Office stock is issued to a production Area; each Area can only use its own pots.
+        Empty pots are added directly to a production Area by its Mother Plant Supervisor; each Area can only use its own pots.
     </p>
 
     <h5>Office store</h5>

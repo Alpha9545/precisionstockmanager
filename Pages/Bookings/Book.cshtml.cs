@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
+using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using System.Security.Claims;
@@ -15,15 +16,18 @@ namespace PlantStockManager.Pages.Bookings
         private readonly BookingRepository _bookingRepo;
         private readonly EmployeeRepository _employeeRepo;
         private readonly SeedlingFulfilmentRepository _fulfilmentRepo;
+        private readonly BookingOwnershipService _ownership;
 
         public BookModel(
             PlantTypeRepository plantTypeRepo,
             PlantSpeciesRepository plantSpeciesRepo,
             BookingRepository bookingRepo,
             EmployeeRepository employeeRepo,
-            SeedlingFulfilmentRepository fulfilmentRepo)
+            SeedlingFulfilmentRepository fulfilmentRepo,
+            BookingOwnershipService ownership)
         {
             _fulfilmentRepo = fulfilmentRepo;
+            _ownership = ownership;
             _plantTypeRepo = plantTypeRepo;
             _plantSpeciesRepo = plantSpeciesRepo;
             _bookingRepo = bookingRepo;
@@ -38,11 +42,23 @@ namespace PlantStockManager.Pages.Bookings
         [BindProperty]
         public Booking Booking { get; set; }
 
+        // "Own bookings only" users (BookingOwnershipService): "Booked By" is always themselves (set on the server).
+        public bool BookedBySelfOnly { get; set; }
+
         public async Task OnGet()
         {
             PlantTypes = await _plantTypeRepo.GetAllPlantTypes();
-            Employees = await _employeeRepo.GetAllEmployeesBooking();
+            await LoadEmployeesAsync();
             States = await _bookingRepo.GetAllStatesAsync();
+        }
+
+        private async Task LoadEmployeesAsync()
+        {
+            Employees = await _employeeRepo.GetAllEmployeesBooking();
+            var owner = _ownership.OwnerFilter(User);
+            BookedBySelfOnly = owner.HasValue;
+            if (owner.HasValue)
+                Employees = Employees.Where(e => e.EmployeeID == owner.Value).ToList();
         }
 
         public async Task<JsonResult> OnGetSpeciesByPlantType(int plantTypeId)
@@ -71,6 +87,13 @@ namespace PlantStockManager.Pages.Bookings
             Booking.AddedBy = User.Identity?.Name ?? "System";
             Booking.BookingType = "Booking";
 
+            // "Own bookings only" users always book as themselves -- whatever the form sent.
+            if (_ownership.OwnerFilter(User) is int ownerId)
+            {
+                Booking.BookedById = ownerId;
+                ModelState.Remove("Booking.BookedById");
+            }
+
             // Ignore fields we set here
             ModelState.Remove("Booking.BookingType");
             ModelState.Remove("Booking.AddedBy");
@@ -87,7 +110,7 @@ namespace PlantStockManager.Pages.Bookings
             {
                 // reload lists for redisplay
                 PlantTypes = await _plantTypeRepo.GetAllPlantTypes();
-                Employees = await _employeeRepo.GetAllEmployeesBooking();
+                await LoadEmployeesAsync();
                 States = await _bookingRepo.GetAllStatesAsync();
                 return Page();
             }

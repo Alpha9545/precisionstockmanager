@@ -81,6 +81,7 @@ builder.Services.AddScoped<DailyLabourCountRepository>();
 // login. Stateless, but Scoped to match every other service's lifetime
 // in this project.
 builder.Services.AddScoped<AreaAccessService>();
+builder.Services.AddSingleton<BookingOwnershipService>(); // seedling bookings: "own bookings only" users (Authorization:OwnBookingsOnlyUserIds)
 builder.Services.AddScoped<AdministrativeAccessGuard>(); // Phase A: user/role anti-escalation rules
 // Phase B: Area scope for the seedling workflow pages only (switchable while
 // Polyhouses/Areas are not configured yet). See Authorization/SeedlingAreaScope.cs.

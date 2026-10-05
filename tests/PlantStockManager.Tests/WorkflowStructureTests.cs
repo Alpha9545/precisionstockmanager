@@ -12,10 +12,9 @@ namespace PlantStockManager.Tests
         [InlineData("/Production/Cutting/Create", "MotherPlant.Enter")]
         [InlineData("/Production/CuttingStock/ConfirmReceipt", "MainOffice.Confirm")]
         [InlineData("/Production/SeedSowing/CreateFromCutting", "Sowing.Enter")]
-        [InlineData("/Production/EmptyPotInventory/Purchase", "Purchase.Enter")]
+        [InlineData("/Production/EmptyPotInventory/AddStock", "MotherPlant.Enter")]   // replaces Purchase -> Issue
         [InlineData("/Production/ReadyConfirmation/Confirm", "ReadyStock.Confirm")]
         [InlineData("/Admin/PotSizes", "Admin.ManageMasters")]
-        [InlineData("/Production/EmptyPotInventory/Issue", "InternalTransfer.Enter")]
         [InlineData("/Production/PotBatch/Create", "PotProduction.Enter")]
         public void NewPages_HaveTheirPermission(string page, string permission)
         {
@@ -31,7 +30,6 @@ namespace PlantStockManager.Tests
         [InlineData("/Production/PotProduction/Index")]
         [InlineData("/Production/CuttingStock/Transplant")]
         [InlineData("/Production/CuttingStock/EnterCutting")]
-        [InlineData("/Production/EmptyPotInventory/AddStock")]
         [InlineData("/Bookings/CancleBooking")]
         [InlineData("/Bookings/TotalBookings")]
         [InlineData("/Data/test201225")]
@@ -93,6 +91,16 @@ namespace PlantStockManager.Tests
             // the check itself runs under the row lock (see the dry-run tests).
             var p = typeof(PlantStockManager.Data.ReadyConfirmationRepository).GetMethod("CancelAsync")!.GetParameters();
             Assert.Contains(p, x => x.Name == "userId");
+        }
+
+        [Theory]
+        [InlineData("/Production/EmptyPotInventory/Purchase")]
+        [InlineData("/Production/EmptyPotInventory/Issue")]
+        public void RetiredMainOfficeEmptyPotPages_AreSystemAdministratorOnly(string page)
+        {
+            // kept (history, and so the administrator can still move existing Office stock) but no normal role
+            Assert.True(FeatureAuthorizationConventions.IsMapped(page));
+            Assert.Equal(PermissionPolicy.FullAccessOnly, FeatureAuthorizationConventions.GetRule(page).Read);
         }
 
         [Fact]

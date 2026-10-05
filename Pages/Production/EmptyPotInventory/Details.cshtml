@@ -48,12 +48,26 @@
                 @foreach (var t in Model.Transactions)
                 {
                     <tr>
-                        <td>@t.CreatedAt.ToString("dd/MM/yyyy HH:mm")</td>
+                        <td>
+                            @if (t.ReferenceType == PlantStockManager.Services.EmptyPotStockRules.AreaStockEntryReferenceType)
+                            {
+                                @* Add Empty Pot Stock: the date entered on the form (TransactionDate). *@
+                                @t.TransactionDate.ToString("dd/MM/yyyy")
+                            }
+                            else
+                            {
+                                @t.CreatedAt.ToString("dd/MM/yyyy HH:mm")
+                            }
+                        </td>
                         <td>@t.TransactionType</td>
                         <td>
                             @if (t.ReferenceType == "PotProduction" && t.ReferenceId.HasValue)
                             {
                                 <span>PotProduction #@t.ReferenceId (retired)</span>
+                            }
+                            else if (t.ReferenceType == PlantStockManager.Services.EmptyPotStockRules.AreaStockEntryReferenceType)
+                            {
+                                <span>Added to Area stock</span>
                             }
                             else if (t.ReferenceType != null)
                             {

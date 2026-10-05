@@ -56,10 +56,10 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
             if (Order.Items == null || Order.Items.Count == 0)
                 ModelState.AddModelError(string.Empty, "At least one line item is required.");
 
-            // Phase D: empty pots are bought through Empty Pot Purchase (one
+            // Empty pots enter stock only through Add Empty Pot Stock (one
             // path into Empty Pot Stock), never through a purchase order.
             if (Order.Items != null && Order.Items.Any(i => i.ItemCategory == "EmptyPot"))
-                ModelState.AddModelError(string.Empty, "Empty pots are recorded with Pot Production > Empty Pot Purchase, not with a purchase order.");
+                ModelState.AddModelError(string.Empty, PurchaseOrderRepository.EmptyPotPurchaseOrderRetiredMessage);
 
             if (!ModelState.IsValid)
             {

@@ -238,11 +238,16 @@ VALUES (@BookingId, @TransactionType, @Quantity, GETDATE(), @UpdatedBy, GETDATE(
         //    }
 
         // The "Booking By" dropdown of the seedling booking lists: the people / names that occur on dbo.Bookings.
-        public async Task<List<BookedByFilter.Option>> GetBookedByOptionsAsync()
+        // ownerUserId ("own bookings only" users): only the names on that user's own bookings.
+        public async Task<List<BookedByFilter.Option>> GetBookedByOptionsAsync(int? ownerUserId = null)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            return await BookedBySql.LoadOptionsAsync(conn, "dbo.Bookings b", "b", null, null);
+            // An int formatted invariantly -- not user text -- so it is safe inside the scope SQL.
+            var scope = ownerUserId.HasValue
+                ? "b.BookedById = " + ownerUserId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : null;
+            return await BookedBySql.LoadOptionsAsync(conn, "dbo.Bookings b", "b", scope, null);
         }
 
         // userId: unused. It used to silently restrict every user except Id 1 to
@@ -257,8 +262,11 @@ VALUES (@BookingId, @TransactionType, @Quantity, GETDATE(), @UpdatedBy, GETDATE(
         // It is one more AND on the same WHERE (parameters only); null / "All" leaves the result exactly as it was.
         // dbo.Bookings has no Area, so which bookings a user may list is decided by the pages' permissions, unchanged --
         // the filter can only narrow that list.
+        //
+        // ownerUserId (BookingOwnershipService.OwnerFilter): "own bookings only" users get only rows whose BookedById is
+        // their own Id -- one more AND in SQL, so the Booking By filter / PDF can never widen it. null = everyone's rows.
         public async Task<List<Booking>> GetBookingRecords(int? plantTypeId, int? speciesId, int month, int year, string status, int? userId,
-            BookedByFilter? bookedBy = null)
+            BookedByFilter? bookedBy = null, int? ownerUserId = null)
         {
             var bookings = new List<Booking>();
 
@@ -304,10 +312,12 @@ WHERE YEAR(b.DeliveryDate) = @Year
                 if (speciesId.HasValue) sql += "  AND b.SpeciesId = @SpeciesId";
                 if (month > 0) sql += "  AND MONTH(b.DeliveryDate) = @Month";
                 sql += BookedBySql.Clause("b.BookedById", "b.BookedByOther");
+                sql += "  AND (@Owner IS NULL OR b.BookedById = @Owner)";
 
                 sql += " ORDER BY b.DeliveryDate;";
 
                 using var cmd = new SqlCommand(sql, conn);
+                cmd.Parameters.Add("@Owner", System.Data.SqlDbType.Int).Value = (object?)ownerUserId ?? DBNull.Value;
                 BookedBySql.AddParameters(cmd, bookedBy);
                 cmd.Parameters.AddWithValue("@Year", year);
                 cmd.Parameters.AddWithValue("@Status", status);

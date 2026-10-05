@@ -52,13 +52,27 @@
 
                     <div class="col-md-6">
                         <label class="fw-bold">Booked By Whom</label>
-                        <select class="form-select" id="bookedByDropdown" asp-for="Booking.BookedById" required>
-                            <option value="">-- Select --</option>
-                            @foreach (var employee in Model.Employees)
-                            {
-                                <option value="@employee.EmployeeID">@employee.Name</option>
-                            }
-                        </select>
+                        @if (Model.BookedBySelfOnly)
+                        {
+                            @* "Own bookings only" user: always booked by themselves (the server enforces it too). *@
+                            <select class="form-select" id="bookedByDropdown" asp-for="Booking.BookedById" required style="pointer-events:none;background-color:#e9ecef;" tabindex="-1" aria-readonly="true">
+                                @foreach (var employee in Model.Employees)
+                                {
+                                    <option value="@employee.EmployeeID" selected>@employee.Name</option>
+                                }
+                            </select>
+                            <small class="text-muted">Your bookings are always recorded as booked by you.</small>
+                        }
+                        else
+                        {
+                            <select class="form-select" id="bookedByDropdown" asp-for="Booking.BookedById" required>
+                                <option value="">-- Select --</option>
+                                @foreach (var employee in Model.Employees)
+                                {
+                                    <option value="@employee.EmployeeID">@employee.Name</option>
+                                }
+                            </select>
+                        }
                     </div>
 
                     <div class="col-md-6">

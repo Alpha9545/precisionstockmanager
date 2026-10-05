@@ -132,6 +132,7 @@ namespace PlantStockManager.Tests
             services.AddSingleton<IOptions<SecurityOptions>>(Options.Create(new SecurityOptions { FullAccessRoleNames = new[] { "System Administrator" } }));
             services.AddSingleton<IOptionsMonitor<SeedlingWorkflowOptions>>(new StaticMonitor<SeedlingWorkflowOptions>(new SeedlingWorkflowOptions()));
             services.AddSingleton<SeedlingAreaScope>();
+            services.AddSingleton<BookingOwnershipService>();   // no OwnBookingsOnlyUserIds configured here: nobody is restricted
             services.AddScoped<UserClaimsFactory>();
             foreach (var t in typeof(DatabaseHelper).Assembly.GetTypes().Where(t => t.Namespace == "PlantStockManager.Data" && t.IsClass && t.Name.EndsWith("Repository")))
                 services.AddScoped(t);

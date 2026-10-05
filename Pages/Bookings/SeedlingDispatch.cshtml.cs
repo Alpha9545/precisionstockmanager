@@ -30,10 +30,13 @@ namespace PlantStockManager.Pages.Bookings
         private readonly UserRoleRepository _userRoleRepo;
         private readonly AreaAccessService _areaAccess;
         private readonly SubmissionTokenGuard _tokens;
+        private readonly BookingOwnershipService _ownership;
 
-        public SeedlingDispatchModel(SeedlingFulfilmentRepository repo, UserRoleRepository userRoleRepo, AreaAccessService areaAccess, SubmissionTokenGuard tokens)
+        public SeedlingDispatchModel(SeedlingFulfilmentRepository repo, UserRoleRepository userRoleRepo, AreaAccessService areaAccess, SubmissionTokenGuard tokens,
+            BookingOwnershipService ownership)
         {
             _repo = repo;
+            _ownership = ownership;
             _userRoleRepo = userRoleRepo;
             _areaAccess = areaAccess;
             _tokens = tokens;
@@ -94,8 +97,18 @@ namespace PlantStockManager.Pages.Bookings
             return Page();
         }
 
+        // "Own bookings only" users: another user's booking is answered as "not found".
+        private async Task<IActionResult?> RejectIfNotOwnedAsync()
+        {
+            if (await _ownership.CanAccessBookingIdAsync(User, Id, _repo))
+                return null;
+            TempData["Error"] = BookingOwnershipService.NotFoundMessage;
+            return RedirectToPage("/Bookings/Fulfilment");
+        }
+
         public async Task<IActionResult> OnPostDispatchAsync()
         {
+            if (await RejectIfNotOwnedAsync() is { } rejected) return rejected;
             var lines = Lines.Where(l => l.Quantity != 0).Select(l => (l.AllocationId, (decimal)l.Quantity)).ToList();
             if (ResponsiblePersonId.HasValue
                 && (await _userRoleRepo.GetUsersInAnyRoleAsync(SupervisorRules.DispatchExecutive)).All(u => u.EmployeeID != ResponsiblePersonId.Value))
@@ -110,6 +123,7 @@ namespace PlantStockManager.Pages.Bookings
 
         public async Task<IActionResult> OnPostAllocateAsync()
         {
+            if (await RejectIfNotOwnedAsync() is { } rejected) return rejected;
             // Duplicate-submit guard (server-side): each page view's token allocates at most once.
             if (!_tokens.TryConsume(AllocateTokenScope, AllocateToken))
             {
@@ -135,6 +149,7 @@ namespace PlantStockManager.Pages.Bookings
 
         public async Task<IActionResult> OnPostReleaseAsync()
         {
+            if (await RejectIfNotOwnedAsync() is { } rejected) return rejected;
             var (ok, message) = await _repo.ReleaseAllocationAsync(Id, ReleaseAllocationId, ReleaseQuantity, Actor, CanAccessArea);
             TempData[ok ? "Success" : "Error"] = message;
             return RedirectToPage(new { id = Id });
@@ -143,7 +158,11 @@ namespace PlantStockManager.Pages.Bookings
         private async Task<bool> LoadAsync()
         {
             Booking = await _repo.GetBookingAsync(Id);
-            if (Booking == null) return false;
+            if (Booking == null || !_ownership.CanAccessBooking(User, Booking.BookedById))
+            {
+                Booking = null;
+                return false;
+            }
             Allocations = await _repo.GetAllocationsAsync(Id);
             IReadOnlyCollection<int>? allowed = _areaAccess.HasFullAreaAccess(User) ? null : _areaAccess.GetAccessibleAreaIds(User);
             Batches = await _repo.SearchBatchOptionsAsync(Booking.PlantId, Booking.SpeciesId, new BatchSearch

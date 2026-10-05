@@ -15,6 +15,8 @@ namespace PlantStockManager.Models
         public string? SpeciesName { get; set; }
         public int Quantity { get; set; }
         public string Status { get; set; } = "Pending";
+        // dbo.Bookings.BookedById -- the booking's owner for the "own bookings only" rule (BookingOwnershipService).
+        public int? BookedById { get; set; }
         public string? CustomerName { get; set; }
         public string? Contact { get; set; }
         public string? Address { get; set; }

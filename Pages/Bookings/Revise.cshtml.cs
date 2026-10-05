@@ -16,10 +16,13 @@ namespace PlantStockManager.Pages.Bookings
         private readonly SeedlingFulfilmentRepository _repo;
         private readonly PlantTypeRepository _plantTypeRepo;
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
+        private readonly BookingOwnershipService _ownership;
 
-        public ReviseModel(SeedlingFulfilmentRepository repo, PlantTypeRepository plantTypeRepo, PlantSpeciesRepository plantSpeciesRepo)
+        public ReviseModel(SeedlingFulfilmentRepository repo, PlantTypeRepository plantTypeRepo, PlantSpeciesRepository plantSpeciesRepo,
+            BookingOwnershipService ownership)
         {
             _repo = repo;
+            _ownership = ownership;
             _plantTypeRepo = plantTypeRepo;
             _plantSpeciesRepo = plantSpeciesRepo;
         }
@@ -41,9 +44,9 @@ namespace PlantStockManager.Pages.Bookings
         public async Task<IActionResult> OnGetAsync()
         {
             Booking = await _repo.GetBookingAsync(Id);
-            if (Booking == null)
+            if (Booking == null || !_ownership.CanAccessBooking(User, Booking.BookedById))
             {
-                TempData["Error"] = "Booking not found.";
+                TempData["Error"] = BookingOwnershipService.NotFoundMessage;
                 return RedirectToPage("/Bookings/Fulfilment");
             }
             if (Booking.Status != "Pending")
@@ -67,6 +70,11 @@ namespace PlantStockManager.Pages.Bookings
 
         public async Task<IActionResult> OnPostAsync()
         {
+            if (!await _ownership.CanAccessBookingIdAsync(User, Id, _repo))
+            {
+                TempData["Error"] = BookingOwnershipService.NotFoundMessage;
+                return RedirectToPage("/Bookings/Fulfilment");
+            }
             var request = new SeedlingFulfilmentRepository.RevisionRequest
             {
                 NewPlantId = NewPlantId,

@@ -138,7 +138,7 @@ namespace PlantStockManager.Tests
             var seedling = Repo("Data", "BookingRepository.cs");
             Assert.Contains("BookedBySql.Clause(\"b.BookedById\", \"b.BookedByOther\")", seedling);
             Assert.Contains("BookedBySql.AddParameters(cmd, bookedBy)", seedling);
-            Assert.Contains("BookedBySql.LoadOptionsAsync(conn, \"dbo.Bookings b\", \"b\", null, null)", seedling);
+            Assert.Contains("BookedBySql.LoadOptionsAsync(conn, \"dbo.Bookings b\", \"b\", scope, null)", seedling);   // scope: "own bookings only" users
             var potted = Repo("Data", "PottedPlantBookingRepository.cs");
             Assert.Contains("BookedBySql.Clause(\"bk.BookedById\", \"bk.BookedByOther\")", potted);
             Assert.Contains("BookedBySql.AddParameters(cmd, bookedBy)", potted);
