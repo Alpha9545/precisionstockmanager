@@ -60,9 +60,9 @@
                         <td>@s.SpeciesName?.Trim() <span class="text-muted">(@s.PlantTypeName)</span></td>
                         <td>@(s.SpeciesColor ?? "-")</td>
                         <td>@s.AreaName @if (s.AreaType == "MainOffice") { <span class="badge bg-info text-dark">Main Office</span> }</td>
-                        <td class="text-end">@s.PhysicalQuantity.ToString("N0")</td>
-                        <td class="text-end">@s.InTransitQuantity.ToString("N0")</td>
-                        <td class="text-end fw-bold">@s.AvailableQuantity.ToString("N0")</td>
+                        <td class="text-end">@Qty(s.PhysicalQuantity)</td>
+                        <td class="text-end">@Qty(s.InTransitQuantity)</td>
+                        <td class="text-end fw-bold">@Qty(s.AvailableQuantity)</td>
                         <td>@if (pendingSowing) { <span class="badge bg-warning text-dark">Pending Sowing</span> }</td>
                         <td class="text-nowrap">
                             @if (s.AvailableQuantity > 0)

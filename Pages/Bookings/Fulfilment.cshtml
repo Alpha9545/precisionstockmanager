@@ -49,10 +49,10 @@
                         <td>@b.BookingDate?.ToString("dd-MM-yyyy")</td>
                         <td>@b.DeliveryDate?.ToString("dd-MM-yyyy")</td>
                         <td>@b.PlantTypeName / @b.SpeciesName</td>
-                        <td class="text-end">@b.Quantity.ToString("N0")</td>
-                        <td class="text-end">@b.ReservedQuantity.ToString("N0")</td>
-                        <td class="text-end">@((b.DispatchedQuantity + b.LegacyFulfilledQuantity).ToString("N0"))@(b.LegacyFulfilledQuantity > 0 ? " (legacy)" : "")</td>
-                        <td class="text-end">@b.RemainingQuantity.ToString("N0")</td>
+                        <td class="text-end">@Qty(b.Quantity)</td>
+                        <td class="text-end">@Qty(b.ReservedQuantity)</td>
+                        <td class="text-end">@(Qty(b.DispatchedQuantity + b.LegacyFulfilledQuantity))@(b.LegacyFulfilledQuantity > 0 ? " (legacy)" : "")</td>
+                        <td class="text-end">@Qty(b.RemainingQuantity)</td>
                         <td>@b.Status</td>
                         <td>@b.Stage</td>
                         <td>@b.RevisionNo</td>

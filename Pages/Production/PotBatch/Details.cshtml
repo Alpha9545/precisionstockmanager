@@ -48,15 +48,15 @@
         <div class="col-lg-6">
             <table class="table table-sm table-bordered">
                 <tbody>
-                    <tr><th class="w-50">Cuttings allocated</th><td class="text-end">@b.CuttingAllocated.ToString("N0")</td></tr>
-                    <tr><th>Pots produced (total of daily entries)</th><td class="text-end fw-bold">@b.PottedQuantity.ToString("N0")</td></tr>
-                    <tr><th>Cuttings not yet potted</th><td class="text-end">@b.CuttingsLeft.ToString("N0")</td></tr>
-                    <tr><th>Empty @b.PotSize pots in @b.AreaName</th><td class="text-end">@b.EmptyPotsAvailable.ToString("N0")</td></tr>
+                    <tr><th class="w-50">Cuttings allocated</th><td class="text-end">@Qty(b.CuttingAllocated)</td></tr>
+                    <tr><th>Pots produced (total of daily entries)</th><td class="text-end fw-bold">@Qty(b.PottedQuantity)</td></tr>
+                    <tr><th>Cuttings not yet potted</th><td class="text-end">@Qty(b.CuttingsLeft)</td></tr>
+                    <tr><th>Empty @b.PotSize pots in @b.AreaName</th><td class="text-end">@Qty(b.EmptyPotsAvailable)</td></tr>
                     @if (b.IsConfirmed)
                     {
-                        <tr class="@(b.Status == "Lost" ? "table-danger" : "table-success")"><th>Ready pots (to Potted Plant Stock)</th><td class="text-end fw-bold">@b.ReadyQuantity!.Value.ToString("N0")@(b.Status == "Lost" ? " - complete loss" : "")</td></tr>
-                        <tr><th>Pots lost (wastage)</th><td class="text-end">@b.PotWastage.ToString("N0") @(b.WastageReason != null ? "(" + b.WastageReason + ")" : "")</td></tr>
-                        <tr><th>Unused cuttings</th><td class="text-end">@b.UnusedCuttings.ToString("N0") @(b.UnusedCuttingAction == "ReturnedToStock" ? "(returned to Cutting Stock)" : b.UnusedCuttingAction == "Wastage" ? "(wastage)" : "")</td></tr>
+                        <tr class="@(b.Status == "Lost" ? "table-danger" : "table-success")"><th>Ready pots (to Potted Plant Stock)</th><td class="text-end fw-bold">@Qty(b.ReadyQuantity!.Value)@(b.Status == "Lost" ? " - complete loss" : "")</td></tr>
+                        <tr><th>Pots lost (wastage)</th><td class="text-end">@Qty(b.PotWastage) @(b.WastageReason != null ? "(" + b.WastageReason + ")" : "")</td></tr>
+                        <tr><th>Unused cuttings</th><td class="text-end">@Qty(b.UnusedCuttings) @(b.UnusedCuttingAction == "ReturnedToStock" ? "(returned to Cutting Stock)" : b.UnusedCuttingAction == "Wastage" ? "(wastage)" : "")</td></tr>
                         <tr><th>@(b.Status == "Lost" ? "Closed as complete loss by" : "Confirmed READY by")</th><td>@b.ReadyConfirmedByName on @b.ReadyDate?.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td></tr>
                     }
                 </tbody>
@@ -75,8 +75,8 @@
                     running += e.Quantity;
                     <tr>
                         <td>@e.ProductionDate.ToString("dd/MM/yyyy")</td>
-                        <td class="text-end">@e.Quantity.ToString("N0")</td>
-                        <td class="text-end">@running.ToString("N0")</td>
+                        <td class="text-end">@Qty(e.Quantity)</td>
+                        <td class="text-end">@Qty(running)</td>
                         <td>@e.CreatedBy</td>
                         <td>@e.Remarks</td>
                     </tr>
@@ -101,7 +101,7 @@
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Pots made</label>
-                        <input type="number" step="1" min="1" max="@Math.Min(b.CuttingsLeft, b.EmptyPotsAvailable).ToString("0")" asp-for="EntryQuantity" class="form-control" required />
+                        <input type="number" step="1" min="1" max="@Math.Min(b.CuttingsLeft, b.EmptyPotsAvailable).ToString("0")" asp-for="EntryQuantity" asp-format="{0:0.##}" class="form-control" required />
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Remarks</label>
@@ -109,7 +109,7 @@
                     </div>
                     <div class="col-md-2"><button type="submit" class="btn btn-success w-100">Add</button></div>
                 </form>
-                <div class="form-text">Up to @b.CuttingsLeft.ToString("N0") more (cuttings left) and @b.EmptyPotsAvailable.ToString("N0") empty pots available in @b.AreaName.</div>
+                <div class="form-text">Up to @Qty(b.CuttingsLeft) more (cuttings left) and @Qty(b.EmptyPotsAvailable) empty pots available in @b.AreaName.</div>
             </div>
         </div>
     }
@@ -122,9 +122,9 @@
                 <form method="post" asp-page-handler="Ready" asp-route-id="@b.Id" class="row g-2" onsubmit="return confirm(document.getElementById('readyQty').value === '0' ? 'Close this batch as a COMPLETE LOSS? Nothing is added to stock and the batch is closed.' : 'Confirm this batch READY? The ready pots are added to Potted Plant Stock and the batch is closed.');">
                     <div class="col-md-3">
                         <label class="form-label fw-bold">Ready pots</label>
-                        <input type="number" step="1" min="0" max="@b.PottedQuantity.ToString("0")" asp-for="ReadyQuantity" id="readyQty" class="form-control" required
+                        <input type="number" step="1" min="0" max="@b.PottedQuantity.ToString("0")" asp-for="ReadyQuantity" asp-format="{0:0.##}" id="readyQty" class="form-control" required
                                data-produced="@b.PottedQuantity.ToString("0")" data-unused="@b.CuttingsLeft.ToString("0")" />
-                        <div class="form-text">Of @b.PottedQuantity.ToString("N0") produced. Enter 0 if every plant was lost.</div>
+                        <div class="form-text">Of @Qty(b.PottedQuantity) produced. Enter 0 if every plant was lost.</div>
                     </div>
                     <div class="col-md-3">
                         <label class="form-label">Pots lost</label>
@@ -143,7 +143,7 @@
                     @if (b.CuttingsLeft > 0)
                     {
                         <div class="col-md-3">
-                            <label class="form-label fw-bold">@b.CuttingsLeft.ToString("N0") cuttings not potted</label>
+                            <label class="form-label fw-bold">@Qty(b.CuttingsLeft) cuttings not potted</label>
                             <select asp-for="UnusedCuttingAction" class="form-select" required>
                                 <option value="">-- choose --</option>
                                 <option value="ReturnedToStock">Return to Cutting Stock</option>
@@ -202,7 +202,7 @@
                 btn.classList.toggle('btn-success', !total);
                 if (isNaN(r)) { lost.value = ''; reason.required = false; return; }
                 const l = produced - r;
-                lost.value = l < 0 ? 'more than produced - not allowed' : l.toLocaleString('en-IN');
+                lost.value = l < 0 ? 'more than produced - not allowed' : formatQuantity(l);
                 reason.required = l > 0 || total;
             }
             qty.addEventListener('input', update);

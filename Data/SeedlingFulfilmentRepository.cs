@@ -264,7 +264,7 @@ WHERE Id = @Id", conn, tx);
                 if (!SeedlingBookingRules.IsWholePositive(quantity))
                     return (false, "Quantity to reserve must be a whole number greater than zero.");
                 if (quantity > b!.Unreserved)
-                    return (false, $"Only {b.Unreserved:N0} plants of this booking still need reserving.");
+                    return (false, $"Only {QuantityFormat.Qty(b.Unreserved)} plants of this booking still need reserving.");
 
                 // Lock every batch of the booked variety (key-range lock).
                 var batchCmd = new SqlCommand(@"
@@ -300,7 +300,7 @@ ORDER BY rs.Id", conn, tx);
                 }
 
                 await UpdateBookingQuantitiesAsync(conn, tx, b.Id, quantity, 0, SeedlingBookingRules.SourceReadyStock, true, actor);
-                return (true, $"Reserved {quantity:N0} plants from {plan.Count} batch(es), oldest first.");
+                return (true, $"Reserved {QuantityFormat.Qty(quantity)} plants from {plan.Count} batch(es), oldest first.");
             });
 
         // ------------------------------------------------------------------
@@ -319,7 +319,7 @@ ORDER BY rs.Id", conn, tx);
                 if (!SeedlingBookingRules.IsWholePositive(quantity))
                     return (false, "Quantity must be a whole number greater than zero.");
                 if (quantity > b!.Unreserved)
-                    return (false, $"Only {b.Unreserved:N0} plants of this booking are not yet reserved. Release a reservation first to replace it.");
+                    return (false, $"Only {QuantityFormat.Qty(b.Unreserved)} plants of this booking are not yet reserved. Release a reservation first to replace it.");
 
                 var batchCmd = new SqlCommand(@"
 SELECT rs.SpeciesId, ps.PlantTypeId, rs.AreaId, rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity
@@ -340,7 +340,7 @@ WHERE rs.Id = @R", conn, tx);
                     b.SpeciesId, b.PlantId, batchSpecies, batchPlantType, substitutionReason);
                 if (!valid) return (false, choiceError);
                 if (quantity > available)
-                    return (false, $"{SeedlingBookingRules.InsufficientStockMessage} Batch available {available:N0}, requested {quantity:N0}.");
+                    return (false, $"{SeedlingBookingRules.InsufficientStockMessage} Batch available {QuantityFormat.Qty(available)}, requested {QuantityFormat.Qty(quantity)}.");
 
                 var allocationId = await AddToAllocationAsync(conn, tx, b.Id, readyStockId, b.SpeciesId, batchSpecies,
                     isSubstitution, substitutionReason, quantity, actor);
@@ -351,8 +351,8 @@ WHERE rs.Id = @R", conn, tx);
 
                 await UpdateBookingQuantitiesAsync(conn, tx, b.Id, quantity, 0, SeedlingBookingRules.SourceReadyStock, true, actor);
                 return (true, isSubstitution
-                    ? $"Substituted {quantity:N0} plants of another variety (recorded as a substitution)."
-                    : $"Allocated {quantity:N0} plants from the selected batch.");
+                    ? $"Substituted {QuantityFormat.Qty(quantity)} plants of another variety (recorded as a substitution)."
+                    : $"Allocated {QuantityFormat.Qty(quantity)} plants from the selected batch.");
             });
 
         // ------------------------------------------------------------------
@@ -370,13 +370,13 @@ WHERE rs.Id = @R", conn, tx);
                 if (!lines.TryGetValue(allocationId, out var line)) return (false, "Allocation not found on this booking.");
                 if (!canAccessArea(line.AreaId)) return (false, "You are not authorized to change allocations in this batch's Area.");
                 if (!SeedlingBookingRules.IsWholePositive(quantity) || quantity > line.Open)
-                    return (false, $"Release quantity must be a whole number between 1 and {line.Open:N0}.");
+                    return (false, $"Release quantity must be a whole number between 1 and {QuantityFormat.Qty(line.Open)}.");
 
                 var (ok, msg, released) = await ReleaseLinesAsync(conn, tx, lines, new[] { (allocationId, quantity) }, actor, $"Released from booking {b.Id}");
                 if (!ok) return (false, msg);
                 var (source, set) = SourceAfterRelease(b, released);
                 await UpdateBookingQuantitiesAsync(conn, tx, b.Id, -released, 0, source, set, actor);
-                return (true, $"Released {released:N0} plants back to Ready Stock.");
+                return (true, $"Released {QuantityFormat.Qty(released)} plants back to Ready Stock.");
             });
 
         public Task<(bool Success, string? Message)> ReleaseAllAsync(int bookingId, Actor actor)
@@ -392,7 +392,7 @@ WHERE rs.Id = @R", conn, tx);
                 if (!ok) return (false, msg);
                 var (source, set) = SourceAfterRelease(b, released);
                 await UpdateBookingQuantitiesAsync(conn, tx, b.Id, -released, 0, source, set, actor);
-                return (true, $"Released {released:N0} reserved plants back to Ready Stock.");
+                return (true, $"Released {QuantityFormat.Qty(released)} reserved plants back to Ready Stock.");
             });
 
         // ------------------------------------------------------------------
@@ -408,7 +408,7 @@ WHERE rs.Id = @R", conn, tx);
                 if (b == null) return (false, "Booking not found.");
                 if (b.Status != "Pending") return (false, $"Only Pending bookings can be cancelled (this one is {b.Status}).");
                 if (b.Dispatched > 0)
-                    return (false, $"{b.Dispatched:N0} plants of this booking have already been dispatched. Revise the quantity down instead of cancelling.");
+                    return (false, $"{QuantityFormat.Qty(b.Dispatched)} plants of this booking have already been dispatched. Revise the quantity down instead of cancelling.");
 
                 decimal released = 0;
                 var lines = await LockActiveAllocationsAsync(conn, tx, bookingId);
@@ -432,7 +432,7 @@ WHERE Id = @Id AND Status = 'Pending'", conn, tx);
                 cmd.Parameters.AddWithValue("@By", (object?)actor.Name ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Id", bookingId);
                 if (await cmd.ExecuteNonQueryAsync() != 1) return (false, "Booking could not be cancelled.");
-                return (true, released > 0 ? $"Booking cancelled; {released:N0} reserved plants released back to Ready Stock." : "Booking cancelled.");
+                return (true, released > 0 ? $"Booking cancelled; {QuantityFormat.Qty(released)} reserved plants released back to Ready Stock." : "Booking cancelled.");
             });
 
         // ------------------------------------------------------------------
@@ -548,7 +548,7 @@ WHERE Id = @Id", conn, tx);
             await upd.ExecuteNonQueryAsync();
 
             var msg = $"Revision {nextRevision} saved.";
-            if (released > 0) msg += $" {released:N0} reserved plants released.";
+            if (released > 0) msg += $" {QuantityFormat.Qty(released)} reserved plants released.";
             if (splitId.HasValue) msg += $" Added variety booked as booking #{splitId}.";
             if (completes) msg += " The booking is now Completed (fully dispatched).";
             return (true, msg);
@@ -700,8 +700,8 @@ WHERE Id = @Id", conn, tx);
                 await bk.ExecuteNonQueryAsync();
 
                 return (true, status == "Completed"
-                    ? $"Dispatch {code}: {total:N0} plants. The booking is fully dispatched and Completed."
-                    : $"Dispatch {code}: {total:N0} plants. {b.Quantity - newDispatched:N0} still to dispatch.");
+                    ? $"Dispatch {code}: {QuantityFormat.Qty(total)} plants. The booking is fully dispatched and Completed."
+                    : $"Dispatch {code}: {QuantityFormat.Qty(total)} plants. {QuantityFormat.Qty(b.Quantity - newDispatched)} still to dispatch.");
             });
 
         // ------------------------------------------------------------------
@@ -868,7 +868,7 @@ WHERE r.BookingId = @B ORDER BY r.RevisionNo", conn);
 SELECT l.Id, l.SeedlingDispatchId, l.BookingBatchAllocationId, l.ReadyStockId, l.BookedSpeciesId, l.ActualSpeciesId,
        l.IsSubstitution, l.SubstitutionReason, l.Quantity, bps.Name AS BookedSpeciesName, aps.Name AS ActualSpeciesName,
        sw.SowingCode, ar.Name AS AreaName, COALESCE(rph.Name, sph.Name) AS PolyhouseName, sw.SowingDate,
-       d.DispatchCode, d.DispatchDate, d.BookingId, d.CustomerName, d.CreatedBy
+       d.DispatchCode, d.DispatchDate, d.BookingId, d.CustomerName, d.CreatedBy, sw.Id AS SeedSowingId
 FROM dbo.SeedlingDispatchLines l
 INNER JOIN dbo.SeedlingDispatches d ON d.Id = l.SeedlingDispatchId
 INNER JOIN dbo.ReadyStock rs ON rs.Id = l.ReadyStockId
@@ -889,7 +889,7 @@ LEFT JOIN dbo.Polyhouses sph ON sph.Id = sw.PolyhouseId";
                 IsSubstitution = r.GetBoolean(6), SubstitutionReason = S(7), Quantity = r.GetDecimal(8),
                 BookedSpeciesName = S(9)?.Trim(), ActualSpeciesName = S(10)?.Trim(), BatchCode = S(11), AreaName = S(12),
                 PolyhouseName = S(13), SowingDate = r.GetDateTime(14), DispatchCode = S(15), DispatchDate = r.GetDateTime(16),
-                BookingId = r.GetInt32(17), CustomerName = S(18), DispatchedBy = S(19)
+                BookingId = r.GetInt32(17), CustomerName = S(18), DispatchedBy = S(19), SeedSowingId = r.GetInt32(20)
             };
         }
 
@@ -941,11 +941,17 @@ WHERE d.BookingId = @B ORDER BY d.Id", conn);
             await conn.OpenAsync();
             var cmd = new SqlCommand(DispatchLineSelect + @"
 WHERE d.DispatchDate >= @From AND d.DispatchDate <= @To
-  AND (@Search IS NULL OR d.CustomerName LIKE @Search OR d.DispatchCode LIKE @Search OR sw.SowingCode LIKE @Search)
+  AND (@Search IS NULL
+       OR (@BatchMonth IS NOT NULL AND MONTH(sw.SowingDate) = @BatchMonth AND DAY(sw.SowingDate) = @BatchDay)
+       OR (@BatchMonth IS NULL AND (d.CustomerName LIKE @Search OR d.DispatchCode LIKE @Search OR sw.SowingCode LIKE @Search)))
 ORDER BY d.DispatchDate DESC, d.Id DESC, l.Id", conn);
             cmd.Parameters.AddWithValue("@From", from.Date);
             cmd.Parameters.AddWithValue("@To", to.Date);
             cmd.Parameters.AddWithValue("@Search", string.IsNullOrWhiteSpace(search) ? DBNull.Value : "%" + search.Trim() + "%");
+            // A typed batch number ("J-10") matches exactly the batches sown on that month/day.
+            var isBatchNo = SowingBatchNo.TryParse(search, out var batchMonth, out var batchDay);
+            cmd.Parameters.AddWithValue("@BatchMonth", isBatchNo ? batchMonth : DBNull.Value);
+            cmd.Parameters.AddWithValue("@BatchDay", isBatchNo ? batchDay : DBNull.Value);
             var list = new List<SeedlingDispatchLine>();
             using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync()) list.Add(MapLine(r));
@@ -1003,6 +1009,115 @@ ORDER BY rs.SowingDate, rs.FirstConfirmationDate, rs.Id", conn);
                 });
             }
             return list;
+        }
+
+        // ------------------------------------------------------------------
+        // Allocate Batch table (Dispatch page): the same batches as
+        // GetBatchOptionsAsync -- the booking's plant type, with plants still
+        // available -- but searched, filtered and paged in SQL, and limited
+        // to the Areas the user may work in (allowedAreaIds: null = all).
+        // Read-only: the allocation itself is still AllocateBatchAsync, which
+        // re-validates everything under lock. Rows are identified by
+        // ReadyStock.Id; the batch number (e.g. J-10) is only a label that
+        // several rows may share.
+        //   Query: a batch number ("J-10" -> exactly that month/day -- never a
+        //          text match, which would also hit "...-J-101"), otherwise part
+        //          of the variety name or of the full SowingCode.
+        // ------------------------------------------------------------------
+        private const string BatchSearchFrom = @"
+FROM dbo.ReadyStock rs
+INNER JOIN dbo.PlantSpecies ps ON ps.Id = rs.SpeciesId
+INNER JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
+INNER JOIN dbo.Area ar ON ar.Id = rs.AreaId
+LEFT JOIN dbo.Polyhouses rph ON rph.Id = rs.PolyhouseId
+LEFT JOIN dbo.Polyhouses sph ON sph.Id = sw.PolyhouseId
+WHERE ps.PlantTypeId = @P AND rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity > 0
+  AND (@Allowed IS NULL OR rs.AreaId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Allowed, ',')))";
+
+        public async Task<BatchSearchResult> SearchBatchOptionsAsync(int plantTypeId, int? bookedSpeciesId, BatchSearch filter, IReadOnlyCollection<int>? allowedAreaIds)
+        {
+            var pageSize = filter.PageSize is > 0 and <= 100 ? filter.PageSize : BatchSearch.DefaultPageSize;
+            var page = Math.Max(1, filter.Page);
+            var result = new BatchSearchResult { Page = page, PageSize = pageSize };
+            if (allowedAreaIds != null && allowedAreaIds.Count == 0)
+                return result;
+
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            var cmd = new SqlCommand(@"
+SELECT rs.Id, rs.SpeciesId, ps.Name, ps.PlantTypeId, sw.SowingCode, sw.SowingDate, rs.FirstConfirmationDate, rs.CavityType,
+       rs.AreaId, ar.Name, COALESCE(rph.Name, sph.Name), rs.Quantity, rs.ReservedQuantity, rs.DispatchedQuantity, sw.Id,
+       COUNT(*) OVER () AS TotalRows" + BatchSearchFrom + @"
+  AND (@Date IS NULL OR CAST(sw.SowingDate AS date) = @Date)
+  AND (@AreaId IS NULL OR rs.AreaId = @AreaId)
+  AND (@PolyhouseId IS NULL OR COALESCE(rs.PolyhouseId, sw.PolyhouseId) = @PolyhouseId)
+  AND (@Type IS NULL OR @Booked IS NULL
+       OR (@Type = N'Booked' AND rs.SpeciesId = @Booked)
+       OR (@Type = N'Substitute' AND rs.SpeciesId <> @Booked))
+  AND (@Like IS NULL
+       OR (@BatchMonth IS NOT NULL AND MONTH(sw.SowingDate) = @BatchMonth AND DAY(sw.SowingDate) = @BatchDay)
+       OR (@BatchMonth IS NULL AND (ps.Name LIKE @Like OR sw.SowingCode LIKE @Like)))
+ORDER BY sw.SowingDate, rs.FirstConfirmationDate, rs.Id
+OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY", conn);
+            var query = string.IsNullOrWhiteSpace(filter.Query) ? null : filter.Query.Trim();
+            var isBatchNo = SowingBatchNo.TryParse(query, out var batchMonth, out var batchDay);
+            cmd.Parameters.AddWithValue("@P", plantTypeId);
+            cmd.Parameters.AddWithValue("@Allowed", allowedAreaIds == null ? DBNull.Value : string.Join(",", allowedAreaIds));
+            cmd.Parameters.Add("@Date", System.Data.SqlDbType.Date).Value = (object?)filter.SowingDate?.Date ?? DBNull.Value;
+            cmd.Parameters.AddWithValue("@AreaId", (object?)filter.AreaId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@PolyhouseId", (object?)filter.PolyhouseId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Type", filter.AllocationType is BatchSearch.TypeBooked or BatchSearch.TypeSubstitute ? filter.AllocationType : DBNull.Value);
+            cmd.Parameters.AddWithValue("@Booked", (object?)bookedSpeciesId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@Like", query == null ? DBNull.Value : "%" + query + "%");
+            cmd.Parameters.AddWithValue("@BatchMonth", isBatchNo ? batchMonth : DBNull.Value);
+            cmd.Parameters.AddWithValue("@BatchDay", isBatchNo ? batchDay : DBNull.Value);
+            cmd.Parameters.AddWithValue("@Skip", (page - 1) * pageSize);
+            cmd.Parameters.AddWithValue("@Take", pageSize);
+
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+            {
+                var q = r.GetDecimal(11); var res = r.GetDecimal(12); var dis = r.GetDecimal(13);
+                result.Rows.Add(new ReadyBatchOption
+                {
+                    ReadyStockId = r.GetInt32(0), SpeciesId = r.GetInt32(1), SpeciesName = r.GetString(2).Trim(), PlantTypeId = r.GetInt32(3),
+                    BatchCode = r.GetString(4), SowingDate = r.GetDateTime(5), FirstConfirmationDate = r.IsDBNull(6) ? null : r.GetDateTime(6),
+                    CavityType = r.GetString(7), AreaId = r.GetInt32(8), AreaName = r.GetString(9), PolyhouseName = r.IsDBNull(10) ? null : r.GetString(10),
+                    Quantity = q, ReservedQuantity = res, DispatchedQuantity = dis, AvailableQuantity = q - res - dis,
+                    SeedSowingId = r.GetInt32(14)
+                });
+                result.Total = r.GetInt32(15);
+            }
+            return result;
+        }
+
+        // Area / Polyhouse filter choices: only where the booking's plant type
+        // has available batches, within the user's Areas.
+        public async Task<(List<BatchFilterOption> Areas, List<BatchFilterOption> Polyhouses)> GetBatchFilterOptionsAsync(
+            int plantTypeId, IReadOnlyCollection<int>? allowedAreaIds)
+        {
+            var areas = new List<BatchFilterOption>();
+            var polyhouses = new List<BatchFilterOption>();
+            if (allowedAreaIds != null && allowedAreaIds.Count == 0)
+                return (areas, polyhouses);
+
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            var cmd = new SqlCommand(@"
+SELECT DISTINCT 'A' AS Kind, rs.AreaId AS Id, ar.Name AS Name, rs.AreaId AS AreaId" + BatchSearchFrom + @"
+UNION
+SELECT DISTINCT 'P', COALESCE(rs.PolyhouseId, sw.PolyhouseId), COALESCE(rph.Name, sph.Name), rs.AreaId" + BatchSearchFrom + @"
+  AND COALESCE(rs.PolyhouseId, sw.PolyhouseId) IS NOT NULL
+ORDER BY Kind, Name", conn);
+            cmd.Parameters.AddWithValue("@P", plantTypeId);
+            cmd.Parameters.AddWithValue("@Allowed", allowedAreaIds == null ? DBNull.Value : string.Join(",", allowedAreaIds));
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+            {
+                var option = new BatchFilterOption { Id = r.GetInt32(1), Name = r.GetString(2), AreaId = r.GetInt32(3) };
+                (r.GetString(0) == "A" ? areas : polyhouses).Add(option);
+            }
+            return (areas, polyhouses);
         }
     }
 }

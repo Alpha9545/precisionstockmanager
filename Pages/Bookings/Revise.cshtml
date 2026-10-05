@@ -14,8 +14,8 @@
     }
 
     <div class="alert alert-secondary small">
-        Current: <strong>@b.PlantTypeName / @b.SpeciesName &times; @b.Quantity.ToString("N0")</strong>,
-        reserved @b.ReservedQuantity.ToString("N0"), dispatched @b.DispatchedQuantity.ToString("N0").
+        Current: <strong>@b.PlantTypeName / @b.SpeciesName &times; @Qty(b.Quantity)</strong>,
+        reserved @Qty(b.ReservedQuantity), dispatched @Qty(b.DispatchedQuantity).
         The original values are kept in the booking history. If the new quantity is lower, reserved plants above it are released
         (newest batch first). The quantity can never go below what has already been dispatched. Changing the variety releases its reservations.
     </div>
@@ -35,7 +35,7 @@
             </div>
             <div class="col-md-2">
                 <label class="form-label fw-bold">Quantity</label>
-                <input type="number" min="1" step="1" asp-for="NewQuantity" class="form-control" required />
+                <input type="number" min="1" step="1" asp-for="NewQuantity" asp-format="{0:0.##}" class="form-control" required />
             </div>
             <div class="col-md-2">
                 <label class="form-label fw-bold">Required date</label>
@@ -61,7 +61,7 @@
             </div>
             <div class="col-md-2 split-field">
                 <label class="form-label">Quantity</label>
-                <input type="number" min="1" step="1" asp-for="SplitQuantity" class="form-control" />
+                <input type="number" min="1" step="1" asp-for="SplitQuantity" asp-format="{0:0.##}" class="form-control" />
             </div>
 
             <div class="col-12">

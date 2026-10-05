@@ -33,7 +33,7 @@
             <div class="card text-center shadow-sm">
                 <div class="card-body">
                     <div class="text-muted small">Total Mother Plants (filtered)</div>
-                    <div class="fs-3 fw-bold">@Model.TotalMotherPlantQuantity.ToString("N2")</div>
+                    <div class="fs-3 fw-bold">@Qty(Model.TotalMotherPlantQuantity)</div>
                 </div>
             </div>
         </div>
@@ -41,7 +41,7 @@
             <div class="card text-center shadow-sm">
                 <div class="card-body">
                     <div class="text-muted small">Expected Monthly Cutting (filtered)</div>
-                    <div class="fs-3 fw-bold">@Model.TotalExpectedMonthlyCutting.ToString("N2")</div>
+                    <div class="fs-3 fw-bold">@Qty(Model.TotalExpectedMonthlyCutting)</div>
                 </div>
             </div>
         </div>
@@ -50,12 +50,12 @@
     <!-- Filters -->
     <form method="get" class="row g-2 align-items-end mb-3">
         <div class="col-md-3">
-            <label class="form-label">Polyhouse</label>
-            <select name="PolyhouseId" class="form-select" asp-for="PolyhouseId">
-                <option value="">-- All --</option>
-                @foreach (var p in Model.Polyhouses)
+            <label class="form-label">Area</label>
+            <select name="AreaId" class="form-select" asp-for="AreaId">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.Areas)
                 {
-                    <option value="@p.Id">@p.Name</option>
+                    <option value="@a.Id">@a.Name</option>
                 }
             </select>
         </div>
@@ -111,10 +111,10 @@
                         <td>@mp.SpeciesName <span class="text-muted">(@mp.PlantTypeName)</span></td>
                         <td>@mp.AreaName</td>
                         <td>@mp.PlantingDate.ToString("dd/MM/yyyy")</td>
-                        <td>@mp.MotherPlantQuantity.ToString("N2")</td>
+                        <td>@Qty(mp.MotherPlantQuantity)</td>
                         <td>@mp.CuttingRate.ToString("N2")</td>
-                        <td>@mp.ExpectedCuttingQuantity.ToString("N2")</td>
-                        <td>@mp.ExpectedMonthlyCuttingQuantity.ToString("N2")</td>
+                        <td>@Qty(mp.ExpectedCuttingQuantity)</td>
+                        <td>@Qty(mp.ExpectedMonthlyCuttingQuantity)</td>
                         <td>@(mp.SpeciesColor ?? "-")</td>
                         <td>@mp.SupervisorName</td>
                         <td><span class="badge bg-secondary">@mp.Status</span></td>

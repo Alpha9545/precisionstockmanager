@@ -39,6 +39,17 @@ namespace PlantStockManager.Services
             return int.Parse(cavityType!.Split(' ')[0], System.Globalization.CultureInfo.InvariantCulture);
         }
 
+        // Physical Tray Stock consumed by a sowing = CEILING(quantity / cavity):
+        // the sub-tray remainder still occupies a physical tray. Deliberately
+        // NOT NumberOfTrays (FLOOR, below), which drives the Sown/Wastage
+        // plant-count split. e.g. 950 at 24 Cavity -> 39 complete trays, 40
+        // physical trays. 0 for an invalid cavity or a non-positive quantity.
+        public static decimal PhysicalTraysRequired(decimal quantity, string? cavityType)
+        {
+            var cavity = CavityCount(cavityType);
+            return cavity is > 0 && quantity > 0 ? Math.Ceiling(quantity / cavity.Value) : 0;
+        }
+
         // NoOfTrays = FLOOR(SeedQuantity / TraySize) -- complete trays only,
         // never rounded to nearest and never rounded up. SeedsUsed = the seeds
         // that fill those complete trays; RemainingSeeds = the rest. This is
@@ -61,7 +72,7 @@ namespace PlantStockManager.Services
                 return (false, 0, 0, 0, $"{quantityLabel} must be greater than zero.");
             var trays = decimal.Floor(seedQuantity / cavity.Value);
             if (trays < 1)
-                return (false, 0, 0, seedQuantity, $"{quantityLabel} ({seedQuantity:N0}) is less than one complete {cavity.Value}-cavity tray.");
+                return (false, 0, 0, seedQuantity, $"{quantityLabel} ({QuantityFormat.Qty(seedQuantity)}) is less than one complete {cavity.Value}-cavity tray.");
             if (trays > int.MaxValue)
                 return (false, 0, 0, 0, $"{quantityLabel} is too large.");
             var seedsUsed = trays * cavity.Value;
@@ -205,7 +216,7 @@ namespace PlantStockManager.Services
                 return (false, physical - inTransit, $"{quantityLabel} must be a whole number.");
             var available = physical - inTransit;
             if (quantitySown > available)
-                return (false, available, $"Insufficient {stockLabel} (available {available:N0}, requested {quantitySown:N0}).");
+                return (false, available, $"Insufficient {stockLabel} (available {QuantityFormat.Qty(available)}, requested {QuantityFormat.Qty(quantitySown)}).");
             return (true, available - quantitySown, null);
         }
 
@@ -303,12 +314,12 @@ namespace PlantStockManager.Services
             if (actualReadyCuttings > available || extraCuttings > available)
             {
                 var ready = actualReadyTrays.HasValue && cavity.HasValue
-                    ? $"{actualReadyTrays.Value:N0} Actual Ready Trays x {cavity.Value}-cavity = {actualReadyCuttings:N0} cuttings"
-                    : $"The Actual Ready quantity ({actualReadyCuttings:N0} cuttings)";
+                    ? $"{QuantityFormat.Qty(actualReadyTrays.Value)} Actual Ready Trays x {cavity.Value}-cavity = {QuantityFormat.Qty(actualReadyCuttings)} cuttings"
+                    : $"The Actual Ready quantity ({QuantityFormat.Qty(actualReadyCuttings)} cuttings)";
                 var extraTrays = cavity.HasValue && cavity.Value > 0 ? $" ({extraCuttings / cavity.Value:N0} extra trays)" : "";
                 return (false, available,
-                    $"{ready} is more than the available Cutting Stock ({available:N0} cuttings, in-transit excluded). "
-                    + $"It would need {extraCuttings:N0} extra cuttings{extraTrays} beyond the cuttings already sown, and only available stock can be used.");
+                    $"{ready} is more than the available Cutting Stock ({QuantityFormat.Qty(available)} cuttings, in-transit excluded). "
+                    + $"It would need {QuantityFormat.Qty(extraCuttings)} extra cuttings{extraTrays} beyond the cuttings already sown, and only available stock can be used.");
             }
             return (true, available, null);
         }
@@ -347,7 +358,7 @@ namespace PlantStockManager.Services
             if (!IsWholeNumber(quantity.Value))
                 return (false, $"{label} must be a whole number.");
             if (quantity.Value > quantitySown)
-                return (false, $"{label} cannot exceed the Sowing's Quantity Used ({quantitySown:N0}).");
+                return (false, $"{label} cannot exceed the Sowing's Quantity Used ({QuantityFormat.Qty(quantitySown)}).");
             return (true, null);
         }
 
@@ -368,7 +379,7 @@ namespace PlantStockManager.Services
             // and still needs the same Wastage Reason it always did.
             var wastage = readyNow >= remaining ? 0 : remaining - readyNow;
             if (wastage > 0 && !IsValidWastageReason(wastageReason))
-                return (false, wastage, $"A Wastage Reason is required when wastage is {wastage:N2} (one of: {string.Join(", ", WastageReasons)}).");
+                return (false, wastage, $"A Wastage Reason is required when wastage is {QuantityFormat.Qty(wastage)} (one of: {string.Join(", ", WastageReasons)}).");
             if (wastage == 0 && !string.IsNullOrWhiteSpace(wastageReason) && !IsValidWastageReason(wastageReason))
                 return (false, 0, "Invalid Wastage Reason.");
             if (alreadyReady + readyNow + alreadyWasted + wastage < quantitySown)

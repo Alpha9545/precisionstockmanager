@@ -22,12 +22,12 @@
                 <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@(Model.Request.AreaName ?? "Unassigned")</dd>
                 <dt class="col-sm-5">Lab Name</dt><dd class="col-sm-7">@Model.Request.LabName</dd>
                 <dt class="col-sm-5">Sent Date</dt><dd class="col-sm-7">@Model.Request.SentDate.ToString("dd/MM/yyyy")</dd>
-                <dt class="col-sm-5">Sent Quantity</dt><dd class="col-sm-7">@Model.Request.SentQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Sent Quantity</dt><dd class="col-sm-7">@Qty(Model.Request.SentQuantity)</dd>
                 <dt class="col-sm-5">Expected Result Date</dt><dd class="col-sm-7">@(Model.Request.ExpectedResultDate?.ToString("dd/MM/yyyy") ?? "-")</dd>
                 @if (Model.Request.Status == "Completed")
                 {
                     <dt class="col-sm-5">Received Date</dt><dd class="col-sm-7">@Model.Request.ReceivedDate!.Value.ToString("dd/MM/yyyy")</dd>
-                    <dt class="col-sm-5">Received Quantity</dt><dd class="col-sm-7">@Model.Request.ReceivedQuantity!.Value.ToString("N2")</dd>
+                    <dt class="col-sm-5">Received Quantity</dt><dd class="col-sm-7">@Qty(Model.Request.ReceivedQuantity!.Value)</dd>
                     <dt class="col-sm-5">Result Notes</dt><dd class="col-sm-7">@Model.Request.ResultNotes</dd>
                 }
                 <dt class="col-sm-5">Responsible Person</dt><dd class="col-sm-7">@(Model.Request.ResponsiblePersonName ?? "-")</dd>

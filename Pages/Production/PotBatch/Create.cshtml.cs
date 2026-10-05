@@ -130,7 +130,7 @@ namespace PlantStockManager.Pages.Production.PotBatch
                 await LoadAsync();
                 return Page();
             }
-            TempData["Success"] = $"Pot batch {entry.BatchCode} started with {CuttingAllocated:N0} cuttings.";
+            TempData["Success"] = $"Pot batch {entry.BatchCode} started with {QuantityFormat.Qty(CuttingAllocated)} cuttings.";
             return RedirectToPage("/Production/PotBatch/Details", new { id });
         }
 

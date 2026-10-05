@@ -18,11 +18,11 @@
                 <dt class="col-sm-5">Responsible Person</dt><dd class="col-sm-7">@Model.MotherPlant.ResponsiblePersonName</dd>
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.MotherPlant.SupervisorName</dd>
                 <dt class="col-sm-5">Planting Date</dt><dd class="col-sm-7">@Model.MotherPlant.PlantingDate.ToString("dd/MM/yyyy")</dd>
-                <dt class="col-sm-5">Mother Plant Quantity</dt><dd class="col-sm-7">@Model.MotherPlant.MotherPlantQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Mother Plant Quantity</dt><dd class="col-sm-7">@Qty(Model.MotherPlant.MotherPlantQuantity)</dd>
                 <dt class="col-sm-5">Cutting Period (days)</dt><dd class="col-sm-7">@Model.MotherPlant.CuttingPeriodDays</dd>
                 <dt class="col-sm-5">Cutting Rate</dt><dd class="col-sm-7">@Model.MotherPlant.CuttingRate.ToString("N4")</dd>
-                <dt class="col-sm-5">Expected Cutting Quantity</dt><dd class="col-sm-7">@Model.MotherPlant.ExpectedCuttingQuantity.ToString("N2")</dd>
-                <dt class="col-sm-5">Expected Monthly Cutting</dt><dd class="col-sm-7">@Model.MotherPlant.ExpectedMonthlyCuttingQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Expected Cutting Quantity</dt><dd class="col-sm-7">@Qty(Model.MotherPlant.ExpectedCuttingQuantity)</dd>
+                <dt class="col-sm-5">Expected Monthly Cutting</dt><dd class="col-sm-7">@Qty(Model.MotherPlant.ExpectedMonthlyCuttingQuantity)</dd>
                 <dt class="col-sm-5">Remarks</dt><dd class="col-sm-7">@Model.MotherPlant.Remarks</dd>
                 <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.MotherPlant.CreatedDate.ToString("dd/MM/yyyy HH:mm") by @Model.MotherPlant.CreatedBy</dd>
                 @if (Model.MotherPlant.ModifiedDate.HasValue)

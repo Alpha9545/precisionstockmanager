@@ -81,7 +81,7 @@ namespace PlantStockManager.Pages.Production.ReadyStock
             var rows = list.Select(r => (IReadOnlyList<string>)new[]
             {
                 r.SowingCode ?? "", r.SpeciesName ?? "", r.PlantTypeName ?? "", r.AreaName ?? "", r.PolyhouseName ?? "", r.CavityType ?? "",
-                r.PhysicalQuantity.ToString("N0"), r.ReservedQuantity.ToString("N0"), r.DispatchedQuantity.ToString("N0"), r.AvailableQuantity.ToString("N0")
+                QuantityFormat.Qty(r.PhysicalQuantity), QuantityFormat.Qty(r.ReservedQuantity), QuantityFormat.Qty(r.DispatchedQuantity), QuantityFormat.Qty(r.AvailableQuantity)
             });
             var bytes = ExportHelper.BuildPdf("Ready Stock", ExportHeaders, rows);
             return File(bytes, "application/pdf", $"ReadyStock_{DateTime.Now:yyyyMMdd_HHmm}.pdf");

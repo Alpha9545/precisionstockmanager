@@ -66,8 +66,8 @@
                         <td>@(r.Color ?? "-")</td>
                         <td>@(r.Cavity ?? r.PotSize ?? "-")</td>
                         <td>@(r.AreaName ?? "-")</td>
-                        <td class="text-end fw-bold">@r.Quantity.ToString("N0")</td>
-                        <td class="text-end">@(r.OutOf?.ToString("N0") ?? "-")</td>
+                        <td class="text-end fw-bold">@Qty(r.Quantity)</td>
+                        <td class="text-end">@(Qty(r.OutOf))</td>
                         <td class="text-end">@(r.Percent?.ToString("0.00") ?? "-")</td>
                         <td>@(r.Reason ?? "-")</td>
                         <td>@(r.Reference ?? "-")</td>
@@ -83,7 +83,7 @@
             @if (Model.Rows.Any())
             {
                 <tfoot>
-                    <tr class="fw-bold"><td colspan="7">Total</td><td class="text-end">@Model.Rows.Sum(r => r.Quantity).ToString("N0")</td><td colspan="6"></td></tr>
+                    <tr class="fw-bold"><td colspan="7">Total</td><td class="text-end">@Qty(Model.Rows.Sum(r => r.Quantity))</td><td colspan="6"></td></tr>
                 </tfoot>
             }
         </table>

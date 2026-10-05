@@ -35,13 +35,13 @@
                         <h6 class="card-title">@c.Crop</h6>
                         <ul class="list-group list-group-flush small">
                             <li class="list-group-item d-flex justify-content-between px-0">
-                                <span>Active sowings</span><span class="fw-bold text-primary">@c.ActiveSowings (@c.ActiveSown.ToString("N0"))</span>
+                                <span>Active sowings</span><span class="fw-bold text-primary">@c.ActiveSowings (@Qty(c.ActiveSown))</span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between px-0">
-                                <span>Ready seedlings available</span><span class="fw-bold text-success">@c.ReadyAvailable.ToString("N0")</span>
+                                <span>Ready seedlings available</span><span class="fw-bold text-success">@Qty(c.ReadyAvailable)</span>
                             </li>
                             <li class="list-group-item d-flex justify-content-between px-0">
-                                <span>Pending bookings</span><span class="fw-bold text-danger">@c.PendingBookings (@c.PendingBookingQuantity.ToString("N0"))</span>
+                                <span>Pending bookings</span><span class="fw-bold text-danger">@c.PendingBookings (@Qty(c.PendingBookingQuantity))</span>
                             </li>
                         </ul>
                     </div>

@@ -24,7 +24,7 @@
             <div class="card text-center shadow-sm">
                 <div class="card-body">
                     <div class="text-muted small">Total Reserved (Pending)</div>
-                    <div class="fs-3 fw-bold">@Model.TotalReserved.ToString("N2")</div>
+                    <div class="fs-3 fw-bold">@Qty(Model.TotalReserved)</div>
                 </div>
             </div>
         </div>
@@ -80,9 +80,9 @@
                         <td>@b.SpeciesName <span class="text-muted">(@b.PlantTypeName)</span></td>
                         <td>@b.PotSize</td>
                         <td>@(b.AreaName ?? "Unassigned")</td>
-                        <td>@b.Quantity.ToString("N2")</td>
-                        <td>@b.DispatchedQuantity.ToString("N2")</td>
-                        <td>@b.RemainingQuantity.ToString("N2")</td>
+                        <td>@Qty(b.Quantity)</td>
+                        <td>@Qty(b.DispatchedQuantity)</td>
+                        <td>@Qty(b.RemainingQuantity)</td>
                         <td>@b.BookingDate.ToString("dd/MM/yyyy")</td>
                         <td>@(b.DeliveryDate?.ToString("dd/MM/yyyy") ?? "-")</td>
                         <td>

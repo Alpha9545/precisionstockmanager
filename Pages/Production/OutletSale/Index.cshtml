@@ -35,7 +35,7 @@
                         <td>@s.CustomerName</td>
                         <td>@(s.CustomerContact ?? "-")</td>
                         <td>@s.Items.Count</td>
-                        <td>@s.Items.Where(i => !i.IsTray).Sum(i => i.Quantity).ToString("N0") pots / @s.Items.Where(i => i.IsTray).Sum(i => i.Quantity).ToString("N0") trays</td>
+                        <td>@Qty(s.Items.Where(i => !i.IsTray).Sum(i => i.Quantity)) pots / @Qty(s.Items.Where(i => i.IsTray).Sum(i => i.Quantity)) trays</td>
                         <td><a asp-page="/Production/OutletSale/Details" asp-route-id="@s.Id" class="btn btn-sm btn-outline-secondary">View</a></td>
                     </tr>
                 }

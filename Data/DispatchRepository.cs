@@ -272,7 +272,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 if (!releaseSuccess)
                 {
                     tx.Rollback();
-                    return (false, $"The stock reserved for this Booking cannot cover {entry.Quantity:N0}: {releaseMessage}", 0);
+                    return (false, $"The stock reserved for this Booking cannot cover {QuantityFormat.Qty(entry.Quantity)}: {releaseMessage}", 0);
                 }
 
                 // 3b) Physical stock actually leaves -- exactly the

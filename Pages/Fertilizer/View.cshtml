@@ -52,10 +52,10 @@
                         <td class="fw-semibold">@s.FertilizerName</td>
                         <td>@s.FertilizerType</td>
                         <td>@s.BatchNumber</td>
-                        <td>@s.PurchasedQuantity</td>
+                        <td>@Qty3(s.PurchasedQuantity)</td>
                         <td>
                             <span class="fw-bold @(s.AvailableQuantity > 0 ? "text-success" : "text-danger")">
-                                @s.AvailableQuantity
+                                @Qty3(s.AvailableQuantity)
                             </span>
                         </td>
                         <td>@s.UnitName</td>

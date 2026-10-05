@@ -33,7 +33,7 @@ namespace PlantStockManager.Pages.Production.OutletBooking
             if (!await LoadAsync(id))
                 return Denied();
             var (ok, message) = await _bookingRepo.CollectItemAsync(CollectItemId, CollectQuantity, User.GetUserId(), User.Identity?.Name);
-            TempData[ok ? "Success" : "Error"] = ok ? $"Collected {CollectQuantity:N0}." : message;
+            TempData[ok ? "Success" : "Error"] = ok ? $"Collected {QuantityFormat.Qty(CollectQuantity)}." : message;
             return RedirectToPage(new { id });
         }
 

@@ -132,8 +132,8 @@ namespace PlantStockManager.Pages.Production.Cutting
                 entry.IsDuplicateSubmission
                     ? $"{entry.ProductionCode} was already saved; nothing was added twice."
                 : Destination == CuttingDestination.MainOffice
-                    ? $"{entry.ProductionCode}: {Quantity:N0} cuttings of {variety} recorded at {mp.AreaName} and sent to Main Office ({entry.TransferCode}). They become Main Office stock when Main Office confirms receipt."
-                    : $"{entry.ProductionCode}: {Quantity:N0} cuttings of {variety} added to {mp.AreaName} Cutting Stock for Pot Production.";
+                    ? $"{entry.ProductionCode}: {QuantityFormat.Qty(Quantity)} cuttings of {variety} recorded at {mp.AreaName} and sent to Main Office ({entry.TransferCode}). They become Main Office stock when Main Office confirms receipt."
+                    : $"{entry.ProductionCode}: {QuantityFormat.Qty(Quantity)} cuttings of {variety} added to {mp.AreaName} Cutting Stock for Pot Production.";
             return RedirectToPage("/Production/Cutting/Index");
         }
 

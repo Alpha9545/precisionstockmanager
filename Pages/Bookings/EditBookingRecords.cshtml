@@ -178,7 +178,7 @@
                         <td>@ToTitle(booking.PlantTypeName)</td>
                         <td class="hidden-column">@booking.SpeciesId</td>
                         <td>@ToTitle(booking.SpeciesName)</td>
-                        <td>@booking.Quantity</td>
+                        <td>@Qty(booking.Quantity)</td>
                         <td class="hidden-column">@booking.Address</td>
                         <td class="hidden-column">@booking.Contact</td>
                         <td class="hidden-column">@booking.AdvanceTaken</td>
@@ -274,7 +274,7 @@
                             <label class="fw-bold">Quantity</label>
                             <input type="text" class="form-control" id="editQuantityInput" required />
                             <small class="text-muted d-block mt-1" id="editQuantityInWords"></small>
-                            <input type="hidden" asp-for="Booking.Quantity" id="editHiddenQuantity" />
+                            <input type="hidden" asp-for="Booking.Quantity" asp-format="{0:0.##}" id="editHiddenQuantity" />
                         </div>
 
                         <div class="col-md-6">

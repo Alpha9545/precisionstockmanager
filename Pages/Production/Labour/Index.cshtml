@@ -1,0 +1,128 @@
+@page
+@model PlantStockManager.Pages.Production.Labour.IndexModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Labour Records";
+    var canEnter = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/Entry");
+    var s = Model.Summary;
+}
+
+<style>
+    .labour-summary .tile { border: 1px solid #dee2e6; border-radius: .5rem; padding: .5rem .75rem; background: #fff; height: 100%; }
+    .labour-summary .tile .label { font-size: .8rem; color: #6c757d; }
+    .labour-summary .tile .value { font-size: 1.35rem; font-weight: 700; }
+    .labour-summary .tile.primary { background: #f1f8f4; border-color: #b7dfc6; }
+    #labourTable .labour-remark { min-width: 10rem; max-width: 22rem; white-space: pre-wrap; word-break: break-word; }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Labour Records</h3>
+        @if (canEnter)
+        {
+            <a asp-page="/Production/Labour/Entry" class="btn btn-primary">+ Daily Labour Entry</a>
+        }
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+
+    <form method="get" class="row g-2 align-items-end mb-3" id="labourFilter">
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="fromDate">From Date</label>
+            <input type="date" name="fromDate" id="fromDate" value="@Model.FromDate?.ToString("yyyy-MM-dd")" class="form-control" />
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="toDate">To Date</label>
+            <input type="date" name="toDate" id="toDate" value="@Model.ToDate?.ToString("yyyy-MM-dd")" class="form-control" />
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label" for="areaFilter">Area</label>
+            <select name="areaId" id="areaFilter" class="form-select" onchange="if (this.form.polyhouseId) this.form.polyhouseId.value=''; this.form.submit()">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.AreaOptions)
+                {
+                    <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                }
+            </select>
+        </div>
+        @if (Model.ShowPolyhouseFilter)
+        {
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="polyhouseFilter">Polyhouse</label>
+                <select name="polyhouseId" id="polyhouseFilter" class="form-select" onchange="this.form.submit()">
+                    <option value="">All Polyhouses</option>
+                    @foreach (var p in Model.PolyhouseOptions)
+                    {
+                        <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                    }
+                </select>
+            </div>
+        }
+        <div class="col-6 col-md-auto">
+            <button type="submit" class="btn btn-success w-100">Filter</button>
+        </div>
+        <div class="col-6 col-md-auto">
+            <a asp-page="/Production/Labour/Index" class="btn btn-outline-secondary w-100">Clear</a>
+        </div>
+    </form>
+
+    <div class="labour-summary row g-2 mb-3" id="labourSummary">
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Male Full Days</div><div class="value">@s.MaleFullDay</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Male Half Days</div><div class="value">@s.MaleHalfDay</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Female Full Days</div><div class="value">@s.FemaleFullDay</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Female Half Days</div><div class="value">@s.FemaleHalfDay</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile primary"><div class="label">Total Workers</div><div class="value" id="sumWorkers">@s.TotalWorkers</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile primary"><div class="label">Total Labour Days</div><div class="value" id="sumLabourDays">@s.LabourDays.ToString("0.#")</div></div></div>
+        <div class="col-12 small text-muted">@s.Records record(s) · Male @s.TotalMale · Female @s.TotalFemale</div>
+    </div>
+
+    @if (Model.Truncated)
+    {
+        <div class="alert alert-warning py-2">Showing the latest @Model.Records.Count of @s.Records records -- narrow the dates to see the rest. The totals above include all @s.Records.</div>
+    }
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-striped table-sm align-middle" id="labourTable">
+            <thead class="table-light">
+                <tr>
+                    <th>Date</th><th>Area</th><th>Polyhouse</th>
+                    <th class="text-end">Male Full</th><th class="text-end">Male Half</th>
+                    <th class="text-end">Female Full</th><th class="text-end">Female Half</th>
+                    <th class="text-end">Total Workers</th><th class="text-end">Labour Days</th>
+                    <th>Remark</th><th>Entered By</th><th>Edit</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Records)
+                {
+                    <tr>
+                        <td class="text-nowrap">@r.LabourDate.ToString("dd/MM/yyyy")</td>
+                        <td>@r.AreaName</td>
+                        <td>@(r.PolyhouseId.HasValue ? r.PolyhouseName : "—")</td>
+                        <td class="text-end">@r.MaleFullDay</td>
+                        <td class="text-end">@r.MaleHalfDay</td>
+                        <td class="text-end">@r.FemaleFullDay</td>
+                        <td class="text-end">@r.FemaleHalfDay</td>
+                        <td class="text-end fw-bold">@r.TotalWorkers</td>
+                        <td class="text-end fw-bold">@r.LabourDays.ToString("0.#")</td>
+                        <td class="labour-remark">@(string.IsNullOrWhiteSpace(r.Remarks) ? "—" : r.Remarks)</td>
+                        <td>@(r.CreatedByName ?? "—")</td>
+                        <td>
+                            @if (canEnter)
+                            {
+                                <a asp-page="/Production/Labour/Entry" asp-route-id="@r.Id" class="btn btn-sm btn-outline-primary">Edit</a>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Records.Any())
+                {
+                    <tr><td colspan="12" class="text-center text-muted">No labour records for the selected filters.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

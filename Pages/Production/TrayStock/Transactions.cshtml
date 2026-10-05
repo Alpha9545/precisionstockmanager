@@ -11,20 +11,30 @@
     </div>
 
     <form method="get" class="row g-2 align-items-end mb-3">
-        <div class="col-md-4">
-            <label class="form-label">Polyhouse</label>
-            <select name="polyhouseId" class="form-select" onchange="this.form.submit()">
-                <option value="">-- All --</option>
-                @foreach (var p in Model.Polyhouses)
+        <div class="col-12 col-md-4">
+            <label class="form-label">Area</label>
+            <select name="areaId" class="form-select" onchange="this.form.polyhouseId.value=''; this.form.submit()">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.Areas)
                 {
-                    <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.AreaName - @p.Name</option>
+                    <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option>
                 }
             </select>
         </div>
-        <div class="col-md-3">
-            <label class="form-label">Tray Size</label>
+        <div class="col-12 col-md-4">
+            <label class="form-label">Polyhouse</label>
+            <select name="polyhouseId" class="form-select" onchange="this.form.submit()">
+                <option value="">@(Model.AreaId.HasValue ? "All Polyhouses" : "Select an Area first")</option>
+                @foreach (var p in Model.Polyhouses)
+                {
+                    <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                }
+            </select>
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Cavity</label>
             <select name="traySize" class="form-select" onchange="this.form.submit()">
-                <option value="">-- All --</option>
+                <option value="">All Cavities</option>
                 @foreach (var t in Model.TraySizes)
                 {
                     <option value="@t" selected="@(Model.TraySize == t)">@t</option>
@@ -37,29 +47,38 @@
         <table class="table table-bordered table-striped table-sm align-middle">
             <thead class="table-light">
                 <tr>
-                    <th>Date</th><th>Polyhouse</th><th>Tray Size</th><th>Type</th>
-                    <th class="text-end">Quantity</th><th class="text-end">Balance</th>
-                    <th>Reference</th><th>Remark</th><th>By</th>
+                    <th>Date</th><th>Area</th><th>Polyhouse</th><th>Cavity</th><th>Type</th>
+                    <th class="text-end">Quantity</th><th class="text-end">Before</th><th class="text-end">After</th>
+                    <th>Reference</th><th>User</th><th>Remark</th>
                 </tr>
             </thead>
             <tbody>
                 @foreach (var t in Model.Transactions)
                 {
                     <tr>
-                        <td>@t.TransactionDate.ToString("dd-MMM-yyyy HH:mm")</td>
-                        <td>@t.PolyhouseName</td>
+                        <td class="text-nowrap">@t.TransactionDate.ToLocalTime().ToString("dd-MMM-yyyy HH:mm")</td>
+                        <td>@t.AreaName</td>
+                        <td>@(t.PolyhouseName ?? "(Area level, 4 Oct 2026)")</td>
                         <td>@t.TraySize</td>
-                        <td>@t.TransactionType</td>
-                        <td class="text-end @(t.Quantity >= 0 ? "text-success" : "text-danger")">@(t.Quantity >= 0 ? "+" : "")@t.Quantity.ToString("N0")</td>
-                        <td class="text-end fw-bold">@t.AfterQuantity.ToString("N0")</td>
-                        <td>@(t.ReferenceType != null ? $"{t.ReferenceType} #{t.ReferenceId}" : "-")</td>
-                        <td>@(t.Remarks ?? "-")</td>
+                        <td>@t.TypeLabel</td>
+                        <td class="text-end @(t.Quantity >= 0 ? "text-success" : "text-danger")">@(t.Quantity >= 0 ? "+" : "")@Qty(t.Quantity)</td>
+                        <td class="text-end">@Qty(t.BeforeQuantity)</td>
+                        <td class="text-end fw-bold">@Qty(t.AfterQuantity)</td>
+                        <td>@(t.ReferenceType switch
+                            {
+                                null => "-",
+                                PlantStockManager.Data.TrayStockRepository.AddReferenceType => "-",
+                                "TrayStockMigration" or "TrayStockPolyhouseSplit" => "-",
+                                "TrayStockReversal" => $"Entry #{t.ReferenceId}",
+                                _ => $"{t.ReferenceType} #{t.ReferenceId}"
+                            })</td>
                         <td>@(t.UserName ?? "-")</td>
+                        <td>@(t.Remarks ?? "-")</td>
                     </tr>
                 }
                 @if (!Model.Transactions.Any())
                 {
-                    <tr><td colspan="9" class="text-center text-muted">No tray stock transactions yet.</td></tr>
+                    <tr><td colspan="11" class="text-center text-muted">No tray stock transactions for your Areas.</td></tr>
                 }
             </tbody>
         </table>

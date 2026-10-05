@@ -188,8 +188,8 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             }
 
             var extra = DirectSowingRules.ExtraCuttingsNeeded(sowing.SourceType, ActualReadyTrays, sowing.CavityType, sowing.RemainingReadyQuantity);
-            TempData["Success"] = $"Batch {sowing.SowingCode} approved: {ActualReadyTrays:N0} trays x {sowing.CavityType} = {seedlings:N0} seedlings added to Ready Stock; wastage {wastage:N0} ({wastagePct:0.00}%). The sowing is now Completed."
-                + (extra > 0 ? $" {DirectSowingRules.ExtraTrays(extra, sowing.CavityType):N0} extra trays = {extra:N0} extra cuttings were taken from Cutting Stock." : "");
+            TempData["Success"] = $"Batch {sowing.SowingCode} approved: {QuantityFormat.Qty(ActualReadyTrays)} trays x {sowing.CavityType} = {QuantityFormat.Qty(seedlings)} seedlings added to Ready Stock; wastage {QuantityFormat.Qty(wastage)} ({wastagePct:0.00}%). The sowing is now Completed."
+                + (extra > 0 ? $" {QuantityFormat.Qty(DirectSowingRules.ExtraTrays(extra, sowing.CavityType))} extra trays = {QuantityFormat.Qty(extra)} extra cuttings were taken from Cutting Stock." : "");
             return RedirectToPage("/Production/ReadyConfirmation/History", new { id = sowing.Id });
         }
 

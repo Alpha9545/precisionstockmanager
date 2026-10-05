@@ -35,7 +35,7 @@
                 }
                 Pot Size <strong>@Model.InternalTransfer.PotSize</strong> &mdash;
                 From <strong>@Model.InternalTransfer.SourceAreaName</strong> to <strong>@Model.InternalTransfer.DestinationAreaName</strong> &mdash;
-                Quantity <strong>@Model.InternalTransfer.Quantity.ToString("N2")</strong>
+                Quantity <strong>@Qty(Model.InternalTransfer.Quantity)</strong>
                 <div class="small text-muted">
                     These fields cannot be changed once the transfer is recorded -- they already moved real stock.
                     Use "Cancel Transfer" below to reverse the stock effect entirely if this record was a mistake.

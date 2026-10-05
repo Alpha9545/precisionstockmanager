@@ -103,7 +103,7 @@
     </form>
 
     <div class="small text-muted mb-2">
-        @Model.Items.Count.ToString("N0") record(s), @Model.Items.Sum(i => i.Quantity).ToString("N0") cuttings,
+        @Model.Items.Count.ToString("N0") record(s), @Qty(Model.Items.Sum(i => i.Quantity)) cuttings,
         @Model.From.ToString("dd/MM/yyyy") &ndash; @Model.To.ToString("dd/MM/yyyy")@(Model.FilterActive ? " (filtered)" : "")
     </div>
 
@@ -126,7 +126,7 @@
                         <td>@(c.Color ?? "-")</td>
                         <td>@c.AreaName</td>
                         <td>@(c.PolyhouseName ?? "-")</td>
-                        <td class="text-end">@c.Quantity.ToString("N0")</td>
+                        <td class="text-end">@Qty(c.Quantity)</td>
                         <td>@(c.DestinationType == null ? "-" : PlantStockManager.Services.CuttingDestination.Label(c.DestinationType))@if (c.DestinationType == PlantStockManager.Services.CuttingDestination.MainOffice && c.DestinationAreaName != null) { <span class="text-muted"> (@c.DestinationAreaName)</span> }</td>
                         <td>
                             @if (c.TransferCode != null)
@@ -151,7 +151,7 @@
             @if (Model.Items.Any())
             {
                 <tfoot>
-                    <tr class="fw-bold"><td colspan="7">Total</td><td class="text-end">@Model.Items.Sum(i => i.Quantity).ToString("N0")</td><td colspan="4"></td></tr>
+                    <tr class="fw-bold"><td colspan="7">Total</td><td class="text-end">@Qty(Model.Items.Sum(i => i.Quantity))</td><td colspan="4"></td></tr>
                 </tfoot>
             }
         </table>

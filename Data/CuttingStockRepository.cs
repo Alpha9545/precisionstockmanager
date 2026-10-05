@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -113,7 +114,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             var before = (decimal)beforeObj;
             var after = before + quantityDelta;
             if (after < 0)
-                return (false, $"This would take Cutting stock negative (available {before:N2}, requested change {quantityDelta:N2}).");
+                return (false, $"This would take Cutting stock negative (available {QuantityFormat.Qty(before)}, requested change {QuantityFormat.Qty(quantityDelta)}).");
 
             var updateCmd = new SqlCommand("UPDATE dbo.CuttingStock SET PhysicalQuantity = @After, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id", conn, tx);
             updateCmd.Parameters.AddWithValue("@After", after);
@@ -173,7 +174,7 @@ VALUES
 
             var available = physical - inTransit;
             if (quantity > available)
-                return (false, $"Insufficient available Cutting stock (available {available:N2}, requested {quantity:N2}).", 0, 0);
+                return (false, $"Insufficient available Cutting stock (available {QuantityFormat.Qty(available)}, requested {QuantityFormat.Qty(quantity)}).", 0, 0);
 
             var updateCmd = new SqlCommand(
                 "UPDATE dbo.CuttingStock SET InTransitQuantity = InTransitQuantity + @Quantity, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id",
@@ -209,7 +210,7 @@ VALUES
 
             var inTransit = (decimal)inTransitObj;
             if (quantity > inTransit)
-                return (false, $"Cannot release {quantity:N2} -- only {inTransit:N2} is currently in transit for this pool.");
+                return (false, $"Cannot release {QuantityFormat.Qty(quantity)} -- only {QuantityFormat.Qty(inTransit)} is currently in transit for this pool.");
 
             var updateCmd = new SqlCommand(
                 "UPDATE dbo.CuttingStock SET InTransitQuantity = InTransitQuantity - @Quantity, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id",

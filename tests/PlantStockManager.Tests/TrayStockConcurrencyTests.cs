@@ -6,7 +6,7 @@ namespace PlantStockManager.Tests
 {
     // Focused regression test for the first-time-allocation race in
     // TrayStockRepository.GetOrCreateLockedAsync: two callers creating the
-    // SAME brand-new (PolyhouseId, TraySize) pool at once must serialize
+    // SAME brand-new (AreaId, PolyhouseId, TraySize) pool at once must serialize
     // cleanly on the sp_getapplock mutex, never both insert, never throw an
     // unhandled unique-constraint exception.
     //
@@ -15,9 +15,9 @@ namespace PlantStockManager.Tests
     // as DeleteIntegrationTests. Uses TWO independent connections (a real
     // cross-connection race needs two separate transactions), and BOTH are
     // always rolled back, so nothing this test does is ever kept: it picks
-    // a Main Office Polyhouse that currently has zero TrayStock rows at all,
-    // so every TraySize is guaranteed "first time" for it, and never
-    // touches any row that already exists.
+    // a Polyhouse of an active, non-Outlet Area that has no pool of the
+    // chosen cavity yet, so it is guaranteed "first time", and never touches
+    // any row that already exists.
     public class TrayStockConcurrencyTests
     {
         private const string ConnectionVariable = "PSM_TEST_CONNECTION";
@@ -51,23 +51,24 @@ namespace PlantStockManager.Tests
             var cs = Environment.GetEnvironmentVariable(ConnectionVariable);
             Skip.If(string.IsNullOrWhiteSpace(cs), $"Set {ConnectionVariable} to a {RequiredDatabase} connection string to run the database tests.");
 
-            // Pick a real Main Office Polyhouse that currently has ZERO
-            // TrayStock rows, so every TraySize is a genuine first-time
-            // allocation for it -- never touches a pool that already exists.
-            int polyhouseId;
-            string traySize;
+            // Pick a real Polyhouse of an active, non-Outlet Area with no pool
+            // of this cavity yet, so it is a genuine first-time pool for it --
+            // never touches a pool that already exists.
+            int areaId, polyhouseId;
+            const string traySize = "102 Cavity"; // any CHECK-constrained value
             await using (var probe = await OpenAsync(cs!))
             {
                 using var findCmd = new SqlCommand(@"
-SELECT TOP 1 p.Id FROM dbo.Polyhouses p
+SELECT TOP 1 a.Id, p.Id FROM dbo.Polyhouses p
 INNER JOIN dbo.Area a ON a.Id = p.AreaId
-WHERE a.AreaType = N'MainOffice' AND a.IsActive = 1
-  AND p.Id NOT IN (SELECT DISTINCT PolyhouseId FROM dbo.TrayStock)
-ORDER BY p.Id", probe);
-                var found = await findCmd.ExecuteScalarAsync();
-                Skip.If(found == null || found == DBNull.Value, "No Main Office Polyhouse with zero existing TrayStock rows is available to test a first-time allocation against.");
-                polyhouseId = (int)found!;
-                traySize = "102 Cavity"; // any CHECK-constrained value; this Polyhouse has none yet
+WHERE a.IsActive = 1 AND (a.AreaType IS NULL OR a.AreaType <> N'Outlet')
+  AND NOT EXISTS (SELECT 1 FROM dbo.TrayStock t WHERE t.AreaId = a.Id AND t.PolyhouseId = p.Id AND t.TraySize = N'102 Cavity')
+ORDER BY a.Id, p.Id", probe);
+                using var reader = await findCmd.ExecuteReaderAsync();
+                var found = await reader.ReadAsync();
+                Skip.If(!found, "No Polyhouse without a 102 Cavity pool is available to test a first-time pool against.");
+                areaId = reader.GetInt32(0);
+                polyhouseId = reader.GetInt32(1);
             }
 
             var connA = await OpenAsync(cs!);
@@ -86,8 +87,8 @@ ORDER BY p.Id", probe);
                 var repoB = RepoFor(cs!);
 
                 var sw = System.Diagnostics.Stopwatch.StartNew();
-                var taskA = repoA.GetOrCreateLockedAsync(connA, txA, polyhouseId, traySize, "ConcurrencyTestA");
-                var taskB = repoB.GetOrCreateLockedAsync(connB, txB, polyhouseId, traySize, "ConcurrencyTestB");
+                var taskA = repoA.GetOrCreateLockedAsync(connA, txA, areaId, polyhouseId, traySize, "ConcurrencyTestA");
+                var taskB = repoB.GetOrCreateLockedAsync(connB, txB, areaId, polyhouseId, traySize, "ConcurrencyTestB");
 
                 var idA = -1; var idB = -1;
                 Exception? exA = null; Exception? exB = null;
@@ -107,7 +108,7 @@ ORDER BY p.Id", probe);
                 {
                     var failure = exA ?? exB;
                     Assert.NotNull(failure);
-                    Assert.DoesNotContain("UQ_TrayStock_Polyhouse_Size", failure!.Message);
+                    Assert.DoesNotContain("UX_TrayStock_Area_Polyhouse_Size", failure!.Message);
                     Assert.DoesNotContain("violation of UNIQUE", failure.Message, StringComparison.OrdinalIgnoreCase);
                 }
 
@@ -127,8 +128,9 @@ ORDER BY p.Id", probe);
                 var (winnerConn, winnerTx) = winnerIsA ? (connA, txA) : (connB, txB);
 
                 using var countCmd = new SqlCommand(
-                    "SELECT COUNT(*) FROM dbo.TrayStock WHERE PolyhouseId = @PolyhouseId AND TraySize = @TraySize",
+                    "SELECT COUNT(*) FROM dbo.TrayStock WHERE AreaId = @AreaId AND PolyhouseId = @PolyhouseId AND TraySize = @TraySize",
                     winnerConn, winnerTx);
+                countCmd.Parameters.AddWithValue("@AreaId", areaId);
                 countCmd.Parameters.AddWithValue("@PolyhouseId", polyhouseId);
                 countCmd.Parameters.AddWithValue("@TraySize", traySize);
                 var count = (int)(await countCmd.ExecuteScalarAsync())!;

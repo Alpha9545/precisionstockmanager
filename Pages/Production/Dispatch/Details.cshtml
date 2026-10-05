@@ -16,7 +16,7 @@
                 <dt class="col-sm-5">Species</dt><dd class="col-sm-7">@Model.Dispatch.SpeciesName (@Model.Dispatch.PlantTypeName)</dd>
                 <dt class="col-sm-5">Pot Size</dt><dd class="col-sm-7">@Model.Dispatch.PotSize</dd>
                 <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@(Model.Dispatch.AreaName ?? "Unassigned")</dd>
-                <dt class="col-sm-5">Quantity Dispatched</dt><dd class="col-sm-7">@Model.Dispatch.Quantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Quantity Dispatched</dt><dd class="col-sm-7">@Qty(Model.Dispatch.Quantity)</dd>
                 <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.Dispatch.Status</dd>
                 <dt class="col-sm-5">Dispatch Date</dt><dd class="col-sm-7">@Model.Dispatch.DispatchDate.ToString("dd/MM/yyyy")</dd>
                 <dt class="col-sm-5">Responsible Person</dt><dd class="col-sm-7">@(Model.Dispatch.ResponsiblePersonName ?? "-")</dd>

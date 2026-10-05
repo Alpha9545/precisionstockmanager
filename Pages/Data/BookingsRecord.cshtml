@@ -145,7 +145,7 @@
                             <td>@booking.DeliveryDate.ToString("dd-MMMM-yyyy")</td>
                             <td>@ToTitle(booking.PlantTypeName)</td>
                             <td>@ToTitle(booking.SpeciesName)</td>
-                            <td>@booking.Quantity</td>
+                            <td>@Qty(booking.Quantity)</td>
                             <td>@booking.AdvanceTakenAmount</td>
                             <td>@ToTitle(PlantStockManager.Services.BookedByFilter.Display(booking.BookedById, booking.BookedByName, booking.BookedByOther))</td>
                             <td>@booking.Contact</td>

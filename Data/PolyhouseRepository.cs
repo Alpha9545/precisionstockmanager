@@ -98,15 +98,63 @@ ORDER BY a.Name, p.Name", conn);
             await cmd.ExecuteNonQueryAsync();
         }
 
-        public async Task UpdatePolyhouse(int id, string name, int? areaId = null)
+        public const string MoveBlockedByTrayStockMessage =
+            "This Polyhouse cannot be moved to another Area while tray stock is available. Transfer/use the tray stock first.";
+
+        // Tray Stock guard (2026-10-04): a Polyhouse's trays belong to its Area +
+        // Polyhouse + Cavity pools, so its Area cannot change while it holds any
+        // trays (they are never silently moved to another Area). With 0 trays the
+        // Area change is allowed exactly as before, and its now-empty pools under
+        // the old Area are retired (re-activated automatically if it moves back).
+        // One transaction: the Polyhouse row and its Tray Stock rows are locked
+        // first, so a concurrent tray addition cannot slip in between check and move.
+        public async Task<(bool Success, string? Message)> UpdatePolyhouse(int id, string name, int? areaId = null)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand("UPDATE dbo.Polyhouses SET Name = @Name, AreaId = @AreaId WHERE Id = @Id", conn);
-            cmd.Parameters.AddWithValue("@Name", name);
-            cmd.Parameters.AddWithValue("@AreaId", (object?)areaId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@Id", id);
-            await cmd.ExecuteNonQueryAsync();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                using var current = new SqlCommand("SELECT AreaId FROM dbo.Polyhouses WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
+                current.Parameters.AddWithValue("@Id", id);
+                var currentObj = await current.ExecuteScalarAsync();
+                if (currentObj == null)
+                {
+                    tx.Rollback();
+                    return (false, "Polyhouse not found.");
+                }
+                var currentAreaId = currentObj == DBNull.Value ? (int?)null : (int)currentObj;
+                var areaChanges = currentAreaId != areaId;
+
+                if (areaChanges)
+                {
+                    using var balance = new SqlCommand(
+                        "SELECT ISNULL(SUM(PhysicalQuantity), 0) FROM dbo.TrayStock WITH (UPDLOCK, HOLDLOCK) WHERE PolyhouseId = @Id", conn, tx);
+                    balance.Parameters.AddWithValue("@Id", id);
+                    if ((decimal)(await balance.ExecuteScalarAsync())! > 0)
+                    {
+                        tx.Rollback();
+                        return (false, MoveBlockedByTrayStockMessage);
+                    }
+                    using var retire = new SqlCommand(
+                        "UPDATE dbo.TrayStock SET IsActive = 0, ModifiedDate = SYSUTCDATETIME() WHERE PolyhouseId = @Id AND IsActive = 1 AND PhysicalQuantity = 0", conn, tx);
+                    retire.Parameters.AddWithValue("@Id", id);
+                    await retire.ExecuteNonQueryAsync();
+                }
+
+                using var cmd = new SqlCommand("UPDATE dbo.Polyhouses SET Name = @Name, AreaId = @AreaId WHERE Id = @Id", conn, tx);
+                cmd.Parameters.AddWithValue("@Name", name);
+                cmd.Parameters.AddWithValue("@AreaId", (object?)areaId ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Id", id);
+                await cmd.ExecuteNonQueryAsync();
+                tx.Commit();
+                return (true, null);
+            }
+            catch
+            {
+                try { tx.Rollback(); } catch { }
+                throw;
+            }
         }
 
         private static async Task<List<Polyhouse>> ReadListAsync(SqlCommand cmd)

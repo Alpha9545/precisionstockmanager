@@ -47,8 +47,8 @@
                         <td>@b.CustomerName</td>
                         <td>@(b.CustomerContact ?? "-")</td>
                         <td>@b.Items.Count</td>
-                        <td>@b.Items.Where(i => !i.IsTray).Sum(i => i.Quantity).ToString("N0") / @b.Items.Where(i => i.IsTray).Sum(i => i.Quantity).ToString("N0")</td>
-                        <td>@b.Items.Where(i => !i.IsTray).Sum(i => i.CollectedQuantity).ToString("N0") / @b.Items.Where(i => i.IsTray).Sum(i => i.CollectedQuantity).ToString("N0")</td>
+                        <td>@Qty(b.Items.Where(i => !i.IsTray).Sum(i => i.Quantity)) / @Qty(b.Items.Where(i => i.IsTray).Sum(i => i.Quantity))</td>
+                        <td>@Qty(b.Items.Where(i => !i.IsTray).Sum(i => i.CollectedQuantity)) / @Qty(b.Items.Where(i => i.IsTray).Sum(i => i.CollectedQuantity))</td>
                         <td><span class="badge @(b.Status == "Completed" ? "bg-success" : b.Status == "Cancelled" ? "bg-secondary" : b.Status == "PartiallyCollected" ? "bg-info text-dark" : "bg-warning text-dark")">@b.Status</span></td>
                         <td><a asp-page="/Production/OutletBooking/Details" asp-route-id="@b.Id" class="btn btn-sm btn-outline-secondary">Open</a></td>
                     </tr>

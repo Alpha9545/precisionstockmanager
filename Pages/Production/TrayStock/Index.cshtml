@@ -3,7 +3,7 @@
 @inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
     ViewData["Title"] = "Tray Stock";
-    var canAllocate = await FeatureAccess.CanAccessPageAsync(User, "/Production/TrayStock/Allocate");
+    var canAdd = await FeatureAccess.CanAccessPageAsync(User, "/Production/TrayStock/Add");
 }
 
 <div class="container-fluid mt-4">
@@ -11,9 +11,9 @@
         <h3 class="mb-0">Tray Stock</h3>
         <div class="d-flex gap-2 flex-wrap">
             <a asp-page="/Production/TrayStock/Transactions" class="btn btn-outline-secondary">Transaction History</a>
-            @if (canAllocate)
+            @if (canAdd)
             {
-                <a asp-page="/Production/TrayStock/Allocate" class="btn btn-primary">Allocate Trays</a>
+                <a asp-page="/Production/TrayStock/Add" class="btn btn-primary">Add Tray Stock</a>
             }
         </div>
     </div>
@@ -28,35 +28,64 @@
     }
 
     <form method="get" class="row g-2 align-items-end mb-3">
-        <div class="col-md-4">
-            <input type="search" name="search" value="@Model.Search" class="form-control" placeholder="Search Polyhouse, Area or Tray Size" />
+        <div class="col-12 col-md-3">
+            <label class="form-label">Area</label>
+            <select name="areaId" class="form-select" onchange="this.form.polyhouseId.value=''; this.form.submit()">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.AreaOptions)
+                {
+                    <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                }
+            </select>
         </div>
-        <div class="col-auto"><button class="btn btn-primary">Filter</button></div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Polyhouse</label>
+            <select name="polyhouseId" class="form-select" onchange="this.form.submit()">
+                <option value="">All Polyhouses</option>
+                @foreach (var p in Model.PolyhouseOptions)
+                {
+                    <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                }
+            </select>
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label">Cavity</label>
+            <select name="traySize" class="form-select" onchange="this.form.submit()">
+                <option value="">All Cavities</option>
+                @foreach (var t in Model.TraySizes)
+                {
+                    <option value="@t" selected="@(Model.TraySize == t)">@t</option>
+                }
+            </select>
+        </div>
+        <div class="col-12 col-md-auto">
+            <a asp-page="/Production/TrayStock/Index" class="btn btn-outline-secondary w-100">Clear</a>
+        </div>
     </form>
 
     <div class="table-responsive">
         <table class="table table-bordered table-striped table-sm align-middle">
             <thead class="table-light">
                 <tr>
-                    <th>Polyhouse</th><th>Area</th><th>Tray Size</th><th class="text-end">Available</th><th></th>
+                    <th>Area</th><th>Polyhouse</th><th>Cavity</th><th class="text-end">Available Trays</th><th></th>
                 </tr>
             </thead>
             <tbody>
                 @foreach (var s in Model.Stock)
                 {
                     <tr>
-                        <td>@s.PolyhouseName</td>
                         <td>@s.AreaName</td>
+                        <td>@s.PolyhouseName</td>
                         <td>@s.TraySize</td>
-                        <td class="text-end fw-bold">@s.PhysicalQuantity.ToString("N0")</td>
+                        <td class="text-end fw-bold">@Qty(s.PhysicalQuantity)</td>
                         <td>
-                            <a asp-page="/Production/TrayStock/Transactions" asp-route-polyhouseId="@s.PolyhouseId" asp-route-traySize="@s.TraySize" class="btn btn-sm btn-outline-secondary">History</a>
+                            <a asp-page="/Production/TrayStock/Transactions" asp-route-areaId="@s.AreaId" asp-route-polyhouseId="@s.PolyhouseId" asp-route-traySize="@s.TraySize" class="btn btn-sm btn-outline-secondary">History</a>
                         </td>
                     </tr>
                 }
                 @if (!Model.Stock.Any())
                 {
-                    <tr><td colspan="5" class="text-center text-muted">No tray stock recorded yet.</td></tr>
+                    <tr><td colspan="5" class="text-center text-muted">No tray stock recorded yet for your Areas.</td></tr>
                 }
             </tbody>
         </table>

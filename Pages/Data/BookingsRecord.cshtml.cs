@@ -145,7 +145,7 @@ namespace PlantStockManager.Pages.Data
                     AddCellToBody(table, b.CustomerName ?? string.Empty, cellFont);
                     AddCellToBody(table, b.BookingDate.ToString("dd-MMM-yyyy"), cellFont);
                     AddCellToBody(table, b.SpeciesName ?? string.Empty, cellFont);
-                    AddCellToBody(table, b.Quantity.ToString(), cellFont);
+                    AddCellToBody(table, QuantityFormat.Qty(b.Quantity), cellFont);
                     AddCellToBody(table, (b.AdvanceTakenAmount ?? 0).ToString("0.##"), cellFont);
                     AddCellToBody(table, b.DeliveryDate.ToString("dd-MMM-yyyy"), cellFont);
                     AddCellToBody(table, b.Contact.ToString(), cellFont);

@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -363,7 +364,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                     if (receivedQty > pending)
                     {
                         tx.Rollback();
-                        return (false, $"Cannot receive {receivedQty:N2} for this line -- only {pending:N2} is still pending (ordered {orderedQty:N2}, already received {alreadyReceived:N2}).", 0);
+                        return (false, $"Cannot receive {QuantityFormat.Qty(receivedQty)} for this line -- only {QuantityFormat.Qty(pending)} is still pending (ordered {QuantityFormat.Qty(orderedQty)}, already received {QuantityFormat.Qty(alreadyReceived)}).", 0);
                     }
 
                     const string insertReceiptItemSql = @"

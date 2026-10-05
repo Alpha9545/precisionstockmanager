@@ -13,7 +13,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDataProtection()
-    .PersistKeysToFileSystem(new DirectoryInfo("/var/aspnet-keys"))
+    .PersistKeysToFileSystem(new DirectoryInfo("/var/aspnet-keys-plantsmanager2"))
     .SetApplicationName("PlantStockManager");
 
 
@@ -66,9 +66,12 @@ builder.Services.AddScoped<UserLoginHistoryRepository>(); // Step 3B: employee l
 // Mother Plant workflow: location-scoped raw cutting stock (Phase 15)
 builder.Services.AddScoped<CuttingStockRepository>();
 
-// Tray Stock (2026-10-02): empty tray inventory held at specific Main
-// Office Polyhouses, consumed automatically by Seed/Cutting Sowing.
+// Tray Stock: empty trays held per Area + Cavity (2026-10-04), added by the
+// Sowing Supervisor, consumed automatically by Seed/Cutting Sowing.
 builder.Services.AddScoped<TrayStockRepository>();
+
+// Daily Labour Count (2026-10-04): daily labour headcounts per location, no worker records.
+builder.Services.AddScoped<DailyLabourCountRepository>();
 
 // Growing Partner foundation (Phase 17) -- deliberately separate from
 // VendorRepository/dbo.Vendors (Phase 11), see GrowingPartner.cs.
@@ -101,6 +104,7 @@ builder.Services.AddScoped<SeedSowingRepository>();
 builder.Services.AddScoped<ReadyStockRepository>(); // Phase 25 (Phase K)
 builder.Services.AddScoped<ReadyConfirmationRepository>(); // Phase 25 (Phase K)
 builder.Services.AddScoped<SeedlingFulfilmentRepository>(); // Phase C: Ready Stock -> booking reservation -> dispatch
+builder.Services.AddSingleton<PlantStockManager.Services.SubmissionTokenGuard>(); // one-time tokens (Allocate Batch double-submit guard)
 
 // Management Dashboard (Phase 26/Phase L): a dedicated, READ-ONLY
 // reporting repository -- never a duplicate of any operational

@@ -108,6 +108,9 @@
                     <li><a class="link_name" href="#">Seed Production</a></li>
                     <li nav-page="/Production/SeedStock/Index"><a asp-page="/Production/SeedStock/Index">Seed Stock</a></li>
                     <li nav-page="/Production/SeedSowing/Index"><a asp-page="/Production/SeedSowing/Index">Direct Seed Sowing</a></li>
+                    <li nav-page="/Production/TrayStock/Index"><a asp-page="/Production/TrayStock/Index">Tray Stock</a></li>
+                    <li nav-page="/Production/TrayStock/Add"><a asp-page="/Production/TrayStock/Add">Add Tray Stock</a></li>
+                    <li nav-page="/Production/CuttingStock/PendingConfirmations"><a asp-page="/Production/CuttingStock/PendingConfirmations">Confirm Cutting Receipt</a></li>
                     <li nav-page="/Production/ReadyConfirmation/Index"><a asp-page="/Production/ReadyConfirmation/Index">Sowing Approvals</a></li>
                     <li nav-page="/Production/ReadyAlerts/Index"><a asp-page="/Production/ReadyAlerts/Index">Ready Alerts</a></li>
                     <li nav-page="/Production/ReadyStock/Index"><a asp-page="/Production/ReadyStock/Index">Ready Seedling Stock</a></li>
@@ -132,12 +135,9 @@
                     <li nav-page="/Production/MotherPlant/Index"><a asp-page="/Production/MotherPlant/Index">Mother Plants</a></li>
                     <li nav-page="/Production/Cutting/Index"><a asp-page="/Production/Cutting/Index">Cutting Production</a></li>
                     <li nav-page="/Production/CuttingStock/GiveToMainOffice"><a asp-page="/Production/CuttingStock/GiveToMainOffice">Send Cuttings to Main Office</a></li>
-                    <li nav-page="/Production/CuttingStock/PendingConfirmations"><a asp-page="/Production/CuttingStock/PendingConfirmations">Confirm Cutting Receipt</a></li>
                     <li nav-page="/Production/CuttingStock/MyTransactions"><a asp-page="/Production/CuttingStock/MyTransactions">Cutting Delivery History</a></li>
                     <li nav-page="/Production/CuttingStock/Index"><a asp-page="/Production/CuttingStock/Index">Cutting Stock</a></li>
                     <li nav-page="/Production/SeedSowing/CreateFromCutting"><a asp-page="/Production/SeedSowing/CreateFromCutting">Confirm Cutting Sowing</a></li>
-                    <li nav-page="/Production/TrayStock/Index"><a asp-page="/Production/TrayStock/Index">Tray Stock</a></li>
-                    <li nav-page="/Production/TrayStock/Allocate"><a asp-page="/Production/TrayStock/Allocate">Allocate Trays</a></li>
                 </ul>
             </li>
 
@@ -253,6 +253,25 @@
                 <ul class="sub-menu">
                     <li><a class="link_name" href="#">Lab</a></li>
                     <li nav-page="/Production/LabRequest/Index"><a asp-page="/Production/LabRequest/Index">Lab Requests</a></li>
+                </ul>
+            </li>
+
+            <!-- =================================================
+                 LABOUR (daily headcount)
+                 ================================================= -->
+
+            <li nav-section>
+                <div class="icon-link">
+                    <a href="#">
+                        <img src="~/images/compass.svg" alt="" class="nav-icon" />
+                        <span class="link_name">Labour</span>
+                    </a>
+                    <img src="~/images/arrow.svg" alt="Expand" class="arrow" />
+                </div>
+                <ul class="sub-menu">
+                    <li><a class="link_name" href="#">Labour</a></li>
+                    <li nav-page="/Production/Labour/Entry"><a asp-page="/Production/Labour/Entry">Labour Entry</a></li>
+                    <li nav-page="/Production/Labour/Index"><a asp-page="/Production/Labour/Index">Labour Records</a></li>
                 </ul>
             </li>
 

@@ -48,9 +48,9 @@
                         <td>@(i.IsTray ? "Ready Tray" : "Potted Plant")</td>
                         <td>@i.SpeciesName?.Trim() @(string.IsNullOrEmpty(i.SpeciesColor) ? "" : "(" + i.SpeciesColor + ")")</td>
                         <td>@(i.IsTray ? i.CavityType : i.PotSize)</td>
-                        <td class="text-end">@i.Quantity.ToString("N0") @(i.IsTray ? "trays" : "pots")</td>
-                        <td class="text-end">@i.CollectedQuantity.ToString("N0")</td>
-                        <td class="text-end fw-bold">@i.OpenQuantity.ToString("N0")</td>
+                        <td class="text-end">@Qty(i.Quantity) @(i.IsTray ? "trays" : "pots")</td>
+                        <td class="text-end">@Qty(i.CollectedQuantity)</td>
+                        <td class="text-end fw-bold">@Qty(i.OpenQuantity)</td>
                         <td>
                             @if (!Model.IsClosed && i.OpenQuantity > 0)
                             {
@@ -65,7 +65,7 @@
                 }
             </tbody>
             <tfoot>
-                <tr class="fw-bold"><td colspan="3">Total</td><td class="text-end">@b.Items.Sum(i => i.Quantity).ToString("N0")</td><td class="text-end">@b.Items.Sum(i => i.CollectedQuantity).ToString("N0")</td><td class="text-end">@b.Items.Sum(i => i.OpenQuantity).ToString("N0")</td><td></td></tr>
+                <tr class="fw-bold"><td colspan="3">Total</td><td class="text-end">@Qty(b.Items.Sum(i => i.Quantity))</td><td class="text-end">@Qty(b.Items.Sum(i => i.CollectedQuantity))</td><td class="text-end">@Qty(b.Items.Sum(i => i.OpenQuantity))</td><td></td></tr>
             </tfoot>
         </table>
     </div>

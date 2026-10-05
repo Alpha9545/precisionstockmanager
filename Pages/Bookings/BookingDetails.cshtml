@@ -35,14 +35,14 @@
                 <div class="card-body">
                     <dl class="row mb-0">
                         <dt class="col-sm-4">Species / Variety</dt><dd class="col-sm-8">@b.PlantTypeName / @b.SpeciesName</dd>
-                        <dt class="col-sm-4">Booked quantity</dt><dd class="col-sm-8">@b.Quantity.ToString("N0")</dd>
-                        <dt class="col-sm-4">Reserved (Ready Stock)</dt><dd class="col-sm-8">@b.ReservedQuantity.ToString("N0")</dd>
-                        <dt class="col-sm-4">Dispatched (Ready Stock)</dt><dd class="col-sm-8">@b.DispatchedQuantity.ToString("N0")</dd>
+                        <dt class="col-sm-4">Booked quantity</dt><dd class="col-sm-8">@Qty(b.Quantity)</dd>
+                        <dt class="col-sm-4">Reserved (Ready Stock)</dt><dd class="col-sm-8">@Qty(b.ReservedQuantity)</dd>
+                        <dt class="col-sm-4">Dispatched (Ready Stock)</dt><dd class="col-sm-8">@Qty(b.DispatchedQuantity)</dd>
                         @if (b.LegacyFulfilledQuantity > 0)
                         {
-                            <dt class="col-sm-4">Fulfilled from legacy Inventory</dt><dd class="col-sm-8">@b.LegacyFulfilledQuantity.ToString("N0")</dd>
+                            <dt class="col-sm-4">Fulfilled from legacy Inventory</dt><dd class="col-sm-8">@Qty(b.LegacyFulfilledQuantity)</dd>
                         }
-                        <dt class="col-sm-4">Remaining</dt><dd class="col-sm-8">@b.RemainingQuantity.ToString("N0")</dd>
+                        <dt class="col-sm-4">Remaining</dt><dd class="col-sm-8">@Qty(b.RemainingQuantity)</dd>
                         <dt class="col-sm-4">Status</dt>
                         <dd class="col-sm-8"><span class="badge bg-secondary">@b.Status</span> <span class="ms-1">@b.Stage</span></dd>
                         <dt class="col-sm-4">Fulfilment pipeline</dt>
@@ -74,9 +74,9 @@
                     @if (Model.Availability != null)
                     {
                         <table class="table table-sm mb-2">
-                            <tr><td>Ready Stock (physical)</td><td class="text-end">@Model.Availability.PhysicalQuantity.ToString("N0")</td></tr>
-                            <tr><td>Already reserved</td><td class="text-end">@Model.Availability.ReservedQuantity.ToString("N0")</td></tr>
-                            <tr class="fw-bold"><td>Available</td><td class="text-end">@Model.Availability.AvailableQuantity.ToString("N0")</td></tr>
+                            <tr><td>Ready Stock (physical)</td><td class="text-end">@Qty(Model.Availability.PhysicalQuantity)</td></tr>
+                            <tr><td>Already reserved</td><td class="text-end">@Qty(Model.Availability.ReservedQuantity)</td></tr>
+                            <tr class="fw-bold"><td>Available</td><td class="text-end">@Qty(Model.Availability.AvailableQuantity)</td></tr>
                         </table>
                     }
                     @if (canBook && readyStockUsable && b.UnreservedQuantity > 0)
@@ -88,8 +88,8 @@
                         <form method="post" asp-page-handler="Reserve" class="row g-2 align-items-end">
                             <input type="hidden" asp-for="Id" />
                             <div class="col-7">
-                                <label class="form-label small mb-0">Reserve quantity (still to reserve: @b.UnreservedQuantity.ToString("N0"))</label>
-                                <input type="number" min="1" step="1" max="@((int)b.UnreservedQuantity)" asp-for="ReserveQuantity" class="form-control" required />
+                                <label class="form-label small mb-0">Reserve quantity (still to reserve: @Qty(b.UnreservedQuantity))</label>
+                                <input type="number" min="1" step="1" max="@((int)b.UnreservedQuantity)" asp-for="ReserveQuantity" asp-format="{0:0.##}" class="form-control" required />
                             </div>
                             <div class="col-5">
                                 <button type="submit" class="btn btn-primary w-100">Reserve (oldest batch first)</button>
@@ -127,7 +127,7 @@
                 @foreach (var a in Model.Allocations)
                 {
                     <tr>
-                        <td><a asp-page="/Production/SeedSowing/Details" asp-route-id="@a.SeedSowingId">@a.BatchCode</a></td>
+                        <td><a asp-page="/Production/SeedSowing/Details" asp-route-id="@a.SeedSowingId" title="@a.BatchCode (Sowing #@a.SeedSowingId)" class="fw-bold">@a.BatchNo</a></td>
                         <td>@a.BookedSpeciesName</td>
                         <td>@a.ActualSpeciesName</td>
                         <td>@(a.IsSubstitution ? "Yes – " + a.SubstitutionReason : "No")</td>
@@ -137,10 +137,10 @@
                         <td>@(a.PolyhouseName ?? "-")</td>
                         <td>@(a.SupervisorName ?? "-")</td>
                         <td>@(a.ApprovedByName ?? "-")</td>
-                        <td class="text-end">@a.Quantity.ToString("N0")</td>
-                        <td class="text-end">@a.DispatchedQuantity.ToString("N0")</td>
-                        <td class="text-end">@a.ReleasedQuantity.ToString("N0")</td>
-                        <td class="text-end fw-bold">@a.OpenQuantity.ToString("N0")</td>
+                        <td class="text-end">@Qty(a.Quantity)</td>
+                        <td class="text-end">@Qty(a.DispatchedQuantity)</td>
+                        <td class="text-end">@Qty(a.ReleasedQuantity)</td>
+                        <td class="text-end fw-bold">@Qty(a.OpenQuantity)</td>
                         <td>@a.Status</td>
                     </tr>
                 }
@@ -163,12 +163,12 @@
                         <tr>
                             <td>@d.DispatchCode</td>
                             <td>@d.DispatchDate.ToString("dd-MM-yyyy")</td>
-                            <td>@l.BatchCode</td>
+                            <td title="@l.BatchCode (Sowing #@l.SeedSowingId)" class="fw-bold">@l.BatchNo</td>
                             <td>@l.BookedSpeciesName</td>
                             <td>@l.ActualSpeciesName</td>
                             <td>@(l.IsSubstitution ? "Yes – " + l.SubstitutionReason : "No")</td>
                             <td>@l.AreaName / @(l.PolyhouseName ?? "-")</td>
-                            <td class="text-end">@l.Quantity.ToString("N0")</td>
+                            <td class="text-end">@Qty(l.Quantity)</td>
                             <td>@d.CreatedBy</td>
                         </tr>
                     }
@@ -192,9 +192,9 @@
                         <td>@r.ChangedDate.ToString("dd-MM-yyyy HH:mm")</td>
                         <td>@r.ChangedBy</td>
                         <td>@(r.PreviousSpeciesName == r.NewSpeciesName ? r.NewSpeciesName : $"{r.PreviousSpeciesName} → {r.NewSpeciesName}")</td>
-                        <td>@(r.PreviousQuantity == r.NewQuantity ? r.NewQuantity.ToString("N0") : $"{r.PreviousQuantity:N0} → {r.NewQuantity:N0}")</td>
+                        <td>@(r.PreviousQuantity == r.NewQuantity ? Qty(r.NewQuantity) : $"{Qty(r.PreviousQuantity)} → {Qty(r.NewQuantity)}")</td>
                         <td>@r.PreviousDeliveryDate?.ToString("dd-MM-yyyy") @(r.PreviousDeliveryDate != r.NewDeliveryDate ? "→ " + r.NewDeliveryDate?.ToString("dd-MM-yyyy") : "")</td>
-                        <td>@r.ReleasedQuantity.ToString("N0")</td>
+                        <td>@Qty(r.ReleasedQuantity)</td>
                         <td>@if (r.SplitBookingId.HasValue) { <a asp-page="/Bookings/BookingDetails" asp-route-id="@r.SplitBookingId">#@r.SplitBookingId</a> }</td>
                         <td class="small">@r.OtherChanges</td>
                         <td>@r.Reason</td>

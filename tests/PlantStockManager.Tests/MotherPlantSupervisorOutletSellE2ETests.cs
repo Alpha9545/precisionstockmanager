@@ -74,7 +74,8 @@ ORDER BY p.Code", conn);
             foreach (var p in expectedPriorPermissions)
                 Assert.Contains(p, permissions);
             // exactly the prior 8 plus the one new grant -- nothing else slipped in
-            Assert.Equal(9, permissions.Count);
+            // (+ Labour.View / Labour.Enter, 2026-10-04_DailyLabourCounts.sql)
+            Assert.Equal(11, permissions.Count);
         }
 
         [SkippableFact]
@@ -90,10 +91,10 @@ ORDER BY p.Code", conn);
                 ["Dispatch Executive"] = 5,
                 ["Fertilizer Supervisor"] = 3,
                 ["Office Coordinator"] = 7,
-                ["Outlet Sales"] = 5,
+                ["Outlet Sales"] = 5,        // no Labour access: Outlet is excluded from Daily Labour
                 ["Pot Production Operator"] = 5,
                 ["Purchase Officer"] = 3,
-                ["Sowing Supervisor"] = 6,
+                ["Sowing Supervisor"] = 9,   // + TrayStock.Enter (2026-10-04_TrayStockAreaCavity.sql), + Labour.View / Labour.Enter (2026-10-04_DailyLabourCounts.sql)
                 ["Main Office Store Keeper"] = 13,
                 ["Sowing Operator"] = 10,
             };

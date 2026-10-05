@@ -109,10 +109,10 @@
 
     <div class="small text-muted mb-2">
         <strong>@Model.Rows.Count.ToString("N0")</strong> record@(Model.Rows.Count == 1 ? "" : "s") found@(Model.FilterActive ? " (filtered)" : ""),
-        total <strong>@Model.TotalQuantity.ToString("N0")</strong> cuttings
+        total <strong>@Qty(Model.TotalQuantity)</strong> cuttings
         @if (Model.Rows.Any(r => r.HasDelivery))
         {
-            <text> &mdash; received @Model.TotalReceived.ToString("N0"), transit loss @Model.TotalTransitLoss.ToString("N0")</text>
+            <text> &mdash; received @Qty(Model.TotalReceived), transit loss @Qty(Model.TotalTransitLoss)</text>
         }
     </div>
 
@@ -138,7 +138,7 @@
                         <td>@r.SourceAreaName</td>
                         <td>@if (r.SourcePolyhouseName != null) { @r.SourcePolyhouseName } else { @NotRecorded(r.HasEntry ? "This Mother Plant has no Polyhouse assigned" : "Older deliveries do not record the source Polyhouse") }</td>
                         <td>@r.SpeciesName @if (!string.IsNullOrEmpty(r.Color)) { <span class="text-muted">(@r.Color)</span> }</td>
-                        <td class="text-end">@r.Quantity.ToString("N0")</td>
+                        <td class="text-end">@Qty(r.Quantity)</td>
                         <td>@if (r.DestinationType == PlantStockManager.Services.CuttingProductionFilter.DestinationNotRecorded) { @NotRecorded("Entered before destinations existed") } else { @CuttingProductionFilter.DestinationLabel(r.DestinationType) }</td>
                         <td>@if (r.DestinationAreaName != null) { @r.DestinationAreaName } else if (r.DestinationType == PlantStockManager.Services.CuttingProductionFilter.DestinationNotRecorded) { @NotRecorded() } else { <span>-</span> }</td>
                         <td>@NotRecorded("A cutting delivery does not record a Polyhouse at the destination")</td>
@@ -147,7 +147,7 @@
                             {
                                 case "PendingConfirmation": <span class="badge bg-warning text-dark">Awaiting Main Office</span> break;
                                 case "Completed": <span class="badge bg-success">Completed - received in full</span> break;
-                                case "CompletedShortfall": <span class="badge bg-warning text-dark">Completed - shortfall @((r.TransitLoss ?? 0).ToString("N0"))</span> break;
+                                case "CompletedShortfall": <span class="badge bg-warning text-dark">Completed - shortfall @(Qty(r.TransitLoss ?? 0))</span> break;
                                 case "Rejected": <span class="badge bg-danger">Rejected</span> break;
                                 case "None":
                                     if (r.DestinationType == "PotProduction") { <span class="badge bg-secondary">No delivery - kept for Pot Production</span> }
@@ -183,9 +183,9 @@
                                     <div><strong>Plant type:</strong> @r.PlantTypeName</div>
                                 </div>
                                 <div class="col-md-3">
-                                    <div><strong>Sent:</strong> @r.Quantity.ToString("N0")</div>
-                                    <div><strong>Received (confirmed):</strong> @(r.ConfirmedQuantity.HasValue ? r.ConfirmedQuantity.Value.ToString("N0") : "-")</div>
-                                    <div><strong>Shortfall / transit loss:</strong> @(r.TransitLoss.HasValue ? r.TransitLoss.Value.ToString("N0") : "-")</div>
+                                    <div><strong>Sent:</strong> @Qty(r.Quantity)</div>
+                                    <div><strong>Received (confirmed):</strong> @(r.ConfirmedQuantity.HasValue ? Qty(r.ConfirmedQuantity.Value) : "-")</div>
+                                    <div><strong>Shortfall / transit loss:</strong> @(r.TransitLoss.HasValue ? Qty(r.TransitLoss.Value) : "-")</div>
                                 </div>
                                 <div class="col-md-3">
                                     <div><strong>Cutting Supervisor:</strong> @(r.SupervisorName ?? "Not recorded")</div>

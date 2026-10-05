@@ -22,12 +22,12 @@
                 </div>
             }
 
-            <p>Current Physical Quantity: <strong>@Model.SeedStock?.PhysicalQuantity.ToString("N2")</strong> @Model.SeedStock?.Unit</p>
+            <p>Current Physical Quantity: <strong>@Qty(Model.SeedStock?.PhysicalQuantity, "")</strong> @Model.SeedStock?.Unit</p>
 
             <form method="post">
                 <div class="mb-3">
                     <label class="form-label fw-bold">Quantity to Add</label>
-                    <input asp-for="Quantity" type="number" step="1" min="1" class="form-control" />
+                    <input asp-for="Quantity" asp-format="{0:0.##}" type="number" step="1" min="1" class="form-control" />
                 </div>
                 <div class="mb-3">
                     <label class="form-label fw-bold">Remarks</label>

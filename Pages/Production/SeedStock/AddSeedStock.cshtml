@@ -83,11 +83,11 @@
 
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Quantity</label>
-                        <input asp-for="Quantity" type="number" step="1" min="1" class="form-control" required />
+                        <input asp-for="Quantity" asp-format="{0:0.##}" type="number" step="1" min="1" class="form-control" required />
                     </div>
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Received On</label>
-                        <input asp-for="ReceivedOn" type="datetime-local" class="form-control" required />
+                        <input asp-for="ReceivedOn" asp-format="{0:yyyy-MM-ddTHH:mm}" type="datetime-local" class="form-control" required />
                     </div>
 
                     <div class="col-12">

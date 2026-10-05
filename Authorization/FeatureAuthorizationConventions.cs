@@ -107,15 +107,17 @@ namespace PlantStockManager.Authorization
                 ["/Production/CuttingStock/PendingConfirmations"] = R("MainOffice.View", "MainOffice.Confirm"),
                 ["/Production/CuttingStock/ConfirmReceipt"] = R("MainOffice.Confirm"),
 
-                // ---- Tray Stock (2026-10-02): empty tray inventory held at
-                // Main Office Polyhouses, consumed automatically by Seed/
-                // Cutting Sowing. Allocation is the Main Office Officer's own
-                // action -- same permission ConfirmReceipt already uses for
-                // that role. Viewing is open to the same roles that can
-                // already view Cutting Stock / Sowing Approvals.
-                ["/Production/TrayStock/Index"] = R("MainOffice.View|Sowing.View|Sowing.Enter"),
-                ["/Production/TrayStock/Allocate"] = R("MainOffice.Confirm"),
-                ["/Production/TrayStock/Transactions"] = R("MainOffice.View|Sowing.View|Sowing.Enter"),
+                // ---- Tray Stock: empty trays held per Area + Cavity
+                // (2026-10-04 workflow change), consumed automatically by Seed/
+                // Cutting Sowing in that Area. Adding trays is the Sowing
+                // Supervisor's own action (TrayStock.Enter -- Sowing
+                // Supervisor role only); the retired Main Office "Allocate
+                // Trays" page no longer exists. Viewing is open to the same
+                // roles as before, and every Tray Stock page is limited to the
+                // user's own Areas (AreaAccessService).
+                ["/Production/TrayStock/Index"] = R("MainOffice.View|Sowing.View|Sowing.Enter|TrayStock.Enter"),
+                ["/Production/TrayStock/Add"] = R("TrayStock.Enter"),
+                ["/Production/TrayStock/Transactions"] = R("MainOffice.View|Sowing.View|Sowing.Enter|TrayStock.Enter"),
 
                 // ---- Pot production (Phase D) ------------------------------
                 ["/Production/PotBatch/Index"] = R("PotProduction.View|MotherPlant.View|Kiran.View"),
@@ -174,6 +176,9 @@ namespace PlantStockManager.Authorization
                 ["/Production/LabRequest/Details"] = R("Lab.View", "Lab.Enter"),
                 ["/Production/LabRequest/Create"] = R("Lab.Enter"),
                 ["/Production/LabRequest/Result"] = R("Lab.Enter"),
+                // Daily Labour Count: headcounts only; Area scope via AreaAccessService.
+                ["/Production/Labour/Index"] = R("Labour.View"),
+                ["/Production/Labour/Entry"] = R("Labour.Enter"),
 
                 // ---- Fertilizer --------------------------------------------
                 ["/Fertilizer/Stock"] = R("Fertilizer.View", "Fertilizer.Enter"),

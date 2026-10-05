@@ -24,7 +24,7 @@
             <div class="card text-center shadow-sm">
                 <div class="card-body">
                     <div class="text-muted small">Total Dispatched (Completed)</div>
-                    <div class="fs-3 fw-bold">@Model.TotalDispatched.ToString("N2")</div>
+                    <div class="fs-3 fw-bold">@Qty(Model.TotalDispatched)</div>
                 </div>
             </div>
         </div>
@@ -56,7 +56,7 @@
                         <td>@d.SpeciesName <span class="text-muted">(@d.PlantTypeName)</span></td>
                         <td>@d.PotSize</td>
                         <td>@(d.AreaName ?? "Unassigned")</td>
-                        <td>@d.Quantity.ToString("N2")</td>
+                        <td>@Qty(d.Quantity)</td>
                         <td>@d.DispatchDate.ToString("dd/MM/yyyy")</td>
                         <td>
                             @if (d.Status == "Cancelled")

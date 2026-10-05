@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Production.SeedStock
 {
@@ -106,7 +107,7 @@ namespace PlantStockManager.Pages.Production.SeedStock
                 return Page();
             }
 
-            TempData["Success"] = $"Added {Quantity:N0} {Unit} to Seed Stock.";
+            TempData["Success"] = $"Added {QuantityFormat.Qty(Quantity)} {Unit} to Seed Stock.";
             return RedirectToPage("/Production/SeedStock/Details", new { id = seedStockId });
         }
 

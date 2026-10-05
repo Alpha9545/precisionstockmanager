@@ -65,6 +65,7 @@ namespace PlantStockManager.Services
             Dbo("Outlet Booking items", "OutletBookingItems", "OutletAreaId"),
             Dbo("Outlet Wastages", "OutletWastages", "OutletAreaId"),
             Dbo("Labour Logs (history)", "LabourLogs", "AreaId"),
+            Dbo("Daily Labour Counts", "DailyLabourCounts", "AreaId"),
             Dbo("Seed Issues from (history)", "SeedIssues", "SourceAreaId"),
             Dbo("Seed Issues to (history)", "SeedIssues", "DestinationAreaId"),
             Dbo("Pot Production (history)", "PotProduction", "AreaId"),

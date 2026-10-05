@@ -88,10 +88,8 @@ namespace PlantStockManager.Data
         private readonly UserRoleRepository _userRoleRepo;
         // Phase D: cutting tray sowing consumes Cutting Stock instead of a seed lot.
         private readonly CuttingStockRepository _cuttingStockRepo;
-        // 2026-10-02: Tray Stock -- consumed automatically when the sowing's
-        // destination Polyhouse is a Main Office Polyhouse (TrayStockRepository.
-        // IsMainOfficePolyhouseAsync); every other destination Polyhouse is
-        // completely unaffected by this feature.
+        // Tray Stock -- every sowing consumes its physical trays from the
+        // Area + Polyhouse + Cavity pool of its own growing Polyhouse.
         private readonly TrayStockRepository _trayStockRepo;
 
         // Phase 24: added ph.Name AS PolyhouseName (LEFT JOIN dbo.Polyhouses
@@ -369,8 +367,14 @@ ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
             entry.SourceCuttingStockId = null;
             if (entry.SourceSeedStockId <= 0)
                 return (false, "Main Office seed lot is required.", 0);
-            // Growing Area and Polyhouse are optional for now -- resolved
-            // below by DirectSowingRules.ResolveGrowingLocation.
+            // Growing Area and Polyhouse are REQUIRED (2026-10-04): physical
+            // trays are taken from that Polyhouse's Tray Stock, never from a
+            // generic Area-level pool. ResolveGrowingLocation below still checks
+            // that the Polyhouse belongs to the Area.
+            if (entry.AreaId <= 0)
+                return (false, "Please select the Growing Area for this sowing.", 0);
+            if (entry.PolyhouseId is not > 0)
+                return (false, TrayStockRepository.PolyhouseRequiredMessage, 0);
             // The operator's Seed Quantity (entered on the form). Only the seeds
             // that fill COMPLETE trays are sown and deducted; the rest stay in
             // the lot (DirectSowingRules.PlanSowing).
@@ -579,10 +583,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                     }
                 }
 
-                // 2026-10-02: Tray Stock -- only when the destination Polyhouse
-                // is a Main Office Polyhouse; a no-op for every other Area.
-                var (trayOk, trayMessage) = await ConsumeTrayStockIfApplicableAsync(
-                    conn, tx, entry.PolyhouseId, entry.CavityType, entry.SeedQuantity, newId, userId, $"Used for Sowing {sowingCode}");
+                // Tray Stock (Area + Polyhouse + Cavity): every sowing consumes
+                // its physical trays from its own Polyhouse's pool.
+                var (trayOk, trayMessage) = await ConsumeTrayStockAsync(
+                    conn, tx, entry.AreaId, entry.PolyhouseId, entry.CavityType, entry.SeedQuantity, newId, userId, $"Used for Sowing {sowingCode}");
                 if (!trayOk)
                 {
                     tx.Rollback();
@@ -980,14 +984,14 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
                     }
                 }
 
-                // 2026-10-02: Tray Stock -- only when the destination Polyhouse
-                // is a Main Office Polyhouse; a no-op for every other Area.
+                // Tray Stock (Area + Polyhouse + Cavity): every sowing consumes
+                // its physical trays from its own Polyhouse's pool.
                 // Uses the AUTHORITATIVE confirmed quantity (entry.SeedQuantity,
                 // already resolved from the locked delivery/pool above, never
                 // a client-trusted value) -- NOT the same figure as
                 // QuantitySown (FLOOR-based, complete trays only).
-                var (trayOk, trayMessage) = await ConsumeTrayStockIfApplicableAsync(
-                    conn, tx, entry.PolyhouseId, entry.CavityType, entry.SeedQuantity, newId, userId, $"Used for Sowing {sowingCode}");
+                var (trayOk, trayMessage) = await ConsumeTrayStockAsync(
+                    conn, tx, entry.AreaId, entry.PolyhouseId, entry.CavityType, entry.SeedQuantity, newId, userId, $"Used for Sowing {sowingCode}");
                 if (!trayOk)
                 {
                     tx.Rollback();
@@ -1007,14 +1011,13 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
             }
         }
 
-        // 2026-10-02: Tray Stock integration, shared by InsertAsync (Seed)
-        // and InsertFromCuttingAsync (Cutting). Only applies when the
-        // sowing's destination Polyhouse is a Main Office Polyhouse (the
-        // explicit business rule: trays belong to Main Office Polyhouses
-        // only) -- every other destination (no Polyhouse at all, or a
-        // growing-site Polyhouse like Green Bless Nursery) is completely
-        // unaffected, exactly as scoped; returns (true, null) immediately
-        // for those, no TrayStock row is ever touched or created.
+        // Tray Stock integration, shared by InsertAsync (Seed) and
+        // InsertFromCuttingAsync (Cutting). Trays belong to AREA + POLYHOUSE +
+        // CAVITY (2026-10-04), so EVERY sowing consumes from the pool of its
+        // growing Area + Polyhouse (entry.AreaId / entry.PolyhouseId, already
+        // resolved and Area-authorized by the caller under lock) and its
+        // cavity; no Polyhouse, a Polyhouse of another Area, or not enough
+        // trays -> the whole sowing rolls back.
         // Required trays = CEILING(confirmed quantity / cavity count) --
         // deliberately NOT the same as NumberOfTrays (FLOOR -- only
         // fully-packed trays, used for the Sown/Wastage plant-count split):
@@ -1024,19 +1027,15 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
         // and after the Sown/Wastage plant-quantity ledger entries -- a
         // failure here rolls back the whole sowing, exactly like every
         // other step.
-        private async Task<(bool Success, string? Message)> ConsumeTrayStockIfApplicableAsync(
-            SqlConnection conn, SqlTransaction tx, int? polyhouseId, string? cavityType, decimal confirmedQuantity,
+        private async Task<(bool Success, string? Message)> ConsumeTrayStockAsync(
+            SqlConnection conn, SqlTransaction tx, int areaId, int? polyhouseId, string? cavityType, decimal confirmedQuantity,
             int seedSowingId, int? userId, string? remarks)
         {
-            if (!polyhouseId.HasValue)
-                return (true, null);
-            if (!await _trayStockRepo.IsMainOfficePolyhouseAsync(conn, tx, polyhouseId.Value))
-                return (true, null);
             var cavity = DirectSowingRules.CavityCount(cavityType);
             if (cavity is not > 0)
-                return (true, null); // CavityType is already validated by the caller; defensive only
-            var requiredTrays = Math.Ceiling(confirmedQuantity / cavity.Value);
-            return await _trayStockRepo.ConsumeForSowingAsync(conn, tx, polyhouseId.Value, cavityType!, requiredTrays, seedSowingId, userId, remarks);
+                return (false, $"Tray size must be one of: {string.Join(", ", DirectSowingRules.CavityTypes)}."); // already validated by the caller; defensive only
+            var requiredTrays = DirectSowingRules.PhysicalTraysRequired(confirmedQuantity, cavityType);
+            return await _trayStockRepo.ConsumeForSowingAsync(conn, tx, areaId, polyhouseId, cavityType!, requiredTrays, "SeedSowing", seedSowingId, userId, remarks);
         }
 
         private static string TruncateBatch(string value) => value.Length <= 50 ? value : value[..50];
@@ -1101,11 +1100,10 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
                     return (false, message);
                 }
 
-                // 2026-10-02: Tray Stock -- return exactly what this sowing's
-                // own original consumption ledger shows (never recalculated
-                // from quantity/cavity/polyhouse); a clean no-op for a
-                // legacy sowing, a non-Main-Office destination, or one with
-                // no tray transaction at all.
+                // Tray Stock -- return exactly what this sowing's own
+                // consumption ledger shows (never recalculated) to the SAME
+                // Area + Polyhouse + Cavity pool; a clean no-op for a sowing
+                // with no tray transaction at all.
                 var (trayReversalOk, trayReversalMessage) = await _trayStockRepo.ReverseConsumptionAsync(
                     conn, tx, "SeedSowing", id, userId, "Reversal of cancelled Sowing");
                 if (!trayReversalOk)

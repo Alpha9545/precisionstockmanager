@@ -28,7 +28,7 @@
                     <tr><th class="w-50">From Area</th><td>@Model.Transfer.SourceAreaName</td></tr>
                     <tr><th>To (Main Office)</th><td>@Model.Transfer.PendingConfirmationAreaName</td></tr>
                     <tr><th>Variety</th><td>@Model.Transfer.SpeciesName?.Trim() (@Model.Transfer.PlantTypeName)</td></tr>
-                    <tr><th>Delivered (sent)</th><td class="fw-bold" id="sent" data-value="@Model.Transfer.Quantity.ToString(System.Globalization.CultureInfo.InvariantCulture)">@Model.Transfer.Quantity.ToString("N0")</td></tr>
+                    <tr><th>Delivered (sent)</th><td class="fw-bold" id="sent" data-value="@Model.Transfer.Quantity.ToString(System.Globalization.CultureInfo.InvariantCulture)">@Qty(Model.Transfer.Quantity)</td></tr>
                 </tbody>
             </table>
             </div>
@@ -36,7 +36,7 @@
             <form method="post">
                 <div class="mb-3">
                     <label class="form-label fw-bold">Received quantity (counted on arrival)</label>
-                    <input type="number" step="1" min="0" asp-for="ConfirmedQuantity" id="received" class="form-control" required />
+                    <input type="number" step="1" min="0" asp-for="ConfirmedQuantity" asp-format="{0:0.##}" id="received" class="form-control" required />
                     <div class="form-text">Goes into Main Office Cutting Stock.</div>
                 </div>
                 <div class="mb-3">
@@ -69,7 +69,7 @@
                 const r = parseFloat(received.value);
                 if (isNaN(r)) { loss.value = ''; reason.required = false; return; }
                 const l = sent - r;
-                loss.value = l < 0 ? 'more than sent - not allowed' : l.toLocaleString('en-IN');
+                loss.value = l < 0 ? 'more than sent - not allowed' : formatQuantity(l);
                 reason.required = l > 0;
             }
             received.addEventListener('input', update);

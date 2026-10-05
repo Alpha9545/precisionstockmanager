@@ -62,7 +62,7 @@ namespace PlantStockManager.Pages.Production.OutletWastage
             var potted = (await _pottedRepo.GetAllAsync())
                 .Where(s => s.AreaId == outletAreaId && s.AvailableQuantity - s.InTransitQuantity > 0)
                 .OrderBy(s => s.SpeciesName)
-                .Select(s => new { id = s.Id, label = $"{s.SpeciesName?.Trim()}{(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")")} - {s.PotSize} - available {s.AvailableQuantity - s.InTransitQuantity:N0}", available = s.AvailableQuantity - s.InTransitQuantity });
+                .Select(s => new { id = s.Id, label = $"{s.SpeciesName?.Trim()}{(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")")} - {s.PotSize} - available {QuantityFormat.Qty(s.AvailableQuantity - s.InTransitQuantity)}", available = s.AvailableQuantity - s.InTransitQuantity });
             var trays = (await _readyRepo.GetAllAsync())
                 .Where(s => s.AreaId == outletAreaId)
                 .Select(s => new { s, cavity = DirectSowingRules.CavityCount(s.CavityType) })
@@ -92,7 +92,7 @@ namespace PlantStockManager.Pages.Production.OutletWastage
                 if (OutletAreaId > 0) await LoadStockAsync(OutletAreaId);
                 return Page();
             }
-            TempData["Success"] = $"Wastage recorded: {Quantity:N0} {(StockType == OutletStockType.Tray ? "trays" : "pots")}.";
+            TempData["Success"] = $"Wastage recorded: {QuantityFormat.Qty(Quantity)} {(StockType == OutletStockType.Tray ? "trays" : "pots")}.";
             return RedirectToPage();
         }
 

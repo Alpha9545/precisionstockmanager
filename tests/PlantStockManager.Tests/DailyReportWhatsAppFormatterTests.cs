@@ -290,7 +290,7 @@ namespace PlantStockManager.Tests
             report.WastageQuantity = 88;
             var variables = DailyReportWhatsAppFormatter.FormatVariables(report, ReportTime);
             Assert.Equal("7", variables[8]);
-            Assert.Equal("12.3", variables[9]);
+            Assert.Equal("12.25", variables[9]);   // quantity format keeps the real fraction (was N1 "12.3")
             Assert.Equal("88", variables[10]);
         }
 
@@ -583,7 +583,7 @@ namespace PlantStockManager.Tests
             Assert.Equal("Seedling: 0, Potted: 0", variables[6]);
             Assert.Equal("Seedling: 0, Potted: 0", variables[7]);
             Assert.Equal("0", variables[8]);
-            Assert.Equal("0.0", variables[9]);
+            Assert.Equal("0", variables[9]);
             Assert.Equal("0", variables[10]);
             Assert.Equal("0", variables[11]);
             Assert.Equal("0", variables[12]);

@@ -31,7 +31,7 @@
                 <strong>@Model.Dispatch.SpeciesName (@Model.Dispatch.PlantTypeName)</strong> &mdash;
                 Pot Size <strong>@Model.Dispatch.PotSize</strong> &mdash;
                 Area <strong>@(Model.Dispatch.AreaName ?? "Unassigned")</strong> &mdash;
-                Quantity Dispatched <strong>@Model.Dispatch.Quantity.ToString("N2")</strong>
+                Quantity Dispatched <strong>@Qty(Model.Dispatch.Quantity)</strong>
                 <div class="small text-muted">
                     These fields cannot be changed once the dispatch is recorded -- they already moved real stock.
                     Use "Cancel Dispatch" below to reverse it entirely if this record was a mistake.

@@ -77,17 +77,16 @@ namespace PlantStockManager.Pages.Production.SeedSowing
 
         // ---- AJAX lookups (GET, read-only) -------------------------------
 
-        // Polyhouse is OPTIONAL. Offered: the Polyhouses assigned to the
-        // chosen Area plus the Polyhouses that have no Area assigned yet
-        // (no Area chosen = only the unassigned ones).
+        // Polyhouse is REQUIRED and must belong to the chosen Area (its trays
+        // come from that Polyhouse's Tray Stock). Offered: only the chosen,
+        // accessible Area's Polyhouses -- a Polyhouse with no Area can never
+        // hold trays, so it is not offered.
         public async Task<JsonResult> OnGetPolyhousesAsync(int areaId)
         {
-            if (areaId > 0 && !_areaAccessService.CanAccessArea(User, areaId))
+            if (areaId <= 0 || !_areaAccessService.CanAccessArea(User, areaId))
                 return new JsonResult(Array.Empty<object>());
-            var list = (await _polyhouseRepo.GetAllPolyhouses())
-                .Where(p => !p.AreaId.HasValue || (areaId > 0 && p.AreaId == areaId))
-                .OrderBy(p => p.Name);
-            return new JsonResult(list.Select(p => new { id = p.Id, name = p.AreaId.HasValue ? p.Name : p.Name + " (no Area assigned)" }));
+            var list = (await _polyhouseRepo.GetByAreaIdAsync(areaId)).OrderBy(p => p.Name);
+            return new JsonResult(list.Select(p => new { id = p.Id, name = p.Name }));
         }
 
         // Live tray calculation for the form. Uses the SAME server function as
@@ -160,8 +159,14 @@ namespace PlantStockManager.Pages.Production.SeedSowing
 
             if (SeedSowing.SowingDate == default)
                 ModelState.AddModelError(string.Empty, "Sowing Date is required.");
-            // Area and Polyhouse are optional for now (resolved in
-            // SeedSowingRepository.InsertAsync via DirectSowingRules.ResolveGrowingLocation).
+            // Growing Area and Polyhouse are required: the sowing's physical
+            // trays come from that Polyhouse's Tray Stock (re-checked in
+            // SeedSowingRepository.InsertAsync, which also verifies the
+            // Polyhouse belongs to the Area).
+            if (SeedSowing.AreaId <= 0)
+                ModelState.AddModelError(string.Empty, "Please select the Growing Area for this sowing.");
+            if (SeedSowing.PolyhouseId is not > 0)
+                ModelState.AddModelError(string.Empty, PlantStockManager.Data.TrayStockRepository.PolyhouseRequiredMessage);
             if (SeedSowing.SpeciesId <= 0)
                 ModelState.AddModelError(string.Empty, "Variety is required.");
             if (SeedSowing.SourceSeedStockId <= 0)
@@ -217,14 +222,18 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 return Page();
             }
 
-            TempData["Success"] = $"Sowing batch {SeedSowing.SowingCode} recorded: {SeedSowing.NumberOfTrays:N0} complete trays, {SeedSowing.QuantitySown:N0} seeds used (deducted from the lot); {SeedSowing.SeedQuantity - SeedSowing.QuantitySown:N0} remaining seeds stay in the lot. Expected ready: {SeedSowing.ExpectedReadyDate:dd-MM-yyyy}.";
+            // The sub-tray remainder is recorded as 'Wastage' on the seed lot by
+            // SeedSowingRepository.InsertAsync (step 6b) -- it never stays in the lot.
+            var seedRemainder = SeedSowing.SeedQuantity - SeedSowing.QuantitySown;
+            TempData["Success"] = $"Sowing batch {SeedSowing.SowingCode} recorded: {QuantityFormat.Qty(SeedSowing.NumberOfTrays)} complete trays, {QuantityFormat.Qty(SeedSowing.QuantitySown)} seeds used (deducted from the lot)"
+                + (seedRemainder > 0 ? $"; {QuantityFormat.Qty(seedRemainder)} remaining seeds recorded as waste (not returned to the lot)." : ".")
+                + $" Expected ready: {SeedSowing.ExpectedReadyDate:dd-MM-yyyy}.";
             return RedirectToPage("/Production/SeedSowing/Details", new { id = SeedSowing.Id });
         }
 
         private async Task LoadDropdownsAsync()
         {
-            // Growing Area is OPTIONAL (empty = the seed lot's Main Office
-            // Area). Offered: active Areas this user may work in.
+            // Growing Area is required. Offered: active Areas this user may work in.
             Areas = (await _areaRepo.GetAllAreas())
                 .Where(a => a.IsActive && _areaAccessService.CanAccessArea(User, a.Id))
                 .OrderBy(a => a.Name)

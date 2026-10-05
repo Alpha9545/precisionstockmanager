@@ -6,6 +6,7 @@ using PlantStockManager.Data;
 using PlantStockManager.Models;
 using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
 using ReadyStockModel = PlantStockManager.Models.ReadyStock;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Production.ReadyStock
 {
@@ -84,7 +85,7 @@ namespace PlantStockManager.Pages.Production.ReadyStock
                 return Page();
             }
             var destName = allowed.First(a => a.Id == DestinationAreaId).Name;
-            TempData["Success"] = $"Sent {Batch.Quantity:N0} x {Batch.SpeciesName?.Trim()} ({Batch.CavityType}) trays ({Batch.SowingCode}) to {destName} ({entry.TransferCode}).";
+            TempData["Success"] = $"Sent {QuantityFormat.Qty(Batch.Quantity)} x {Batch.SpeciesName?.Trim()} ({Batch.CavityType}) trays ({Batch.SowingCode}) to {destName} ({entry.TransferCode}).";
             return RedirectToPage("/Production/ReadyStock/Index");
         }
 

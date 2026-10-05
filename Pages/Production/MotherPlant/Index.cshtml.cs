@@ -10,7 +10,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
     public class IndexModel : PageModel
     {
         private readonly MotherPlantRepository _motherPlantRepo;
-        private readonly PolyhouseRepository _polyhouseRepo;
+        private readonly AreaRepository _areaRepo;
         private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccessService;
         private readonly UserRoleRepository _userRoleRepo;
@@ -18,7 +18,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
 
         public IndexModel(
             MotherPlantRepository motherPlantRepo,
-            PolyhouseRepository polyhouseRepo,
+            AreaRepository areaRepo,
             EmployeeRepository employeeRepo,
             AreaAccessService areaAccessService,
             UserRoleRepository userRoleRepo,
@@ -27,19 +27,19 @@ namespace PlantStockManager.Pages.Production.MotherPlant
             _featureAccess = featureAccess;
             _userRoleRepo = userRoleRepo;
             _motherPlantRepo = motherPlantRepo;
-            _polyhouseRepo = polyhouseRepo;
+            _areaRepo = areaRepo;
             _employeeRepo = employeeRepo;
             _areaAccessService = areaAccessService;
         }
 
         public List<MotherPlantModel> MotherPlants { get; set; } = new();
-        public List<Polyhouse> Polyhouses { get; set; } = new();
+        public List<Area> Areas { get; set; } = new();
         public List<Employee> ResponsiblePersons { get; set; } = new();
 
         // Same rule the Delete page itself enforces (MotherPlant.Enter).
         public bool CanDelete { get; set; }
 
-        [BindProperty(SupportsGet = true)] public int? PolyhouseId { get; set; }
+        [BindProperty(SupportsGet = true)] public int? AreaId { get; set; }
         [BindProperty(SupportsGet = true)] public int? SpeciesId { get; set; }
         [BindProperty(SupportsGet = true)] public string? Status { get; set; }
         [BindProperty(SupportsGet = true)] public int? ResponsiblePersonId { get; set; }
@@ -52,7 +52,9 @@ namespace PlantStockManager.Pages.Production.MotherPlant
         public async Task OnGetAsync()
         {
             // Phase D: the person filter is the Mother Plant Supervisor.
-            var all = (await _motherPlantRepo.GetAllAsync(PolyhouseId, SpeciesId, Status))
+            // The list is filtered by Area (MotherPlant.AreaId), not Polyhouse.
+            var all = (await _motherPlantRepo.GetAllAsync(null, SpeciesId, Status))
+                .Where(m => !AreaId.HasValue || m.AreaId == AreaId)
                 .Where(m => !ResponsiblePersonId.HasValue || m.SupervisorId == ResponsiblePersonId)
                 .ToList();
 
@@ -67,7 +69,8 @@ namespace PlantStockManager.Pages.Production.MotherPlant
                 ? all
                 : all.Where(m => _areaAccessService.CanAccessArea(User, m.AreaId)).ToList();
 
-            Polyhouses = await _polyhouseRepo.GetAllPolyhouses();
+            // Same Area-scoped list Mother Plant Create offers: only Areas this user may access.
+            Areas = (await _areaRepo.GetAllAreas()).Where(a => _areaAccessService.CanAccessArea(User, a.Id)).OrderBy(a => a.Name).ToList();
             ResponsiblePersons = await _userRoleRepo.GetUsersInRoleAsync(PlantStockManager.Services.SupervisorRules.MotherPlantSupervisor);
             CanDelete = await _featureAccess.CanAccessPageAsync(User, "/Production/MotherPlant/Delete");
         }

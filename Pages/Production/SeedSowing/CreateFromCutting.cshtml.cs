@@ -272,8 +272,8 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             }
 
             var cuttingRemainder = sowing.SeedQuantity - sowing.QuantitySown;
-            TempData["Success"] = $"Tray sowing {sowing.SowingCode} recorded: {sowing.NumberOfTrays:N0} complete trays, {sowing.QuantitySown:N0} cuttings used"
-                + (cuttingRemainder > 0 ? $"; {cuttingRemainder:N0} remaining cuttings recorded as waste (never returned to Cutting Stock)." : ".")
+            TempData["Success"] = $"Tray sowing {sowing.SowingCode} recorded: {QuantityFormat.Qty(sowing.NumberOfTrays)} complete trays, {QuantityFormat.Qty(sowing.QuantitySown)} cuttings used"
+                + (cuttingRemainder > 0 ? $"; {QuantityFormat.Qty(cuttingRemainder)} remaining cuttings recorded as waste (never returned to Cutting Stock)." : ".")
                 + $" Expected ready: {sowing.ExpectedReadyDate:dd-MM-yyyy}.";
             return RedirectToPage("/Production/SeedSowing/Details", new { id = sowing.Id });
         }

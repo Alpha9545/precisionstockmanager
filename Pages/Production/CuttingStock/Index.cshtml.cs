@@ -68,7 +68,7 @@ namespace PlantStockManager.Pages.Production.CuttingStock
             var rows = list.Select(s => (IReadOnlyList<string>)new[]
             {
                 s.SpeciesName ?? "", s.PlantTypeName ?? "", s.AreaName ?? "",
-                s.PhysicalQuantity.ToString("N0"), s.InTransitQuantity.ToString("N0"), s.AvailableQuantity.ToString("N0")
+                QuantityFormat.Qty(s.PhysicalQuantity), QuantityFormat.Qty(s.InTransitQuantity), QuantityFormat.Qty(s.AvailableQuantity)
             });
             var bytes = ExportHelper.BuildPdf("Cutting Stock", ExportHeaders, rows);
             return File(bytes, "application/pdf", $"CuttingStock_{DateTime.Now:yyyyMMdd_HHmm}.pdf");

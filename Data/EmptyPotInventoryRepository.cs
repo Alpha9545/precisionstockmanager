@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -162,7 +163,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             var before = (decimal)beforeObj;
             var after = before + quantityDelta;
             if (after < 0)
-                return (false, $"This would take Empty Pot stock negative (available {before:N2}, requested change {quantityDelta:N2}).");
+                return (false, $"This would take Empty Pot stock negative (available {QuantityFormat.Qty(before)}, requested change {QuantityFormat.Qty(quantityDelta)}).");
 
             var updateCmd = new SqlCommand("UPDATE dbo.EmptyPotInventory SET PhysicalQuantity = @After, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id", conn, tx);
             updateCmd.Parameters.AddWithValue("@After", after);

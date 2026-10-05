@@ -30,7 +30,7 @@
                     <tr><th class="w-50">Variety</th><td>@s.SpeciesName?.Trim() (@s.PlantTypeName)@(s.SpeciesColor != null ? " - " + s.SpeciesColor : "")</td></tr>
                     <tr><th>Pot Size</th><td>@s.PotSize</td></tr>
                     <tr><th>From Area</th><td>@s.AreaName</td></tr>
-                    <tr><th>Available to send</th><td class="fw-bold">@sendable.ToString("N0")</td></tr>
+                    <tr><th>Available to send</th><td class="fw-bold">@Qty(sendable)</td></tr>
                 </tbody>
             </table>
             </div>
@@ -87,7 +87,7 @@
                 <div class="row g-3">
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Quantity</label>
-                        <input type="number" step="1" min="1" max="@sendable.ToString("0")" asp-for="Quantity" class="form-control" required />
+                        <input type="number" step="1" min="1" max="@sendable.ToString("0")" asp-for="Quantity" asp-format="{0:0.##}" class="form-control" required />
                     </div>
                     <div class="col-md-8">
                         <label class="form-label">Remarks / reference</label>

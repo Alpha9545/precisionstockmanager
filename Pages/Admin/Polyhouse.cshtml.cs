@@ -64,7 +64,11 @@ namespace PlantStockManager.Pages.Admin
         {
             if (EditId > 0 && !string.IsNullOrWhiteSpace(EditPolyhouseName))
             {
-                await _polyhouseRepo.UpdatePolyhouse(EditId, EditPolyhouseName, await ValidAreaIdOrNullAsync(EditAreaId));
+                // Refused (nothing saved) when the Area would change while the
+                // Polyhouse still holds Tray Stock.
+                var (ok, message) = await _polyhouseRepo.UpdatePolyhouse(EditId, EditPolyhouseName, await ValidAreaIdOrNullAsync(EditAreaId));
+                if (!ok)
+                    TempData["Error"] = message;
             }
             return RedirectToPage();
         }

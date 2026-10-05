@@ -61,7 +61,7 @@
                                 @foreach (var s in Model.StockPools)
                                 {
                                     <option value="@s.Id" data-available="@s.AvailableQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)">
-                                        @s.SpeciesName?.Trim()@(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")") - @s.AreaName - available @s.AvailableQuantity.ToString("N0")
+                                        @s.SpeciesName?.Trim()@(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")") - @s.AreaName - available @Qty(s.AvailableQuantity)
                                     </option>
                                 }
                             </select>
@@ -73,7 +73,7 @@
                     </div>
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Confirmed Cutting Quantity</label>
-                        <input type="number" step="1" min="1" asp-for="CuttingQuantity" id="qty" class="form-control" readonly />
+                        <input type="number" step="1" min="1" asp-for="CuttingQuantity" asp-format="{0:0.##}" id="qty" class="form-control" readonly />
                         <div class="form-text">The confirmed/available quantity for the selected Cutting Stock -- not editable.</div>
                     </div>
                     <div class="col-md-4">

@@ -12,11 +12,11 @@ namespace PlantStockManager.Services
             decimal quantity, decimal batchQuantity, decimal reserved, decimal dispatched, int sourceAreaId, int? destinationAreaId)
         {
             if (reserved > 0 || dispatched > 0)
-                return (false, $"This batch has {reserved:N0} trays reserved for bookings and {dispatched:N0} dispatched; it cannot be moved. Release the reservations first.");
+                return (false, $"This batch has {QuantityFormat.Qty(reserved)} trays reserved for bookings and {QuantityFormat.Qty(dispatched)} dispatched; it cannot be moved. Release the reservations first.");
             if (quantity <= 0 || !DirectSowingRules.IsWholeNumber(quantity))
                 return (false, "Quantity must be a whole number greater than zero.");
             if (quantity != batchQuantity)
-                return (false, $"The whole batch ({batchQuantity:N0} trays) must move together -- it cannot be split across two Areas.");
+                return (false, $"The whole batch ({QuantityFormat.Qty(batchQuantity)} trays) must move together -- it cannot be split across two Areas.");
             if (!destinationAreaId.HasValue)
                 return (false, "Choose where the trays are going.");
             if (destinationAreaId.Value == sourceAreaId)

@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -153,12 +154,12 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             var after = before + quantityDelta;
             if (after < 0)
-                return (false, $"This movement would take Ready Stock quantity negative (current {before:N2}, change {quantityDelta:N2}).");
+                return (false, $"This movement would take Ready Stock quantity negative (current {QuantityFormat.Qty(before)}, change {QuantityFormat.Qty(quantityDelta)}).");
             // Phase C: plants already reserved for bookings or dispatched to
             // customers cannot be taken back out of the approved Ready quantity
             // (e.g. by cancelling the Supervisor Approval).
             if (after < reserved + dispatched)
-                return (false, $"This batch has {reserved:N0} plants reserved for bookings and {dispatched:N0} dispatched; its Ready quantity cannot go below {reserved + dispatched:N0}. Release the reservations first.");
+                return (false, $"This batch has {QuantityFormat.Qty(reserved)} plants reserved for bookings and {QuantityFormat.Qty(dispatched)} dispatched; its Ready quantity cannot go below {QuantityFormat.Qty(reserved + dispatched)}. Release the reservations first.");
 
             var updateCmd = new SqlCommand(@"
 UPDATE dbo.ReadyStock
@@ -205,9 +206,9 @@ VALUES
 
             var after = reserved + reservedDelta;
             if (after < 0)
-                return (false, $"Cannot release {-reservedDelta:N0}: only {reserved:N0} reserved on this batch.");
+                return (false, $"Cannot release {QuantityFormat.Qty(-reservedDelta)}: only {QuantityFormat.Qty(reserved)} reserved on this batch.");
             if (after + dispatched > quantity)
-                return (false, $"{PlantStockManager.Services.SeedlingBookingRules.InsufficientStockMessage} Batch available {quantity - reserved - dispatched:N0}, requested {reservedDelta:N0}.");
+                return (false, $"{PlantStockManager.Services.SeedlingBookingRules.InsufficientStockMessage} Batch available {QuantityFormat.Qty(quantity - reserved - dispatched)}, requested {QuantityFormat.Qty(reservedDelta)}.");
 
             var update = new SqlCommand("UPDATE dbo.ReadyStock SET ReservedQuantity = @After, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id", conn, tx);
             update.Parameters.AddWithValue("@After", after);
@@ -233,10 +234,10 @@ VALUES
             if (!ok)
                 return (false, "Ready Stock batch not found.");
             if (quantity > reserved)
-                return (false, $"Only {reserved:N0} plants are reserved on this batch; {quantity:N0} cannot be dispatched.");
+                return (false, $"Only {QuantityFormat.Qty(reserved)} plants are reserved on this batch; {QuantityFormat.Qty(quantity)} cannot be dispatched.");
             var physical = readyQuantity - dispatched;
             if (quantity > physical)
-                return (false, $"Only {physical:N0} plants are physically in this batch.");
+                return (false, $"Only {QuantityFormat.Qty(physical)} plants are physically in this batch.");
 
             var update = new SqlCommand(@"
 UPDATE dbo.ReadyStock

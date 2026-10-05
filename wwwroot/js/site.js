@@ -104,3 +104,15 @@ window.addEventListener("resize", () => {
     // runtime (e.g. "Add another item") can enhance the new one too.
     window.enhanceSearchable = enhance;
 })();
+
+// Quantity display rule, the browser-side twin of Services/QuantityFormat.Qty:
+// no trailing ".00" (100.00 -> "100"), real fractions kept (100.5 -> "100.5",
+// 12.25 -> "12.25"), thousands grouped the way the app's scripts already do
+// ('en-IN'). Display only -- never feed the result back into a calculation or
+// a number <input>, and never use it for money, rates or percentages.
+window.formatQuantity = function (value, maxDecimals) {
+    if (value === null || value === undefined || value === '') return '';
+    const n = Number(value);
+    if (isNaN(n)) return '';
+    return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: maxDecimals === undefined ? 2 : maxDecimals });
+};

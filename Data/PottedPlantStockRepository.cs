@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -173,9 +174,9 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             var after = before + quantityDelta;
             if (after < 0)
-                return (false, $"This would take Potted Plant Stock negative (physical {before:N2}, requested change {quantityDelta:N2}).");
+                return (false, $"This would take Potted Plant Stock negative (physical {QuantityFormat.Qty(before)}, requested change {QuantityFormat.Qty(quantityDelta)}).");
             if (after < reserved)
-                return (false, $"This would take Physical Quantity ({after:N2}) below what is already Reserved ({reserved:N2}).");
+                return (false, $"This would take Physical Quantity ({QuantityFormat.Qty(after)}) below what is already Reserved ({QuantityFormat.Qty(reserved)}).");
 
             var updateCmd = new SqlCommand("UPDATE dbo.PottedPlantStock SET PhysicalQuantity = @After, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id", conn, tx);
             updateCmd.Parameters.AddWithValue("@After", after);
@@ -231,9 +232,9 @@ VALUES
 
             var after = before + reservedDelta;
             if (after < 0)
-                return (false, $"This would take Reserved Quantity negative (currently reserved {before:N2}, requested change {reservedDelta:N2}).");
+                return (false, $"This would take Reserved Quantity negative (currently reserved {QuantityFormat.Qty(before)}, requested change {QuantityFormat.Qty(reservedDelta)}).");
             if (after > physical)
-                return (false, $"Not enough Available stock to reserve (Physical {physical:N2}, already Reserved {before:N2}, Available {(physical - before):N2}, requested {reservedDelta:N2}).");
+                return (false, $"Not enough Available stock to reserve (Physical {QuantityFormat.Qty(physical)}, already Reserved {QuantityFormat.Qty(before)}, Available {QuantityFormat.Qty(physical - before)}, requested {QuantityFormat.Qty(reservedDelta)}).");
 
             var updateCmd = new SqlCommand("UPDATE dbo.PottedPlantStock SET ReservedQuantity = @After, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id", conn, tx);
             updateCmd.Parameters.AddWithValue("@After", after);
@@ -299,7 +300,7 @@ VALUES
 
             var availableToIssue = physical - reserved - inTransit;
             if (quantity > availableToIssue)
-                return (false, $"Insufficient available Potted Plant stock to issue (available {availableToIssue:N2}, requested {quantity:N2}).", null, 0);
+                return (false, $"Insufficient available Potted Plant stock to issue (available {QuantityFormat.Qty(availableToIssue)}, requested {QuantityFormat.Qty(quantity)}).", null, 0);
 
             var updateCmd = new SqlCommand(
                 "UPDATE dbo.PottedPlantStock SET InTransitQuantity = InTransitQuantity + @Quantity, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id",
@@ -338,7 +339,7 @@ VALUES
 
             var inTransit = (decimal)inTransitObj;
             if (quantity > inTransit)
-                return (false, $"Cannot release {quantity:N2} -- only {inTransit:N2} is currently in transit for this pool.");
+                return (false, $"Cannot release {QuantityFormat.Qty(quantity)} -- only {QuantityFormat.Qty(inTransit)} is currently in transit for this pool.");
 
             var updateCmd = new SqlCommand(
                 "UPDATE dbo.PottedPlantStock SET InTransitQuantity = InTransitQuantity - @Quantity, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id",

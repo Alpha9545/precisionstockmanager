@@ -24,7 +24,7 @@
             <div class="card text-center shadow-sm">
                 <div class="card-body">
                     <div class="text-muted small">Outstanding Sample Quantity (Sent)</div>
-                    <div class="fs-3 fw-bold">@Model.TotalOutstanding.ToString("N2")</div>
+                    <div class="fs-3 fw-bold">@Qty(Model.TotalOutstanding)</div>
                 </div>
             </div>
         </div>
@@ -55,9 +55,9 @@
                         <td>@r.PotSize</td>
                         <td>@(r.AreaName ?? "Unassigned")</td>
                         <td>@r.LabName</td>
-                        <td>@r.SentQuantity.ToString("N2")</td>
+                        <td>@Qty(r.SentQuantity)</td>
                         <td>@r.SentDate.ToString("dd/MM/yyyy")</td>
-                        <td>@(r.ReceivedQuantity?.ToString("N2") ?? "-")</td>
+                        <td>@(Qty(r.ReceivedQuantity))</td>
                         <td>
                             @{
                                 var badgeClass = r.Status switch

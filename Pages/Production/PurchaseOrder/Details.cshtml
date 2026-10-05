@@ -43,9 +43,9 @@
                             <tr>
                                 <td>@item.ItemCategory</td>
                                 <td>@item.DisplayName</td>
-                                <td>@item.OrderedQuantity.ToString("N2")</td>
-                                <td>@item.ReceivedQuantity.ToString("N2")</td>
-                                <td>@item.PendingQuantity.ToString("N2")</td>
+                                <td>@Qty(item.OrderedQuantity)</td>
+                                <td>@Qty(item.ReceivedQuantity)</td>
+                                <td>@Qty(item.PendingQuantity)</td>
                                 <td>@(item.UnitPrice?.ToString("N2") ?? "-")</td>
                             </tr>
                         }
@@ -71,7 +71,7 @@
                             <ul class="mb-0">
                                 @foreach (var line in r.Items)
                                 {
-                                    <li>@line.ItemDisplayName: @line.ReceivedQuantity.ToString("N2")</li>
+                                    <li>@line.ItemDisplayName: @Qty(line.ReceivedQuantity)</li>
                                 }
                             </ul>
                         </div>

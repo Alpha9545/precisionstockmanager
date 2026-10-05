@@ -50,9 +50,9 @@
                         <td>@(b.Color ?? "-")</td>
                         <td>@b.PotSize</td>
                         <td>@b.AreaName</td>
-                        <td class="text-end">@b.CuttingAllocated.ToString("N0")</td>
-                        <td class="text-end">@b.PottedQuantity.ToString("N0")</td>
-                        <td class="text-end">@(b.ReadyQuantity?.ToString("N0") ?? "-")</td>
+                        <td class="text-end">@Qty(b.CuttingAllocated)</td>
+                        <td class="text-end">@Qty(b.PottedQuantity)</td>
+                        <td class="text-end">@(Qty(b.ReadyQuantity))</td>
                         <td>@b.ExpectedReadyDate.ToString("dd/MM/yyyy")</td>
                         <td><span class="badge @badge">@readiness</span></td>
                         <td>@b.SupervisorName @if (me == b.SupervisorId) { <span class="badge bg-primary">you</span> }</td>

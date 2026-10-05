@@ -55,10 +55,10 @@
                     <tr>
                         <td>@r.Item</td>
                         <td>@(r.AreaName ?? "-")</td>
-                        <td class="text-end">@r.Summary.Opening.ToString("N0")</td>
-                        <td class="text-end text-success">@r.Summary.Incoming.ToString("N0")</td>
-                        <td class="text-end text-danger">@r.Summary.Outgoing.ToString("N0")</td>
-                        <td class="text-end fw-bold">@r.Summary.Balance.ToString("N0")</td>
+                        <td class="text-end">@Qty(r.Summary.Opening)</td>
+                        <td class="text-end text-success">@Qty(r.Summary.Incoming)</td>
+                        <td class="text-end text-danger">@Qty(r.Summary.Outgoing)</td>
+                        <td class="text-end fw-bold">@Qty(r.Summary.Balance)</td>
                     </tr>
                 }
                 @if (!Model.Rows.Any())
@@ -71,10 +71,10 @@
                 <tfoot>
                     <tr class="fw-bold">
                         <td colspan="2">Total</td>
-                        <td class="text-end">@Model.Rows.Sum(r => r.Summary.Opening).ToString("N0")</td>
-                        <td class="text-end">@Model.Rows.Sum(r => r.Summary.Incoming).ToString("N0")</td>
-                        <td class="text-end">@Model.Rows.Sum(r => r.Summary.Outgoing).ToString("N0")</td>
-                        <td class="text-end">@Model.Rows.Sum(r => r.Summary.Balance).ToString("N0")</td>
+                        <td class="text-end">@Qty(Model.Rows.Sum(r => r.Summary.Opening))</td>
+                        <td class="text-end">@Qty(Model.Rows.Sum(r => r.Summary.Incoming))</td>
+                        <td class="text-end">@Qty(Model.Rows.Sum(r => r.Summary.Outgoing))</td>
+                        <td class="text-end">@Qty(Model.Rows.Sum(r => r.Summary.Balance))</td>
                     </tr>
                 </tfoot>
             }
@@ -95,7 +95,7 @@
                         <td>@m.Item</td>
                         <td>@(m.AreaName ?? "-")</td>
                         <td>@m.TransactionType</td>
-                        <td class="text-end @(m.Quantity < 0 ? "text-danger" : "text-success")">@m.Quantity.ToString("N0")</td>
+                        <td class="text-end @(m.Quantity < 0 ? "text-danger" : "text-success")">@Qty(m.Quantity)</td>
                         <td>@m.Reference</td>
                         <td>@m.UserName</td>
                         <td>@m.Remarks</td>

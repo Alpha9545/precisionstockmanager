@@ -45,7 +45,7 @@ namespace PlantStockManager.Services
 
         public static (bool Ok, string? Error) ValidateSaleItemAvailable(decimal quantity, decimal available)
             => quantity > available
-                ? (false, $"Only {available:N0} available (requested {quantity:N0}).")
+                ? (false, $"Only {QuantityFormat.Qty(available)} available (requested {QuantityFormat.Qty(quantity)}).")
                 : (true, null);
     }
 
@@ -80,7 +80,7 @@ namespace PlantStockManager.Services
             if (requested <= 0 || !DirectSowingRules.IsWholeNumber(requested))
                 return (false, "Quantity must be a whole number greater than zero.");
             if (requested > openQuantity)
-                return (false, $"Only {openQuantity:N0} of this item is still open.");
+                return (false, $"Only {QuantityFormat.Qty(openQuantity)} of this item is still open.");
             return (true, null);
         }
 
@@ -113,7 +113,7 @@ namespace PlantStockManager.Services
             if (!IsValidReason(reason))
                 return (false, $"Choose a reason: {string.Join(", ", Reasons)}.");
             if (quantity > available)
-                return (false, $"Only {available:N0} available -- wastage cannot exceed what is physically there.");
+                return (false, $"Only {QuantityFormat.Qty(available)} available -- wastage cannot exceed what is physically there.");
             return (true, null);
         }
     }

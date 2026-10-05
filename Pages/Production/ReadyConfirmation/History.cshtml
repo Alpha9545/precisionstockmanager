@@ -28,10 +28,10 @@
         <div class="row">
             <div class="col-md-6"><strong>Variety:</strong> @Model.SeedSowing.SpeciesName (@Model.SeedSowing.PlantTypeName)</div>
             <div class="col-md-6"><strong>Area:</strong> @Model.SeedSowing.AreaName / @(Model.SeedSowing.PolyhouseName ?? "-")</div>
-            <div class="col-md-4"><strong>Sown Quantity:</strong> @Model.SeedSowing.QuantitySown.ToString("N2")</div>
-            <div class="col-md-4"><strong>Approved Ready:</strong> @Model.SeedSowing.ConfirmedReadyQuantity.ToString("N2")</div>
-            <div class="col-md-4"><strong>Wastage:</strong> @Model.SeedSowing.WastageQuantity.ToString("N2")</div>
-            <div class="col-md-4"><strong>Still to approve:</strong> @Model.SeedSowing.RemainingReadyQuantity.ToString("N2")</div>
+            <div class="col-md-4"><strong>Sown Quantity:</strong> @Qty(Model.SeedSowing.QuantitySown)</div>
+            <div class="col-md-4"><strong>Approved Ready:</strong> @Qty(Model.SeedSowing.ConfirmedReadyQuantity)</div>
+            <div class="col-md-4"><strong>Wastage:</strong> @Qty(Model.SeedSowing.WastageQuantity)</div>
+            <div class="col-md-4"><strong>Still to approve:</strong> @Qty(Model.SeedSowing.RemainingReadyQuantity)</div>
             <div class="col-md-4"><strong>Status:</strong> @Model.SeedSowing.Status</div>
         </div>
         @if (canApprove && isAssignedSupervisor && Model.SeedSowing.RemainingReadyQuantity > 0 && Model.SeedSowing.Status == "Sown")
@@ -67,9 +67,9 @@
                     <tr>
                         <td>@rc.ConfirmationCode</td>
                         <td>@rc.ConfirmationDate.ToString("dd/MM/yyyy HH:mm")</td>
-                        <td>@(rc.ActualTrayQuantity?.ToString("N0") ?? "–")</td>
-                        <td>@rc.ConfirmedQuantity.ToString("N0")</td>
-                        <td>@rc.WastageQuantity.ToString("N0")</td>
+                        <td>@(Qty(rc.ActualTrayQuantity, "–"))</td>
+                        <td>@Qty(rc.ConfirmedQuantity)</td>
+                        <td>@Qty(rc.WastageQuantity)</td>
                         <td>@rc.WastagePercent.ToString("0.00")%</td>
                         <td>@(rc.WastageReason ?? "-")</td>
                         <td>@(rc.ApprovedByName ?? rc.CreatedBy ?? "-")</td>

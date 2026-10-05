@@ -92,7 +92,7 @@ namespace PlantStockManager.Services
             if (!ok)
                 return (false, error!.Replace("Cutting quantity", "Delivery quantity"));
             if (quantity > available)
-                return (false, $"Only {available:N0} cuttings are available to send.");
+                return (false, $"Only {QuantityFormat.Qty(available)} cuttings are available to send.");
             return (true, null);
         }
 
@@ -106,10 +106,10 @@ namespace PlantStockManager.Services
             if (!DirectSowingRules.IsWholeNumber(received))
                 return (false, 0, "Received quantity must be a whole number.");
             if (received > sent)
-                return (false, 0, $"Received quantity ({received:N0}) cannot be more than the {sent:N0} cuttings sent.");
+                return (false, 0, $"Received quantity ({QuantityFormat.Qty(received)}) cannot be more than the {QuantityFormat.Qty(sent)} cuttings sent.");
             var loss = sent - received;
             if (loss > 0 && string.IsNullOrWhiteSpace(shortfallReason))
-                return (false, loss, $"{loss:N0} cuttings are missing -- enter the reason.");
+                return (false, loss, $"{QuantityFormat.Qty(loss)} cuttings are missing -- enter the reason.");
             return (true, loss, null);
         }
     }

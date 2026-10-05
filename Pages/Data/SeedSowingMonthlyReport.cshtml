@@ -93,9 +93,9 @@
                         <td>@row.SpeciesName</td>
                         @foreach (var qty in row.DailyQuantities)
                         {
-                            <td>@(qty > 0 ? qty.ToString("N0") : "")</td>
+                            <td>@(qty > 0 ? Qty(qty) : "")</td>
                         }
-                        <td><strong>@row.MonthTotal.ToString("N0")</strong></td>
+                        <td><strong>@Qty(row.MonthTotal)</strong></td>
                     </tr>
                 }
             </tbody>
@@ -106,9 +106,9 @@
                         <th colspan="3">Day Total</th>
                         @foreach (var qty in Model.DailyTotals)
                         {
-                            <th>@(qty > 0 ? qty.ToString("N0") : "")</th>
+                            <th>@(qty > 0 ? Qty(qty) : "")</th>
                         }
-                        <th>@Model.GrandTotal.ToString("N0")</th>
+                        <th>@Qty(Model.GrandTotal)</th>
                     </tr>
                 </tfoot>
             }

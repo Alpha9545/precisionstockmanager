@@ -5,6 +5,7 @@ using PlantStockManager.Data;
 using PlantStockManager.Models;
 using CuttingStockModel = PlantStockManager.Models.CuttingStock;
 using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Production.CuttingStock
 {
@@ -99,7 +100,7 @@ namespace PlantStockManager.Pages.Production.CuttingStock
 
             var (success, message, _) = await _internalTransferRepo.InsertAsync(entry, userId);
             TempData[success ? "Success" : "Error"] = success
-                ? $"Sent {quantity:N0} cuttings to Main Office. Waiting for Main Office to confirm what it received."
+                ? $"Sent {QuantityFormat.Qty(quantity)} cuttings to Main Office. Waiting for Main Office to confirm what it received."
                 : (message ?? "Failed to send cutting to Main Office.");
 
             return RedirectToPage("/Production/CuttingStock/GiveToMainOffice", new { areaId });

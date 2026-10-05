@@ -37,7 +37,7 @@ namespace PlantStockManager.Services
 
             var available = candidates.Sum(b => b.AvailableQuantity);
             if (available < requested)
-                return (false, plan, $"{InsufficientStockMessage} Available {available:N0}, requested {requested:N0}.");
+                return (false, plan, $"{InsufficientStockMessage} Available {QuantityFormat.Qty(available)}, requested {QuantityFormat.Qty(requested)}.");
 
             var left = requested;
             foreach (var b in candidates)
@@ -49,7 +49,7 @@ namespace PlantStockManager.Services
                 left -= take;
             }
             if (left > 0)
-                return (false, new List<(int, decimal)>(), $"{InsufficientStockMessage} Available {available - left:N0} whole plants, requested {requested:N0}.");
+                return (false, new List<(int, decimal)>(), $"{InsufficientStockMessage} Available {QuantityFormat.Qty(available - left)} whole plants, requested {QuantityFormat.Qty(requested)}.");
             return (true, plan, null);
         }
 
@@ -80,7 +80,7 @@ namespace PlantStockManager.Services
             if (newQuantity < 1)
                 return (false, 0, "The revised quantity must be at least 1.");
             if (newQuantity < dispatched)
-                return (false, 0, $"The revised quantity ({newQuantity:N0}) cannot be below what has already been dispatched ({dispatched:N0}).");
+                return (false, 0, $"The revised quantity ({QuantityFormat.Qty(newQuantity)}) cannot be below what has already been dispatched ({QuantityFormat.Qty(dispatched)}).");
             if (varietyChanged && dispatched > 0)
                 return (false, 0, "The variety cannot be changed after plants have been dispatched. Revise the quantity and add the new variety as a split booking instead.");
             var release = varietyChanged ? reserved : Math.Max(0, reserved + dispatched - newQuantity);
@@ -109,7 +109,7 @@ namespace PlantStockManager.Services
             if (!IsWholePositive(quantity))
                 return "Dispatch quantities must be whole numbers greater than zero.";
             if (quantity > openQuantity)
-                return $"Dispatch quantity ({quantity:N0}) exceeds the quantity allocated on this batch ({openQuantity:N0}).";
+                return $"Dispatch quantity ({QuantityFormat.Qty(quantity)}) exceeds the quantity allocated on this batch ({QuantityFormat.Qty(openQuantity)}).";
             return null;
         }
 

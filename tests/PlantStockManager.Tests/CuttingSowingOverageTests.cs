@@ -305,16 +305,16 @@ namespace PlantStockManager.Tests
             // the input is TRAYS, and the help says so with the conversion to cuttings
             Assert.Contains("Enter <strong>TRAYS</strong>, not cuttings", cuttingBranch);
             Assert.Contains("One tray = @(cavity?.ToString() ?? \"?\") cuttings", cuttingBranch);
-            Assert.Contains("@s.QuantitySown.ToString(\"N0\") cuttings", cuttingBranch);
+            Assert.Contains("@Qty(s.QuantitySown) cuttings", cuttingBranch);
             Assert.Contains("(you do not enter the extra)", cuttingBranch);
             Assert.Contains("total ready cuttings (trays &times;", cuttingBranch);
             Assert.Contains("cuttings now", cuttingBranch);
             Assert.Contains("at most", cuttingBranch);
             // the stock figure is labelled and suffixed as CUTTINGS; the maximum as TRAYS
             Assert.Contains("(cuttings; excludes in-transit)", view);
-            Assert.Contains("ToString(\"N0\") cuttings</td>", view);
+            Assert.Contains("@Qty(Model.AvailableCuttingStock.Value) cuttings</td>", view);
             Assert.Contains("Most Actual Ready Trays you can enter now", view);
-            Assert.Contains("ToString(\"N0\") trays</td>", view);
+            Assert.Contains("@Qty(Model.MaxReadyTrays.Value) trays</td>", view);
             // extra is shown as BOTH trays and cuttings, and is calculated (never typed)
             Assert.Contains("Extra Trays", view);
             Assert.Contains("id=\"outExtraTrays\"", view);
@@ -330,7 +330,7 @@ namespace PlantStockManager.Tests
         public void ApprovalPage_SuccessMessageAndPreview_ReportExtraTraysAndExtraCuttings()
         {
             var page = Repo("Pages", "Production", "ReadyConfirmation", "Confirm.cshtml.cs");
-            Assert.Contains("extra trays = {extra:N0} extra cuttings were taken from Cutting Stock", page);
+            Assert.Contains("extra trays = {QuantityFormat.Qty(extra)} extra cuttings were taken from Cutting Stock", page);
             Assert.Contains("extraTrays, extraCuttings = extra, availableCuttings = available, maxReadyTrays = maxTrays", page);
             Assert.Contains("MaxReadyTrays(", page);
         }

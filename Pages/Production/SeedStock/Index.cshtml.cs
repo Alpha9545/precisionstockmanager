@@ -86,7 +86,7 @@ namespace PlantStockManager.Pages.Production.SeedStock
             var rows = list.Select(s => (IReadOnlyList<string>)new[]
             {
                 s.SpeciesName ?? "", s.PlantTypeName ?? "", s.AreaName ?? "", s.BatchNo ?? "",
-                s.SeedSourceName ?? "", s.Unit ?? "", s.PhysicalQuantity.ToString("N0"), s.InTransitQuantity.ToString("N0"), s.AvailableQuantity.ToString("N0")
+                s.SeedSourceName ?? "", s.Unit ?? "", QuantityFormat.Qty(s.PhysicalQuantity), QuantityFormat.Qty(s.InTransitQuantity), QuantityFormat.Qty(s.AvailableQuantity)
             });
             var bytes = ExportHelper.BuildPdf("Seed Stock", ExportHeaders, rows);
             return File(bytes, "application/pdf", $"SeedStock_{DateTime.Now:yyyyMMdd_HHmm}.pdf");

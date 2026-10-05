@@ -9,7 +9,7 @@
     <form method="get" class="row g-2 mb-3">
         <div class="col-md-2"><input type="date" name="From" value="@Model.From?.ToString("yyyy-MM-dd")" class="form-control" /></div>
         <div class="col-md-2"><input type="date" name="To" value="@Model.To?.ToString("yyyy-MM-dd")" class="form-control" /></div>
-        <div class="col-md-4"><input type="text" name="Search" value="@Model.Search" class="form-control" placeholder="Customer, dispatch no. or batch" /></div>
+        <div class="col-md-4"><input type="text" name="Search" value="@Model.Search" class="form-control" placeholder="Customer, dispatch no. or batch (e.g. J-10)" /></div>
         <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Filter</button></div>
     </form>
 
@@ -32,10 +32,10 @@
                         <td>@l.BookedSpeciesName</td>
                         <td>@l.ActualSpeciesName</td>
                         <td>@(l.IsSubstitution ? "Yes – " + l.SubstitutionReason : "No")</td>
-                        <td>@l.BatchCode</td>
+                        <td title="@l.BatchCode (Sowing #@l.SeedSowingId)" class="fw-bold">@l.BatchNo</td>
                         <td>@l.AreaName</td>
                         <td>@(l.PolyhouseName ?? "-")</td>
-                        <td class="text-end">@l.Quantity.ToString("N0")</td>
+                        <td class="text-end">@Qty(l.Quantity)</td>
                         <td>@l.DispatchedBy</td>
                     </tr>
                 }

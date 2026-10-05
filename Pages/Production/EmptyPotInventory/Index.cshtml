@@ -43,7 +43,7 @@
                     <tr>
                         <td>@e.PotSize</td>
                         <td>@e.AreaName</td>
-                        <td class="text-end fw-bold">@e.PhysicalQuantity.ToString("N0")</td>
+                        <td class="text-end fw-bold">@Qty(e.PhysicalQuantity)</td>
                         <td class="text-nowrap">
                             <a asp-page="/Production/EmptyPotInventory/Details" asp-route-id="@e.Id" class="btn btn-sm btn-outline-secondary">History</a>
                             @if (canIssue && e.PhysicalQuantity > 0)
@@ -71,7 +71,7 @@
                     <tr>
                         <td>@(e.AreaName ?? "Unassigned (old stock)")</td>
                         <td>@e.PotSize</td>
-                        <td class="text-end fw-bold">@e.PhysicalQuantity.ToString("N0")</td>
+                        <td class="text-end fw-bold">@Qty(e.PhysicalQuantity)</td>
                         <td><a asp-page="/Production/EmptyPotInventory/Details" asp-route-id="@e.Id" class="btn btn-sm btn-outline-secondary">History</a></td>
                     </tr>
                 }

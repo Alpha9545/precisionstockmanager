@@ -39,9 +39,9 @@
             <button type="submit" class="btn btn-primary">Filter</button>
         </div>
         <div class="col-md-3 text-end align-self-center">
-            <strong>Physical:</strong> @Model.TotalQuantity.ToString("N0") &middot;
-            <strong>Reserved:</strong> @Model.Items.Sum(i => i.ReservedQuantity).ToString("N0") &middot;
-            <strong>Available:</strong> @Model.Items.Sum(i => i.AvailableQuantity).ToString("N0")
+            <strong>Physical:</strong> @Qty(Model.TotalQuantity) &middot;
+            <strong>Reserved:</strong> @Qty(Model.Items.Sum(i => i.ReservedQuantity)) &middot;
+            <strong>Available:</strong> @Qty(Model.Items.Sum(i => i.AvailableQuantity))
         </div>
     </form>
 
@@ -91,15 +91,15 @@
                         <td>@(r.PolyhouseName ?? "-")</td>
                         <td>@r.CavityType</td>
                         <td>@r.SowingDate.ToString("dd/MM/yyyy")</td>
-                        <td>@r.QuantitySown.ToString("N0")</td>
-                        <td>@(r.SowingTrays?.ToString("N0") ?? "-")</td>
-                        <td>@(r.ReadyTrays?.ToString("N0") ?? "–")</td>
-                        <td>@r.Quantity.ToString("N0")</td>
-                        <td>@r.WastageQuantity.ToString("N0")</td>
+                        <td>@Qty(r.QuantitySown)</td>
+                        <td>@(Qty(r.SowingTrays))</td>
+                        <td>@(Qty(r.ReadyTrays, "–"))</td>
+                        <td>@Qty(r.Quantity)</td>
+                        <td>@Qty(r.WastageQuantity)</td>
                         <td>@r.WastagePercent.ToString("0.00")%</td>
-                        <td>@r.ReservedQuantity.ToString("N0")</td>
-                        <td>@r.DispatchedQuantity.ToString("N0")</td>
-                        <td><strong>@r.AvailableQuantity.ToString("N0")</strong></td>
+                        <td>@Qty(r.ReservedQuantity)</td>
+                        <td>@Qty(r.DispatchedQuantity)</td>
+                        <td><strong>@Qty(r.AvailableQuantity)</strong></td>
                         <td>@r.Status</td>
                         <td>@(r.ApprovedByName ?? "-")</td>
                         <td>@(r.ApprovalDate?.ToString("dd/MM/yyyy") ?? "-")</td>

@@ -17,7 +17,7 @@ namespace PlantStockManager.Services
             if (!areaExists || !areaActive)
                 return (false, "This stock does not belong to an active Area.");
             if (quantity > available)
-                return (false, $"Only {available:N0} plants are available (not reserved or in transit).");
+                return (false, $"Only {QuantityFormat.Qty(available)} plants are available (not reserved or in transit).");
             return (true, null);
         }
 
@@ -50,7 +50,7 @@ namespace PlantStockManager.Services
             if (!CanDispatchStatus(status))
                 return (false, remaining, $"This Booking is '{status}' and cannot be dispatched (only Pending or PartiallyDispatched bookings can be dispatched).");
             if (quantity > remaining)
-                return (false, remaining, $"Dispatch quantity ({quantity:N0}) exceeds this Booking's remaining quantity ({remaining:N0}).");
+                return (false, remaining, $"Dispatch quantity ({QuantityFormat.Qty(quantity)}) exceeds this Booking's remaining quantity ({QuantityFormat.Qty(remaining)}).");
             return (true, remaining, null);
         }
 
@@ -60,7 +60,7 @@ namespace PlantStockManager.Services
         public static (bool Ok, string? Error) CheckFormIsCurrent(decimal? expectedDispatched, decimal dispatchedSoFar)
             => !expectedDispatched.HasValue || expectedDispatched.Value == dispatchedSoFar
                 ? (true, null)
-                : (false, $"This Booking has changed since you opened the form ({dispatchedSoFar:N0} already dispatched, not {expectedDispatched.Value:N0}). "
+                : (false, $"This Booking has changed since you opened the form ({QuantityFormat.Qty(dispatchedSoFar)} already dispatched, not {QuantityFormat.Qty(expectedDispatched.Value)}). "
                           + "Nothing was dispatched: reload the page, check the remaining quantity and dispatch again.");
     }
 }

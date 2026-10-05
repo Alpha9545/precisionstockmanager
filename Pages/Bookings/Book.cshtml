@@ -212,7 +212,7 @@
             function renderAvailability(line, a) {
                 const el = line.find('.availability-info');
                 const qty = parseInt(line.find('.line-hidden-quantity').val(), 10) || 0;
-                const fmt = n => Number(n).toLocaleString('en-IN');
+                const fmt = n => formatQuantity(n);
                 let html = 'Ready Stock: ' + fmt(a.ready) + ' &middot; Already reserved: ' + fmt(a.reserved) + ' &middot; <strong>Available: ' + fmt(a.available) + '</strong>';
                 if (qty > 0 && qty > a.available) {
                     html += ' <span class="badge bg-warning text-dark ms-1">Pre-booking &ndash; not reserved</span>';

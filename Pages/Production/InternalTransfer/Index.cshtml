@@ -48,7 +48,7 @@
                         </td>
                         <td>@t.SourceAreaName</td>
                         <td>@t.DestinationAreaName</td>
-                        <td>@t.Quantity.ToString("N2")</td>
+                        <td>@Qty(t.Quantity)</td>
                         <td>@t.CreatedDate.ToString("dd/MM/yyyy")</td>
                         <td>
                             @if (t.Status == "Cancelled")

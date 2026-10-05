@@ -74,8 +74,8 @@
             var x1 = groupX + groupWidth / 2.0 - barWidth - 2;
             var x2 = groupX + groupWidth / 2.0 + 2;
 
-            sb.Append($"<rect x='{x1:F1}' y='{(topPad + plotHeight - sownH):F1}' width='{barWidth:F1}' height='{sownH:F1}' rx='2' fill='{Series1Color}'><title>{d:dd MMM}: {series1Name} {sown:N0}</title></rect>");
-            sb.Append($"<rect x='{x2:F1}' y='{(topPad + plotHeight - readyH):F1}' width='{barWidth:F1}' height='{readyH:F1}' rx='2' fill='{Series2Color}'><title>{d:dd MMM}: {series2Name} {ready:N0}</title></rect>");
+            sb.Append($"<rect x='{x1:F1}' y='{(topPad + plotHeight - sownH):F1}' width='{barWidth:F1}' height='{sownH:F1}' rx='2' fill='{Series1Color}'><title>{d:dd MMM}: {series1Name} {Qty(sown)}</title></rect>");
+            sb.Append($"<rect x='{x2:F1}' y='{(topPad + plotHeight - readyH):F1}' width='{barWidth:F1}' height='{readyH:F1}' rx='2' fill='{Series2Color}'><title>{d:dd MMM}: {series2Name} {Qty(ready)}</title></rect>");
 
             if (dates.Count <= 20 || i % Math.Max(1, dates.Count / 12) == 0)
             {
@@ -122,7 +122,7 @@
             var p = points[i];
             var h = (double)(p.Value / max) * plotHeight;
             var x = leftPad + i * step + (step - barWidth) / 2.0;
-            sb.Append($"<rect x='{x:F1}' y='{(topPad + plotHeight - h):F1}' width='{barWidth:F1}' height='{h:F1}' rx='2' fill='{Series1Color}'><title>{p.BucketDate:dd MMM}: {p.Value:N0} {unitLabel}</title></rect>");
+            sb.Append($"<rect x='{x:F1}' y='{(topPad + plotHeight - h):F1}' width='{barWidth:F1}' height='{h:F1}' rx='2' fill='{Series1Color}'><title>{p.BucketDate:dd MMM}: {Qty(p.Value)} {unitLabel}</title></rect>");
             if (points.Count <= 20 || i % Math.Max(1, points.Count / 12) == 0)
                 sb.Append($"<text x='{(x + barWidth / 2.0):F1}' y='{height - 6}' font-size='10' fill='{MutedInk}' text-anchor='middle'>{p.BucketDate:dd/MM}</text>");
         }
@@ -154,8 +154,8 @@
             var barW = (double)(c.Value / max) * plotWidth;
             var label = c.Label.Length > 26 ? c.Label.Substring(0, 24) + "…" : c.Label;
             sb.Append($"<text x='{leftPad - 8}' y='{y + 14}' font-size='11' fill='#0b0b0b' text-anchor='end'>{System.Net.WebUtility.HtmlEncode(label)}</text>");
-            sb.Append($"<rect x='{leftPad}' y='{y}' width='{barW:F1}' height='{rowHeight - 8}' rx='3' fill='{Series1Color}'><title>{System.Net.WebUtility.HtmlEncode(c.Label)}: {c.Value:N0} {unitLabel}</title></rect>");
-            sb.Append($"<text x='{leftPad + barW + 6:F1}' y='{y + 14}' font-size='11' fill='{MutedInk}'>{c.Value:N0}</text>");
+            sb.Append($"<rect x='{leftPad}' y='{y}' width='{barW:F1}' height='{rowHeight - 8}' rx='3' fill='{Series1Color}'><title>{System.Net.WebUtility.HtmlEncode(c.Label)}: {Qty(c.Value)} {unitLabel}</title></rect>");
+            sb.Append($"<text x='{leftPad + barW + 6:F1}' y='{y + 14}' font-size='11' fill='{MutedInk}'>{Qty(c.Value)}</text>");
         }
         sb.Append("</svg>");
         return sb.ToString();
@@ -227,28 +227,28 @@
         <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
                 <div class="text-muted small">Mother Plants</div>
-                <div class="fs-4">@Model.Dashboard.Production.MotherPlantActiveQuantity.ToString("N0")</div>
+                <div class="fs-4">@Qty(Model.Dashboard.Production.MotherPlantActiveQuantity)</div>
                 <div class="text-muted small">plants &middot; @Model.Dashboard.Production.MotherPlantActiveCount active batches</div>
             </div></div>
         </div>
         <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
                 <div class="text-muted small">Cutting Stock</div>
-                <div class="fs-4">@Model.Dashboard.Production.CuttingStockPhysical.ToString("N0")</div>
-                <div class="text-muted small">cuttings &middot; @Model.Dashboard.Production.CuttingStockInTransit.ToString("N0") in transit</div>
+                <div class="fs-4">@Qty(Model.Dashboard.Production.CuttingStockPhysical)</div>
+                <div class="text-muted small">cuttings &middot; @Qty(Model.Dashboard.Production.CuttingStockInTransit) in transit</div>
             </div></div>
         </div>
         <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
                 <div class="text-muted small">Potted Plant Stock</div>
-                <div class="fs-4">@Model.Dashboard.Production.PottedPlantPhysical.ToString("N0")</div>
-                <div class="text-muted small">plants &middot; @Model.Dashboard.Production.PottedPlantAvailable.ToString("N0") available</div>
+                <div class="fs-4">@Qty(Model.Dashboard.Production.PottedPlantPhysical)</div>
+                <div class="text-muted small">plants &middot; @Qty(Model.Dashboard.Production.PottedPlantAvailable) available</div>
             </div></div>
         </div>
         <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
                 <div class="text-muted small">Ready Stock</div>
-                <div class="fs-4">@Model.Dashboard.Production.ReadyStockQuantity.ToString("N0")</div>
+                <div class="fs-4">@Qty(Model.Dashboard.Production.ReadyStockQuantity)</div>
                 <div class="text-muted small">plants confirmed Ready</div>
             </div></div>
         </div>
@@ -259,7 +259,7 @@
                 {
                     @foreach (var su in Model.Dashboard.Production.SeedStock)
                     {
-                        <div class="fs-6">@su.Physical.ToString("N1") <span class="text-muted small">@su.Unit</span></div>
+                        <div class="fs-6">@Qty(su.Physical) <span class="text-muted small">@su.Unit</span></div>
                     }
                 }
                 else
@@ -271,42 +271,42 @@
         <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
                 <div class="text-muted small">Empty Pot Stock</div>
-                <div class="fs-4">@Model.Dashboard.Production.EmptyPotPhysical.ToString("N0")</div>
+                <div class="fs-4">@Qty(Model.Dashboard.Production.EmptyPotPhysical)</div>
                 <div class="text-muted small">pots</div>
             </div></div>
         </div>
     </div>
-    <div class="text-muted small mb-4">Pot/Tray Production in selected range: <strong>@Model.Dashboard.Production.PotProductionQuantityInRange.ToString("N0")</strong> pots <span class="badge bg-primary">Movement</span></div>
+    <div class="text-muted small mb-4">Pot/Tray Production in selected range: <strong>@Qty(Model.Dashboard.Production.PotProductionQuantityInRange)</strong> pots <span class="badge bg-primary">Movement</span></div>
 
     <!-- Section B: Ready Stock / Production Readiness -->
     <h5>Ready Stock / Production Readiness</h5>
     <div class="row g-3 mb-4">
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Sown</div>
-            <div class="fs-5">@Model.Dashboard.ReadyStock.SownQuantity.ToString("N0")</div>
+            <div class="fs-5">@Qty(Model.Dashboard.ReadyStock.SownQuantity)</div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Confirmed Ready</div>
-            <div class="fs-5">@Model.Dashboard.ReadyStock.ConfirmedReadyQuantity.ToString("N0")</div>
+            <div class="fs-5">@Qty(Model.Dashboard.ReadyStock.ConfirmedReadyQuantity)</div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Remaining</div>
-            <div class="fs-5">@Model.Dashboard.ReadyStock.RemainingQuantity.ToString("N0")</div>
+            <div class="fs-5">@Qty(Model.Dashboard.ReadyStock.RemainingQuantity)</div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100 border-danger"><div class="card-body">
             <div class="text-danger small">Overdue</div>
             <div class="fs-5">@Model.Dashboard.ReadyStock.OverdueCount <span class="text-muted small">batches</span></div>
-            <div class="text-muted small">@Model.Dashboard.ReadyStock.OverdueQuantity.ToString("N0") remaining</div>
+            <div class="text-muted small">@Qty(Model.Dashboard.ReadyStock.OverdueQuantity) remaining</div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100 border-warning"><div class="card-body">
             <div class="text-warning-emphasis small">Ready Today</div>
             <div class="fs-5">@Model.Dashboard.ReadyStock.ReadyTodayCount <span class="text-muted small">batches</span></div>
-            <div class="text-muted small">@Model.Dashboard.ReadyStock.ReadyTodayQuantity.ToString("N0") remaining</div>
+            <div class="text-muted small">@Qty(Model.Dashboard.ReadyStock.ReadyTodayQuantity) remaining</div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100 border-success"><div class="card-body">
             <div class="text-success small">Ready Soon</div>
             <div class="fs-5">@Model.Dashboard.ReadyStock.ReadySoonCount <span class="text-muted small">batches</span></div>
-            <div class="text-muted small">@Model.Dashboard.ReadyStock.ReadySoonQuantity.ToString("N0") remaining</div>
+            <div class="text-muted small">@Qty(Model.Dashboard.ReadyStock.ReadySoonQuantity) remaining</div>
         </div></div></div>
     </div>
     <div class="mb-4">
@@ -319,8 +319,8 @@
     <div class="row g-3 mb-4">
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Outlet Stock</div>
-            <div class="fs-5">@Model.Dashboard.OutletSales.OutletStockPhysical.ToString("N0")</div>
-            <div class="text-muted small">@Model.Dashboard.OutletSales.OutletStockAvailable.ToString("N0") available</div>
+            <div class="fs-5">@Qty(Model.Dashboard.OutletSales.OutletStockPhysical)</div>
+            <div class="text-muted small">@Qty(Model.Dashboard.OutletSales.OutletStockAvailable) available</div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Pending Bookings</div>
@@ -332,12 +332,12 @@
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Remaining Booking Qty</div>
-            <div class="fs-5">@Model.Dashboard.OutletSales.RemainingBookingQuantity.ToString("N0")</div>
+            <div class="fs-5">@Qty(Model.Dashboard.OutletSales.RemainingBookingQuantity)</div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Completed Dispatches</div>
             <div class="fs-5">@Model.Dashboard.OutletSales.CompletedDispatchCountInRange</div>
-            <div class="text-muted small">@Model.Dashboard.OutletSales.CompletedDispatchQuantityInRange.ToString("N0") plants <span class="badge bg-primary">Movement</span></div>
+            <div class="text-muted small">@Qty(Model.Dashboard.OutletSales.CompletedDispatchQuantityInRange) plants <span class="badge bg-primary">Movement</span></div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Cancelled Bookings</div>
@@ -357,19 +357,19 @@
             {
                 @foreach (var su in Model.Dashboard.Seed.MainOfficeSeedStock)
                 {
-                    <div class="fs-6">@su.Physical.ToString("N1") <span class="text-muted small">@su.Unit</span></div>
+                    <div class="fs-6">@Qty(su.Physical) <span class="text-muted small">@su.Unit</span></div>
                 }
             }
             else { <div class="text-muted small">No stock</div> }
         </div></div></div>
         <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Seed Issue (historical, retired) <span class="badge bg-primary">Movement</span></div>
-            <div class="fs-6">Issued: @Model.Dashboard.Seed.SeedIssuedQuantityInRange.ToString("N1")</div>
-            <div class="fs-6">Received: @Model.Dashboard.Seed.SeedReceivedQuantityInRange.ToString("N1")</div>
+            <div class="fs-6">Issued: @Qty(Model.Dashboard.Seed.SeedIssuedQuantityInRange)</div>
+            <div class="fs-6">Received: @Qty(Model.Dashboard.Seed.SeedReceivedQuantityInRange)</div>
         </div></div></div>
         <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Sown (range) <span class="badge bg-primary">Movement</span></div>
-            <div class="fs-5">@Model.Dashboard.Seed.SeedSownQuantityInRange.ToString("N1")</div>
+            <div class="fs-5">@Qty(Model.Dashboard.Seed.SeedSownQuantityInRange)</div>
             <div class="text-muted small">@Model.Dashboard.Seed.SowingActivityCountInRange sowing events</div>
         </div></div></div>
         <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body">
@@ -387,23 +387,23 @@
     <div class="row g-3 mb-3">
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Cutting Available</div>
-            <div class="fs-5">@Model.Dashboard.Cutting.CuttingAvailable.ToString("N0")</div>
+            <div class="fs-5">@Qty(Model.Dashboard.Cutting.CuttingAvailable)</div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">In Transit</div>
-            <div class="fs-5">@Model.Dashboard.Cutting.CuttingInTransit.ToString("N0")</div>
+            <div class="fs-5">@Qty(Model.Dashboard.Cutting.CuttingInTransit)</div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Pending Confirmation</div>
-            <div class="fs-5">@Model.Dashboard.Cutting.PendingConfirmationCount <span class="text-muted small">(@Model.Dashboard.Cutting.PendingConfirmationQuantity.ToString("N0"))</span></div>
+            <div class="fs-5">@Model.Dashboard.Cutting.PendingConfirmationCount <span class="text-muted small">(@Qty(Model.Dashboard.Cutting.PendingConfirmationQuantity))</span></div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Confirmed, Awaiting Transplant</div>
-            <div class="fs-5">@Model.Dashboard.Cutting.ConfirmedAwaitingTransplantCount <span class="text-muted small">(@Model.Dashboard.Cutting.ConfirmedAwaitingTransplantQuantity.ToString("N0"))</span></div>
+            <div class="fs-5">@Model.Dashboard.Cutting.ConfirmedAwaitingTransplantCount <span class="text-muted small">(@Qty(Model.Dashboard.Cutting.ConfirmedAwaitingTransplantQuantity))</span></div>
         </div></div></div>
         <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
             <div class="text-muted small">Transplanted (range)</div>
-            <div class="fs-5">@Model.Dashboard.Cutting.TransplantedCountInRange <span class="text-muted small">(@Model.Dashboard.Cutting.TransplantedQuantityInRange.ToString("N0"))</span></div>
+            <div class="fs-5">@Model.Dashboard.Cutting.TransplantedCountInRange <span class="text-muted small">(@Qty(Model.Dashboard.Cutting.TransplantedQuantityInRange))</span></div>
         </div></div></div>
     </div>
     <div class="table-responsive mb-4">
@@ -417,7 +417,7 @@
                         <td>@a.TransactionType</td>
                         <td>@a.AreaName</td>
                         <td>@a.SpeciesName</td>
-                        <td>@a.Quantity.ToString("N1")</td>
+                        <td>@Qty(a.Quantity)</td>
                     </tr>
                 }
                 @if (!Model.Dashboard.Cutting.RecentActivity.Any())
@@ -438,10 +438,10 @@
                 {
                     <tr>
                         <td>@row.Domain <span class="text-muted small">(@row.Unit)</span></td>
-                        <td>@(row.Physical?.ToString("N0") ?? "—")</td>
-                        <td>@(row.Reserved?.ToString("N0") ?? "N/A")</td>
-                        <td>@(row.Available?.ToString("N0") ?? "N/A")</td>
-                        <td>@(row.InTransit?.ToString("N0") ?? "N/A")</td>
+                        <td>@(Qty(row.Physical, "—"))</td>
+                        <td>@(Qty(row.Reserved, "N/A"))</td>
+                        <td>@(Qty(row.Available, "N/A"))</td>
+                        <td>@(Qty(row.InTransit, "N/A"))</td>
                     </tr>
                 }
             </tbody>

@@ -4,6 +4,7 @@ using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
 using DispatchModel = PlantStockManager.Models.Dispatch;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Production.Dispatch
 {
@@ -109,8 +110,8 @@ namespace PlantStockManager.Pages.Production.Dispatch
             var dispatchedTotal = booking.DispatchedQuantity + Dispatch.Quantity;
             var remainingAfter = booking.Quantity - dispatchedTotal;
             var statusAfter = PlantStockManager.Services.DispatchRules.StatusAfterDispatch(booking.Quantity, dispatchedTotal);
-            TempData["Success"] = $"Dispatch {Dispatch.DispatchCode} recorded: {Dispatch.Quantity:N0} plants handed over for Booking {booking.BookingCode} "
-                + $"({dispatchedTotal:N0} of {booking.Quantity:N0} fulfilled, {remainingAfter:N0} remaining). Booking status: {statusAfter}. Stock and reservation both reduced.";
+            TempData["Success"] = $"Dispatch {Dispatch.DispatchCode} recorded: {QuantityFormat.Qty(Dispatch.Quantity)} plants handed over for Booking {booking.BookingCode} "
+                + $"({QuantityFormat.Qty(dispatchedTotal)} of {QuantityFormat.Qty(booking.Quantity)} fulfilled, {QuantityFormat.Qty(remainingAfter)} remaining). Booking status: {statusAfter}. Stock and reservation both reduced.";
             return RedirectToPage("/Production/Dispatch/Index");
         }
 

@@ -50,7 +50,7 @@ namespace PlantStockManager.Pages.Production.PotBatch
             if (!await LoadAsync(id))
                 return Denied();
             var (ok, message) = await _batchRepo.AddEntryAsync(id, EntryDate, EntryQuantity, EntryRemarks, User.GetUserId(), User.Identity?.Name);
-            TempData[ok ? "Success" : "Error"] = ok ? $"{EntryQuantity:N0} pots recorded for {EntryDate:dd/MM/yyyy}." : message;
+            TempData[ok ? "Success" : "Error"] = ok ? $"{QuantityFormat.Qty(EntryQuantity)} pots recorded for {EntryDate:dd/MM/yyyy}." : message;
             return RedirectToPage(new { id });
         }
 
@@ -68,7 +68,7 @@ namespace PlantStockManager.Pages.Production.PotBatch
             TempData[ok ? "Success" : "Error"] = !ok ? message
                 : ReadyQuantity == 0
                     ? $"Batch {Batch.BatchCode} closed as a complete loss ({WastageReason}). Nothing was added to stock."
-                    : $"Batch {Batch.BatchCode} READY: {ReadyQuantity:N0} pots added to Potted Plant Stock ({Batch.AreaName}, {Batch.PotSize}).";
+                    : $"Batch {Batch.BatchCode} READY: {QuantityFormat.Qty(ReadyQuantity)} pots added to Potted Plant Stock ({Batch.AreaName}, {Batch.PotSize}).";
             return RedirectToPage(new { id });
         }
 
@@ -78,7 +78,7 @@ namespace PlantStockManager.Pages.Production.PotBatch
                 return Denied();
             var me = User.GetUserId();
             var (ok, message) = me.HasValue ? await _batchRepo.CancelAsync(id, me.Value, User.Identity?.Name) : (false, "Your user could not be identified.");
-            TempData[ok ? "Success" : "Error"] = ok ? $"Batch {Batch.BatchCode} cancelled; {Batch.CuttingAllocated:N0} cuttings returned to Cutting Stock." : message;
+            TempData[ok ? "Success" : "Error"] = ok ? $"Batch {Batch.BatchCode} cancelled; {QuantityFormat.Qty(Batch.CuttingAllocated)} cuttings returned to Cutting Stock." : message;
             return RedirectToPage(new { id });
         }
 

@@ -63,7 +63,7 @@
                     </div>
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Quantity</label>
-                        <input type="number" step="1" min="1" asp-for="Quantity" id="qtyInput" class="form-control" required />
+                        <input type="number" step="1" min="1" asp-for="Quantity" asp-format="{0:0.##}" id="qtyInput" class="form-control" required />
                         <div class="form-text" id="availableHint"></div>
                     </div>
                     <div class="col-md-6">
@@ -106,7 +106,7 @@
                                 <td>@(w.IsTray ? "Ready Tray" : "Potted Plant")</td>
                                 <td>@w.SpeciesName?.Trim()</td>
                                 <td>@(w.IsTray ? w.CavityType : w.PotSize)</td>
-                                <td class="text-end">@w.Quantity.ToString("N0")</td>
+                                <td class="text-end">@Qty(w.Quantity)</td>
                                 <td>@w.Reason</td>
                             </tr>
                         }
@@ -123,7 +123,7 @@
             const url = '@Url.Page("/Production/OutletWastage/Create")';
             let potted = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.PottedOptions.Select(s => new {
                 id = s.Id,
-                label = $"{s.SpeciesName?.Trim()}{(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")")} - {s.PotSize} - available {(s.AvailableQuantity - s.InTransitQuantity):N0}",
+                label = $"{s.SpeciesName?.Trim()}{(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")")} - {s.PotSize} - available {Qty(s.AvailableQuantity - s.InTransitQuantity)}",
                 available = s.AvailableQuantity - s.InTransitQuantity
             })));
             let trays = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.TrayOptions.Select(s => new {
@@ -146,7 +146,7 @@
             $('#typeSelect').on('change', syncStockSelect);
             $('#stockSelect').on('change', function () {
                 const avail = $(this).find('option:selected').data('available');
-                $('#availableHint').text(avail === undefined || avail === '' ? '' : ('Available: ' + Number(avail).toLocaleString('en-IN')));
+                $('#availableHint').text(avail === undefined || avail === '' ? '' : ('Available: ' + formatQuantity(avail)));
                 $('#qtyInput').attr('max', avail || '');
             });
 

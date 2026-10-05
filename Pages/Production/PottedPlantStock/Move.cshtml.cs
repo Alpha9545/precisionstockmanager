@@ -6,6 +6,7 @@ using PlantStockManager.Data;
 using PlantStockManager.Models;
 using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
 using PottedPlantStockModel = PlantStockManager.Models.PottedPlantStock;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Production.PottedPlantStock
 {
@@ -70,7 +71,7 @@ namespace PlantStockManager.Pages.Production.PottedPlantStock
             if (Quantity <= 0 || !PlantStockManager.Services.DirectSowingRules.IsWholeNumber(Quantity))
                 ModelState.AddModelError(string.Empty, "Quantity must be a whole number greater than zero.");
             else if (Quantity > Stock.AvailableQuantity - Stock.InTransitQuantity)
-                ModelState.AddModelError(string.Empty, $"Only {Stock.AvailableQuantity - Stock.InTransitQuantity:N0} plants are available to send.");
+                ModelState.AddModelError(string.Empty, $"Only {QuantityFormat.Qty(Stock.AvailableQuantity - Stock.InTransitQuantity)} plants are available to send.");
 
             if (Destination == ToCustomer)
             {
@@ -86,7 +87,7 @@ namespace PlantStockManager.Pages.Production.PottedPlantStock
                     ModelState.AddModelError(string.Empty, message ?? "Failed to record the sale.");
                     return Page();
                 }
-                TempData["Success"] = $"Sold {Quantity:N0} x {Stock.SpeciesName?.Trim()} ({Stock.PotSize}) to {CustomerName} - dispatch {code}.";
+                TempData["Success"] = $"Sold {QuantityFormat.Qty(Quantity)} x {Stock.SpeciesName?.Trim()} ({Stock.PotSize}) to {CustomerName} - dispatch {code}.";
                 return RedirectToPage("/Production/PottedPlantStock/Index");
             }
 
@@ -119,7 +120,7 @@ namespace PlantStockManager.Pages.Production.PottedPlantStock
                 return Page();
             }
             var destName = allowed.First(a => a.Id == DestinationAreaId).Name;
-            TempData["Success"] = $"Sent {Quantity:N0} x {Stock.SpeciesName?.Trim()} ({Stock.PotSize}) to {destName} ({entry.TransferCode}).";
+            TempData["Success"] = $"Sent {QuantityFormat.Qty(Quantity)} x {Stock.SpeciesName?.Trim()} ({Stock.PotSize}) to {destName} ({entry.TransferCode}).";
             return RedirectToPage("/Production/PottedPlantStock/Index");
         }
 

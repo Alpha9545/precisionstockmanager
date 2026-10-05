@@ -14,9 +14,9 @@
                 <dt class="col-sm-5">Species</dt><dd class="col-sm-7">@Model.Booking.SpeciesName (@Model.Booking.PlantTypeName)</dd>
                 <dt class="col-sm-5">Pot Size</dt><dd class="col-sm-7">@Model.Booking.PotSize</dd>
                 <dt class="col-sm-5">Area</dt><dd class="col-sm-7">@(Model.Booking.AreaName ?? "Unassigned")</dd>
-                <dt class="col-sm-5">Quantity (Booked)</dt><dd class="col-sm-7">@Model.Booking.Quantity.ToString("N2")</dd>
-                <dt class="col-sm-5">Dispatched So Far</dt><dd class="col-sm-7">@Model.Booking.DispatchedQuantity.ToString("N2")</dd>
-                <dt class="col-sm-5">Remaining (Reserved)</dt><dd class="col-sm-7">@Model.Booking.RemainingQuantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Quantity (Booked)</dt><dd class="col-sm-7">@Qty(Model.Booking.Quantity)</dd>
+                <dt class="col-sm-5">Dispatched So Far</dt><dd class="col-sm-7">@Qty(Model.Booking.DispatchedQuantity)</dd>
+                <dt class="col-sm-5">Remaining (Reserved)</dt><dd class="col-sm-7">@Qty(Model.Booking.RemainingQuantity)</dd>
                 <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.Booking.Status</dd>
                 <dt class="col-sm-5">Customer Name</dt><dd class="col-sm-7">@Model.Booking.CustomerName</dd>
                 <dt class="col-sm-5">Contact</dt><dd class="col-sm-7">@Model.Booking.Contact</dd>

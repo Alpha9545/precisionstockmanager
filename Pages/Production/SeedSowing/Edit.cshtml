@@ -34,8 +34,8 @@
                     <tr><th class="w-50">Source</th><td>@(s.IsCuttingSource ? "Cutting Stock" : "Seed lot " + s.BatchNo)</td></tr>
                     <tr><th>Variety</th><td>@s.SpeciesName.Trim() (@s.PlantTypeName)</td></tr>
                     <tr><th>Area</th><td>@s.AreaName</td></tr>
-                    <tr><th>Cavity / Complete Trays</th><td>@s.CavityType &times; @(s.NumberOfTrays?.ToString("N0") ?? "-")</td></tr>
-                    <tr><th>@unit Used</th><td>@s.QuantitySown.ToString("N0")</td></tr>
+                    <tr><th>Cavity / Complete Trays</th><td>@s.CavityType &times; @(Qty(s.NumberOfTrays))</td></tr>
+                    <tr><th>@unit Used</th><td>@Qty(s.QuantitySown)</td></tr>
                     <tr><th>Assigned Supervisor (only approver)</th><td>@(s.SupervisorName ?? "-")</td></tr>
                     <tr><th>Expected Ready Date</th><td>@(s.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "-")</td></tr>
                 </tbody>
@@ -66,7 +66,7 @@
                     <div class="row g-2 mb-2">
                         <div class="col-6">
                             <label class="form-label">Trays Alive Quantity</label>
-                            <input asp-for="TraysAliveQuantity" type="number" step="1" min="0" class="form-control" />
+                            <input asp-for="TraysAliveQuantity" asp-format="{0:0.##}" type="number" step="1" min="0" class="form-control" />
                         </div>
                         <div class="col-6">
                             <label class="form-label">Trays Alive Date</label>
@@ -76,7 +76,7 @@
                     <div class="row g-2 mb-2">
                         <div class="col-6">
                             <label class="form-label">Hardening Alive Quantity</label>
-                            <input asp-for="HardeningAliveQuantity" type="number" step="1" min="0" class="form-control" />
+                            <input asp-for="HardeningAliveQuantity" asp-format="{0:0.##}" type="number" step="1" min="0" class="form-control" />
                         </div>
                         <div class="col-6">
                             <label class="form-label">Hardening Alive Date</label>

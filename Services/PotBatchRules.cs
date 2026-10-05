@@ -103,7 +103,7 @@ namespace PlantStockManager.Services
             if (cuttingAllocated <= 0 || !DirectSowingRules.IsWholeNumber(cuttingAllocated))
                 return (false, "Cuttings allocated must be a whole number greater than zero.");
             if (cuttingAllocated > cuttingAvailable)
-                return (false, $"Only {cuttingAvailable:N0} cuttings are available in this Cutting Stock.");
+                return (false, $"Only {QuantityFormat.Qty(cuttingAvailable)} cuttings are available in this Cutting Stock.");
             if (expectedReadyDate.Date < startDate.Date)
                 return (false, "Expected Ready Date cannot be before the production start date.");
             if (!readyConfirmerId.HasValue || readyConfirmerId.Value <= 0)
@@ -127,9 +127,9 @@ namespace PlantStockManager.Services
                 return (false, "Production date cannot be in the future.");
             var remaining = cuttingAllocated - alreadyProduced;
             if (quantity > remaining)
-                return (false, $"Only {remaining:N0} cuttings are left in this batch ({alreadyProduced:N0} of {cuttingAllocated:N0} already potted).");
+                return (false, $"Only {QuantityFormat.Qty(remaining)} cuttings are left in this batch ({QuantityFormat.Qty(alreadyProduced)} of {QuantityFormat.Qty(cuttingAllocated)} already potted).");
             if (quantity > emptyPotsAvailable)
-                return (false, $"Only {emptyPotsAvailable:N0} empty pots of this size are available in this Area. Issue more pots to the Area first.");
+                return (false, $"Only {QuantityFormat.Qty(emptyPotsAvailable)} empty pots of this size are available in this Area. Issue more pots to the Area first.");
             return (true, null);
         }
 
@@ -145,15 +145,15 @@ namespace PlantStockManager.Services
             if (readyQuantity < 0 || !DirectSowingRules.IsWholeNumber(readyQuantity))
                 return (false, 0, 0, "Ready pots must be a whole number (enter 0 if every plant was lost).");
             if (readyQuantity > produced)
-                return (false, 0, 0, $"Ready pots ({readyQuantity:N0}) cannot be more than the {produced:N0} pots produced.");
+                return (false, 0, 0, $"Ready pots ({QuantityFormat.Qty(readyQuantity)}) cannot be more than the {QuantityFormat.Qty(produced)} pots produced.");
             var wastage = produced - readyQuantity;
             var unused = cuttingAllocated - produced;
             if (readyQuantity == 0 && !DirectSowingRules.IsValidWastageReason(wastageReason))
                 return (false, wastage, unused, "No plants are ready -- choose the loss reason to close the batch as a complete loss.");
             if (wastage > 0 && !DirectSowingRules.IsValidWastageReason(wastageReason))
-                return (false, wastage, unused, $"{wastage:N0} pots were lost -- choose the wastage reason.");
+                return (false, wastage, unused, $"{QuantityFormat.Qty(wastage)} pots were lost -- choose the wastage reason.");
             if (unused > 0 && unusedCuttingAction != ReturnedToStock && unusedCuttingAction != UnusedAsWastage)
-                return (false, wastage, unused, $"{unused:N0} allocated cuttings were not potted -- return them to Cutting Stock or record them as wastage.");
+                return (false, wastage, unused, $"{QuantityFormat.Qty(unused)} allocated cuttings were not potted -- return them to Cutting Stock or record them as wastage.");
             return (true, wastage, unused, null);
         }
 

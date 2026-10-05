@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Production.EmptyPotInventory
 {
@@ -64,7 +65,7 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
                 await LoadAsync();
                 return Page();
             }
-            TempData["Success"] = $"Purchase {entry.PurchaseCode}: {Quantity:N0} x {PotSize} pots added to Office stock.";
+            TempData["Success"] = $"Purchase {entry.PurchaseCode}: {QuantityFormat.Qty(Quantity)} x {PotSize} pots added to Office stock.";
             return RedirectToPage();
         }
 

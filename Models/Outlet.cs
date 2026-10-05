@@ -68,8 +68,8 @@ namespace PlantStockManager.Models
 
         // Display only: "20 pots" or "5 trays (Cavity 102)".
         public string QuantityLabel => IsTray
-            ? $"{Quantity:N0} tray{(Quantity == 1 ? "" : "s")} ({CavityType})"
-            : $"{Quantity:N0} pot{(Quantity == 1 ? "" : "s")} ({PotSize})";
+            ? $"{QuantityFormat.Qty(Quantity)} tray{(Quantity == 1 ? "" : "s")} ({CavityType})"
+            : $"{QuantityFormat.Qty(Quantity)} pot{(Quantity == 1 ? "" : "s")} ({PotSize})";
     }
 
     // A single customer transaction covering one or more potted/tray items,

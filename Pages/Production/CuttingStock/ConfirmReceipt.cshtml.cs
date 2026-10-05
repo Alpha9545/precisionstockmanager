@@ -15,6 +15,7 @@ using PlantStockManager.Models;
 // "PotProductionModel" alias, ReadyConfirmation/History.cshtml.cs's/
 // ReadyAlerts/Index.cshtml.cs's "SeedSowingModel" alias).
 using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Production.CuttingStock
 {
@@ -97,8 +98,8 @@ namespace PlantStockManager.Pages.Production.CuttingStock
             }
 
             var loss = Transfer.Quantity - ConfirmedQuantity;
-            TempData["Success"] = $"Delivery {Transfer.TransferCode} confirmed: {ConfirmedQuantity:N0} cuttings added to Main Office Cutting Stock"
-                + (loss > 0 ? $"; {loss:N0} recorded as transit loss." : ".");
+            TempData["Success"] = $"Delivery {Transfer.TransferCode} confirmed: {QuantityFormat.Qty(ConfirmedQuantity)} cuttings added to Main Office Cutting Stock"
+                + (loss > 0 ? $"; {QuantityFormat.Qty(loss)} recorded as transit loss." : ".");
 
             // Receipt confirmation itself is unchanged (quantity only). What
             // changes here is where it sends the user next: straight into

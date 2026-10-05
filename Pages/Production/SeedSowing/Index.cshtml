@@ -32,7 +32,7 @@
             <div class="card text-center shadow-sm">
                 <div class="card-body">
                     <div class="text-muted small">Total Sown (excl. Cancelled)</div>
-                    <div class="fs-3 fw-bold">@Model.TotalSown.ToString("N2")</div>
+                    <div class="fs-3 fw-bold">@Qty(Model.TotalSown)</div>
                 </div>
             </div>
         </div>
@@ -69,9 +69,9 @@
                         <td>@sw.CavityType@(sw.NumberOfTrays.HasValue ? $" x{sw.NumberOfTrays}" : "")</td>
                         <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
                         <td>@(sw.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "-")</td>
-                        <td>@sw.QuantitySown.ToString("N0")</td>
-                        <td>@sw.ConfirmedReadyQuantity.ToString("N0")</td>
-                        <td>@sw.WastageQuantity.ToString("N0")</td>
+                        <td>@Qty(sw.QuantitySown)</td>
+                        <td>@Qty(sw.ConfirmedReadyQuantity)</td>
+                        <td>@Qty(sw.WastageQuantity)</td>
                         <td>
                             @if (sw.Status == "Cancelled")
                             {

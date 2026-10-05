@@ -1,5 +1,6 @@
 @page
 @model PlantStockManager.Pages.Bookings.SeedlingDispatchModel
+@using PlantStockManager.Models
 @{
     ViewData["Title"] = "Seedling Dispatch";
     var b = Model.Booking!;
@@ -21,10 +22,10 @@
             <div class="col-md-4"><strong>Customer:</strong> @b.CustomerName</div>
             <div class="col-md-4"><strong>Item:</strong> @b.PlantTypeName / @b.SpeciesName</div>
             <div class="col-md-4"><strong>Required date:</strong> @b.DeliveryDate?.ToString("dd-MM-yyyy")</div>
-            <div class="col-md-2"><strong>Booked:</strong> @b.Quantity.ToString("N0")</div>
-            <div class="col-md-2"><strong>Allocated:</strong> @((b.ReservedQuantity + b.DispatchedQuantity).ToString("N0"))</div>
-            <div class="col-md-2"><strong>Dispatched:</strong> @b.DispatchedQuantity.ToString("N0")</div>
-            <div class="col-md-2"><strong>Remaining:</strong> @b.RemainingQuantity.ToString("N0")</div>
+            <div class="col-md-2"><strong>Booked:</strong> @Qty(b.Quantity)</div>
+            <div class="col-md-2"><strong>Allocated:</strong> @(Qty(b.ReservedQuantity + b.DispatchedQuantity))</div>
+            <div class="col-md-2"><strong>Dispatched:</strong> @Qty(b.DispatchedQuantity)</div>
+            <div class="col-md-2"><strong>Remaining:</strong> @Qty(b.RemainingQuantity)</div>
             <div class="col-md-4"><strong>Status:</strong> @b.Status &mdash; @b.Stage</div>
         </div>
     </div>
@@ -55,13 +56,13 @@
                                 var a = open[i];
                                 var allowed = Model.CanUseArea(a.AreaId);
                                 <tr>
-                                    <td>@a.BatchCode</td>
+                                    <td class="fw-bold" title="@a.BatchCode">@a.BatchNo</td>
                                     <td>@a.BookedSpeciesName</td>
                                     <td>@a.ActualSpeciesName</td>
                                     <td>@(a.IsSubstitution ? "Yes – " + a.SubstitutionReason : "No")</td>
                                     <td>@a.AreaName / @(a.PolyhouseName ?? "-")</td>
                                     <td>@a.SowingDate?.ToString("dd-MM-yyyy")</td>
-                                    <td class="text-end">@a.OpenQuantity.ToString("N0")</td>
+                                    <td class="text-end">@Qty(a.OpenQuantity)</td>
                                     <td>
                                         <input type="hidden" name="Lines[@i].AllocationId" value="@a.Id" />
                                         <input type="number" name="Lines[@i].Quantity" value="0" min="0" step="1" max="@((int)a.OpenQuantity)" class="form-control form-control-sm" @(allowed ? "" : "disabled") />
@@ -87,24 +88,122 @@
             </form>
         }
 
-        <h5>Allocate a batch / substitute a variety</h5>
-        <p class="small text-muted">Oldest batches first. A batch of the booked variety is a normal allocation. A different variety of the same species is recorded as a <strong>substitution</strong> and needs a reason. Still to allocate: <strong>@b.UnreservedQuantity.ToString("N0")</strong>.</p>
-        <form method="post" asp-page-handler="Allocate" class="row g-2 align-items-end mb-4">
-            <input type="hidden" asp-for="Id" />
-            <div class="col-md-5">
-                <label class="form-label small">Ready Stock batch</label>
-                <select asp-for="AllocateReadyStockId" class="form-select" required>
-                    <option value="">-- Select batch --</option>
-                    @foreach (var o in Model.BatchOptions)
+        <h5 id="allocate">Allocate a batch / substitute a variety</h5>
+        <p class="small text-muted mb-2">Find the batch, select its row, enter the quantity and allocate. Oldest batches first. A batch of the booked variety is a normal allocation; a different variety of the same species is a <strong>substitution</strong> and needs a reason. Several batches can share a Batch No (same sowing day) &mdash; use Area, Polyhouse and Ref to tell them apart. Still to allocate: <strong>@Qty(b.UnreservedQuantity)</strong>.</p>
+
+        <form method="get" class="row g-2 align-items-end mb-2" id="batchFilters">
+            <input type="hidden" name="id" value="@b.Id" />
+            <div class="col-12 col-md-3">
+                <label class="form-label small mb-0">Search</label>
+                <input type="search" name="q" value="@Model.Q" class="form-control form-control-sm" placeholder="Batch No (e.g. J-10) or Variety" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0">Sowing Date</label>
+                <input type="date" name="sowingDate" value="@Model.SowingDate?.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0">Area</label>
+                <select name="areaId" class="form-select form-select-sm">
+                    <option value="">All Areas</option>
+                    @foreach (var a in Model.AreaOptions) { <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0">Polyhouse</label>
+                <select name="polyhouseId" class="form-select form-select-sm">
+                    <option value="">All Polyhouses</option>
+                    @foreach (var p in Model.PolyhouseOptions.Where(p => !Model.AreaId.HasValue || p.AreaId == Model.AreaId))
                     {
-                        var sub = o.SpeciesId != b.SpeciesId;
-                        <option value="@o.ReadyStockId">@o.BatchCode · @o.SpeciesName@(sub ? " (SUBSTITUTE)" : "") · @o.AreaName/@(o.PolyhouseName ?? "-") · sown @o.SowingDate.ToString("dd-MM-yyyy") · available @o.AvailableQuantity.ToString("N0")</option>
+                        <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name@(Model.AreaId.HasValue ? "" : " (" + Model.AreaOptions.FirstOrDefault(a => a.Id == p.AreaId)?.Name + ")")</option>
                     }
                 </select>
             </div>
-            <div class="col-md-2"><label class="form-label small">Quantity</label><input type="number" min="1" step="1" asp-for="AllocateQuantity" class="form-control" required /></div>
-            <div class="col-md-3"><label class="form-label small">Substitution reason (only for another variety)</label><input type="text" asp-for="SubstitutionReason" class="form-control" maxlength="500" /></div>
-            <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Allocate</button></div>
+            <div class="col-6 col-md-1">
+                <label class="form-label small mb-0">Type</label>
+                <select name="allocationType" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    <option value="@BatchSearch.TypeBooked" selected="@(Model.AllocationType == BatchSearch.TypeBooked)">Booked variety</option>
+                    <option value="@BatchSearch.TypeSubstitute" selected="@(Model.AllocationType == BatchSearch.TypeSubstitute)">Substitute</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-1"><button type="submit" class="btn btn-sm btn-primary w-100">Apply Filters</button></div>
+            <div class="col-6 col-md-1"><a asp-page="/Bookings/SeedlingDispatch" asp-route-id="@b.Id" asp-fragment="allocate" class="btn btn-sm btn-outline-secondary w-100">Clear Filters</a></div>
+        </form>
+
+        <form method="post" asp-page-handler="Allocate" id="allocateForm" class="mb-4">
+            <input type="hidden" asp-for="Id" />
+            <input type="hidden" asp-for="AllocateToken" />
+            <input type="hidden" name="q" value="@Model.Q" />
+            <input type="hidden" name="sowingDate" value="@Model.SowingDate?.ToString("yyyy-MM-dd")" />
+            <input type="hidden" name="areaId" value="@Model.AreaId" />
+            <input type="hidden" name="polyhouseId" value="@Model.PolyhouseId" />
+            <input type="hidden" name="allocationType" value="@Model.AllocationType" />
+            <input type="hidden" name="pageNo" value="@Model.Batches.Page" />
+
+            <div class="small text-muted mb-1">
+                @Model.Batches.Total batch(es) available@(Model.HasBatchFilter ? " for these filters" : "")
+                @if (Model.Batches.Total > 0) { <span>&middot; page @Model.Batches.Page of @Model.Batches.PageCount</span> }
+            </div>
+            <div class="table-responsive border rounded" style="max-height: 420px; overflow-y: auto;">
+                <table class="table table-sm table-hover align-middle mb-0" id="batchTable">
+                    <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
+                        <tr>
+                            <th>Select</th><th>Batch No</th><th>Variety</th><th>Sowing Date</th><th class="text-end">Available</th>
+                            <th>Cavity</th><th>Area</th><th>Polyhouse</th><th>Allocation Type</th><th>Ref</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var o in Model.Batches.Rows)
+                        {
+                            var sub = o.SpeciesId != b.SpeciesId;
+                            <tr class="batch-row" data-batch="@o.BatchNo" data-variety="@o.SpeciesName" data-available="@((int)o.AvailableQuantity)"
+                                data-place="@o.AreaName / @(o.PolyhouseName ?? "-")" data-ref="Sowing #@o.SeedSowingId" data-sub="@(sub ? "1" : "0")">
+                                <td>
+                                    <input class="form-check-input" type="radio" name="AllocateReadyStockId" value="@o.ReadyStockId" id="rs-@o.ReadyStockId" required />
+                                    <label class="form-check-label small" for="rs-@o.ReadyStockId">Select</label>
+                                </td>
+                                <td class="fw-bold text-nowrap" title="@o.BatchCode">@o.BatchNo</td>
+                                <td>@o.SpeciesName</td>
+                                <td class="text-nowrap">@o.SowingDate.ToString("dd-MM-yyyy")</td>
+                                <td class="text-end fw-bold">@Qty(o.AvailableQuantity)</td>
+                                <td class="text-nowrap">@o.CavityType</td>
+                                <td>@o.AreaName</td>
+                                <td>@(o.PolyhouseName ?? "-")</td>
+                                <td>@if (sub) { <span class="badge bg-warning text-dark">Substitute</span> } else { <span class="badge bg-success">Booked variety</span> }</td>
+                                <td class="small text-nowrap"><a asp-page="/Production/SeedSowing/Details" asp-route-id="@o.SeedSowingId" title="@o.BatchCode" target="_blank">Sowing #@o.SeedSowingId</a></td>
+                            </tr>
+                        }
+                        @if (!Model.Batches.Rows.Any())
+                        {
+                            <tr><td colspan="10" class="text-center text-muted">@(Model.HasBatchFilter ? "No available batch matches these filters." : "No batch of this item has plants available in your Areas.")</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            @if (Model.Batches.PageCount > 1)
+            {
+                <nav class="mt-2" aria-label="Batch pages">
+                    <ul class="pagination pagination-sm flex-wrap mb-0">
+                        @for (var p = 1; p <= Model.Batches.PageCount; p++)
+                        {
+                            <li class="page-item @(p == Model.Batches.Page ? "active" : "")">
+                                <a class="page-link" href="@Url.Page("/Bookings/SeedlingDispatch", Model.FilterRoute(p))#allocate">@p</a>
+                            </li>
+                        }
+                    </ul>
+                </nav>
+            }
+
+            <div class="row g-2 align-items-end mt-2">
+                <div class="col-12 col-md-4">
+                    <div class="small text-muted">Selected batch</div>
+                    <div id="selectedBatch" class="fw-bold">None &mdash; select a row in the table</div>
+                </div>
+                <div class="col-6 col-md-2"><label class="form-label small mb-0">Quantity</label><input type="number" min="1" step="1" asp-for="AllocateQuantity" asp-format="{0:0.##}" id="allocateQty" class="form-control" required /></div>
+                <div class="col-6 col-md-4"><label class="form-label small mb-0">Substitution reason (only for another variety)</label><input type="text" asp-for="SubstitutionReason" class="form-control" maxlength="500" /></div>
+                <div class="col-12 col-md-2"><button type="submit" class="btn btn-primary w-100" id="allocateBtn">Allocate</button></div>
+            </div>
         </form>
 
         @if (open.Any())
@@ -118,13 +217,40 @@
                         <option value="">-- Select allocation --</option>
                         @foreach (var a in open.Where(x => Model.CanUseArea(x.AreaId)))
                         {
-                            <option value="@a.Id">@a.BatchCode · @a.ActualSpeciesName · open @a.OpenQuantity.ToString("N0")</option>
+                            <option value="@a.Id">@a.BatchNo · @a.ActualSpeciesName · @a.AreaName/@(a.PolyhouseName ?? "-") · Sowing #@a.SeedSowingId · open @Qty(a.OpenQuantity)</option>
                         }
                     </select>
                 </div>
-                <div class="col-md-3"><input type="number" min="1" step="1" asp-for="ReleaseQuantity" class="form-control" placeholder="Quantity" required /></div>
+                <div class="col-md-3"><input type="number" min="1" step="1" asp-for="ReleaseQuantity" asp-format="{0:0.##}" class="form-control" placeholder="Quantity" required /></div>
                 <div class="col-md-3"><button type="submit" class="btn btn-outline-warning w-100">Release</button></div>
             </form>
         }
     }
 </div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const form = document.getElementById('allocateForm');
+            if (!form) return;
+            const label = document.getElementById('selectedBatch');
+            const qty = document.getElementById('allocateQty');
+            // Show which row is selected; the server allocates from that row's own ReadyStockId.
+            form.querySelectorAll('input[name="AllocateReadyStockId"]').forEach(function (radio) {
+                radio.addEventListener('change', function () {
+                    form.querySelectorAll('tr.batch-row').forEach(function (r) { r.classList.remove('table-primary'); });
+                    const row = radio.closest('tr');
+                    row.classList.add('table-primary');
+                    label.textContent = row.dataset.batch + ' · ' + row.dataset.variety + ' · ' + row.dataset.place + ' · ' + row.dataset.ref
+                        + ' · available ' + Number(row.dataset.available).toLocaleString('en-IN') + (row.dataset.sub === '1' ? ' · SUBSTITUTE (reason required)' : '');
+                    qty.max = row.dataset.available;   // a hint only -- the server re-checks under lock
+                });
+            });
+            // Double-click guard; the one-time AllocateToken is the server-side guard.
+            form.addEventListener('submit', function () {
+                const btn = document.getElementById('allocateBtn');
+                setTimeout(function () { btn.disabled = true; btn.textContent = 'Allocating...'; }, 0);
+            });
+        })();
+    </script>
+}

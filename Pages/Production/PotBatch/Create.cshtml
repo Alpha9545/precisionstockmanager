@@ -31,7 +31,7 @@
                             @foreach (var s in Model.StockPools)
                             {
                                 <option value="@s.Id" data-available="@s.AvailableQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)">
-                                    @s.SpeciesName?.Trim()@(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")") - @s.AreaName - available @s.AvailableQuantity.ToString("N0")
+                                    @s.SpeciesName?.Trim()@(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")") - @s.AreaName - available @Qty(s.AvailableQuantity)
                                 </option>
                             }
                         </select>
@@ -47,7 +47,7 @@
                             <option value="">-- Select --</option>
                             @foreach (var p in Model.PotPools)
                             {
-                                <option value="@p.Id" data-area="@p.AreaId" data-pots="@p.PhysicalQuantity.ToString("0")">@p.AreaName - @p.PotSize - @p.PhysicalQuantity.ToString("N0") empty pots</option>
+                                <option value="@p.Id" data-area="@p.AreaId" data-pots="@p.PhysicalQuantity.ToString("0")">@p.AreaName - @p.PotSize - @Qty(p.PhysicalQuantity) empty pots</option>
                             }
                         </select>
                         @if (!Model.PotPools.Any())

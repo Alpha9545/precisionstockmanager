@@ -34,7 +34,7 @@
                         <td>@s.BatchNumber</td>
                         <td>
                             <span class="fw-bold text-success">
-                                @s.AvailableQuantity
+                                @Qty3(s.AvailableQuantity)
                             </span>
                         </td>
                         <td>@s.UnitName</td>
@@ -49,7 +49,7 @@
                                         '@s.StockId',
                                         '@s.FertilizerName',
                                         '@s.BatchNumber',
-                                        '@s.AvailableQuantity',
+                                        '@QtyInput3(s.AvailableQuantity)',
                                         '@s.UnitName'
                                     )">
                                 Use
@@ -101,7 +101,7 @@
 
                     <div class="mb-2">
                         <label class="form-label">Quantity to Use</label>
-                        <input asp-for="Usage.UsedQuantity"
+                        <input asp-for="Usage.UsedQuantity" asp-format="{0:0.###}"
                                type="number" step="0.001"
                                id="usedQty"
                                class="form-control"

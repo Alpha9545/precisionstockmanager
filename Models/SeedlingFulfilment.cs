@@ -69,9 +69,12 @@ namespace PlantStockManager.Models
         // Batch traceability (ReadyStock -> SeedSowings -> ...)
         public string? BookedSpeciesName { get; set; }
         public string? ActualSpeciesName { get; set; }
-        public string? BatchCode { get; set; }        // SeedSowings.SowingCode
+        public string? BatchCode { get; set; }        // SeedSowings.SowingCode (full, unique reference)
         public int SeedSowingId { get; set; }
         public DateTime? SowingDate { get; set; }
+        // Short business batch number (month letter + two-digit sowing day, e.g. J-10).
+        // A label only -- not unique; the line is identified by its own Id.
+        public string? BatchNo => SowingDate.HasValue ? PlantStockManager.Services.SowingBatchNo.Format(SowingDate.Value) : BatchCode;
         public string? CavityType { get; set; }
         public string? SeedLot { get; set; }
         public int? AreaId { get; set; }
@@ -135,10 +138,13 @@ namespace PlantStockManager.Models
 
         public string? BookedSpeciesName { get; set; }
         public string? ActualSpeciesName { get; set; }
-        public string? BatchCode { get; set; }
+        public string? BatchCode { get; set; }        // SeedSowings.SowingCode (full, unique reference)
+        public int SeedSowingId { get; set; }
         public string? AreaName { get; set; }
         public string? PolyhouseName { get; set; }
         public DateTime? SowingDate { get; set; }
+        // Short business batch number (e.g. J-10) -- a label, not unique.
+        public string? BatchNo => SowingDate.HasValue ? PlantStockManager.Services.SowingBatchNo.Format(SowingDate.Value) : BatchCode;
 
         // Register (report) columns
         public string? DispatchCode { get; set; }
@@ -151,12 +157,17 @@ namespace PlantStockManager.Models
     // A Ready Stock batch offered for reservation / allocation.
     public class ReadyBatchOption
     {
+        // The allocation source is ALWAYS this Ready Stock row's own Id --
+        // never the batch number, which several batches can share.
         public int ReadyStockId { get; set; }
+        public int SeedSowingId { get; set; }
         public int SpeciesId { get; set; }
         public string? SpeciesName { get; set; }
         public int PlantTypeId { get; set; }
-        public string? BatchCode { get; set; }
+        public string? BatchCode { get; set; }        // SeedSowings.SowingCode (full, unique reference)
         public DateTime SowingDate { get; set; }
+        // Short business batch number (e.g. J-10) -- a label, not unique.
+        public string BatchNo => PlantStockManager.Services.SowingBatchNo.Format(SowingDate);
         public DateTime? FirstConfirmationDate { get; set; }
         public string? CavityType { get; set; }
         public int AreaId { get; set; }
@@ -166,6 +177,39 @@ namespace PlantStockManager.Models
         public decimal ReservedQuantity { get; set; }
         public decimal DispatchedQuantity { get; set; }
         public decimal AvailableQuantity { get; set; }
+    }
+
+    // Allocate Batch table: search + filters + paging (server-side).
+    public class BatchSearch
+    {
+        public const int DefaultPageSize = 25;
+        public const string TypeBooked = "Booked";
+        public const string TypeSubstitute = "Substitute";
+
+        public string? Query { get; set; }        // batch number ("J-10"), full SowingCode, or variety
+        public DateTime? SowingDate { get; set; }
+        public int? AreaId { get; set; }
+        public int? PolyhouseId { get; set; }
+        public string? AllocationType { get; set; } // Booked / Substitute / null = both
+        public int Page { get; set; } = 1;
+        public int PageSize { get; set; } = DefaultPageSize;
+    }
+
+    public class BatchSearchResult
+    {
+        public List<ReadyBatchOption> Rows { get; set; } = new();
+        public int Total { get; set; }
+        public int Page { get; set; }
+        public int PageSize { get; set; }
+        public int PageCount => PageSize <= 0 ? 1 : Math.Max(1, (Total + PageSize - 1) / PageSize);
+    }
+
+    // Choices for the Area / Polyhouse filters: only where batches are available.
+    public class BatchFilterOption
+    {
+        public int Id { get; set; }
+        public string Name { get; set; } = string.Empty;
+        public int? AreaId { get; set; }
     }
 
     // Variety-level Ready Stock totals (booking screen availability panel).

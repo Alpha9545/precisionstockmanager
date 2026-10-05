@@ -21,7 +21,7 @@
                 <dt class="col-sm-5">Pot Size</dt><dd class="col-sm-7">@Model.InternalTransfer.PotSize</dd>
                 <dt class="col-sm-5">Source Area</dt><dd class="col-sm-7">@Model.InternalTransfer.SourceAreaName</dd>
                 <dt class="col-sm-5">Destination Area</dt><dd class="col-sm-7">@Model.InternalTransfer.DestinationAreaName</dd>
-                <dt class="col-sm-5">Quantity</dt><dd class="col-sm-7">@Model.InternalTransfer.Quantity.ToString("N2")</dd>
+                <dt class="col-sm-5">Quantity</dt><dd class="col-sm-7">@Qty(Model.InternalTransfer.Quantity)</dd>
                 <dt class="col-sm-5">Status</dt><dd class="col-sm-7">@Model.InternalTransfer.Status</dd>
                 <dt class="col-sm-5">Labour / Responsible Person</dt><dd class="col-sm-7">@Model.InternalTransfer.ResponsiblePersonName</dd>
                 <dt class="col-sm-5">Supervisor</dt><dd class="col-sm-7">@Model.InternalTransfer.SupervisorName</dd>

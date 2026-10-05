@@ -79,7 +79,7 @@ namespace PlantStockManager.Pages.Production.PottedPlantStock
             var rows = list.Select(s => (IReadOnlyList<string>)new[]
             {
                 s.SpeciesName ?? "", s.PlantTypeName ?? "", s.PotSize ?? "", s.AreaName ?? "", s.BatchCodes ?? "",
-                s.PhysicalQuantity.ToString("N0"), s.ReservedQuantity.ToString("N0"), s.AvailableQuantity.ToString("N0")
+                QuantityFormat.Qty(s.PhysicalQuantity), QuantityFormat.Qty(s.ReservedQuantity), QuantityFormat.Qty(s.AvailableQuantity)
             });
             var bytes = ExportHelper.BuildPdf("Potted Plant Stock", ExportHeaders, rows);
             return File(bytes, "application/pdf", $"PottedPlantStock_{DateTime.Now:yyyyMMdd_HHmm}.pdf");

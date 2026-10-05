@@ -5,6 +5,7 @@ using PlantStockManager.Data;
 using PlantStockManager.Models;
 using EmptyPotInventoryModel = PlantStockManager.Models.EmptyPotInventory;
 using InternalTransferModel = PlantStockManager.Models.InternalTransfer;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Production.EmptyPotInventory
 {
@@ -51,7 +52,7 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
             if (Quantity <= 0 || !PlantStockManager.Services.DirectSowingRules.IsWholeNumber(Quantity))
                 ModelState.AddModelError(string.Empty, "Quantity must be a whole number greater than zero.");
             else if (pool != null && Quantity > pool.PhysicalQuantity)
-                ModelState.AddModelError(string.Empty, $"Only {pool.PhysicalQuantity:N0} pots of {pool.PotSize} are in {pool.AreaName}.");
+                ModelState.AddModelError(string.Empty, $"Only {QuantityFormat.Qty(pool.PhysicalQuantity)} pots of {pool.PotSize} are in {pool.AreaName}.");
             var destination = await _areaRepo.GetAreaById(DestinationAreaId);
             if (destination == null || !destination.IsActive || destination.AreaType == PlantStockManager.Services.DirectSowingRules.MainOfficeAreaType)
                 ModelState.AddModelError(string.Empty, "Choose the production Area that receives the pots.");
@@ -78,7 +79,7 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
                 await LoadAsync();
                 return Page();
             }
-            TempData["Success"] = $"{Quantity:N0} x {pool!.PotSize} pots issued to {destination!.Name} ({entry.TransferCode}). Only {destination.Name} production can use them.";
+            TempData["Success"] = $"{QuantityFormat.Qty(Quantity)} x {pool!.PotSize} pots issued to {destination!.Name} ({entry.TransferCode}). Only {destination.Name} production can use them.";
             return RedirectToPage("/Production/EmptyPotInventory/Index");
         }
 

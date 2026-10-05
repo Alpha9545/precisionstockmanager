@@ -73,7 +73,7 @@
                 <!-- Quantity -->
                 <div class="col-md-2">
                     <label class="form-label small mb-1">Qty</label>
-                    <input asp-for="Stock.Quantity"
+                    <input asp-for="Stock.Quantity" asp-format="{0:0.###}"
                            type="number"
                            step="0.001"
                            class="form-control form-control-sm"
@@ -186,13 +186,13 @@
                             <tr>
                                 <td>@s.FertilizerName</td>
 
-                                <td class="fw-bold">@s.Quantity</td>
+                                <td class="fw-bold">@Qty3(s.Quantity)</td>
 
                                 <td class="fw-bold
                                         @(s.LatestAvailableQuantity == 0
                                                                             ? "text-danger"
                                                                             : "text-success")">
-                                @s.LatestAvailableQuantity
+                                @Qty3(s.LatestAvailableQuantity)
                             </td>
 
                                 <td>@s.UnitName</td>

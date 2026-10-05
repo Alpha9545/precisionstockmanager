@@ -38,7 +38,7 @@
                     <td>@i.SpeciesName?.Trim() <span class="text-muted">(@i.PlantTypeName)</span></td>
                     <td>@(i.SpeciesColor ?? "-")</td>
                     <td>@(i.IsTray ? i.CavityType : i.PotSize)</td>
-                    <td class="text-end">@i.Quantity.ToString("N0") @(i.IsTray ? "trays" : "pots")</td>
+                    <td class="text-end">@Qty(i.Quantity) @(i.IsTray ? "trays" : "pots")</td>
                 </tr>
             }
         </tbody>

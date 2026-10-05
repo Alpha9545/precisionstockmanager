@@ -249,7 +249,7 @@
                 row.append($('<td>').text(cat));
                 row.append($('<td>').text(itemLabel));
                 row.append($('<td>').text(detailsText));
-                row.append($('<td>').text(orderedQty.toFixed(2)));
+                row.append($('<td>').text(formatQuantity(orderedQty)));
                 row.append($('<td>').text(unitPrice ? parseFloat(unitPrice).toFixed(2) : '-'));
                 const removeTd = $('<td>');
                 const removeBtn = $('<button type="button" class="btn btn-sm btn-outline-danger">Remove</button>');

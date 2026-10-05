@@ -69,9 +69,9 @@
                         <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
                         <td>@(sw.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</td>
                         <td><span class="badge @badgeClass">@badgeText</span></td>
-                        <td>@sw.QuantitySown.ToString("N2")</td>
-                        <td>@sw.ConfirmedReadyQuantity.ToString("N2")</td>
-                        <td><strong>@sw.RemainingReadyQuantity.ToString("N2")</strong></td>
+                        <td>@Qty(sw.QuantitySown)</td>
+                        <td>@Qty(sw.ConfirmedReadyQuantity)</td>
+                        <td><strong>@Qty(sw.RemainingReadyQuantity)</strong></td>
                         <td>@(sw.SupervisorName ?? "-")</td>
                         <td>
                             @{

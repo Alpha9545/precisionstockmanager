@@ -86,7 +86,7 @@
             const url = '@Url.Page("/Production/OutletBooking/Create")';
             let potted = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.PottedOptions.Select(s => new {
                 id = s.Id,
-                label = $"{s.SpeciesName?.Trim()}{(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")")} - {s.PotSize} - available {(s.AvailableQuantity - s.InTransitQuantity):N0}",
+                label = $"{s.SpeciesName?.Trim()}{(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")")} - {s.PotSize} - available {Qty(s.AvailableQuantity - s.InTransitQuantity)}",
                 available = s.AvailableQuantity - s.InTransitQuantity
             })));
             let trays = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.TrayOptions.Select(s => new {
@@ -138,7 +138,7 @@
             $('#itemsBody').on('change', '.item-stock', function () {
                 const avail = $(this).find('option:selected').data('available');
                 const $row = $(this).closest('tr');
-                $row.find('.item-available').text(avail === undefined || avail === '' ? '-' : Number(avail).toLocaleString('en-IN'));
+                $row.find('.item-available').text(avail === undefined || avail === '' ? '-' : formatQuantity(avail));
                 $row.find('.item-qty').attr('max', avail || '');
             });
             $('#itemsBody').on('click', '.remove-row', function () { $(this).closest('tr').remove(); reindex(); });

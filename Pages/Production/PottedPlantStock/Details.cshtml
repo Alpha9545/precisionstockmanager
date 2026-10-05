@@ -16,10 +16,10 @@
     <div class="card shadow-sm mb-4">
         <div class="card-body">
             <div class="row g-3">
-                <div class="col-md-3"><span class="text-muted small">Physical</span><div class="fs-5 fw-bold">@Model.Stock.PhysicalQuantity.ToString("N2")</div></div>
-                <div class="col-md-3"><span class="text-muted small">Reserved</span><div class="fs-5 fw-bold">@Model.Stock.ReservedQuantity.ToString("N2")</div></div>
-                <div class="col-md-3"><span class="text-muted small">Available</span><div class="fs-5 fw-bold">@Model.Stock.AvailableQuantity.ToString("N2")</div></div>
-                <div class="col-md-3"><span class="text-muted small">Sold/Dispatched (cum.)</span><div class="fs-5 fw-bold">@Model.Stock.SoldDispatchedQuantity.ToString("N2")</div></div>
+                <div class="col-md-3"><span class="text-muted small">Physical</span><div class="fs-5 fw-bold">@Qty(Model.Stock.PhysicalQuantity)</div></div>
+                <div class="col-md-3"><span class="text-muted small">Reserved</span><div class="fs-5 fw-bold">@Qty(Model.Stock.ReservedQuantity)</div></div>
+                <div class="col-md-3"><span class="text-muted small">Available</span><div class="fs-5 fw-bold">@Qty(Model.Stock.AvailableQuantity)</div></div>
+                <div class="col-md-3"><span class="text-muted small">Sold/Dispatched (cum.)</span><div class="fs-5 fw-bold">@Qty(Model.Stock.SoldDispatchedQuantity)</div></div>
             </div>
             <div class="row g-3 mt-1">
                 <div class="col-md-6">
@@ -81,9 +81,9 @@
                                 @("-")
                             }
                         </td>
-                        <td class="@(t.Quantity < 0 ? "text-danger" : "text-success")">@t.Quantity.ToString("N2")</td>
-                        <td>@t.BeforeQuantity.ToString("N2")</td>
-                        <td>@t.AfterQuantity.ToString("N2")</td>
+                        <td class="@(t.Quantity < 0 ? "text-danger" : "text-success")">@Qty(t.Quantity)</td>
+                        <td>@Qty(t.BeforeQuantity)</td>
+                        <td>@Qty(t.AfterQuantity)</td>
                         <td>@(t.UserName ?? "-")</td>
                         <td>@t.Remarks</td>
                     </tr>

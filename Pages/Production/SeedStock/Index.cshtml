@@ -88,9 +88,9 @@
                     <td>@(string.IsNullOrEmpty(s.BatchNo) ? "-" : s.BatchNo)</td>
                     <td>@(s.SeedSourceName ?? "-")</td>
                     <td>@s.Unit</td>
-                    <td>@s.PhysicalQuantity.ToString("N2")</td>
-                    <td>@s.InTransitQuantity.ToString("N2")</td>
-                    <td>@s.AvailableQuantity.ToString("N2")</td>
+                    <td>@Qty(s.PhysicalQuantity)</td>
+                    <td>@Qty(s.InTransitQuantity)</td>
+                    <td>@Qty(s.AvailableQuantity)</td>
                     <td>
                         <a asp-page="/Production/SeedStock/Details" asp-route-id="@s.Id" class="btn btn-sm btn-outline-secondary">Details</a>
                         <a asp-page="/Production/SeedStock/AddStock" asp-route-id="@s.Id" class="btn btn-sm btn-outline-success">Add Stock</a>
@@ -105,9 +105,9 @@
         <tfoot>
             <tr class="fw-bold">
                 <td colspan="7" class="text-end">Totals</td>
-                <td>@Model.TotalPhysical.ToString("N2")</td>
+                <td>@Qty(Model.TotalPhysical)</td>
                 <td></td>
-                <td>@Model.TotalAvailable.ToString("N2")</td>
+                <td>@Qty(Model.TotalAvailable)</td>
                 <td></td>
             </tr>
         </tfoot>

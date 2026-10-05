@@ -31,8 +31,8 @@
                     <tr><th>Variety</th><td>@b.SpeciesName?.Trim() (@b.PlantTypeName)</td></tr>
                     <tr><th>Cavity</th><td>@b.CavityType</td></tr>
                     <tr><th>From Area</th><td>@b.AreaName</td></tr>
-                    <tr><th>Ready trays</th><td class="fw-bold">@b.Quantity.ToString("N0")</td></tr>
-                    <tr><th>Reserved / Dispatched</th><td>@b.ReservedQuantity.ToString("N0") / @b.DispatchedQuantity.ToString("N0")</td></tr>
+                    <tr><th>Ready trays</th><td class="fw-bold">@Qty(b.Quantity)</td></tr>
+                    <tr><th>Reserved / Dispatched</th><td>@Qty(b.ReservedQuantity) / @Qty(b.DispatchedQuantity)</td></tr>
                 </tbody>
             </table>
             </div>
@@ -89,7 +89,7 @@
                     <div class="row g-3">
                         <div class="col-md-4">
                             <label class="form-label fw-bold">Trays to send</label>
-                            <input type="number" asp-for="Quantity" class="form-control" readonly />
+                            <input type="number" asp-for="Quantity" asp-format="{0:0.##}" class="form-control" readonly />
                             <div class="form-text">Always the whole batch.</div>
                         </div>
                         <div class="col-md-8">

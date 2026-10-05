@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -262,8 +263,14 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             {
                 var seedStockId = await GetOrCreateLockedAsync(conn, tx, speciesId, areaId, batchNo ?? string.Empty, seedSourceId, createdBy, unit);
 
+                // receivedOn is the employee's local business time (the form's
+                // datetime-local input); TransactionDate is stored in UTC like
+                // every other ledger writer (DateTime.UtcNow / SYSUTCDATETIME()),
+                // and pages convert it back with ToLocalTime() for display.
+                var transactionDateUtc = receivedOn.Kind == DateTimeKind.Utc ? receivedOn : receivedOn.ToUniversalTime();
+
                 var (success, message) = await RecordTransactionAsync(
-                    conn, tx, seedStockId, quantity, "StockIn", "SeedStock", seedStockId, userId, notes, receivedOn);
+                    conn, tx, seedStockId, quantity, "StockIn", "SeedStock", seedStockId, userId, notes, transactionDateUtc);
                 if (!success)
                 {
                     tx.Rollback();
@@ -302,7 +309,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             var before = (decimal)beforeObj;
             var after = before + quantityDelta;
             if (after < 0)
-                return (false, $"This movement would take Physical Quantity negative (current {before:N2}, change {quantityDelta:N2}).");
+                return (false, $"This movement would take Physical Quantity negative (current {QuantityFormat.Qty(before)}, change {QuantityFormat.Qty(quantityDelta)}).");
 
             var updateCmd = new SqlCommand(
                 "UPDATE dbo.SeedStock SET PhysicalQuantity = @After, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id",
@@ -366,7 +373,7 @@ VALUES
 
             var availableToIssue = physical - inTransit;
             if (quantity > availableToIssue)
-                return (false, $"Insufficient available Seed Stock to issue (available {availableToIssue:N2}, requested {quantity:N2}).", 0, 0, string.Empty, null);
+                return (false, $"Insufficient available Seed Stock to issue (available {QuantityFormat.Qty(availableToIssue)}, requested {QuantityFormat.Qty(quantity)}).", 0, 0, string.Empty, null);
 
             var updateCmd = new SqlCommand(
                 "UPDATE dbo.SeedStock SET InTransitQuantity = InTransitQuantity + @Quantity, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id",
@@ -402,7 +409,7 @@ VALUES
 
             var inTransit = (decimal)inTransitObj;
             if (quantity > inTransit)
-                return (false, $"Cannot release {quantity:N2} -- only {inTransit:N2} is currently in transit for this pool.");
+                return (false, $"Cannot release {QuantityFormat.Qty(quantity)} -- only {QuantityFormat.Qty(inTransit)} is currently in transit for this pool.");
 
             var updateCmd = new SqlCommand(
                 "UPDATE dbo.SeedStock SET InTransitQuantity = InTransitQuantity - @Quantity, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id",

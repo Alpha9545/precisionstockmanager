@@ -47,9 +47,9 @@
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Growing Area <span class="text-muted fw-normal">(optional)</span></label>
-                        <select asp-for="SeedSowing.AreaId" id="areaSelect" class="form-select">
-                            <option value="">-- Seed lot's Area (Main Office) --</option>
+                        <label class="form-label fw-bold">Growing Area</label>
+                        <select asp-for="SeedSowing.AreaId" id="areaSelect" class="form-select" required>
+                            <option value="">-- Select Area --</option>
                             @foreach (var a in Model.Areas)
                             {
                                 <option value="@a.Id">@a.Name</option>
@@ -58,10 +58,10 @@
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Polyhouse <span class="text-muted fw-normal">(optional)</span></label>
-                        <select asp-for="SeedSowing.PolyhouseId" id="polyhouseSelect" class="form-select"
+                        <label class="form-label fw-bold">Polyhouse</label>
+                        <select asp-for="SeedSowing.PolyhouseId" id="polyhouseSelect" class="form-select" required
                                 data-selected="@Model.SeedSowing.PolyhouseId">
-                            <option value="">-- No Polyhouse --</option>
+                            <option value="">-- Select Area first --</option>
                         </select>
                     </div>
 
@@ -106,7 +106,7 @@
 
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Seed Quantity</label>
-                        <input type="number" step="1" min="1" asp-for="SeedSowing.SeedQuantity" id="quantityInput" class="form-control" required />
+                        <input type="number" step="1" min="1" asp-for="SeedSowing.SeedQuantity" asp-format="{0:0.##}" id="quantityInput" class="form-control" required />
                         <div class="text-danger small d-none" id="quantityWarning">Quantity exceeds the available seed stock.</div>
                     </div>
 
@@ -195,9 +195,10 @@
             function loadPolyhouses() {
                 const areaId = $('#areaSelect').val();
                 const $ph = $('#polyhouseSelect');
-                // Polyhouse is optional: the Area's Polyhouses plus those with no Area yet.
-                $.getJSON(handlerUrl, { handler: 'Polyhouses', areaId: areaId || 0 }, function (list) {
-                    fill($ph, list, '-- No Polyhouse --', x => x.name);
+                // Polyhouse is required: only the chosen Area's Polyhouses (its trays come from that Polyhouse).
+                if (!areaId) { fill($ph, [], '-- Select Area first --', x => x.name); return; }
+                $.getJSON(handlerUrl, { handler: 'Polyhouses', areaId: areaId }, function (list) {
+                    fill($ph, list, list.length ? '-- Select Polyhouse --' : '-- No Polyhouse in this Area --', x => x.name);
                 });
             }
 
@@ -231,7 +232,7 @@
                 if (!speciesId) { fill($lot, [], '-- Select Variety first --', x => x.lot); onLotChange(); return; }
                 $.getJSON(handlerUrl, { handler: 'SeedLots', speciesId: speciesId }, function (list) {
                     fill($lot, list, list.length ? '-- Select Seed Lot --' : '-- No Main Office stock for this variety --',
-                        x => x.lot + ' - ' + (x.source || 'unknown source') + ' @@ ' + x.area + ' (available: ' + Number(x.available).toFixed(2) + ' ' + x.unit + ')',
+                        x => x.lot + ' - ' + (x.source || 'unknown source') + ' @@ ' + x.area + ' (available: ' + formatQuantity(x.available) + ' ' + x.unit + ')',
                         ($o, x) => $o.attr('data-available', x.available));
                     onLotChange();
                 });
@@ -240,7 +241,7 @@
             function onLotChange() {
                 const a = parseFloat($('#seedLotSelect option:selected').attr('data-available'));
                 available = isNaN(a) ? null : a;
-                $('#availablePreview').val(available === null ? '' : available.toFixed(2));
+                $('#availablePreview').val(available === null ? '' : formatQuantity(available));
                 checkQuantity();
             }
 
@@ -304,7 +305,7 @@
                         }
                         list.forEach(function (x) {
                             const $a = $('<button type="button" class="list-group-item list-group-item-action">')
-                                .text(x.variety + ' (' + x.crop + ') - lot ' + x.lot + ' - ' + (x.source || 'unknown source') + ' - available ' + Number(x.available).toLocaleString('en-IN'));
+                                .text(x.variety + ' (' + x.crop + ') - lot ' + x.lot + ' - ' + (x.source || 'unknown source') + ' - available ' + formatQuantity(x.available));
                             $a.on('click', function () {
                                 $('#plantTypeSelect').val(x.plantTypeId);
                                 $('#varietySelect').data('selected', String(x.speciesId));

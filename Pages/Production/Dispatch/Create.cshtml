@@ -48,7 +48,7 @@
                                         data-stock-reserved="@(b.StockReservedQuantity?.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))"
                                         data-stock-available="@(b.StockAvailableQuantity?.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))"
                                         data-status="@b.Status">
-                                    @b.BookingCode &mdash; @b.CustomerName &mdash; @b.SpeciesName / @b.PotSize (Remaining @b.RemainingQuantity.ToString("N0") of @b.Quantity.ToString("N0"))
+                                    @b.BookingCode &mdash; @b.CustomerName &mdash; @b.SpeciesName / @b.PotSize (Remaining @Qty(b.RemainingQuantity) of @Qty(b.Quantity))
                                 </option>
                             }
                         </select>
@@ -87,7 +87,7 @@
 
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Quantity to Dispatch Now</label>
-                        <input type="number" step="1" min="1" asp-for="Dispatch.Quantity" id="quantityInput" class="form-control" required />
+                        <input type="number" step="1" min="1" asp-for="Dispatch.Quantity" asp-format="{0:0.##}" id="quantityInput" class="form-control" required />
                         <input type="hidden" asp-for="ExpectedDispatched" id="expectedDispatched" />
                         <div class="form-text">Whole plants. Defaults to the full remaining quantity; reduce it for a partial dispatch. It cannot be more than the remaining quantity.</div>
                         <div class="text-danger small d-none" id="qtyError"></div>
@@ -121,7 +121,7 @@
 @section Scripts {
     <script>
         $(function () {
-            const fmt = n => (n === '' || n === undefined || n === null || isNaN(Number(n))) ? '-' : Number(n).toLocaleString('en-IN');
+            const fmt = n => (n === '' || n === undefined || n === null || isNaN(Number(n))) ? '-' : formatQuantity(n);
             // Advisory only: the server applies every rule again, under the Booking's lock.
             function showAfter() {
                 const opt = $('#bookingSelect').find('option:selected');

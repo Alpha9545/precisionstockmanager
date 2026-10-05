@@ -77,7 +77,7 @@ namespace PlantStockManager.Pages.Production.OutletPurchase
                 await LoadAsync();
                 return Page();
             }
-            TempData["Success"] = $"Purchase {entry.PurchaseCode}: {Quantity:N0} pots added to Outlet stock.";
+            TempData["Success"] = $"Purchase {entry.PurchaseCode}: {QuantityFormat.Qty(Quantity)} pots added to Outlet stock.";
             return RedirectToPage();
         }
 

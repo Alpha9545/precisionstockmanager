@@ -1,0 +1,121 @@
+@page
+@model PlantStockManager.Pages.Production.TrayStock.AddModel
+@{
+    ViewData["Title"] = "Add Tray Stock";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 700px;">
+        <div class="card-header">
+            <h4 class="mb-0">Add Tray Stock</h4>
+            <small class="text-muted">Add empty trays to a Polyhouse. Sowing into that Polyhouse uses trays of the same Cavity.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (!Model.Areas.Any())
+            {
+                <div class="alert alert-warning">You are not assigned to any Area. Ask an administrator to assign your Area.</div>
+            }
+
+            <form method="post" id="addTrayForm">
+                <input type="hidden" asp-for="SubmissionToken" />
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Area</label>
+                        <select asp-for="AreaId" id="areaSelect" class="form-select" required>
+                            <option value="">-- Select Area --</option>
+                            @foreach (var a in Model.Areas)
+                            {
+                                <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Polyhouse</label>
+                        <select asp-for="PolyhouseId" id="polyhouseSelect" class="form-select" required>
+                            <option value="">@(Model.AreaId > 0 ? (Model.Polyhouses.Any() ? "-- Select Polyhouse --" : "-- No Polyhouse in this Area --") : "-- Select Area first --")</option>
+                            @foreach (var p in Model.Polyhouses)
+                            {
+                                <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Cavity</label>
+                        <select asp-for="TraySize" class="form-select" required>
+                            <option value="">-- Select Cavity --</option>
+                            @foreach (var t in Model.TraySizes)
+                            {
+                                <option value="@t" selected="@(Model.TraySize == t)">@t</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Tray Quantity</label>
+                        <input type="number" step="1" min="1" asp-for="Quantity" asp-format="{0:0}" class="form-control" placeholder="e.g. 100" required />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">Date / Time</label>
+                        <input type="datetime-local" asp-for="TransactionDate" asp-format="{0:yyyy-MM-ddTHH:mm}" class="form-control" required />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Remark <span class="text-muted">(optional)</span></label>
+                        <textarea asp-for="Remarks" class="form-control" rows="2" maxlength="500" placeholder="e.g. New trays received"></textarea>
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/TrayStock/Index" class="btn btn-secondary me-2">Back</a>
+                    <button type="submit" class="btn btn-success" id="addTrayBtn">Add Tray Stock</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const area = document.getElementById('areaSelect');
+            const polyhouse = document.getElementById('polyhouseSelect');
+            const handlerUrl = '@Url.Page("/Production/TrayStock/Add")';
+
+            function setOptions(list, placeholder) {
+                polyhouse.innerHTML = '';
+                const first = document.createElement('option');
+                first.value = ''; first.textContent = placeholder;
+                polyhouse.appendChild(first);
+                list.forEach(function (p) {
+                    const o = document.createElement('option');
+                    o.value = p.id; o.textContent = p.name;
+                    polyhouse.appendChild(o);
+                });
+            }
+
+            // Polyhouse depends on Area: only that Area's Polyhouses (the server re-checks on save).
+            area.addEventListener('change', function () {
+                if (!area.value) { setOptions([], '-- Select Area first --'); return; }
+                setOptions([], 'Loading...');
+                fetch(handlerUrl + '?handler=Polyhouses&areaId=' + encodeURIComponent(area.value))
+                    .then(function (r) { return r.json(); })
+                    .then(function (list) { setOptions(list, list.length ? '-- Select Polyhouse --' : '-- No Polyhouse in this Area --'); })
+                    .catch(function () { setOptions([], '-- Could not load Polyhouses --'); });
+            });
+
+            // Double-click guard; the one-time SubmissionToken is the server-side guard.
+            document.getElementById('addTrayForm').addEventListener('submit', function () {
+                const btn = document.getElementById('addTrayBtn');
+                setTimeout(function () { btn.disabled = true; btn.textContent = 'Saving...'; }, 0);
+            });
+        })();
+    </script>
+}

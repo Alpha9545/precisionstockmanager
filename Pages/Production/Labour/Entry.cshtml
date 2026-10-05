@@ -1,0 +1,248 @@
+@page
+@model PlantStockManager.Pages.Production.Labour.EntryModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = Model.IsEdit ? "Edit Daily Labour" : "Daily Labour Entry";
+    var max = DailyLabourRules.MaxCount;
+}
+
+<style>
+    .labour-group { border: 1px solid #dee2e6; border-radius: .5rem; padding: .75rem; height: 100%; }
+    .labour-group h6 { margin-bottom: .5rem; font-weight: 700; }
+    .labour-count { font-size: 1.15rem; text-align: center; }
+    .labour-totals { background: #f1f8f4; border: 1px solid #b7dfc6; border-radius: .5rem; }
+    .labour-totals .cell { padding: .4rem .25rem; }
+    .labour-totals .value { font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
+    .labour-totals .value.small-value { font-size: 1.2rem; }
+</style>
+
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm mx-auto" style="max-width: 640px;">
+        <div class="card-header">
+            <h4 class="mb-0">@ViewData["Title"]</h4>
+            <small class="text-muted">Daily labour headcount only -- no worker names.</small>
+        </div>
+        <div class="card-body">
+            @if (ViewData["Info"] != null)
+            {
+                <div class="alert alert-info" id="labourInfo">@ViewData["Info"]</div>
+            }
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger" id="labourErrors">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (!Model.IsEdit && !Model.Areas.Any())
+            {
+                <div class="alert alert-warning">You are not assigned to any Area. Ask an administrator to assign your Area.</div>
+            }
+
+            <form method="post" id="labourForm" novalidate>
+                @if (Model.IsEdit)
+                {
+                    <input type="hidden" asp-for="Id" />
+                    <dl class="row mb-3">
+                        <dt class="col-5 col-sm-4">Date</dt><dd class="col-7 col-sm-8">@Model.Existing!.LabourDate.ToString("dd/MM/yyyy")</dd>
+                        <dt class="col-5 col-sm-4">Area</dt><dd class="col-7 col-sm-8">@Model.Existing.AreaName</dd>
+                        <dt class="col-5 col-sm-4">Polyhouse</dt><dd class="col-7 col-sm-8">@(Model.Existing.PolyhouseId.HasValue ? Model.Existing.PolyhouseName : "—")</dd>
+                    </dl>
+                }
+                else
+                {
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label fw-bold" for="labourDate">Date</label>
+                            <input type="date" asp-for="LabourDate" id="labourDate" asp-format="{0:yyyy-MM-dd}" max="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" required />
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label fw-bold" for="areaSelect">Area</label>
+                            <select asp-for="AreaId" id="areaSelect" class="form-select" required>
+                                <option value="">-- Select Area --</option>
+                                @foreach (var a in Model.Areas)
+                                {
+                                    <option value="@a.Id" data-main-office="@(DailyLabourRules.RequiresPolyhouse(a.AreaType) ? "1" : "0")" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-12" id="polyhouseGroup" style="@(Model.SelectedAreaIsMainOffice ? "" : "display:none")">
+                            <label class="form-label fw-bold" for="polyhouseSelect">Polyhouse</label>
+                            <select asp-for="PolyhouseId" id="polyhouseSelect" class="form-select" disabled="@(!Model.SelectedAreaIsMainOffice)">
+                                <option value="">@(Model.Polyhouses.Any() ? "-- Select Polyhouse --" : "-- No Polyhouse in this Area --")</option>
+                                @foreach (var p in Model.Polyhouses)
+                                {
+                                    <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                                }
+                            </select>
+                            <div class="form-text">Main Office labour is recorded per Polyhouse.</div>
+                        </div>
+                    </div>
+                    <div class="alert alert-info py-2 d-none" id="existingNotice"></div>
+                }
+
+                <div class="row g-3">
+                    <div class="col-12 col-sm-6">
+                        <div class="labour-group">
+                            <h6>Male</h6>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label small mb-1" for="maleFull">Full Day</label>
+                                    <input type="number" inputmode="numeric" step="1" min="0" max="@max" asp-for="MaleFullDay" id="maleFull" class="form-control labour-count" placeholder="0" required />
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small mb-1" for="maleHalf">Half Day</label>
+                                    <input type="number" inputmode="numeric" step="1" min="0" max="@max" asp-for="MaleHalfDay" id="maleHalf" class="form-control labour-count" placeholder="0" required />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <div class="labour-group">
+                            <h6>Female</h6>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label small mb-1" for="femaleFull">Full Day</label>
+                                    <input type="number" inputmode="numeric" step="1" min="0" max="@max" asp-for="FemaleFullDay" id="femaleFull" class="form-control labour-count" placeholder="0" required />
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small mb-1" for="femaleHalf">Half Day</label>
+                                    <input type="number" inputmode="numeric" step="1" min="0" max="@max" asp-for="FemaleHalfDay" id="femaleHalf" class="form-control labour-count" placeholder="0" required />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="labour-totals row g-0 text-center mt-3 py-1">
+                    <div class="col-6 col-sm-3 cell">
+                        <div class="small text-muted">Total Male</div>
+                        <div class="value small-value" id="totalMale">0</div>
+                    </div>
+                    <div class="col-6 col-sm-3 cell">
+                        <div class="small text-muted">Total Female</div>
+                        <div class="value small-value" id="totalFemale">0</div>
+                    </div>
+                    <div class="col-6 col-sm-3 cell">
+                        <div class="small text-muted">Total Workers</div>
+                        <div class="value" id="totalWorkers">0</div>
+                    </div>
+                    <div class="col-6 col-sm-3 cell">
+                        <div class="small text-muted">Total Labour Days</div>
+                        <div class="value" id="labourDays">0</div>
+                    </div>
+                    <div class="col-12 small text-muted pb-1">Half day = 0.5 labour day</div>
+                </div>
+
+                <div class="mt-3">
+                    <label class="form-label" for="remarks">Remark <span class="text-muted">(optional)</span></label>
+                    <textarea asp-for="Remarks" id="remarks" class="form-control" rows="2" maxlength="@DailyLabourRules.MaxRemarksLength" placeholder="e.g. Weeding in Facility-5"></textarea>
+                </div>
+
+                <div class="d-flex flex-column flex-sm-row justify-content-center gap-2 mt-4">
+                    <button type="submit" class="btn btn-success btn-lg" id="saveLabourBtn">Save Labour Entry</button>
+                    <a asp-page="/Production/Labour/Index" class="btn btn-outline-secondary btn-lg">Labour Records</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const ids = ['maleFull', 'maleHalf', 'femaleFull', 'femaleHalf'];
+            const inputs = ids.map(function (id) { return document.getElementById(id); });
+
+            // Live totals. A value that is not a whole number 0..max shows "—".
+            function count(input) {
+                const v = input.value.trim();
+                if (v === '') return 0;
+                return /^\d+$/.test(v) && Number(v) <= @max ? Number(v) : NaN;
+            }
+            function fmt(n) { return isNaN(n) ? '—' : (Math.round(n * 10) / 10).toString(); }
+            function recalc() {
+                const c = inputs.map(count);
+                const male = c[0] + c[1], female = c[2] + c[3];
+                document.getElementById('totalMale').textContent = fmt(male);
+                document.getElementById('totalFemale').textContent = fmt(female);
+                document.getElementById('totalWorkers').textContent = fmt(male + female);
+                document.getElementById('labourDays').textContent = fmt(c[0] + c[2] + (c[1] + c[3]) * 0.5);
+            }
+            inputs.forEach(function (i) { i.addEventListener('input', recalc); });
+            recalc();
+
+            document.getElementById('labourForm').addEventListener('submit', function () {
+                const btn = document.getElementById('saveLabourBtn');
+                setTimeout(function () { btn.disabled = true; btn.textContent = 'Saving...'; }, 0);
+            });
+
+            const area = document.getElementById('areaSelect');
+            if (!area) return;   // edit mode: date and location are fixed
+            const date = document.getElementById('labourDate');
+            const group = document.getElementById('polyhouseGroup');
+            const polyhouse = document.getElementById('polyhouseSelect');
+            const notice = document.getElementById('existingNotice');
+            const pageUrl = '@Url.Page("/Production/Labour/Entry")';
+
+            function isMainOffice() {
+                const o = area.options[area.selectedIndex];
+                return !!o && o.dataset.mainOffice === '1';
+            }
+            function setOptions(list, placeholder) {
+                polyhouse.innerHTML = '';
+                const first = document.createElement('option');
+                first.value = ''; first.textContent = placeholder;
+                polyhouse.appendChild(first);
+                list.forEach(function (p) {
+                    const o = document.createElement('option');
+                    o.value = p.id; o.textContent = p.name;
+                    polyhouse.appendChild(o);
+                });
+            }
+
+            // If this date + location already has a record, open it for editing.
+            function findExisting() {
+                notice.classList.add('d-none');
+                if (!date.value || !area.value) return;
+                if (isMainOffice() && !polyhouse.value) return;
+                let url = pageUrl + '?handler=Find&date=' + encodeURIComponent(date.value) + '&areaId=' + encodeURIComponent(area.value);
+                if (isMainOffice()) url += '&polyhouseId=' + encodeURIComponent(polyhouse.value);
+                fetch(url).then(function (r) { return r.json(); }).then(function (res) {
+                    if (res && res.id) {
+                        notice.textContent = 'Labour record already exists for this date and location. Opening it for editing...';
+                        notice.classList.remove('d-none');
+                        window.location.href = pageUrl + '?id=' + res.id + '&loaded=true';
+                    }
+                }).catch(function () { });
+            }
+
+            // Polyhouse only for Main Office Areas (the server enforces the same rule).
+            area.addEventListener('change', function () {
+                if (!isMainOffice()) {
+                    group.style.display = 'none';
+                    polyhouse.disabled = true;
+                    polyhouse.required = false;
+                    setOptions([], '-- Select Polyhouse --');
+                    findExisting();
+                    return;
+                }
+                group.style.display = '';
+                polyhouse.disabled = false;
+                polyhouse.required = true;
+                setOptions([], 'Loading...');
+                fetch(pageUrl + '?handler=Polyhouses&areaId=' + encodeURIComponent(area.value))
+                    .then(function (r) { return r.json(); })
+                    .then(function (list) { setOptions(list, list.length ? '-- Select Polyhouse --' : '-- No Polyhouse in this Area --'); })
+                    .catch(function () { setOptions([], '-- Could not load Polyhouses --'); });
+            });
+            polyhouse.required = isMainOffice();
+            polyhouse.addEventListener('change', findExisting);
+            date.addEventListener('change', findExisting);
+        })();
+    </script>
+}

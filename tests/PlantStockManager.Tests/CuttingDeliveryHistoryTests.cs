@@ -221,7 +221,7 @@ namespace PlantStockManager.Tests
             Assert.Contains("Not recorded", view);
             Assert.Contains("A cutting delivery does not record a Polyhouse at the destination", view);   // never invented
             Assert.Contains("record@(Model.Rows.Count == 1 ? \"\" : \"s\") found", view);
-            Assert.Contains("total <strong>@Model.TotalQuantity.ToString(\"N0\")</strong> cuttings", view);
+            Assert.Contains("total <strong>@Qty(Model.TotalQuantity)</strong> cuttings", view);
             Assert.Contains("No records match the selected filters.", view);
             foreach (var name in new[] { "From", "To", "SourceAreaId", "SourcePolyhouseId", "MotherPlantId", "SupervisorId", "Destination", "DestinationAreaId", "DeliveryStatus", "EnteredBy", "ReceivedById" })
                 Assert.Contains($"name=\"{name}\"", view);

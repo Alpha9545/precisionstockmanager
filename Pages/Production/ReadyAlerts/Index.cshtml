@@ -61,7 +61,7 @@
                         <td>@sw.AreaName</td>
                         <td>@(sw.PolyhouseName ?? "-")</td>
                         <td>@sw.CavityType</td>
-                        <td>@sw.QuantitySown.ToString("N2")</td>
+                        <td>@Qty(sw.QuantitySown)</td>
                         <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
                         <td>@(sw.ReadyStockDays?.ToString() ?? "-")</td>
                         <td>@sw.ExpectedReadyDate?.ToString("dd/MM/yyyy")</td>
@@ -107,7 +107,7 @@
                         <td>@sw.AreaName</td>
                         <td>@(sw.PolyhouseName ?? "-")</td>
                         <td>@sw.CavityType</td>
-                        <td>@sw.QuantitySown.ToString("N2")</td>
+                        <td>@Qty(sw.QuantitySown)</td>
                         <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
                         <td>@(sw.ReadyStockDays?.ToString() ?? "-")</td>
                         <td>@sw.ExpectedReadyDate?.ToString("dd/MM/yyyy")</td>
@@ -153,7 +153,7 @@
                         <td>@sw.AreaName</td>
                         <td>@(sw.PolyhouseName ?? "-")</td>
                         <td>@sw.CavityType</td>
-                        <td>@sw.QuantitySown.ToString("N2")</td>
+                        <td>@Qty(sw.QuantitySown)</td>
                         <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
                         <td>@(sw.ReadyStockDays?.ToString() ?? "-")</td>
                         <td>@sw.ExpectedReadyDate?.ToString("dd/MM/yyyy")</td>
