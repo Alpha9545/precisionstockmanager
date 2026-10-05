@@ -44,7 +44,7 @@ namespace PlantStockManager.Pages.Bookings
         public async Task<IActionResult> OnGetAsync()
         {
             Booking = await _repo.GetBookingAsync(Id);
-            if (Booking == null || !_ownership.CanAccessBooking(User, Booking.BookedById))
+            if (Booking == null || !_ownership.CanAccessBooking(User, Booking.OrderBookedById))
             {
                 TempData["Error"] = BookingOwnershipService.NotFoundMessage;
                 return RedirectToPage("/Bookings/Fulfilment");

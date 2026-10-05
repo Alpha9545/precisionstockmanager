@@ -10,7 +10,7 @@
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <h3 class="mb-0">Seedling Dispatch &mdash; Booking #@b.Id</h3>
+        <h3 class="mb-0">Seedling Dispatch &mdash; @b.LineLabel <span class="text-muted small fw-normal" title="Booking line reference">Ref @b.Id</span></h3>
         <a asp-page="/Bookings/BookingDetails" asp-route-id="@b.Id" class="btn btn-outline-secondary">Booking details &amp; history</a>
     </div>
 

@@ -487,6 +487,17 @@ namespace PlantStockManager.Tests
         }
 
         private static int[] Ids(IEnumerable<Booking> l) => l.Select(b => b.Id).OrderBy(i => i).ToArray();
+
+        // Ownership is per ORDER (its first line's BookedById): every line shown to a restricted user
+        // must belong to one of their own orders.
+        private static async Task AssertOrdersOwnedByAsync(Env env, IEnumerable<int> lineIds, int user)
+        {
+            var ids = lineIds.ToList();
+            if (ids.Count == 0) return;
+            Assert.Equal(0, await env.ScalarAsync<int>($@"SELECT COUNT(*) FROM dbo.Bookings b
+                INNER JOIN dbo.Bookings ord ON ord.Id = ISNULL(b.OrderBookingId, b.Id)
+                WHERE b.Id IN ({string.Join(",", ids)}) AND ISNULL(ord.BookedById, 0) <> @U", ("@U", user)));
+        }
         private static int[] Ids(IEnumerable<SeedlingBookingSummary> l) => l.Select(b => b.Id).OrderBy(i => i).ToArray();
         private static int[] Set(params int[] ids) => ids.OrderBy(i => i).ToArray();
 
@@ -498,14 +509,15 @@ namespace PlantStockManager.Tests
 
             var sandip = await RecordsAsync(env, Sandip);
             Assert.NotEmpty(sandip);
-            Assert.All(sandip, b => Assert.Equal(Sandip, b.BookedById));
+            await AssertOrdersOwnedByAsync(env, sandip.Select(b => b.Id), Sandip);
             Assert.Equal(Set(d.S1, d.S2), Ids(sandip).Intersect(d.All).ToArray());
             // exactly an independent SQL oracle of Sandip's own Pending December bookings
             Assert.Equal(await env.IdsAsync(@"SELECT b.Id FROM dbo.Bookings b INNER JOIN dbo.PlantTypes pt ON b.PlantId = pt.Id INNER JOIN dbo.PlantSpecies ps ON b.SpeciesId = ps.Id
-                WHERE YEAR(b.DeliveryDate) = @Y AND MONTH(b.DeliveryDate) = @M AND b.Status = 'Pending' AND b.BookedById = @U", ("@Y", Year), ("@M", Month), ("@U", Sandip)), Ids(sandip));
+                INNER JOIN dbo.Bookings ord ON ord.Id = ISNULL(b.OrderBookingId, b.Id)
+                WHERE YEAR(b.DeliveryDate) = @Y AND MONTH(b.DeliveryDate) = @M AND b.Status = 'Pending' AND ord.BookedById = @U", ("@Y", Year), ("@M", Month), ("@U", Sandip)), Ids(sandip));
 
             var rahul = await RecordsAsync(env, Rahul);
-            Assert.All(rahul, b => Assert.Equal(Rahul, b.BookedById));
+            await AssertOrdersOwnedByAsync(env, rahul.Select(b => b.Id), Rahul);
             Assert.Equal(Set(d.R1, d.R2), Ids(rahul).Intersect(d.All).ToArray());
 
             foreach (var everyone in new[] { Sarika, Admin })
@@ -529,10 +541,14 @@ namespace PlantStockManager.Tests
             var env = await OpenAsync();
             var d = await SeedBookingsAsync(env);
 
-            Assert.Empty(await RecordsAsync(env, Sandip, "U:15"));                        // forged "Booking By = Rahul"
-            Assert.Empty(await RecordsAsync(env, Sandip, "U:3"));
-            Assert.Empty((await RecordsAsync(env, Sandip, "X:none")).Where(b => b.BookedById != Sandip));
-            Assert.All(await RecordsAsync(env, Sandip, pdf: true), b => Assert.Equal(Sandip, b.BookedById));
+            // a forged "Booking By = Rahul / Sarika / nobody" filter can only narrow Sandip's OWN orders
+            foreach (var forged in new[] { "U:15", "U:3", "X:none" })
+            {
+                var shown = await RecordsAsync(env, Sandip, forged);
+                await AssertOrdersOwnedByAsync(env, shown.Select(b => b.Id), Sandip);
+                Assert.DoesNotContain(shown, b => d.All.Except(new[] { d.S1, d.S2 }).Contains(b.Id));
+            }
+            await AssertOrdersOwnedByAsync(env, (await RecordsAsync(env, Sandip, pdf: true)).Select(b => b.Id), Sandip);
             Assert.Equal(Set(d.S1, d.S2), Ids(await RecordsAsync(env, Sandip, pdf: true)).Intersect(d.All).ToArray());
 
             // Fulfilment search: by customer text and by exact booking Id
@@ -542,7 +558,7 @@ namespace PlantStockManager.Tests
             Assert.Empty(await FulfilmentAsync(env, Rahul, d.S1.ToString()));
             Assert.Equal(Set(d.All), Ids(await FulfilmentAsync(env, Sarika, d.Tag)));
             Assert.Equal(Set(d.All), Ids(await FulfilmentAsync(env, Admin, d.Tag)));
-            Assert.All(await FulfilmentAsync(env, Sandip, null), b => Assert.Equal(Sandip, b.BookedById));   // no filter at all
+            Assert.All(await FulfilmentAsync(env, Sandip, null), b => Assert.Equal(Sandip, b.OrderBookedById));   // no filter at all
 
             // Edit Booking Records list (and its Booked By dropdown) too
             var edit = await env.PageAsync<EditRecordsPage>(Rahul);
@@ -565,10 +581,10 @@ namespace PlantStockManager.Tests
                 await page.OnGetAsync();
                 Assert.True(page.ShowingOwnBookingsOnly);
                 var expected = await env.ScalarAsync<int>(@"SELECT COUNT(*) FROM dbo.SeedlingDispatchLines l INNER JOIN dbo.SeedlingDispatches d ON d.Id = l.SeedlingDispatchId
-                    INNER JOIN dbo.Bookings b ON b.Id = d.BookingId WHERE b.BookedById = @U AND d.DispatchDate BETWEEN @F AND @T", ("@U", user), ("@F", from), ("@T", to));
+                    INNER JOIN dbo.Bookings b ON b.Id = d.BookingId INNER JOIN dbo.Bookings ord ON ord.Id = ISNULL(b.OrderBookingId, b.Id) WHERE ord.BookedById = @U AND d.DispatchDate BETWEEN @F AND @T", ("@U", user), ("@F", from), ("@T", to));
                 Assert.Equal(expected, page.Lines.Count);
                 foreach (var bookingId in page.Lines.Select(l => l.BookingId).Distinct())
-                    Assert.Equal(user, await env.ScalarAsync<int>("SELECT BookedById FROM dbo.Bookings WHERE Id = @I", ("@I", bookingId)));
+                    Assert.Equal(user, await env.ScalarAsync<int>("SELECT ord.BookedById FROM dbo.Bookings b INNER JOIN dbo.Bookings ord ON ord.Id = ISNULL(b.OrderBookingId, b.Id) WHERE b.Id = @I", ("@I", bookingId)));
             }
             var all = await env.PageAsync<RegisterPage>(Sarika);
             all.From = from; all.To = to;
@@ -739,8 +755,8 @@ namespace PlantStockManager.Tests
             foreach (var user in new[] { Sandip, Rahul })
             {
                 var list = await fulfilment.ListBookingsAsync(null, null, null, null, null, user);
-                Assert.All(list, b => Assert.Equal(user, b.BookedById));
-                Assert.Equal(Math.Min(1000, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Bookings WHERE BookedById = @U", ("@U", user))), list.Count);
+                Assert.All(list, b => Assert.Equal(user, b.OrderBookedById));
+                Assert.Equal(Math.Min(1000, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Bookings b INNER JOIN dbo.Bookings ord ON ord.Id = ISNULL(b.OrderBookingId, b.Id) WHERE ord.BookedById = @U", ("@U", user))), list.Count);
             }
             Assert.Equal(Math.Min(1000, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.Bookings")),
                 (await fulfilment.ListBookingsAsync(null, null, null, null, null, null)).Count);

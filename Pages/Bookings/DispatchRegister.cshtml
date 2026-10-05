@@ -32,7 +32,7 @@
                         <td>@l.DispatchDate?.ToString("dd-MM-yyyy")</td>
                         <td>@l.DispatchCode</td>
                         <td>@l.CustomerName</td>
-                        <td><a asp-page="/Bookings/BookingDetails" asp-route-id="@l.BookingId">#@l.BookingId</a></td>
+                        <td><a asp-page="/Bookings/BookingDetails" asp-route-id="@l.BookingId" title="Booking line reference @l.BookingId">@l.LineLabel</a></td>
                         <td>@l.BookedSpeciesName</td>
                         <td>@l.ActualSpeciesName</td>
                         <td>@(l.IsSubstitution ? "Yes – " + l.SubstitutionReason : "No")</td>

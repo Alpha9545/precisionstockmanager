@@ -21,6 +21,9 @@ namespace PlantStockManager.Pages.Data
         public bool ShowingOwnBookingsOnly { get; set; }
 
         public List<Booking> Bookings { get; set; } = new();
+
+        // The variety lines grouped into customer orders (Booking #EffectiveOrderId).
+        public List<BookingOrders.OrderGroup<Booking>> Orders => BookingOrders.Group(Bookings, b => b.EffectiveOrderId, b => b.Id);
         public List<PlantType> PlantTypes { get; set; } = new();
         public List<PlantSpecies> PlantSpecies { get; set; } = new();
 
@@ -132,34 +135,44 @@ namespace PlantStockManager.Pages.Data
                     FontFactory.GetFont(FontFactory.HELVETICA, 10)));
                 document.Add(new Paragraph(" ")); // spacer
 
-                // Table with 6 columns
-                var table = new PdfPTable(8) { WidthPercentage = 100 };
-                table.SetWidths(new float[] { 1.0f, 2.8f, 1.8f, 2.0f, 1.1f, 1.4f, 1.7f, 1.5f }); // tweak as you like
+                // One block per customer order: the order header once, its varieties under it.
+                var orders = Orders;
+                document.Add(new Paragraph($"{orders.Count} booking{(orders.Count == 1 ? "" : "s")}, {Bookings.Count} variety line{(Bookings.Count == 1 ? "" : "s")}",
+                    FontFactory.GetFont(FontFactory.HELVETICA, 9)));
+                document.Add(new Paragraph(" "));
+
+                var table = new PdfPTable(5) { WidthPercentage = 100 };
+                table.SetWidths(new float[] { 3.6f, 1.3f, 1.5f, 1.3f, 1.2f });
+                table.HeaderRows = 1;
 
                 var headerBg = new BaseColor(0, 102, 204);
+                var orderBg = new BaseColor(225, 232, 240);
+                var orderFont = FontFactory.GetFont(FontFactory.HELVETICA_BOLD, 9, BaseColor.BLACK);
 
-                AddCellToHeader(table, "Booking Id", headerFont, headerBg);
-                AddCellToHeader(table, "Customer Name", headerFont, headerBg);
-                AddCellToHeader(table, "Booking Date", headerFont, headerBg);
-                AddCellToHeader(table, "Species", headerFont, headerBg);
+                AddCellToHeader(table, "Variety", headerFont, headerBg);
                 AddCellToHeader(table, "Quantity", headerFont, headerBg);
-                AddCellToHeader(table, "Advance", headerFont, headerBg);
                 AddCellToHeader(table, "Delivery Date", headerFont, headerBg);
-                AddCellToHeader(table, "Mob No", headerFont, headerBg);
+                AddCellToHeader(table, "Status", headerFont, headerBg);
+                AddCellToHeader(table, "Advance", headerFont, headerBg);
 
-
-                foreach (var b in Bookings)
+                foreach (var order in orders)
                 {
-                    AddCellToBody(table, b.Id.ToString(), cellFont);
-                    AddCellToBody(table, b.CustomerName ?? string.Empty, cellFont);
-                    AddCellToBody(table, b.BookingDate.ToString("dd-MMM-yyyy"), cellFont);
-                    AddCellToBody(table, b.SpeciesName ?? string.Empty, cellFont);
-                    AddCellToBody(table, QuantityFormat.Qty(b.Quantity), cellFont);
-                    AddCellToBody(table, (b.AdvanceTakenAmount ?? 0).ToString("0.##"), cellFont);
-                    AddCellToBody(table, b.DeliveryDate.ToString("dd-MMM-yyyy"), cellFont);
-                    AddCellToBody(table, b.Contact.ToString(), cellFont);
+                    var h = order.First;
+                    var more = h.OrderLineCount > order.Lines.Count ? $" (of {h.OrderLineCount} in the booking)" : "";
+                    var header = new PdfPCell(new Phrase(
+                        $"Booking #{order.OrderId}   {h.CustomerName}   Booked {h.BookingDate:dd-MMM-yyyy}   Mob {h.Contact}   " +
+                        $"{order.Lines.Count} variet{(order.Lines.Count == 1 ? "y" : "ies")}{more}   Total {QuantityFormat.Qty(order.Lines.Sum(l => l.Quantity))}", orderFont))
+                    { Colspan = 5, BackgroundColor = orderBg, Padding = 5 };
+                    table.AddCell(header);
 
-
+                    foreach (var b in order.Lines)
+                    {
+                        AddCellToBody(table, $"{b.PlantTypeName} / {b.SpeciesName}", cellFont);
+                        AddCellToBody(table, QuantityFormat.Qty(b.Quantity), cellFont);
+                        AddCellToBody(table, b.DeliveryDate.ToString("dd-MMM-yyyy"), cellFont);
+                        AddCellToBody(table, b.Status ?? string.Empty, cellFont);
+                        AddCellToBody(table, (b.AdvanceTakenAmount ?? 0) > 0 ? (b.AdvanceTakenAmount ?? 0).ToString("0.##") : string.Empty, cellFont);
+                    }
                 }
 
                 document.Add(table);

@@ -549,7 +549,13 @@ WHERE Id = @Id", conn, tx);
 
             var msg = $"Revision {nextRevision} saved.";
             if (released > 0) msg += $" {QuantityFormat.Qty(released)} reserved plants released.";
-            if (splitId.HasValue) msg += $" Added variety booked as booking #{splitId}.";
+            if (splitId.HasValue)
+            {
+                var orderCmd = new SqlCommand("SELECT ISNULL(OrderBookingId, Id) FROM dbo.Bookings WHERE Id = @Id", conn, tx);
+                orderCmd.Parameters.AddWithValue("@Id", splitId.Value);
+                var orderNo = (int)(await orderCmd.ExecuteScalarAsync())!;
+                msg += $" Added variety to Booking #{orderNo}.";
+            }
             if (completes) msg += " The booking is now Completed (fully dispatched).";
             return (true, msg);
         }
@@ -570,17 +576,23 @@ SELECT ISNULL(MAX(RevisionNo), 0) + 1 FROM dbo.BookingRevisions WITH (UPDLOCK, H
             return (int)(await cmd.ExecuteScalarAsync())!;
         }
 
-        // The added variety becomes a new Pending booking for the same
-        // customer, linked through ParentBookingId (same shape as the existing
-        // BookingRepository.InsertBookingAsync, incl. its 'Booking' log row).
+        // The added variety becomes a new Pending variety line of the SAME customer
+        // order (OrderBookingId = the order's Booking Number), still linked to the
+        // revised line through ParentBookingId for the revision history (same shape
+        // as BookingRepository.InsertOrderAsync, incl. its 'Booking' log row). A
+        // single-line order without an order number gets its own Id as one first.
         private static async Task<int> InsertSplitBookingAsync(SqlConnection conn, SqlTransaction tx, int parentId, RevisionRequest req, Actor actor)
         {
+            var root = new SqlCommand("UPDATE dbo.Bookings SET OrderBookingId = Id WHERE Id = @ParentId AND OrderBookingId IS NULL", conn, tx);
+            root.Parameters.AddWithValue("@ParentId", parentId);
+            await root.ExecuteNonQueryAsync();
+
             var cmd = new SqlCommand(@"
 INSERT INTO dbo.Bookings
 (PlantId, SpeciesId, CustomerName, DeliveryDate, Quantity, Status, AddedBy, BookingDate,
- Address, Contact, AdvanceTaken, AdvanceTakenAmount, AdvanceTakenDetails, BookedById, BookedByOther, StateId, DistrictId, ParentBookingId)
+ Address, Contact, AdvanceTaken, AdvanceTakenAmount, AdvanceTakenDetails, BookedById, BookedByOther, StateId, DistrictId, ParentBookingId, OrderBookingId)
 SELECT @PlantId, @SpeciesId, p.CustomerName, COALESCE(@DeliveryDate, p.DeliveryDate), @Quantity, 'Pending', @AddedBy, GETDATE(),
-       p.Address, p.Contact, 0, NULL, NULL, p.BookedById, p.BookedByOther, p.StateId, p.DistrictId, p.Id
+       p.Address, p.Contact, 0, NULL, NULL, p.BookedById, p.BookedByOther, p.StateId, p.DistrictId, p.Id, p.OrderBookingId
 FROM dbo.Bookings p WHERE p.Id = @ParentId;
 SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             cmd.Parameters.AddWithValue("@PlantId", req.SplitPlantId!.Value);
@@ -710,11 +722,13 @@ WHERE Id = @Id", conn, tx);
         private const string SummarySelect = @"
 SELECT b.Id, b.PlantId, b.SpeciesId, pt.Name AS PlantTypeName, ps.Name AS SpeciesName, b.Quantity, ISNULL(b.Status, 'Pending') AS Status,
        b.CustomerName, b.Contact, b.Address, b.BookingDate, b.DeliveryDate, b.ActualDeliveryDate, b.AddedBy, b.BookedById,
+       b.OrderBookingId, ISNULL(b.OrderBookingId, b.Id) AS OrderId, ord.BookedById AS OrderBookedById,
        b.ReservedQuantity, b.DispatchedQuantity, b.FulfilmentSource, b.RevisionNo, b.ParentBookingId,
        b.CancelledDate, cu.Name AS CancelledByName, b.CancellationReason, b.ModifiedDate, b.ModifiedBy,
        ISNULL(leg.Qty, 0) AS LegacyQty,
        CAST(CASE WHEN EXISTS (SELECT 1 FROM dbo.BookingBatchAllocations a WHERE a.BookingId = b.Id) THEN 1 ELSE 0 END AS BIT) AS HadReservations
 FROM dbo.Bookings b
+LEFT JOIN dbo.Bookings ord ON ord.Id = ISNULL(b.OrderBookingId, b.Id)
 LEFT JOIN dbo.PlantTypes pt ON pt.Id = b.PlantId
 LEFT JOIN dbo.PlantSpecies ps ON ps.Id = b.SpeciesId
 LEFT JOIN dbo.IMSUsers cu ON cu.Id = b.CancelledById
@@ -735,6 +749,9 @@ OUTER APPLY (SELECT SUM(CAST(it.QuantityUtilized AS DECIMAL(18,2))) AS Qty FROM 
                 Quantity = r.GetInt32(r.GetOrdinal("Quantity")),
                 Status = r.GetString(r.GetOrdinal("Status")),
                 BookedById = r.IsDBNull(r.GetOrdinal("BookedById")) ? null : r.GetInt32(r.GetOrdinal("BookedById")),
+                OrderBookingId = r.IsDBNull(r.GetOrdinal("OrderBookingId")) ? null : r.GetInt32(r.GetOrdinal("OrderBookingId")),
+                OrderId = r.GetInt32(r.GetOrdinal("OrderId")),
+                OrderBookedById = r.IsDBNull(r.GetOrdinal("OrderBookedById")) ? null : r.GetInt32(r.GetOrdinal("OrderBookedById")),
                 CustomerName = S("CustomerName"), Contact = S("Contact"), Address = S("Address"),
                 BookingDate = D("BookingDate"), DeliveryDate = D("DeliveryDate"), ActualDeliveryDate = D("ActualDeliveryDate"),
                 AddedBy = S("AddedBy"),
@@ -760,20 +777,40 @@ OUTER APPLY (SELECT SUM(CAST(it.QuantityUtilized AS DECIMAL(18,2))) AS Qty FROM 
             return await r.ReadAsync() ? MapSummary(r) : null;
         }
 
-        // The booking's owner (BookedById) for the "own bookings only" check, read
-        // straight from dbo.Bookings -- never from the posted form.
+        // The owner of the ORDER this booking line belongs to (the order's first line
+        // BookedById) for the "own bookings only" check, read straight from
+        // dbo.Bookings -- never from the posted form.
         public async Task<(bool Exists, int? BookedById)> GetBookingOwnerAsync(int bookingId)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            var cmd = new SqlCommand("SELECT BookedById FROM dbo.Bookings WHERE Id = @Id", conn);
+            var cmd = new SqlCommand(@"
+SELECT ord.BookedById FROM dbo.Bookings b
+INNER JOIN dbo.Bookings ord ON ord.Id = ISNULL(b.OrderBookingId, b.Id)
+WHERE b.Id = @Id", conn);
             cmd.Parameters.AddWithValue("@Id", bookingId);
             using var r = await cmd.ExecuteReaderAsync();
             if (!await r.ReadAsync()) return (false, null);
             return (true, r.IsDBNull(0) ? null : r.GetInt32(0));
         }
 
+        // Every variety line of one customer order (Booking Number = orderId), by line Id.
+        public async Task<List<SeedlingBookingSummary>> GetOrderLinesAsync(int orderId)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            var cmd = new SqlCommand(SummarySelect + " WHERE b.Id = @O OR b.OrderBookingId = @O ORDER BY b.Id", conn);
+            cmd.Parameters.AddWithValue("@O", orderId);
+            var list = new List<SeedlingBookingSummary>();
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) list.Add(MapSummary(r));
+            // a line that points at another order is never part of this one
+            return list.Where(l => l.OrderId == orderId).ToList();
+        }
+
         // Booking fulfilment report. Filters are optional; at most 1000 rows.
+        // One row per variety line; the page groups them into orders (OrderId).
+        // A typed booking number matches the line itself and every line of that order.
         // ownerUserId (BookingOwnershipService.OwnerFilter): only that user's bookings (BookedById); null = everyone's.
         public async Task<List<SeedlingBookingSummary>> ListBookingsAsync(string? status, string? search, DateTime? deliveryFrom, DateTime? deliveryTo, int? speciesId,
             int? ownerUserId = null)
@@ -782,12 +819,13 @@ OUTER APPLY (SELECT SUM(CAST(it.QuantityUtilized AS DECIMAL(18,2))) AS Qty FROM 
             await conn.OpenAsync();
             var cmd = new SqlCommand(SummarySelect.Replace("SELECT b.Id,", "SELECT TOP (1000) b.Id,") + @"
 WHERE (@Status IS NULL OR b.Status = @Status)
-  AND (@Search IS NULL OR b.CustomerName LIKE @Search OR CAST(b.Id AS NVARCHAR(20)) = @SearchExact)
+  AND (@Search IS NULL OR b.CustomerName LIKE @Search OR CAST(b.Id AS NVARCHAR(20)) = @SearchExact
+       OR CAST(ISNULL(b.OrderBookingId, b.Id) AS NVARCHAR(20)) = @SearchExact)
   AND (@From IS NULL OR b.DeliveryDate >= @From)
   AND (@To IS NULL OR b.DeliveryDate <= @To)
   AND (@Species IS NULL OR b.SpeciesId = @Species)
-  AND (@Owner IS NULL OR b.BookedById = @Owner)
-ORDER BY b.DeliveryDate DESC, b.Id DESC", conn);
+  AND (@Owner IS NULL OR ord.BookedById = @Owner)
+ORDER BY b.DeliveryDate DESC, ISNULL(b.OrderBookingId, b.Id) DESC, b.Id", conn);
             cmd.Parameters.Add("@Owner", System.Data.SqlDbType.Int).Value = (object?)ownerUserId ?? DBNull.Value;
             cmd.Parameters.AddWithValue("@Status", (object?)status ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Search", string.IsNullOrWhiteSpace(search) ? DBNull.Value : "%" + search.Trim() + "%");
@@ -886,9 +924,11 @@ WHERE r.BookingId = @B ORDER BY r.RevisionNo", conn);
 SELECT l.Id, l.SeedlingDispatchId, l.BookingBatchAllocationId, l.ReadyStockId, l.BookedSpeciesId, l.ActualSpeciesId,
        l.IsSubstitution, l.SubstitutionReason, l.Quantity, bps.Name AS BookedSpeciesName, aps.Name AS ActualSpeciesName,
        sw.SowingCode, ar.Name AS AreaName, COALESCE(rph.Name, sph.Name) AS PolyhouseName, sw.SowingDate,
-       d.DispatchCode, d.DispatchDate, d.BookingId, d.CustomerName, d.CreatedBy, sw.Id AS SeedSowingId
+       d.DispatchCode, d.DispatchDate, d.BookingId, d.CustomerName, d.CreatedBy, sw.Id AS SeedSowingId,
+       ISNULL(obk.OrderBookingId, d.BookingId) AS OrderId
 FROM dbo.SeedlingDispatchLines l
 INNER JOIN dbo.SeedlingDispatches d ON d.Id = l.SeedlingDispatchId
+LEFT JOIN dbo.Bookings obk ON obk.Id = d.BookingId
 INNER JOIN dbo.ReadyStock rs ON rs.Id = l.ReadyStockId
 INNER JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
 INNER JOIN dbo.PlantSpecies aps ON aps.Id = l.ActualSpeciesId
@@ -907,7 +947,8 @@ LEFT JOIN dbo.Polyhouses sph ON sph.Id = sw.PolyhouseId";
                 IsSubstitution = r.GetBoolean(6), SubstitutionReason = S(7), Quantity = r.GetDecimal(8),
                 BookedSpeciesName = S(9)?.Trim(), ActualSpeciesName = S(10)?.Trim(), BatchCode = S(11), AreaName = S(12),
                 PolyhouseName = S(13), SowingDate = r.GetDateTime(14), DispatchCode = S(15), DispatchDate = r.GetDateTime(16),
-                BookingId = r.GetInt32(17), CustomerName = S(18), DispatchedBy = S(19), SeedSowingId = r.GetInt32(20)
+                BookingId = r.GetInt32(17), CustomerName = S(18), DispatchedBy = S(19), SeedSowingId = r.GetInt32(20),
+                OrderId = r.GetInt32(21)
             };
         }
 
@@ -963,7 +1004,8 @@ WHERE d.DispatchDate >= @From AND d.DispatchDate <= @To
   AND (@Search IS NULL
        OR (@BatchMonth IS NOT NULL AND MONTH(sw.SowingDate) = @BatchMonth AND DAY(sw.SowingDate) = @BatchDay)
        OR (@BatchMonth IS NULL AND (d.CustomerName LIKE @Search OR d.DispatchCode LIKE @Search OR sw.SowingCode LIKE @Search)))
-  AND (@Owner IS NULL OR EXISTS (SELECT 1 FROM dbo.Bookings ob WHERE ob.Id = d.BookingId AND ob.BookedById = @Owner))
+  AND (@Owner IS NULL OR EXISTS (SELECT 1 FROM dbo.Bookings ob INNER JOIN dbo.Bookings oo ON oo.Id = ISNULL(ob.OrderBookingId, ob.Id)
+                                  WHERE ob.Id = d.BookingId AND oo.BookedById = @Owner))
 ORDER BY d.DispatchDate DESC, d.Id DESC, l.Id", conn);
             cmd.Parameters.Add("@Owner", System.Data.SqlDbType.Int).Value = (object?)ownerUserId ?? DBNull.Value;
             cmd.Parameters.AddWithValue("@From", from.Date);
@@ -980,6 +1022,26 @@ ORDER BY d.DispatchDate DESC, d.Id DESC, l.Id", conn);
         }
 
         // Variety totals for the booking screen (company-wide).
+        // Ready Stock available to reserve (approved - reserved - dispatched) for several
+        // varieties at once -- one query for a whole list page (Booking Fulfilment).
+        public async Task<Dictionary<int, decimal>> GetAvailableBySpeciesAsync(IEnumerable<int> speciesIds)
+        {
+            var ids = speciesIds.Distinct().ToList();
+            var result = ids.ToDictionary(i => i, _ => 0m);
+            if (ids.Count == 0) return result;
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            var cmd = new SqlCommand(@"
+SELECT rs.SpeciesId, ISNULL(SUM(rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity), 0)
+FROM dbo.ReadyStock rs
+WHERE rs.SpeciesId IN (SELECT TRY_CAST(value AS INT) FROM STRING_SPLIT(@Ids, ','))
+GROUP BY rs.SpeciesId", conn);
+            cmd.Parameters.Add("@Ids", System.Data.SqlDbType.NVarChar, -1).Value = string.Join(",", ids);
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) result[r.GetInt32(0)] = r.GetDecimal(1);
+            return result;
+        }
+
         public async Task<ReadyStockAvailability> GetAvailabilityAsync(int speciesId)
         {
             using var conn = _dbHelper.GetConnection();

@@ -8,15 +8,22 @@
     var canDispatch = await FeatureAccess.CanAccessPageAsync(User, "/Bookings/SeedlingDispatch");
     var isPending = b.Status == "Pending";
     var readyStockUsable = isPending && !b.IsLegacyFulfilled;
+    var multiLine = Model.OrderLines.Count > 1;
 }
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <h3 class="mb-0">Booking #@b.Id &mdash; @b.CustomerName</h3>
+        <div>
+            <h3 class="mb-0">Booking #@b.OrderId &mdash; @b.CustomerName</h3>
+            @if (multiLine)
+            {
+                <div class="text-muted small">@Model.OrderLines.Count varieties in this booking &middot; selected: <strong>@b.LineLabel</strong></div>
+            }
+        </div>
         <div class="d-flex gap-2 flex-wrap">
             @if (canBook && isPending)
             {
-                <a asp-page="/Bookings/Revise" asp-route-id="@b.Id" class="btn btn-outline-primary">Revise booking</a>
+                <a asp-page="/Bookings/Revise" asp-route-id="@b.Id" class="btn btn-outline-primary">@(multiLine ? "Revise " + b.SpeciesName : "Revise booking")</a>
             }
             @if (canDispatch && readyStockUsable)
             {
@@ -28,6 +35,74 @@
 
     @if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
     @if (TempData["Error"] != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+
+    @* The customer order: every variety line keeps its own quantity, delivery date, status and fulfilment. *@
+    <div class="card shadow-sm mb-3">
+        <div class="card-header d-flex justify-content-between flex-wrap gap-2">
+            <span><strong>Booking #@b.OrderId</strong> &middot; @b.CustomerName @(string.IsNullOrWhiteSpace(b.Contact) ? "" : "· " + b.Contact)</span>
+            <span class="text-muted small">Booked @b.BookingDate?.ToString("dd-MM-yyyy") &middot; @Model.OrderLines.Count variet@(Model.OrderLines.Count == 1 ? "y" : "ies") &middot; total @Qty(Model.OrderLines.Sum(l => l.Quantity))</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Variety</th><th>Delivery date</th>
+                        <th class="text-end">Ordered</th><th class="text-end">Reserved</th><th class="text-end">Dispatched</th><th class="text-end">Remaining</th>
+                        <th class="text-end">Available</th><th>Status</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var line in Model.OrderLines)
+                    {
+                        var selected = line.Id == b.Id;
+                        var available = line.SpeciesId.HasValue && Model.AvailabilityBySpecies.TryGetValue(line.SpeciesId.Value, out var av) ? av.AvailableQuantity : (decimal?)null;
+                        <tr class="@(selected ? "table-primary" : "")">
+                            <td>@line.PlantTypeName / <strong>@line.SpeciesName</strong> <span class="text-muted small" title="Booking line reference">Ref @line.Id</span></td>
+                            <td>@line.DeliveryDate?.ToString("dd-MM-yyyy")</td>
+                            <td class="text-end">@Qty(line.Quantity)</td>
+                            <td class="text-end">@Qty(line.ReservedQuantity)</td>
+                            <td class="text-end">@Qty(line.DispatchedQuantity + line.LegacyFulfilledQuantity)</td>
+                            <td class="text-end">@Qty(line.RemainingQuantity)</td>
+                            <td class="text-end">@(available.HasValue ? Qty(available.Value) : "-")</td>
+                            <td><span class="badge bg-secondary">@line.Status</span> <span class="small">@line.Stage</span></td>
+                            <td class="text-nowrap">
+                                @if (!selected)
+                                {
+                                    <a asp-page="/Bookings/BookingDetails" asp-route-id="@line.Id" class="btn btn-sm btn-outline-primary">Open</a>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-primary">Selected</span>
+                                }
+                                @if (canDispatch && line.Status == "Pending" && !line.IsLegacyFulfilled)
+                                {
+                                    <a asp-page="/Bookings/SeedlingDispatch" asp-route-id="@line.Id" class="btn btn-sm btn-outline-success">Allocate / Dispatch</a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+                @if (multiLine)
+                {
+                    <tfoot>
+                        <tr class="fw-bold">
+                            <td colspan="2">Total</td>
+                            <td class="text-end">@Qty(Model.OrderLines.Sum(l => l.Quantity))</td>
+                            <td class="text-end">@Qty(Model.OrderLines.Sum(l => l.ReservedQuantity))</td>
+                            <td class="text-end">@Qty(Model.OrderLines.Sum(l => l.DispatchedQuantity + l.LegacyFulfilledQuantity))</td>
+                            <td class="text-end">@Qty(Model.OrderLines.Sum(l => l.RemainingQuantity))</td>
+                            <td colspan="3"></td>
+                        </tr>
+                    </tfoot>
+                }
+            </table>
+        </div>
+    </div>
+
+    @if (multiLine)
+    {
+        <h5 class="mt-2">@b.LineLabel</h5>
+    }
 
     <div class="row g-3 mb-3">
         <div class="col-lg-7">
@@ -56,7 +131,7 @@
                         <dt class="col-sm-4">Revision</dt><dd class="col-sm-8">@b.RevisionNo</dd>
                         @if (b.ParentBookingId.HasValue)
                         {
-                            <dt class="col-sm-4">Split from</dt><dd class="col-sm-8"><a asp-page="/Bookings/BookingDetails" asp-route-id="@b.ParentBookingId">Booking #@b.ParentBookingId</a></dd>
+                            <dt class="col-sm-4">Added by revision of</dt><dd class="col-sm-8"><a asp-page="/Bookings/BookingDetails" asp-route-id="@b.ParentBookingId">Ref @b.ParentBookingId</a></dd>
                         }
                         @if (b.Status == "Cancelled")
                         {

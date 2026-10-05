@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using System.Security.Claims;
 
 namespace PlantStockManager.Pages.Bookings
@@ -41,6 +42,21 @@ namespace PlantStockManager.Pages.Bookings
 
         [BindProperty]
         public Booking Booking { get; set; }
+
+        // "Add Another Species": every variety of the customer order, posted together
+        // (Lines[0].PlantId, Lines[0].SpeciesId, Lines[0].Quantity, Lines[0].DeliveryDate, ...).
+        // Saved as ONE order in one transaction (BookingRepository.InsertOrderAsync).
+        // Empty = a single-variety post using Booking.PlantId / SpeciesId / Quantity / DeliveryDate.
+        [BindProperty]
+        public List<OrderLineInput> Lines { get; set; } = new();
+
+        public class OrderLineInput
+        {
+            public int PlantId { get; set; }
+            public int SpeciesId { get; set; }
+            public int Quantity { get; set; }
+            public DateTime? DeliveryDate { get; set; }
+        }
 
         // "Own bookings only" users (BookingOwnershipService): "Booked By" is always themselves (set on the server).
         public bool BookedBySelfOnly { get; set; }
@@ -106,8 +122,29 @@ namespace PlantStockManager.Pages.Bookings
             if (Booking.BookedById == null || Booking.BookedById <= 0)
                 ModelState.AddModelError("Booking.BookedById", "Booked By is required.");
 
+            // The variety lines are validated together (one bad line rejects the order).
+            var lines = Lines.Count > 0
+                ? Lines.Select(l => new BookingOrders.NewLine(l.PlantId, l.SpeciesId, l.Quantity, l.DeliveryDate)).ToList()
+                : new List<BookingOrders.NewLine> { new(Booking.PlantId, Booking.SpeciesId, Booking.Quantity, Booking.DeliveryDate == default ? null : Booking.DeliveryDate) };
+            foreach (var key in ModelState.Keys.Where(k => k.StartsWith("Lines[", StringComparison.Ordinal)
+                                                        || k is "Booking.PlantId" or "Booking.SpeciesId" or "Booking.Quantity" or "Booking.DeliveryDate").ToList())
+                ModelState.Remove(key);
+            var (linesOk, linesError) = BookingOrders.ValidateNewOrder(lines);
+            if (!linesOk)
+                ModelState.AddModelError(string.Empty, linesError!);
+
             if (!ModelState.IsValid)
             {
+                // The Book page posts with jQuery and expects JSON: answer with the first
+                // error instead of an HTML page (which the script would mistake for success).
+                if (Request.Headers.XRequestedWith == "XMLHttpRequest")
+                    return new JsonResult(new
+                    {
+                        success = false,
+                        message = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).FirstOrDefault(m => !string.IsNullOrWhiteSpace(m))
+                                  ?? "Please check the booking details. Nothing was saved."
+                    });
+
                 // reload lists for redisplay
                 PlantTypes = await _plantTypeRepo.GetAllPlantTypes();
                 await LoadEmployeesAsync();
@@ -115,12 +152,11 @@ namespace PlantStockManager.Pages.Bookings
                 return Page();
             }
 
-            int success = await _bookingRepo.InsertBookingAsync(Booking);
+            var (ok, message, orderId, lineIds) = await _bookingRepo.InsertOrderAsync(Booking, lines);
+            if (ok)
+                return new JsonResult(new { success = true, message, orderId, varieties = lineIds.Count });
 
-            if (success > 0)
-                return new JsonResult(new { success = true, message = "Booking added successfully!" });
-
-            return new JsonResult(new { success = false, message = "Failed to insert Booking." });
+            return new JsonResult(new { success = false, message = message ?? "Failed to save the booking. Nothing was saved." });
         }
     }
 }

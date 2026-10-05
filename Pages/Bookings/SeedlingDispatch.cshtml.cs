@@ -158,7 +158,7 @@ namespace PlantStockManager.Pages.Bookings
         private async Task<bool> LoadAsync()
         {
             Booking = await _repo.GetBookingAsync(Id);
-            if (Booking == null || !_ownership.CanAccessBooking(User, Booking.BookedById))
+            if (Booking == null || !_ownership.CanAccessBooking(User, Booking.OrderBookedById))
             {
                 Booking = null;
                 return false;

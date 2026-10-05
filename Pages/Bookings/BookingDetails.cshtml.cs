@@ -46,6 +46,12 @@ namespace PlantStockManager.Pages.Bookings
         public List<SeedlingDispatch> Dispatches { get; set; } = new();
         public List<BookingRevision> Revisions { get; set; } = new();
 
+        // The whole customer order this line belongs to (Booking #OrderId): every
+        // variety line with its own quantities and status; the selected line (Id) is
+        // the one the Reserve / Release / Cancel / Revise actions below work on.
+        public List<SeedlingBookingSummary> OrderLines { get; set; } = new();
+        public Dictionary<int, ReadyStockAvailability> AvailabilityBySpecies { get; set; } = new();
+
         public async Task<IActionResult> OnGetAsync()
         {
             if (!await LoadAsync())
@@ -85,7 +91,7 @@ namespace PlantStockManager.Pages.Bookings
         private async Task<bool> LoadAsync()
         {
             Booking = await _repo.GetBookingAsync(Id);
-            if (Booking == null || !_ownership.CanAccessBooking(User, Booking.BookedById))
+            if (Booking == null || !_ownership.CanAccessBooking(User, Booking.OrderBookedById))
             {
                 Booking = null;
                 return false;
@@ -95,6 +101,11 @@ namespace PlantStockManager.Pages.Bookings
             Allocations = await _repo.GetAllocationsAsync(Id);
             Dispatches = await _repo.GetDispatchesAsync(Id);
             Revisions = await _repo.GetRevisionsAsync(Id);
+            OrderLines = await _repo.GetOrderLinesAsync(Booking.OrderId);
+            foreach (var speciesId in OrderLines.Where(l => l.SpeciesId.HasValue).Select(l => l.SpeciesId!.Value).Distinct())
+                AvailabilityBySpecies[speciesId] = speciesId == Booking.SpeciesId && Availability != null
+                    ? Availability
+                    : await _repo.GetAvailabilityAsync(speciesId);
             ReserveQuantity = (int)Math.Min(Booking.UnreservedQuantity, Availability?.AvailableQuantity ?? 0);
             return true;
         }

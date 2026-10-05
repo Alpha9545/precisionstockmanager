@@ -31,12 +31,14 @@ namespace PlantStockManager.Data
         // ManagementDashboardRepository.GetOutletSalesSummaryAsync already
         // uses for TotalBookingsInRange (potted-plant bookings), which has
         // no status filter either.
+        // Count = unique customer ORDERS (EffectiveOrderId = ISNULL(OrderBookingId, Id)):
+        // one order with three varieties is ONE booking. Quantity = all variety lines.
         public async Task<(int Count, decimal Quantity)> GetBookingCountByBookingDateAsync(DateTime from, DateTime toExclusive)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
             using var cmd = new SqlCommand(@"
-SELECT COUNT(*), CAST(ISNULL(SUM(Quantity), 0) AS DECIMAL(18,2))
+SELECT COUNT(DISTINCT ISNULL(OrderBookingId, Id)), CAST(ISNULL(SUM(Quantity), 0) AS DECIMAL(18,2))
 FROM dbo.Bookings
 WHERE BookingDate >= @From AND BookingDate < @To", conn);
             cmd.Parameters.AddWithValue("@From", from.Date);
@@ -47,62 +49,105 @@ WHERE BookingDate >= @From AND BookingDate < @To", conn);
             return (0, 0m);
         }
 
+        // One single-variety booking (kept for existing callers): an order with one line.
+        // Returns the new Booking Id, or 0 when nothing was saved.
         public async Task<int> InsertBookingAsync(Booking entry)
         {
+            var (ok, _, orderId, _) = await InsertOrderAsync(entry,
+                new[] { new BookingOrders.NewLine(entry.PlantId, entry.SpeciesId, entry.Quantity, entry.DeliveryDate == default ? null : entry.DeliveryDate) });
+            return ok ? orderId : 0;
+        }
+
+        // A customer ORDER ("Add Another Species"): every variety line becomes its own
+        // dbo.Bookings row (own quantity, delivery date, status and fulfilment), all
+        // saved in ONE transaction and linked by OrderBookingId = the first line's Id
+        // (the Booking Number). Customer-level fields (customer, contact, address,
+        // state, district, Booked By, AddedBy) come from `order` and are the same on
+        // every line; the advance is recorded once, on the first line. Any invalid
+        // line or database error rolls the whole order back -- no partial order.
+        public async Task<(bool Success, string? Message, int OrderId, List<int> LineIds)> InsertOrderAsync(
+            Booking order, IReadOnlyList<BookingOrders.NewLine> lines)
+        {
+            var (valid, error) = BookingOrders.ValidateNewOrder(lines);
+            if (!valid)
+                return (false, error, 0, new List<int>());
+
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
             using var transaction = conn.BeginTransaction();
-
             try
             {
-                var cmd = new SqlCommand(@"
+                var ids = new List<int>();
+                for (var i = 0; i < lines.Count; i++)
+                {
+                    var line = lines[i];
+                    var check = new SqlCommand("SELECT COUNT(*) FROM dbo.PlantSpecies WHERE Id = @S AND PlantTypeId = @P", conn, transaction);
+                    check.Parameters.AddWithValue("@S", line.SpeciesId);
+                    check.Parameters.AddWithValue("@P", line.PlantId);
+                    if ((int)(await check.ExecuteScalarAsync())! != 1)
+                    {
+                        transaction.Rollback();
+                        return (false, lines.Count > 1
+                            ? $"Variety {i + 1} does not belong to the selected species. Nothing was saved."
+                            : "The selected variety does not belong to the selected species.", 0, new List<int>());
+                    }
+
+                    var withAdvance = i == 0 && order.AdvanceTaken;
+                    var cmd = new SqlCommand(@"
 INSERT INTO Bookings
 (PlantId, SpeciesId, CustomerName, DeliveryDate, Quantity, Status, AddedBy, BookingDate,
  Address, Contact, AdvanceTaken, AdvanceTakenAmount, AdvanceTakenDetails,
- BookedById, StateId, DistrictId)
+ BookedById, StateId, DistrictId, OrderBookingId)
 VALUES
 (@PlantId, @SpeciesId, @CustomerName, @DeliveryDate, @Quantity, 'Pending', @AddedBy, GETDATE(),
  @Address, @Contact, @AdvanceTaken, @AdvanceTakenAmount, @AdvanceTakenDetails,
- @BookedById, @StateId, @DistrictId);
+ @BookedById, @StateId, @DistrictId, @OrderBookingId);
 SELECT CAST(SCOPE_IDENTITY() AS int);", conn, transaction);
 
-                cmd.Parameters.AddWithValue("@PlantId", entry.PlantId);
-                cmd.Parameters.AddWithValue("@SpeciesId", entry.SpeciesId);
-                cmd.Parameters.AddWithValue("@CustomerName", entry.CustomerName);
-                cmd.Parameters.AddWithValue("@DeliveryDate", entry.DeliveryDate);
-                cmd.Parameters.AddWithValue("@Quantity", entry.Quantity);
-                cmd.Parameters.AddWithValue("@AddedBy", entry.AddedBy);
-                cmd.Parameters.AddWithValue("@Address", entry.Address);
-                cmd.Parameters.AddWithValue("@Contact", entry.Contact);
-                cmd.Parameters.AddWithValue("@AdvanceTaken", entry.AdvanceTaken);
-                cmd.Parameters.AddWithValue("@AdvanceTakenAmount", (object?)entry.AdvanceTakenAmount ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@AdvanceTakenDetails", (object?)entry.AdvanceTakenDetails ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@BookedById", (object?)entry.BookedById ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@StateId", entry.StateId);
-                cmd.Parameters.AddWithValue("@DistrictId", entry.DistrictId);
+                    cmd.Parameters.AddWithValue("@PlantId", line.PlantId);
+                    cmd.Parameters.AddWithValue("@SpeciesId", line.SpeciesId);
+                    cmd.Parameters.AddWithValue("@CustomerName", (object?)order.CustomerName ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@DeliveryDate", line.DeliveryDate!.Value.Date);
+                    cmd.Parameters.AddWithValue("@Quantity", line.Quantity);
+                    cmd.Parameters.AddWithValue("@AddedBy", (object?)order.AddedBy ?? "System");
+                    cmd.Parameters.AddWithValue("@Address", (object?)order.Address ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@Contact", (object?)order.Contact ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@AdvanceTaken", withAdvance);
+                    cmd.Parameters.AddWithValue("@AdvanceTakenAmount", withAdvance ? (object?)order.AdvanceTakenAmount ?? DBNull.Value : 0m);
+                    cmd.Parameters.AddWithValue("@AdvanceTakenDetails", withAdvance ? (object?)order.AdvanceTakenDetails ?? DBNull.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@BookedById", (object?)order.BookedById ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@StateId", (object?)order.StateId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@DistrictId", (object?)order.DistrictId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@OrderBookingId", ids.Count == 0 ? DBNull.Value : ids[0]);
 
-                int bookingId = (int)await cmd.ExecuteScalarAsync();
+                    var bookingId = (int)(await cmd.ExecuteScalarAsync())!;
+                    if (ids.Count == 0)
+                    {
+                        // the first line IS the order: it carries its own Id as the Booking Number
+                        var self = new SqlCommand("UPDATE Bookings SET OrderBookingId = Id WHERE Id = @Id", conn, transaction);
+                        self.Parameters.AddWithValue("@Id", bookingId);
+                        await self.ExecuteNonQueryAsync();
+                    }
+                    ids.Add(bookingId);
 
-                // Log a “Booking” transaction — no need to bind BookingType from the form
-                var txCmd = new SqlCommand(@"
+                    // a 'Booking' log row per line, as before
+                    var txCmd = new SqlCommand(@"
 INSERT INTO Transactions (BookingId, TransactionType, Quantity, TransactionDate, UpdatedBy, UpdatedOn)
-VALUES (@BookingId, @TransactionType, @Quantity, GETDATE(), @UpdatedBy, GETDATE());",
-                    conn, transaction);
-
-                txCmd.Parameters.AddWithValue("@BookingId", bookingId);
-                txCmd.Parameters.AddWithValue("@TransactionType", "Booking");
-                txCmd.Parameters.AddWithValue("@Quantity", entry.Quantity);
-                txCmd.Parameters.AddWithValue("@UpdatedBy", entry.AddedBy);
-
-                await txCmd.ExecuteNonQueryAsync();
+VALUES (@BookingId, @TransactionType, @Quantity, GETDATE(), @UpdatedBy, GETDATE());", conn, transaction);
+                    txCmd.Parameters.AddWithValue("@BookingId", bookingId);
+                    txCmd.Parameters.AddWithValue("@TransactionType", "Booking");
+                    txCmd.Parameters.AddWithValue("@Quantity", line.Quantity);
+                    txCmd.Parameters.AddWithValue("@UpdatedBy", (object?)order.AddedBy ?? "System");
+                    await txCmd.ExecuteNonQueryAsync();
+                }
 
                 transaction.Commit();
-                return bookingId;
+                return (true, ids.Count == 1 ? $"Booking #{ids[0]} saved." : $"Booking #{ids[0]} saved with {ids.Count} varieties.", ids[0], ids);
             }
-            catch
+            catch (Exception ex)
             {
-                transaction.Rollback();
-                return 0;
+                try { transaction.Rollback(); } catch { }
+                return (false, "The booking could not be saved (nothing was saved): " + ex.Message, 0, new List<int>());
             }
         }
 
@@ -263,8 +308,10 @@ VALUES (@BookingId, @TransactionType, @Quantity, GETDATE(), @UpdatedBy, GETDATE(
         // dbo.Bookings has no Area, so which bookings a user may list is decided by the pages' permissions, unchanged --
         // the filter can only narrow that list.
         //
-        // ownerUserId (BookingOwnershipService.OwnerFilter): "own bookings only" users get only rows whose BookedById is
-        // their own Id -- one more AND in SQL, so the Booking By filter / PDF can never widen it. null = everyone's rows.
+        // ownerUserId (BookingOwnershipService.OwnerFilter): "own bookings only" users get only the lines of ORDERS whose
+        // owner (the order's first line BookedById) is their own Id -- one more AND in SQL, so the Booking By filter / PDF
+        // can never widen it. null = everyone's rows. Each row is one variety line; OrderBookingId / OrderLineCount let
+        // the pages group the lines into customer orders (BookingOrders.Group).
         public async Task<List<Booking>> GetBookingRecords(int? plantTypeId, int? speciesId, int month, int year, string status, int? userId,
             BookedByFilter? bookedBy = null, int? ownerUserId = null)
         {
@@ -297,11 +344,15 @@ SELECT
     b.StateId,
     s.StateName,
     b.DistrictId,
-    d.DistrictName
+    d.DistrictName,
+    b.OrderBookingId,
+    CASE WHEN b.OrderBookingId IS NULL THEN 1
+         ELSE (SELECT COUNT(*) FROM Bookings ol WHERE ol.OrderBookingId = b.OrderBookingId) END AS OrderLineCount
 FROM Bookings b
+INNER JOIN Bookings     ord ON ord.Id = ISNULL(b.OrderBookingId, b.Id)
 INNER JOIN PlantTypes   pt ON b.PlantId   = pt.Id
 INNER JOIN PlantSpecies ps ON b.SpeciesId = ps.Id
-LEFT  JOIN IMSUsers     u  ON b.BookedById = u.Id 
+LEFT  JOIN IMSUsers     u  ON b.BookedById = u.Id
 LEFT  JOIN States       s  ON b.StateId    = s.StateId
 LEFT  JOIN Districts    d  ON b.DistrictId = d.DistrictId
 WHERE YEAR(b.DeliveryDate) = @Year
@@ -312,9 +363,11 @@ WHERE YEAR(b.DeliveryDate) = @Year
                 if (speciesId.HasValue) sql += "  AND b.SpeciesId = @SpeciesId";
                 if (month > 0) sql += "  AND MONTH(b.DeliveryDate) = @Month";
                 sql += BookedBySql.Clause("b.BookedById", "b.BookedByOther");
-                sql += "  AND (@Owner IS NULL OR b.BookedById = @Owner)";
+                // "own bookings only": the ORDER's owner (its first line), so a restricted user
+                // sees every line of their own orders and no line of anyone else's.
+                sql += "  AND (@Owner IS NULL OR ord.BookedById = @Owner)";
 
-                sql += " ORDER BY b.DeliveryDate;";
+                sql += " ORDER BY b.DeliveryDate, ISNULL(b.OrderBookingId, b.Id), b.Id;";
 
                 using var cmd = new SqlCommand(sql, conn);
                 cmd.Parameters.Add("@Owner", System.Data.SqlDbType.Int).Value = (object?)ownerUserId ?? DBNull.Value;
@@ -349,6 +402,8 @@ WHERE YEAR(b.DeliveryDate) = @Year
                 int o_StateName = r.GetOrdinal("StateName");
                 int o_DistrictId = r.GetOrdinal("DistrictId");
                 int o_DistrictName = r.GetOrdinal("DistrictName");
+                int o_OrderBookingId = r.GetOrdinal("OrderBookingId");
+                int o_OrderLineCount = r.GetOrdinal("OrderLineCount");
 
                 while (await r.ReadAsync())
                 {
@@ -380,6 +435,8 @@ WHERE YEAR(b.DeliveryDate) = @Year
                         StateName = r.IsDBNull(o_StateName) ? "" : r.GetString(o_StateName),
                         DistrictId = r.IsDBNull(o_DistrictId) ? 0 : r.GetInt32(o_DistrictId),
                         DistrictName = r.IsDBNull(o_DistrictName) ? "" : r.GetString(o_DistrictName),
+                        OrderBookingId = r.IsDBNull(o_OrderBookingId) ? null : r.GetInt32(o_OrderBookingId),
+                        OrderLineCount = r.GetInt32(o_OrderLineCount),
                     });
                 }
             }
@@ -408,10 +465,10 @@ WHERE YEAR(b.DeliveryDate) = @Year
             {
                 var read = new SqlCommand(@"
 SELECT PlantId, SpeciesId, Quantity, DeliveryDate, ISNULL(Status, 'Pending'), CustomerName, Address, Contact,
-       AdvanceTaken, AdvanceTakenAmount, AdvanceTakenDetails, BookedById, StateId, DistrictId
+       AdvanceTaken, AdvanceTakenAmount, AdvanceTakenDetails, BookedById, StateId, DistrictId, OrderBookingId
 FROM Bookings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
                 read.Parameters.AddWithValue("@Id", entry.Id);
-                int plantId, quantity; int? speciesId, bookedById, stateId, districtId; DateTime? delivery; string status;
+                int plantId, quantity; int? speciesId, bookedById, stateId, districtId, orderBookingId; DateTime? delivery; string status;
                 string? customer, address, contact, advDetails; bool? advTaken; decimal? advAmount;
                 using (var r = await read.ExecuteReaderAsync())
                 {
@@ -423,6 +480,7 @@ FROM Bookings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
                     advAmount = r.IsDBNull(9) ? null : r.GetDecimal(9); advDetails = r.IsDBNull(10) ? null : r.GetString(10);
                     bookedById = r.IsDBNull(11) ? null : r.GetInt32(11); stateId = r.IsDBNull(12) ? null : r.GetInt32(12);
                     districtId = r.IsDBNull(13) ? null : r.GetInt32(13);
+                    orderBookingId = r.IsDBNull(14) ? null : r.GetInt32(14);
                 }
                 if (status != "Pending") { tx.Rollback(); return (false, $"Only Pending bookings can be edited (this one is {status})."); }
 
@@ -441,6 +499,21 @@ FROM Bookings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
                 Diff("Booked by", bookedById, entry.BookedById);
                 Diff("State", stateId, entry.StateId);
                 Diff("District", districtId, entry.DistrictId);
+
+                // Customer-level fields belong to the ORDER: when they change they are applied to
+                // every line of the order (below), so the order never becomes inconsistent.
+                var siblingCount = 0;
+                if (orderBookingId.HasValue)
+                {
+                    var sib = new SqlCommand("SELECT COUNT(*) FROM Bookings WITH (UPDLOCK, HOLDLOCK) WHERE OrderBookingId = @O AND Id <> @Id", conn, tx);
+                    sib.Parameters.AddWithValue("@O", orderBookingId.Value);
+                    sib.Parameters.AddWithValue("@Id", entry.Id);
+                    siblingCount = (int)(await sib.ExecuteScalarAsync())!;
+                }
+                var orderLevelChanged = changes.Any(c => c.StartsWith("Customer:") || c.StartsWith("Address:") || c.StartsWith("Contact:")
+                                                        || c.StartsWith("Booked by:") || c.StartsWith("State:") || c.StartsWith("District:"));
+                if (orderLevelChanged && siblingCount > 0)
+                    changes.Add($"customer details applied to all {siblingCount + 1} varieties of Booking #{orderBookingId}");
 
                 var keyChanged = plantId != entry.PlantId || speciesId != entry.SpeciesId || quantity != entry.Quantity
                                  || delivery?.Date != entry.DeliveryDate.Date;
@@ -487,6 +560,26 @@ WHERE Id = @BookingId;", conn, tx);
                 cmd.Parameters.AddWithValue("@StateId", (object?)entry.StateId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@DistrictId", (object?)entry.DistrictId ?? DBNull.Value);
                 await cmd.ExecuteNonQueryAsync();
+
+                if (orderLevelChanged && siblingCount > 0)
+                {
+                    var siblings = new SqlCommand(@"
+UPDATE Bookings
+SET CustomerName = @CustomerName, Address = @Address, Contact = @Contact,
+    BookedById = @BookedById, BookedByOther = NULL, StateId = @StateId, DistrictId = @DistrictId,
+    ModifiedBy = @UpdatedBy, ModifiedDate = SYSUTCDATETIME()
+WHERE OrderBookingId = @O AND Id <> @BookingId;", conn, tx);
+                    siblings.Parameters.AddWithValue("@O", orderBookingId!.Value);
+                    siblings.Parameters.AddWithValue("@BookingId", entry.Id);
+                    siblings.Parameters.AddWithValue("@CustomerName", (object?)entry.CustomerName ?? DBNull.Value);
+                    siblings.Parameters.AddWithValue("@Address", entry.Address ?? (object)DBNull.Value);
+                    siblings.Parameters.AddWithValue("@Contact", entry.Contact ?? (object)DBNull.Value);
+                    siblings.Parameters.AddWithValue("@BookedById", (object?)entry.BookedById ?? DBNull.Value);
+                    siblings.Parameters.AddWithValue("@StateId", (object?)entry.StateId ?? DBNull.Value);
+                    siblings.Parameters.AddWithValue("@DistrictId", (object?)entry.DistrictId ?? DBNull.Value);
+                    siblings.Parameters.AddWithValue("@UpdatedBy", entry.AddedBy ?? (object)DBNull.Value);
+                    await siblings.ExecuteNonQueryAsync();
+                }
 
                 tx.Commit();
                 return (true, message ?? "Booking updated successfully!");

@@ -137,14 +137,15 @@
     {
         <div class="alert alert-warning py-1 mt-2 mb-0 small">@Model.Notice</div>
     }
-    <div class="small text-muted mt-2">@Model.Bookings.Count.ToString("N0") record@(Model.Bookings.Count == 1 ? "" : "s") found@(Model.BookedByActive ? " (filtered by Booking By)" : "")@(Model.Bookings.Count == 0 ? " - No records match the selected filters." : "")</div>
+    @{ var orders = PlantStockManager.Services.BookingOrders.Group(Model.Bookings, x => x.EffectiveOrderId, x => x.Id); }
+    <div class="small text-muted mt-2">@orders.Count.ToString("N0") booking@(orders.Count == 1 ? "" : "s") &middot; @Model.Bookings.Count.ToString("N0") variety line@(Model.Bookings.Count == 1 ? "" : "s") found@(Model.BookedByActive ? " (filtered by Booking By)" : "")@(Model.Bookings.Count == 0 ? " - No records match the selected filters." : "")</div>
 
     <!-- Table -->
     <div class="table-responsive" style="max-height: 570px; overflow-y:auto; border:1px solid #ddd; margin-top:10px;">
         <table class="table table-striped table-sm m-0 table-compact">
             <thead class="table-dark" style="position: sticky; top: 0; z-index: 10;">
                 <tr>
-                    <th>Booking ID</th>
+                    <th>Booking</th>
                     <th>Customer Name</th>
                     <th>Booking Date</th>
                     <th>Delivery Status</th>
@@ -170,10 +171,20 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach (var booking in Model.Bookings)
+                @foreach (var order in orders)
                 {
+                    var head = order.First;
+                    @* Order heading: customer-level details are edited for the whole booking (all its varieties). *@
+                    <tr class="table-secondary order-heading">
+                        <td colspan="23">
+                            <strong>Booking #@order.OrderId</strong> &middot; @ToTitle(head.CustomerName)
+                            <span class="text-muted small">&middot; booked @head.BookingDate.ToString("dd-MMM-yyyy") &middot; @order.Lines.Count@(head.OrderLineCount > order.Lines.Count ? $" of {head.OrderLineCount}" : "") variet@(head.OrderLineCount == 1 ? "y" : "ies") &middot; total @Qty(order.Lines.Sum(l => l.Quantity))</span>
+                        </td>
+                    </tr>
+                  foreach (var booking in order.Lines)
+                  {
                     <tr>
-                        <td>@booking.Id</td>
+                        <td class="text-nowrap"><span class="text-muted small" title="Booking line reference">Ref @booking.Id</span></td>
                         <td>@ToTitle(booking.CustomerName)</td>
                         <td>@booking.BookingDate.ToString("dd-MMMM-yyyy")</td>
                         <td>@booking.Status</td>
@@ -198,7 +209,7 @@
                         <td>
                             @if (booking.Status == "Pending")
                             {
-                                <button class="btn btn-primary btn-sm edit-booking-btn" data-id="@booking.Id">Edit</button>
+                                <button class="btn btn-primary btn-sm edit-booking-btn" data-id="@booking.Id" data-label="@PlantStockManager.Services.BookingOrders.LineLabel(booking.EffectiveOrderId, booking.SpeciesName)" data-lines="@booking.OrderLineCount">Edit</button>
                                 <button class="btn btn-danger btn-sm ms-2 delete-booking-btn" data-id="@booking.Id" title="Cancels the booking (history is kept)">Cancel</button>
                                 <a class="btn btn-outline-secondary btn-sm ms-2" asp-page="/Bookings/BookingDetails" asp-route-id="@booking.Id">History</a>
                             }
@@ -208,6 +219,7 @@
                             }
                         </td>
                     </tr>
+                  }
                 }
             </tbody>
         </table>
@@ -232,7 +244,8 @@
                     <div class="col-md-12 mb-3">
                         <div class="row">
                             <div class="col-md-6">
-                                <label class="fw-bold">Booking No:</label> <span id="bookingId1"></span>
+                                <label class="fw-bold">Booking:</label> <span id="bookingId1"></span>
+                                <div id="editOrderNote" class="small text-info d-none">Customer name, contact, address, state, district and Booked By are saved for every variety of this booking. Variety, quantity and delivery date change only this variety.</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="fw-bold">Booking Date:</label> <span id="bookingDate1"></span>
@@ -464,7 +477,8 @@
                 function toISO(dateStr){ let d=new Date(dateStr); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
                 function toDMY(dateStr){ let d=new Date(dateStr); return `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`; }
 
-                $('#bookingId1').text(id);
+                $('#bookingId1').text($(this).data('label') || id);
+                $('#editOrderNote').toggleClass('d-none', !(parseInt($(this).data('lines'), 10) > 1));
                 $('#bookingDate1').text(toDMY(bookingDate));
                 $('#editBookingId').val(id);
                 $('#editCustomerName').val(customerName);

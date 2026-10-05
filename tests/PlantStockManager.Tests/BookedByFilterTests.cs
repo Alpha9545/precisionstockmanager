@@ -189,7 +189,10 @@ namespace PlantStockManager.Tests
             Assert.Contains("<option value=\"\">All</option>", view);                                // All / default
             Assert.Contains("selected=\"@(Model.SelectedBookedBy == option.Value)\"", view);        // stays selected after searching
             Assert.Contains("Clear filters", view);
-            Assert.Contains("record@(Model.Bookings.Count == 1 ? \"\" : \"s\") found", view);        // "N records found"
+            if (viewPath.Contains("PottedPlantBooking", StringComparison.Ordinal))
+                Assert.Contains("record@(Model.Bookings.Count == 1 ? \"\" : \"s\") found", view);    // Potted Plant Bookings: unchanged "N records found"
+            else
+                Assert.Contains("variety line@(Model.Bookings.Count == 1 ? \"\" : \"s\") found", view);  // seedling orders: "N bookings · M variety lines found"
             Assert.Contains("No records match the selected filters", view);
             Assert.Contains("@Model.Notice", view);                                                   // unknown value notice
             Assert.Contains("<form method=\"get\"", view);

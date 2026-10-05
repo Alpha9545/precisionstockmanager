@@ -256,7 +256,7 @@ namespace PlantStockManager.Tests
         {
             var src = ReadSource("Pages", "Bookings", file);
             Assert.Contains("_ownership.CanAccessBookingIdAsync(User, Id, _repo)", src);
-            Assert.Contains("_ownership.CanAccessBooking(User, Booking.BookedById)", src);   // the GET
+            Assert.Contains("_ownership.CanAccessBooking(User, Booking.OrderBookedById)", src);   // the GET (the ORDER's owner)
             foreach (var h in handlers)
             {
                 var body = src[src.IndexOf(h, StringComparison.Ordinal)..];
@@ -272,7 +272,7 @@ namespace PlantStockManager.Tests
         public void ReviseAndEditRecords_CheckOwnership_AndKeepTheOwner()
         {
             var revise = ReadSource("Pages", "Bookings", "Revise.cshtml.cs");
-            Assert.Contains("_ownership.CanAccessBooking(User, Booking.BookedById)", revise);
+            Assert.Contains("_ownership.CanAccessBooking(User, Booking.OrderBookedById)", revise);
             Assert.True(revise.IndexOf("CanAccessBookingIdAsync", StringComparison.Ordinal) < revise.IndexOf("_repo.ReviseAsync", StringComparison.Ordinal));
 
             var edit = ReadSource("Pages", "Bookings", "EditBookingRecords.cshtml.cs");
@@ -296,9 +296,10 @@ namespace PlantStockManager.Tests
             Assert.Contains("userId, bookedBy, owner)", ReadSource("Pages", "Bookings", "EditBookingRecords.cshtml.cs"));
 
             var repo = ReadSource("Data", "SeedlingFulfilmentRepository.cs");
-            Assert.Contains("AND (@Owner IS NULL OR b.BookedById = @Owner)", repo);
-            Assert.Contains("ob.BookedById = @Owner", repo);
-            Assert.Contains("AND (@Owner IS NULL OR b.BookedById = @Owner)", ReadSource("Data", "BookingRepository.cs"));
+            // the owner of the ORDER (its first line), never a single line
+            Assert.Contains("AND (@Owner IS NULL OR ord.BookedById = @Owner)", repo);
+            Assert.Contains("oo.BookedById = @Owner", repo);
+            Assert.Contains("AND (@Owner IS NULL OR ord.BookedById = @Owner)", ReadSource("Data", "BookingRepository.cs"));
         }
 
         [Fact]

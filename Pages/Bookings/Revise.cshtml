@@ -6,7 +6,7 @@
 }
 
 <div class="container mt-4" style="max-width: 900px;">
-    <h3>Revise Booking #@b.Id &mdash; @b.CustomerName</h3>
+    <h3>Revise @b.LineLabel &mdash; @b.CustomerName</h3>
 
     @if (!ModelState.IsValid)
     {
@@ -45,7 +45,7 @@
             <div class="col-12">
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" asp-for="AddVariety" id="addVariety" />
-                    <label class="form-check-label" for="addVariety">Customer adds another variety (creates a linked booking)</label>
+                    <label class="form-check-label" for="addVariety">Customer adds another variety (added to Booking #@b.OrderId)</label>
                 </div>
             </div>
             <div class="col-md-4 split-field">

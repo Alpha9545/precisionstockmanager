@@ -476,43 +476,46 @@
                     AddedBy: $('input[name="Booking.AddedBy"]').val()
                 };
 
-                // Prepare and send one POST per line.
-                // IMPORTANT: apply advance only to first booking (index 0). For others send AdvanceTaken=false and AdvanceTakenAmount=0 and empty details.
-                const promises = lines.map(function (L, idx) {
-                    // for first booking include advance, else zero it out
-                    const advanceForThisLine = (idx === 0 && shared.AdvanceTaken === "true");
-                    const payload = {
-                        "__RequestVerificationToken": antiToken,
-                        "Booking.PlantId": L.plantTypeId,
-                        "Booking.SpeciesId": L.speciesId,
-                        "Booking.Quantity": L.quantity,
-                        "Booking.DeliveryDate": L.deliveryDate,
-                        "Booking.CustomerName": shared.CustomerName,
-                        "Booking.Contact": shared.Contact,
-                        "Booking.Address": shared.Address,
-                        "Booking.BookedById": shared.BookedById,
-                        "Booking.StateId": shared.StateId,
-                        "Booking.DistrictId": shared.DistrictId,
-                        // advance fields: only first line carries the advance if advanceTaken true
-                        "Booking.AdvanceTaken": advanceForThisLine ? "true" : "false",
-                        "Booking.AdvanceTakenAmount": advanceForThisLine ? shared.AdvanceTakenAmount : 0,
-                        "Booking.AdvanceTakenDetails": advanceForThisLine ? shared.AdvanceTakenDetails : "",
-                        "Booking.AddedBy": shared.AddedBy
-                    };
-
-                    return $.post('@Url.Page("/Bookings/Book")', payload);
+                // ONE request for the whole customer order: every variety line is saved
+                // together in one transaction and gets the same Booking Number. If any
+                // line fails, nothing is saved. The advance is recorded once (on the order).
+                const advance = shared.AdvanceTaken === "true";
+                const payload = {
+                    "__RequestVerificationToken": antiToken,
+                    "Booking.CustomerName": shared.CustomerName,
+                    "Booking.Contact": shared.Contact,
+                    "Booking.Address": shared.Address,
+                    "Booking.BookedById": shared.BookedById,
+                    "Booking.StateId": shared.StateId,
+                    "Booking.DistrictId": shared.DistrictId,
+                    "Booking.AdvanceTaken": advance ? "true" : "false",
+                    "Booking.AdvanceTakenAmount": advance ? shared.AdvanceTakenAmount : 0,
+                    "Booking.AdvanceTakenDetails": advance ? shared.AdvanceTakenDetails : "",
+                    "Booking.AddedBy": shared.AddedBy
+                };
+                lines.forEach(function (L, i) {
+                    payload["Lines[" + i + "].PlantId"] = L.plantTypeId;
+                    payload["Lines[" + i + "].SpeciesId"] = L.speciesId;
+                    payload["Lines[" + i + "].Quantity"] = L.quantity;
+                    payload["Lines[" + i + "].DeliveryDate"] = L.deliveryDate;
                 });
 
-                // Show a loading message
-                showCustomAlert("Please wait", "Submitting bookings...", "info");
+                const submitButton = $(this).find('button[type="submit"]');
+                submitButton.prop('disabled', true);   // no double submit
+                showCustomAlert("Please wait", "Saving the booking...", "info");
 
-                // Wait for all to finish
-                $.when.apply($, promises)
-                    .done(function () {
-                        showCustomAlert("Success", "All bookings submitted successfully.", "success", function () { location.reload(); });
+                $.post('@Url.Page("/Bookings/Book")', payload)
+                    .done(function (res) {
+                        if (res && res.success) {
+                            showCustomAlert("Success", res.message || "Booking saved.", "success", function () { location.reload(); });
+                        } else {
+                            submitButton.prop('disabled', false);
+                            showCustomAlert("Error", (res && res.message) || "The booking could not be saved. Nothing was saved.", "error");
+                        }
                     })
                     .fail(function () {
-                        showCustomAlert("Error", "One or more bookings failed. Please check and retry.", "error");
+                        submitButton.prop('disabled', false);
+                        showCustomAlert("Error", "The booking could not be saved (server error). Nothing was saved -- please retry.", "error");
                     });
             });
         });

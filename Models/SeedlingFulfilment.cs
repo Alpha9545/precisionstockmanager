@@ -15,8 +15,17 @@ namespace PlantStockManager.Models
         public string? SpeciesName { get; set; }
         public int Quantity { get; set; }
         public string Status { get; set; } = "Pending";
-        // dbo.Bookings.BookedById -- the booking's owner for the "own bookings only" rule (BookingOwnershipService).
+        // dbo.Bookings.BookedById of this line.
         public int? BookedById { get; set; }
+
+        // The customer order (Booking Number) this variety line belongs to:
+        // OrderId = ISNULL(OrderBookingId, Id). OrderBookedById is the ORDER's owner
+        // (its first line's BookedById) -- the "own bookings only" rule applies to
+        // the order, never to a single line (BookingOwnershipService).
+        public int? OrderBookingId { get; set; }
+        public int OrderId { get; set; }
+        public int? OrderBookedById { get; set; }
+        public string LineLabel => PlantStockManager.Services.BookingOrders.LineLabel(OrderId, SpeciesName);
         public string? CustomerName { get; set; }
         public string? Contact { get; set; }
         public string? Address { get; set; }
@@ -152,6 +161,8 @@ namespace PlantStockManager.Models
         public string? DispatchCode { get; set; }
         public DateTime? DispatchDate { get; set; }
         public int BookingId { get; set; }
+        public int OrderId { get; set; }   // ISNULL(Bookings.OrderBookingId, BookingId) -- the Booking Number
+        public string LineLabel => PlantStockManager.Services.BookingOrders.LineLabel(OrderId, BookedSpeciesName);
         public string? CustomerName { get; set; }
         public string? DispatchedBy { get; set; }
     }

@@ -33,6 +33,12 @@ namespace PlantStockManager.Pages.Bookings
         public List<SeedlingBookingSummary> Bookings { get; set; } = new();
         public List<string> Stages { get; set; } = new();
 
+        // The lines grouped into customer orders (Booking #OrderId), and Ready Stock
+        // available per variety. Grouping is display only: every line keeps its own
+        // quantities, status and fulfilment.
+        public List<PlantStockManager.Services.BookingOrders.OrderGroup<SeedlingBookingSummary>> Orders { get; set; } = new();
+        public Dictionary<int, decimal> AvailableBySpecies { get; set; } = new();
+
         public async Task OnGetAsync()
         {
             var status = string.IsNullOrWhiteSpace(Status) || Status == "All" ? null : Status;
@@ -41,6 +47,8 @@ namespace PlantStockManager.Pages.Bookings
             var list = await _repo.ListBookingsAsync(status, Search, From, To, null, owner);
             Stages = list.Select(b => b.Stage).Distinct().OrderBy(s => s).ToList();
             Bookings = string.IsNullOrWhiteSpace(Stage) ? list : list.Where(b => b.Stage == Stage).ToList();
+            Orders = PlantStockManager.Services.BookingOrders.Group(Bookings, b => b.OrderId, b => b.Id);
+            AvailableBySpecies = await _repo.GetAvailableBySpeciesAsync(Bookings.Where(b => b.SpeciesId.HasValue).Select(b => b.SpeciesId!.Value));
         }
     }
 }

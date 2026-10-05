@@ -7,6 +7,21 @@ namespace PlantStockManager.Models
     public class Booking
     {
         public int Id { get; set; }
+
+        // The customer order this variety line belongs to: the order's first line Id
+        // (the Booking Number). NULL = a single-line order numbered by its own Id.
+        // Never bound from a form -- set only by BookingRepository.InsertOrderAsync
+        // and the Revise "Add variety" split.
+        [BindNever, ValidateNever]
+        public int? OrderBookingId { get; set; }
+
+        // The Booking Number shown to users: ISNULL(OrderBookingId, Id).
+        [BindNever, ValidateNever]
+        public int EffectiveOrderId => OrderBookingId ?? Id;
+
+        // How many variety lines the whole order has (display only; a list filter may show fewer).
+        [BindNever, ValidateNever]
+        public int OrderLineCount { get; set; } = 1;
         public int PlantId { get; set; }
         public int SpeciesId { get; set; } // FK to PlantSpecies
         public int Quantity { get; set; }

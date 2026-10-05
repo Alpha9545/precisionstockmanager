@@ -97,7 +97,8 @@ OUTER APPLY (SELECT COUNT(*) AS Cnt, SUM(s.QuantitySown) AS Sown
 OUTER APPLY (SELECT SUM(r.Quantity - r.ReservedQuantity - r.DispatchedQuantity) AS Available
              FROM dbo.ReadyStock r INNER JOIN dbo.PlantSpecies ps ON ps.Id = r.SpeciesId
              WHERE ps.PlantTypeId = pt.Id) rs
-OUTER APPLY (SELECT COUNT(*) AS Cnt, SUM(b.Quantity - b.DispatchedQuantity) AS Qty
+OUTER APPLY (SELECT COUNT(DISTINCT ISNULL(b.OrderBookingId, b.Id)) AS Cnt,   -- unique customer orders, not variety lines
+                    SUM(b.Quantity - b.DispatchedQuantity) AS Qty
              FROM dbo.Bookings b
              WHERE b.PlantId = pt.Id AND b.Status = 'Pending') bk
 ORDER BY pt.Name";
