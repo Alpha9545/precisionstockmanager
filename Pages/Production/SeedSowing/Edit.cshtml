@@ -101,7 +101,15 @@
                 </form>
             }
 
-            @if (s.Status == "Sown" && s.ConfirmedReadyQuantity == 0 && s.WastageQuantity == 0)
+            @if (s.IsBedSowingSource && s.Status == "Sown")
+            {
+                <hr />
+                <div class="alert alert-info mb-0">
+                    This tray batch was transplanted from Bed Sowing <a asp-page="/Production/BedSowing/Details" asp-route-id="@s.BedSowingId">@s.BedSowingCode</a>.
+                    To undo it, the Bed Sowing Transplanter reverses the transplant there; the seedlings go back to the bed.
+                </div>
+            }
+            else if (s.Status == "Sown" && s.ConfirmedReadyQuantity == 0 && s.WastageQuantity == 0)
             {
                 <hr />
                 <form method="post" asp-page-handler="Cancel" asp-route-id="@s.Id" onsubmit="return confirm('Cancel this sowing? The @unit.ToLower() used go back to stock. This cannot be undone.');">

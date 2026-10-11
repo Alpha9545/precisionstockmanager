@@ -6,10 +6,17 @@ using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages
 {
-    // Home dashboard over the CURRENT workflow (Phase D). The former version
-    // read the retired seed pipeline (dbo.SeedEntries / dbo.Inventory).
-    //   * per crop: active sowings, ready seedlings available, pending bookings
-    //   * "needs attention": work waiting for THIS user or due soon
+    // Company Home page ("/") -- the landing page after login for every user.
+    //   * company identity (Precision Agritech Pvt. Ltd.) and a welcome for the user
+    //   * quick access to the ERP modules THIS user may open (Services/HomeQuickAccess.cs,
+    //     filtered by the same central permission rule the server enforces)
+    //   * "my work": items waiting for this user or due soon, each shown only when the
+    //     user may open the page it links to (unchanged from the former home dashboard)
+    //   * company information that is already in the system: the Plant Types the nursery
+    //     grows and its Areas (master data only -- no quantities)
+    // It shows NO management figures: company-wide stock, booking and production KPIs
+    // live only on the Administrator-only Management Dashboard (/ManagementDashboard/Index),
+    // which this page merely links to for users who are allowed to open it.
     public class IndexModel : PageModel
     {
         private readonly DatabaseHelper _db;
@@ -19,9 +26,12 @@ namespace PlantStockManager.Pages
         private readonly AreaAccessService _areaAccess;
         private readonly SeedlingAreaScope _seedlingScope;
         private readonly FeatureAccessService _featureAccess;
+        private readonly PlantTypeRepository _plantTypeRepo;
+        private readonly AreaRepository _areaRepo;
 
         public IndexModel(DatabaseHelper db, SeedSowingRepository seedSowingRepo, PotBatchRepository potBatchRepo,
-            InternalTransferRepository transferRepo, AreaAccessService areaAccess, SeedlingAreaScope seedlingScope, FeatureAccessService featureAccess)
+            InternalTransferRepository transferRepo, AreaAccessService areaAccess, SeedlingAreaScope seedlingScope, FeatureAccessService featureAccess,
+            PlantTypeRepository plantTypeRepo, AreaRepository areaRepo)
         {
             _db = db;
             _seedSowingRepo = seedSowingRepo;
@@ -30,27 +40,65 @@ namespace PlantStockManager.Pages
             _areaAccess = areaAccess;
             _seedlingScope = seedlingScope;
             _featureAccess = featureAccess;
+            _plantTypeRepo = plantTypeRepo;
+            _areaRepo = areaRepo;
         }
 
-        public sealed class CropRow
-        {
-            public string Crop { get; set; } = string.Empty;
-            public int ActiveSowings { get; set; }
-            public decimal ActiveSown { get; set; }
-            public decimal ReadyAvailable { get; set; }
-            public int PendingBookings { get; set; }
-            public decimal PendingBookingQuantity { get; set; }
-        }
+        public const string CompanyName = "Precision Agritech Pvt. Ltd.";
 
         public sealed record Attention(string Text, int Count, string Page, string Css);
+        public sealed record AreaGroup(string Label, List<string> Names);
 
-        public List<CropRow> Crops { get; set; } = new();
+        public string DisplayName { get; set; } = string.Empty;
+        public List<string> RoleNames { get; set; } = new();
+        public DateTime NowIndia { get; set; }
+        public bool CanOpenManagementDashboard { get; set; }
+        public List<HomeQuickAccess.Module> Modules { get; set; } = new();
         public List<Attention> Items { get; set; } = new();
+        public List<string> PlantTypes { get; set; } = new();
+        public List<AreaGroup> AreaGroups { get; set; } = new();
 
         public async Task OnGetAsync()
         {
-            await LoadCropsAsync();
+            NowIndia = AppClock.Now;
+            DisplayName = await GetDisplayNameAsync() ?? User.Identity?.Name ?? string.Empty;
+            RoleNames = User.FindAll(AreaAccessService.RoleNameClaimType).Select(c => c.Value).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().ToList();
+            CanOpenManagementDashboard = await _featureAccess.CanAccessPageAsync(User, HomeQuickAccess.ManagementDashboardPage);
+            Modules = await HomeQuickAccess.VisibleAsync(page => _featureAccess.CanAccessPageAsync(User, page));
 
+            PlantTypes = (await _plantTypeRepo.GetAllPlantTypes())
+                .Select(t => ManagementDashboardCalculations.CleanName(t.Name, ""))
+                .Where(n => n.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n).ToList();
+            AreaGroups = (await _areaRepo.GetAllAreas())
+                .GroupBy(a => AreaTypeLabel(a.AreaType))
+                .OrderBy(g => AreaTypeOrder(g.First().AreaType))
+                .Select(g => new AreaGroup(g.Key, g.Select(a => ManagementDashboardCalculations.CleanName(a.Name, $"Area {a.Id}")).OrderBy(n => n).ToList()))
+                .ToList();
+
+            await LoadMyWorkAsync();
+        }
+
+        public static string AreaTypeLabel(string? areaType) => areaType switch
+        {
+            "MainOffice" => "Main Office",
+            "MotherPlant" => "Production / Mother Plant Areas",
+            "Outlet" => "Outlet",
+            null or "" => "Other Areas",
+            _ => areaType,
+        };
+
+        private static int AreaTypeOrder(string? areaType) => areaType switch
+        {
+            "MainOffice" => 0,
+            "MotherPlant" => 1,
+            "Outlet" => 2,
+            _ => 3,
+        };
+
+        // Work waiting for THIS user or due soon -- the former home dashboard's
+        // "needs attention" list, unchanged.
+        private async Task LoadMyWorkAsync()
+        {
             var me = User.GetUserId();
             var today = DateTime.Today;
 
@@ -83,41 +131,19 @@ namespace PlantStockManager.Pages
                 Items.Add(new Attention(text, count, page, css));
         }
 
-        private async Task LoadCropsAsync()
+        // The signed-in user's name as recorded in dbo.IMSUsers (the login claim carries
+        // only the username).
+        private async Task<string?> GetDisplayNameAsync()
         {
-            const string sql = @"
-SELECT pt.Name AS Crop,
-       ISNULL(sw.Cnt, 0) AS ActiveSowings, ISNULL(sw.Sown, 0) AS ActiveSown,
-       ISNULL(rs.Available, 0) AS ReadyAvailable,
-       ISNULL(bk.Cnt, 0) AS PendingBookings, ISNULL(bk.Qty, 0) AS PendingBookingQuantity
-FROM dbo.PlantTypes pt
-OUTER APPLY (SELECT COUNT(*) AS Cnt, SUM(s.QuantitySown) AS Sown
-             FROM dbo.SeedSowings s INNER JOIN dbo.PlantSpecies ps ON ps.Id = s.SpeciesId
-             WHERE ps.PlantTypeId = pt.Id AND s.Status = 'Sown') sw
-OUTER APPLY (SELECT SUM(r.Quantity - r.ReservedQuantity - r.DispatchedQuantity) AS Available
-             FROM dbo.ReadyStock r INNER JOIN dbo.PlantSpecies ps ON ps.Id = r.SpeciesId
-             WHERE ps.PlantTypeId = pt.Id) rs
-OUTER APPLY (SELECT COUNT(DISTINCT ISNULL(b.OrderBookingId, b.Id)) AS Cnt,   -- unique customer orders, not variety lines
-                    SUM(b.Quantity - b.DispatchedQuantity) AS Qty
-             FROM dbo.Bookings b
-             WHERE b.PlantId = pt.Id AND b.Status = 'Pending') bk
-ORDER BY pt.Name";
+            var id = User.GetUserId();
+            if (!id.HasValue)
+                return null;
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(sql, conn);
-            using var r = await cmd.ExecuteReaderAsync();
-            while (await r.ReadAsync())
-            {
-                Crops.Add(new CropRow
-                {
-                    Crop = r.GetString(0),
-                    ActiveSowings = r.GetInt32(1),
-                    ActiveSown = r.GetDecimal(2),
-                    ReadyAvailable = r.GetDecimal(3),
-                    PendingBookings = r.GetInt32(4),
-                    PendingBookingQuantity = Convert.ToDecimal(r.GetValue(5))
-                });
-            }
+            using var cmd = new SqlCommand("SELECT Name FROM dbo.IMSUsers WHERE Id = @Id", conn);
+            cmd.Parameters.AddWithValue("@Id", id.Value);
+            var name = await cmd.ExecuteScalarAsync() as string;
+            return string.IsNullOrWhiteSpace(name) ? null : name.Trim();
         }
     }
 }

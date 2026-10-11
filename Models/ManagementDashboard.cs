@@ -31,13 +31,13 @@ namespace PlantStockManager.Models
         // charts and activity counts always show something meaningful
         // rather than an empty/all-time scan. Balance queries never use
         // these two.
-        public DateTime EffectiveFromDate => (FromDate ?? DateTime.Today.AddDays(-30)).Date;
+        public DateTime EffectiveFromDate => (FromDate ?? PlantStockManager.Services.AppClock.Today.AddDays(-30)).Date;
 
         // Step 5: range predicates ("Date >= @FromDate AND Date <
         // @ToDateExclusive"), never CAST(DateColumn AS DATE) = @Date --
         // this is the exclusive upper bound every repository method
         // below uses.
-        public DateTime EffectiveToDateExclusive => (ToDate ?? DateTime.Today).Date.AddDays(1);
+        public DateTime EffectiveToDateExclusive => (ToDate ?? PlantStockManager.Services.AppClock.Today).Date.AddDays(1);
     }
 
     // A quantity that carries its own unit, for domains where different
@@ -71,7 +71,9 @@ namespace PlantStockManager.Models
         public decimal PottedPlantAvailable { get; set; }
         public decimal PottedPlantInTransit { get; set; }
 
-        public decimal ReadyStockQuantity { get; set; } // Balance -- unit: plants confirmed Ready
+        public decimal ReadyStockQuantity { get; set; } // Balance -- unit: plants confirmed Ready (physical = Quantity - Dispatched)
+        public decimal ReadyStockReserved { get; set; } // Balance -- part of the above reserved for seedling bookings
+        public decimal ReadyStockInTransit { get; set; } // Balance -- part of the above on its way to a Mother Plant Area (not at either location)
 
         public List<UnitQuantity> SeedStock { get; set; } = new(); // Balance -- unit varies per row
 

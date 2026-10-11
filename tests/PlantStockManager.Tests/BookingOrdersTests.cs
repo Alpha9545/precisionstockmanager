@@ -108,7 +108,12 @@ namespace PlantStockManager.Tests
         public void OrderLevelCounts_CountUniqueOrders()
         {
             Assert.Contains("COUNT(DISTINCT ISNULL(OrderBookingId, Id))", ReadSource("Data", "BookingRepository.cs"));          // daily report / WhatsApp
-            Assert.Contains("COUNT(DISTINCT ISNULL(b.OrderBookingId, b.Id))", ReadSource("Pages", "Index.cshtml.cs"));         // dashboard
+            // Management Dashboard (the home page "/" no longer shows booking counts): every
+            // open line carries its order id, and orders are counted DISTINCT.
+            var dashboard = ReadSource("Data", "ManagementDashboardRepository.cs");
+            Assert.Contains("SELECT ISNULL(b.OrderBookingId, b.Id), b.SpeciesId", dashboard);
+            Assert.Contains("SELECT COUNT(DISTINCT OrderId), COUNT(*)", dashboard);
+            Assert.DoesNotContain("dbo.Bookings", ReadSource("Pages", "Index.cshtml.cs"));
         }
 
         [Fact]

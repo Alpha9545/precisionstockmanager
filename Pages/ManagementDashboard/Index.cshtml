@@ -1,6 +1,8 @@
 @page
 @model PlantStockManager.Pages.ManagementDashboard.IndexModel
 @using PlantStockManager.Models
+@using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
     ViewData["Title"] = "Management Dashboard";
 }
@@ -162,64 +164,584 @@
     }
 }
 
-<div class="container-fluid mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+@{
+    var o = Model.Overview;
+    var periodLabel = o.Period.Label;
+    string Pct(decimal? p) => p.HasValue ? p.Value.ToString("0.0") + "%" : "";
+    string N(int n, string one, string many) => $"{n} {(n == 1 ? one : many)}";
+    string When(DateTime d) => d.Date == o.Today ? d.ToString("hh:mm tt") : d.ToString("dd MMM, hh:mm tt");
+    var detailRoute = new Dictionary<string, string>
+    {
+        ["AreaId"] = Model.AreaId?.ToString() ?? "",
+        ["SpeciesId"] = Model.SpeciesId?.ToString() ?? "",
+        ["PotSize"] = Model.PotSize ?? "",
+    };
+}
+
+<style>
+    .mgmt .kpi { border: 1px solid #dee2e6; border-radius: .5rem; padding: .65rem .8rem; background: #fff; height: 100%; display: block; color: inherit; text-decoration: none; }
+    .mgmt a.kpi:hover { border-color: #86b7fe; box-shadow: 0 0 0 .15rem rgba(13,110,253,.12); }
+    .mgmt .kpi .label { font-size: .78rem; color: #6c757d; text-transform: uppercase; letter-spacing: .02em; }
+    .mgmt .kpi .value { font-size: 1.55rem; font-weight: 700; line-height: 1.2; }
+    .mgmt .kpi .sub { font-size: .8rem; color: #6c757d; }
+    .mgmt .kpi.warn { background: #fffaf0; border-color: #f1d38a; }
+    .mgmt .kpi.bad { background: #fff5f5; border-color: #f1aeb5; }
+    .mgmt .scope { font-size: .68rem; font-weight: 600; border-radius: .25rem; padding: .05rem .35rem; vertical-align: middle; }
+    .mgmt .scope.now { background: #e9ecef; color: #495057; }
+    .mgmt .scope.period { background: #cfe2ff; color: #084298; }
+    .mgmt .section-title { font-size: 1.05rem; font-weight: 600; margin: 1.5rem 0 .6rem; }
+    .mgmt .card-title-sm { font-weight: 600; font-size: .95rem; }
+    .mgmt .rank { display: inline-block; width: 1.6rem; height: 1.6rem; line-height: 1.6rem; border-radius: 50%; background: #e7f1ff; color: #084298; font-weight: 700; text-align: center; font-size: .85rem; }
+    .mgmt .table td, .mgmt .table th { vertical-align: middle; }
+    .mgmt .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .mgmt .stat-list { list-style: none; padding: 0; margin: 0; font-size: .9rem; }
+    .mgmt .stat-list li { display: flex; justify-content: space-between; gap: .5rem; padding: .25rem 0; border-bottom: 1px solid #f1f3f5; }
+    .mgmt .stat-list li:last-child { border-bottom: 0; }
+    .mgmt .period-bar .btn { margin-bottom: .25rem; }
+    .mgmt .activity-kind { font-size: .7rem; min-width: 7.5rem; }
+    .mgmt details > summary { cursor: pointer; }
+    .mgmt .ph-row td:first-child { padding-left: 1.6rem; color: #495057; }
+    .mgmt .vbar-row { display: grid; grid-template-columns: minmax(6rem, 12rem) 1fr auto; align-items: center; gap: .5rem; padding: .2rem 0; font-size: .85rem; }
+    .mgmt .vbar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mgmt .vbar-track { height: 14px; }
+    .mgmt .vbar-fill { height: 100%; min-width: 2px; background: #2a78d6; border-radius: 0 4px 4px 0; }
+    .mgmt .vbar-fill.others { background: #898781; }
+    .mgmt .vbar-row:hover .vbar-fill { filter: brightness(.88); }
+    .mgmt .vbar-value { min-width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; color: #495057; }
+    @@media (max-width: 576px) { .mgmt .kpi .value { font-size: 1.3rem; } .mgmt .activity-kind { min-width: 0; } }
+</style>
+
+<div class="container-fluid mt-4 mgmt">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
         <h2 class="mb-0">Management Dashboard</h2>
-        <span class="badge bg-dark">Administrator only</span>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            @if (await FeatureAccess.CanAccessPageAsync(User, "/ManagementDashboard/DailyOperationsReport"))
+            {
+                <a asp-page="/ManagementDashboard/DailyOperationsReport" class="btn btn-sm btn-primary" id="daily-operations-report-link">Daily Operations Report</a>
+            }
+            <span class="badge bg-dark">Administrator only</span>
+        </div>
+    </div>
+    <div class="text-muted small mb-3">
+        Read live from the operational tables; viewing this page never writes anything.
+        <span class="scope now">NOW</span> = current state (the period does not change it).
+        <span class="scope period">PERIOD</span> = activity dated inside <strong>@periodLabel</strong>.
+        <a href="#definitions">Definitions</a>
     </div>
 
-    <div class="alert alert-info small">
-        Read-only reporting layer. Every figure below is read live from the existing operational tables/ledgers &mdash;
-        nothing here is a duplicate stock table, and viewing this page never writes anything. Cards marked
-        <span class="badge bg-secondary">Balance</span> are current, point-in-time totals (the date filter does not apply);
-        cards marked <span class="badge bg-primary">Movement</span> are sums over events whose own date falls inside the
-        selected range below.
-    </div>
-
-    <form method="get" class="row g-2 align-items-end mb-4 p-3 border rounded bg-light">
-        <div class="col-6 col-md-auto">
+    <!-- Period selector -->
+    <form method="get" class="period-bar d-flex flex-wrap align-items-end gap-2 mb-3 p-2 border rounded bg-light">
+        @foreach (var kv in detailRoute.Where(kv => kv.Value != ""))
+        {
+            <input type="hidden" name="@kv.Key" value="@kv.Value" />
+        }
+        <div class="btn-group flex-wrap" role="group" aria-label="Period">
+            @foreach (var (key, label) in DashboardPeriod.Presets.Where(p => p.Key != DashboardPeriod.Custom))
+            {
+                <button type="submit" name="Range" value="@key" class="btn btn-sm @(o.Period.Key == key ? "btn-primary" : "btn-outline-primary")">@label</button>
+            }
+        </div>
+        <div>
             <label class="form-label small mb-0">From</label>
-            <input type="date" name="FromDate" value="@(Model.FromDate?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+            <input type="date" name="FromDate" value="@o.Period.From.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
         </div>
-        <div class="col-6 col-md-auto">
+        <div>
             <label class="form-label small mb-0">To</label>
-            <input type="date" name="ToDate" value="@(Model.ToDate?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" />
+            <input type="date" name="ToDate" value="@o.Period.To.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
         </div>
-        <div class="col-6 col-md-auto">
-            <label class="form-label small mb-0">Area</label>
-            <select name="AreaId" class="form-select form-select-sm">
-                <option value="">All Areas</option>
-                @foreach (var a in Model.Dashboard.Areas)
-                {
-                    <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name @(a.AreaType != null ? $"({a.AreaType})" : "")</option>
-                }
-            </select>
-        </div>
-        <div class="col-6 col-md-auto">
-            <label class="form-label small mb-0">Plant / Variety</label>
-            <select name="SpeciesId" class="form-select form-select-sm">
-                <option value="">All Varieties</option>
-                @foreach (var s in Model.Dashboard.SpeciesOptions)
-                {
-                    <option value="@s.Id" selected="@(Model.SpeciesId == s.Id)">@s.Name</option>
-                }
-            </select>
-        </div>
-        <div class="col-6 col-md-auto">
-            <label class="form-label small mb-0">Pot Size</label>
-            <select name="PotSize" class="form-select form-select-sm">
-                <option value="">All Pot Sizes</option>
-                @foreach (var p in Model.Dashboard.PotSizeOptions)
-                {
-                    <option value="@p" selected="@(Model.PotSize == p)">@p</option>
-                }
-            </select>
-        </div>
-        <div class="col-auto">
-            <button type="submit" class="btn btn-sm btn-primary">Refresh</button>
-            <a href="/ManagementDashboard/Index" class="btn btn-sm btn-outline-secondary">Reset</a>
-        </div>
+        <button type="submit" name="Range" value="@DashboardPeriod.Custom" class="btn btn-sm @(o.Period.Key == DashboardPeriod.Custom ? "btn-primary" : "btn-outline-secondary")">Apply custom range</button>
+        <span class="small text-muted ms-auto">Today (India time): @o.Today.ToString("dd MMM yyyy") &middot; the period changes PERIOD figures only</span>
     </form>
+
+    <!-- KPI cards -->
+    <div class="row g-2 g-md-3">
+        <div class="col-6 col-md-4 col-xl-3">
+            <a class="kpi" asp-page="/Production/ReadyStock/Index">
+                @* 2026-10-10 standard definitions (docs/STOCK_DEFINITIONS.md): the main figure is AVAILABLE
+                   for booking/dispatch = physical - reserved; physical excludes plants in transit. *@
+                <div class="label">Ready seedlings &mdash; available for booking/dispatch <span class="scope now">NOW</span></div>
+                <div class="value">@Qty(o.ReadyTotals.Available)</div>
+                <div class="sub">physical @Qty(o.ReadyTotals.Physical) &middot; reserved @Qty(o.ReadyTotals.Reserved)@(Model.MotherPlantFlow.InTransitPlants > 0 ? $" · in transit {Qty(Model.MotherPlantFlow.InTransitPlants)}" : "")</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4 col-xl-3">
+            <a class="kpi" asp-page="/Bookings/Fulfilment" asp-route-Status="Pending">
+                <div class="label">Open seedling orders <span class="scope now">NOW</span></div>
+                <div class="value">@o.Seedlings.OpenOrders</div>
+                <div class="sub">@Qty(o.Seedlings.OpenRemainingQuantity) plants still to dispatch &middot; @N(o.Seedlings.OpenLines, "variety line", "variety lines")@if (o.Seedlings.OverdueOrders > 0) {<text> &middot; <span class="text-danger">@o.Seedlings.OverdueOrders past delivery date</span></text>}</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4 col-xl-3">
+            <a class="kpi" asp-page="/Bookings/DispatchRegister" asp-route-From="@o.Period.From.ToString("yyyy-MM-dd")" asp-route-To="@o.Period.To.ToString("yyyy-MM-dd")">
+                <div class="label">Seedlings dispatched <span class="scope period">PERIOD</span></div>
+                <div class="value">@Qty(o.Seedlings.DispatchedQuantity)</div>
+                <div class="sub">@N(o.Seedlings.Dispatches, "dispatch", "dispatches") &middot; @periodLabel</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4 col-xl-3">
+            <a class="kpi" asp-page="/Data/BookingsRecord">
+                <div class="label">Seedling orders received <span class="scope period">PERIOD</span></div>
+                <div class="value">@o.Seedlings.OrdersReceived</div>
+                <div class="sub">@Qty(o.Seedlings.QuantityReceived) plants booked &middot; @periodLabel</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4 col-xl-3">
+            <a class="kpi" asp-page="/Production/PottedPlantStock/Index">
+                <div class="label">Potted plant stock <span class="scope now">NOW</span></div>
+                <div class="value">@Qty(o.PottedTotals.Physical)</div>
+                <div class="sub">@Qty(o.PottedTotals.Available) available &middot; @Qty(o.PottedTotals.Reserved) reserved</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4 col-xl-3">
+            <a class="kpi @(o.Maintenance.Critical > 0 || o.Maintenance.Overdue > 0 ? "bad" : "")" asp-page="/Maintenance/MyTickets">
+                <div class="label">Open maintenance tickets <span class="scope now">NOW</span></div>
+                <div class="value">@o.Maintenance.Active</div>
+                <div class="sub">@o.Maintenance.Critical critical &middot; @o.Maintenance.Overdue overdue</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4 col-xl-3">
+            <a class="kpi @(o.Store.PendingReview + o.Store.ApprovedAwaitingIssue > 0 ? "warn" : "")" asp-page="/Store/Requests" asp-route-Status="@StoreRules.Pending">
+                <div class="label">Store requests pending <span class="scope now">NOW</span></div>
+                <div class="value">@o.Store.PendingReview</div>
+                <div class="sub">@o.Store.ApprovedAwaitingIssue approved, not issued &middot; @o.Store.LowStockCount low-stock items</div>
+            </a>
+        </div>
+        <div class="col-6 col-md-4 col-xl-3">
+            <a class="kpi" asp-page="/Production/Labour/AttendanceHistory" asp-route-FromDate="@o.Today.ToString("yyyy-MM-dd")" asp-route-ToDate="@o.Today.ToString("yyyy-MM-dd")">
+                <div class="label">Today's labour <span class="scope now">TODAY</span></div>
+                <div class="value">@o.Labour.At9</div>
+                <div class="sub">present at 9:00 AM &middot; @o.Labour.FullDay full / @o.Labour.HalfDay half day</div>
+            </a>
+        </div>
+    </div>
+
+    <!-- Attention required -->
+    <div class="section-title">Attention required</div>
+    @if (o.Attention.Any())
+    {
+        <div class="list-group mb-2">
+            @foreach (var a in o.Attention)
+            {
+                <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" asp-page="@a.Page" asp-all-route-data="@a.Query">
+                    <span><span class="badge bg-@a.Severity me-2">@(a.Severity == "danger" ? "!" : a.Severity == "warning" ? "Due" : "Info")</span>@a.Text</span>
+                    <span class="badge bg-@a.Severity rounded-pill">@a.Count</span>
+                </a>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-success py-2">Nothing needs attention right now.</div>
+    }
+
+    <!-- Stock -->
+    <div class="section-title">Stock <span class="scope now">NOW</span></div>
+    <div class="row g-3">
+        <div class="col-12 col-xl-4">
+            <div class="card h-100"><div class="card-body">
+                <div class="card-title-sm mb-2">Stock overview</div>
+                <div class="table-responsive">
+                    <table class="table table-sm mb-2">
+                        <thead class="table-light"><tr><th></th><th class="num">Physical</th><th class="num">Reserved</th><th class="num">Available</th></tr></thead>
+                        <tbody>
+                            <tr><td>Ready seedlings</td><td class="num">@Qty(o.ReadyTotals.Physical)</td><td class="num">@Qty(o.ReadyTotals.Reserved)</td><td class="num fw-semibold">@Qty(o.ReadyTotals.Available)</td></tr>
+                            <tr><td>Potted plants</td><td class="num">@Qty(o.PottedTotals.Physical)</td><td class="num">@Qty(o.PottedTotals.Reserved)</td><td class="num fw-semibold">@Qty(o.PottedTotals.Available)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="text-muted small">
+                    Available = Physical &minus; Reserved. Reserved seedlings are held for seedling bookings;
+                    reserved potted plants for potted-plant bookings. The two stocks are different products and are never added together.
+                    @if (o.PottedTotals.InTransit > 0) { <span>Potted plants in transit: @Qty(o.PottedTotals.InTransit).</span> }
+                </div>
+            </div></div>
+        </div>
+
+        <div class="col-md-6 col-xl-4">
+            <div class="card h-100"><div class="card-body">
+                <div class="card-title-sm">Top 3 varieties by Ready Stock</div>
+                <div class="text-muted small mb-2">Physical approved seedlings per variety; % of all Ready Stock (@Qty(o.ReadyTotals.Physical)).</div>
+                @if (o.TopByReadyStock.Any())
+                {
+                    <div class="table-responsive"><table class="table table-sm mb-0">
+                        <thead><tr><th>#</th><th>Variety</th><th class="num">Quantity</th><th class="num">%</th></tr></thead>
+                        <tbody>
+                            @foreach (var v in o.TopByReadyStock)
+                            {
+                                <tr>
+                                    <td><span class="rank">@v.Rank</span></td>
+                                    <td><a asp-page="/Production/ReadyStock/Index" asp-route-Search="@v.VarietyName">@v.VarietyName</a><div class="text-muted small">@v.PlantTypeName</div></td>
+                                    <td class="num fw-semibold">@Qty(v.Quantity)</td>
+                                    <td class="num text-muted">@Pct(v.PercentOfTotal)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table></div>
+                }
+                else { <div class="text-muted small">No Ready Stock at the moment.</div> }
+            </div></div>
+        </div>
+
+        <div class="col-md-6 col-xl-4">
+            <div class="card h-100"><div class="card-body">
+                <div class="card-title-sm">Top 3 varieties by open booking quantity</div>
+                <div class="text-muted small mb-2">Plants still to dispatch on Pending seedling bookings; % of all (@Qty(o.Seedlings.OpenRemainingQuantity)).</div>
+                @if (o.TopByOpenBooking.Any())
+                {
+                    <div class="table-responsive"><table class="table table-sm mb-0">
+                        <thead><tr><th>#</th><th>Variety</th><th class="num">Quantity</th><th class="num">%</th></tr></thead>
+                        <tbody>
+                            @foreach (var v in o.TopByOpenBooking)
+                            {
+                                <tr>
+                                    <td><span class="rank">@v.Rank</span></td>
+                                    <td><a asp-page="/Bookings/Fulfilment" asp-route-Status="Pending">@v.VarietyName</a><div class="text-muted small">@v.PlantTypeName</div></td>
+                                    <td class="num fw-semibold">@Qty(v.Quantity)</td>
+                                    <td class="num text-muted">@Pct(v.PercentOfTotal)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table></div>
+                }
+                else { <div class="text-muted small">No seedlings waiting for dispatch.</div> }
+            </div></div>
+        </div>
+    </div>
+
+    <div class="row g-3 mt-0">
+        <div class="col-xl-7">
+            <div class="card h-100"><div class="card-body">
+                <div class="card-title-sm">Ready Stock by variety <span class="text-muted small fw-normal">(top @IndexModel.ChartVarieties, the rest grouped as Others; unit: plants)</span></div>
+                @if (o.ReadyStockByVarietyChart.Any())
+                {
+                    var maxBar = o.ReadyStockByVarietyChart.Max(c => c.Value);
+                    <div class="vbar-list mt-2" role="list" aria-label="Ready Stock by variety, in plants">
+                        @foreach (var c in o.ReadyStockByVarietyChart)
+                        {
+                            var width = maxBar > 0 ? Math.Round(c.Value / maxBar * 100m, 1) : 0m;
+                            var isOthers = c.Label.StartsWith("Others (");
+                            <div class="vbar-row" role="listitem" title="@c.Label: @Qty(c.Value) plants">
+                                <div class="vbar-label">@c.Label</div>
+                                <div class="vbar-track"><div class="vbar-fill @(isOthers ? "others" : "")" style="width:@(width.ToString(System.Globalization.CultureInfo.InvariantCulture))%"></div></div>
+                                <div class="vbar-value">@Qty(c.Value)</div>
+                            </div>
+                        }
+                    </div>
+                }
+                else { <div class="text-muted small py-4 text-center border rounded bg-light mt-2">No Ready Stock at the moment.</div> }
+            </div></div>
+        </div>
+        <div class="col-xl-5">
+            <div class="card h-100"><div class="card-body">
+                <div class="card-title-sm">Ready Stock by Plant Type</div>
+                <div class="text-muted small mb-2">Plant Type is the crop group (e.g. MERI GOLD); the varieties above belong to it.</div>
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0">
+                        <thead class="table-light"><tr><th>Plant Type</th><th class="num">Varieties</th><th class="num">Physical</th><th class="num">Available</th><th class="num">%</th></tr></thead>
+                        <tbody>
+                            @foreach (var p in o.ReadyStockByPlantType)
+                            {
+                                <tr><td>@p.PlantTypeName</td><td class="num">@p.Varieties</td><td class="num">@Qty(p.Physical)</td><td class="num">@Qty(p.Available)</td><td class="num text-muted">@Pct(p.PercentOfTotal)</td></tr>
+                            }
+                            @if (!o.ReadyStockByPlantType.Any()) { <tr><td colspan="5" class="text-muted text-center">No Ready Stock.</td></tr> }
+                        </tbody>
+                    </table>
+                </div>
+            </div></div>
+        </div>
+    </div>
+
+    <!-- Area / Polyhouse -->
+    <div class="section-title">Stock by Area and Polyhouse <span class="scope now">NOW</span></div>
+    <div class="card"><div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-sm mb-1">
+                <thead class="table-light">
+                    <tr><th>Area / Polyhouse</th><th class="num">Ready physical</th><th class="num">Reserved</th><th class="num">Available</th><th class="num">Potted physical</th><th class="num">Potted available</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in o.Areas)
+                    {
+                        <tr class="fw-semibold">
+                            <td>@a.AreaName @if (a.AreaType != null) { <span class="text-muted small fw-normal">(@a.AreaType)</span> }</td>
+                            <td class="num">@Qty(a.ReadyPhysical)</td><td class="num">@Qty(a.ReadyReserved)</td><td class="num">@Qty(a.ReadyAvailable)</td>
+                            <td class="num">@Qty(a.PottedPhysical)</td><td class="num">@Qty(a.PottedAvailable)</td>
+                        </tr>
+                        @foreach (var p in a.Polyhouses.Where(p => a.Polyhouses.Count > 1 || p.PolyhouseId.HasValue))
+                        {
+                            <tr class="ph-row small">
+                                <td>@p.Name @if (p.BelongsToAreaName != null) { <span class="badge bg-warning text-dark" title="Area/Polyhouse master-data mismatch: this Polyhouse belongs to @p.BelongsToAreaName">mismatch: Polyhouse of @p.BelongsToAreaName</span> }</td>
+                                <td class="num">@Qty(p.Physical)</td><td class="num">@Qty(p.Reserved)</td><td class="num">@Qty(p.Available)</td>
+                                <td class="num text-muted">&ndash;</td><td class="num text-muted">&ndash;</td>
+                            </tr>
+                        }
+                    }
+                    @if (!o.Areas.Any()) { <tr><td colspan="6" class="text-muted text-center">No stock recorded.</td></tr> }
+                </tbody>
+                <tfoot class="table-light fw-bold">
+                    <tr><td>Total</td><td class="num">@Qty(o.ReadyTotals.Physical)</td><td class="num">@Qty(o.ReadyTotals.Reserved)</td><td class="num">@Qty(o.ReadyTotals.Available)</td><td class="num">@Qty(o.PottedTotals.Physical)</td><td class="num">@Qty(o.PottedTotals.Available)</td></tr>
+                </tfoot>
+            </table>
+        </div>
+        <div class="text-muted small">Ready Stock is recorded per Polyhouse; Potted Plant Stock only per Area (&ndash;).</div>
+        @if (o.PolyhouseMismatches.Any())
+        {
+            <div class="alert alert-warning small mt-2 mb-0 py-2" role="alert">
+                <div class="fw-semibold">Area/Polyhouse master-data mismatch</div>
+                <div class="mb-1">Ready Stock below is recorded under one Area on a Polyhouse that belongs to another Area. It is counted under the recorded Area, exactly as stored; nothing has been moved. Correcting the master data is a separate task.</div>
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0 bg-transparent">
+                        <thead><tr><th>Recorded Area</th><th>Polyhouse</th><th>Polyhouse's actual Area</th><th class="num">Quantity</th></tr></thead>
+                        <tbody>
+                            @foreach (var m in o.PolyhouseMismatches)
+                            {
+                                <tr>
+                                    <td>@m.RecordedAreaName</td><td>@m.PolyhouseName</td><td>@m.PolyhouseAreaName</td>
+                                    <td class="num">@Qty(m.Physical) <span class="text-muted">(@N(m.Batches, "batch", "batches")@(m.Reserved > 0 ? $", {Qty(m.Reserved)} reserved" : ""))</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </div></div>
+
+    <!-- Bookings / dispatch + production -->
+    <div class="row g-3 mt-0">
+        <div class="col-lg-6">
+            <div class="section-title">Bookings and dispatch</div>
+            <div class="card h-100"><div class="card-body">
+                <div class="card-title-sm mb-1">Seedling bookings</div>
+                <ul class="stat-list mb-3">
+                    <li><span>Open orders <span class="scope now">NOW</span></span><span><strong>@o.Seedlings.OpenOrders</strong> @(o.Seedlings.OpenOrders == 1 ? "order" : "orders") &middot; @N(o.Seedlings.OpenLines, "line", "lines")</span></li>
+                    <li><span>Booked on open orders</span><span>@Qty(o.Seedlings.OpenBookedQuantity) (@Qty(o.Seedlings.OpenDispatchedQuantity) already dispatched)</span></li>
+                    <li><span>Still to dispatch</span><span><strong>@Qty(o.Seedlings.OpenRemainingQuantity)</strong> &middot; @Qty(o.Seedlings.OpenReservedQuantity) reserved</span></li>
+                    <li><span>Pending, past expected delivery date</span><span class="@(o.Seedlings.OverdueOrders > 0 ? "text-danger fw-semibold" : "")">@N(o.Seedlings.OverdueOrders, "order", "orders") &middot; @Qty(o.Seedlings.OverdueRemainingQuantity) plants</span></li>
+                    <li><span>Pending, due for delivery today</span><span>@N(o.Seedlings.DueTodayOrders, "order", "orders") &middot; @Qty(o.Seedlings.DueTodayRemainingQuantity) plants</span></li>
+                    <li><span>Orders received <span class="scope period">PERIOD</span></span><span>@N(o.Seedlings.OrdersReceived, "order", "orders") &middot; @Qty(o.Seedlings.QuantityReceived) plants</span></li>
+                    <li><span>Dispatched <span class="scope period">PERIOD</span></span><span>@N(o.Seedlings.Dispatches, "dispatch", "dispatches") &middot; @Qty(o.Seedlings.DispatchedQuantity) plants</span></li>
+                </ul>
+                @if (o.Seedlings.OverdueOrders > 0 && o.Seedlings.OpenOrders > 0)
+                {
+                    <div class="alert alert-warning small py-2 mb-3">
+                        <strong>Many pending orders are past their expected delivery date:</strong>
+                        @o.Seedlings.OverdueOrders of @o.Seedlings.OpenOrders open orders (@((o.Seedlings.OverdueOrders * 100m / o.Seedlings.OpenOrders).ToString("0"))%)
+                        still have plants to dispatch after their delivery date. They are counted exactly as recorded
+                        (status Pending). Old pending bookings need a separate business review in
+                        <a asp-page="/Bookings/Fulfilment" asp-route-Status="Pending" asp-route-To="@o.Today.AddDays(-1).ToString("yyyy-MM-dd")">Booking fulfilment</a>
+                        &mdash; the dashboard does not hide, cancel or change them.
+                    </div>
+                }
+                <div class="card-title-sm mb-1">Potted plant bookings</div>
+                <ul class="stat-list mb-2">
+                    <li><span>Open bookings <span class="scope now">NOW</span></span><span>@o.Potted.PendingBookings pending &middot; @o.Potted.PartiallyDispatchedBookings part-dispatched</span></li>
+                    <li><span>Still to dispatch</span><span>@Qty(o.Potted.RemainingBookingQuantity) plants</span></li>
+                    <li><span>Dispatched <span class="scope period">PERIOD</span></span><span>@N(o.Potted.CompletedDispatchCountInRange, "dispatch", "dispatches") &middot; @Qty(o.Potted.CompletedDispatchQuantityInRange) plants</span></li>
+                </ul>
+                <a asp-page="/Bookings/Fulfilment" asp-route-Status="Pending" class="btn btn-sm btn-outline-primary">Booking fulfilment &rarr;</a>
+                <a asp-page="/Bookings/DispatchRegister" asp-route-From="@o.Period.From.ToString("yyyy-MM-dd")" asp-route-To="@o.Period.To.ToString("yyyy-MM-dd")" class="btn btn-sm btn-outline-primary">Dispatch register &rarr;</a>
+                <a asp-page="/Production/PottedPlantBooking/Index" class="btn btn-sm btn-outline-secondary">Potted bookings &rarr;</a>
+            </div></div>
+        </div>
+        <div class="col-lg-6">
+            <div class="section-title">Production <span class="scope period">PERIOD</span></div>
+            <div class="card h-100"><div class="card-body">
+                <div class="text-muted small mb-1">@periodLabel, all Areas</div>
+                <ul class="stat-list mb-3">
+                    <li><span>Sown (seed and cutting trays)</span><span><strong>@Qty(o.Production.SownQuantity)</strong> &middot; @N(o.Production.Sowings, "sowing", "sowings")</span></li>
+                    <li><span>Approved into Ready Stock</span><span><strong>@Qty(o.Production.ReadyApprovedQuantity)</strong> seedlings</span></li>
+                    <li><span>Cuttings produced (mother plants)</span><span><strong>@Qty(o.Production.CuttingsProduced)</strong> &middot; @N(o.Production.CuttingEntries, "entry", "entries")</span></li>
+                    <li><span>Pots produced</span><span><strong>@Qty(o.Production.PotsProduced)</strong></span></li>
+                </ul>
+                <a asp-page="/Production/SeedSowing/Index" class="btn btn-sm btn-outline-primary">Sowing &rarr;</a>
+                <a asp-page="/Production/ReadyAlerts/Index" class="btn btn-sm btn-outline-primary">Ready alerts &rarr;</a>
+                <a asp-page="/Production/PotBatch/Index" class="btn btn-sm btn-outline-secondary">Pot batches &rarr;</a>
+                <a href="#production-detail" class="btn btn-sm btn-outline-secondary">Production detail &darr;</a>
+            </div></div>
+        </div>
+    </div>
+
+    <!-- 2026-10-09: Main Area -> Mother Plant transfers and transplanting (plants; nothing is counted twice:
+         in-transit plants are held at the Main Area batch and are not stock at either place). -->
+    @{ var mp = Model.MotherPlantFlow; }
+    <div class="section-title">Mother Plant seedling flow</div>
+    <div class="card mb-2" id="mother-plant-flow"><div class="card-body">
+        <ul class="stat-list mb-2">
+            <li><span>In transit to Mother Plant Areas <span class="scope now">NOW</span></span><span><strong>@Qty(mp.InTransitPlants)</strong> plants &middot; @N(mp.PendingTransfers, "transfer", "transfers") waiting to be received</span></li>
+            <li><span>Ready Stock in Mother Plant Areas <span class="scope now">NOW</span></span><span><strong>@Qty(mp.MotherPlantAreaReadyStock)</strong> plants (physical)</span></li>
+            <li><span>Transplanted today</span><span><strong>@Qty(mp.TransplantedToday)</strong> plants &middot; lost while transplanting @Qty(mp.LostToday) &middot; lost in transit @Qty(mp.TransferLossToday)</span></li>
+            <li><span>Output by cavity today</span><span>@(mp.OutputByCavityToday.Any() ? string.Join(" · ", mp.OutputByCavityToday.Select(c => $"{c.CavityType}: {Qty(c.Plants)} plants / {c.Trays} trays")) : "-")</span></li>
+        </ul>
+        <a asp-page="/Production/MotherPlantTransfers/Index" class="btn btn-sm btn-outline-primary">Transfers &rarr;</a>
+        <a asp-page="/Production/Transplanting/History" asp-route-Filter.From="@o.Today.ToString("yyyy-MM-dd")" asp-route-Filter.To="@o.Today.ToString("yyyy-MM-dd")" class="btn btn-sm btn-outline-secondary">Today's transplanting &rarr;</a>
+    </div></div>
+
+    <!-- Operations -->
+    <div class="section-title">Operations</div>
+    <div class="row g-3">
+        <div class="col-md-6 col-xl-3">
+            <div class="card h-100"><div class="card-body">
+                <div class="card-title-sm mb-1">Maintenance <span class="scope now">NOW</span></div>
+                <ul class="stat-list mb-2">
+                    <li><span>Open tickets</span><strong>@o.Maintenance.Active</strong></li>
+                    <li><span>Critical</span><span class="@(o.Maintenance.Critical > 0 ? "text-danger fw-semibold" : "")">@o.Maintenance.Critical</span></li>
+                    <li><span>Urgent</span><span>@o.Maintenance.Urgent</span></li>
+                    <li><span>Overdue</span><span class="@(o.Maintenance.Overdue > 0 ? "text-danger fw-semibold" : "")">@o.Maintenance.Overdue</span></li>
+                    <li><span>Work done, awaiting confirmation</span><span>@o.Maintenance.AwaitingConfirmation</span></li>
+                    <li><span>Closed <span class="scope period">PERIOD</span></span><span>@o.Maintenance.ClosedInPeriod</span></li>
+                </ul>
+                <a asp-page="/Maintenance/MyTickets" class="btn btn-sm btn-outline-primary">Tickets &rarr;</a>
+                <a asp-page="/Maintenance/Reports" class="btn btn-sm btn-outline-secondary">Reports &rarr;</a>
+            </div></div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card h-100"><div class="card-body">
+                <div class="card-title-sm mb-1">Store <span class="scope now">NOW</span></div>
+                <ul class="stat-list mb-2">
+                    <li><span>Requests to review</span><strong>@o.Store.PendingReview</strong></li>
+                    <li><span>Approved, not issued</span><span>@o.Store.ApprovedAwaitingIssue</span></li>
+                    <li><span>Items below minimum</span><span class="@(o.Store.LowStockCount > 0 ? "text-danger fw-semibold" : "")">@o.Store.LowStockCount</span></li>
+                    @foreach (var i in o.Store.LowStockItems)
+                    {
+                        <li class="small text-muted"><span>@i.Name</span><span>@Qty(i.Available) / min @Qty(i.Minimum) @i.Unit</span></li>
+                    }
+                </ul>
+                <a asp-page="/Store/Requests" asp-route-Status="@StoreRules.Pending" class="btn btn-sm btn-outline-primary">Requests &rarr;</a>
+                <a asp-page="/Store/Index" class="btn btn-sm btn-outline-secondary">Store &rarr;</a>
+            </div></div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card h-100"><div class="card-body">
+                <div class="card-title-sm mb-1">Labour today <span class="text-muted small fw-normal">(@o.Labour.Date.ToString("dd MMM"))</span></div>
+                <ul class="stat-list mb-2">
+                    <li><span>Present 9:00 AM / 2:00 PM</span><strong>@o.Labour.At9 / @o.Labour.At2</strong></li>
+                    <li><span>Full day / half day</span><span>@o.Labour.FullDay / @o.Labour.HalfDay</span></li>
+                    <li><span>Labour-days</span><span>@o.Labour.LabourDays.ToString("0.#")</span></li>
+                    <li><span>Overtime</span><span>@N(o.Labour.OvertimeEntries, "entry", "entries") &middot; @LabourOvertimeRules.FormatHours(o.Labour.OvertimeWorkerHours) worker-hours</span></li>
+                    @foreach (var a in o.Labour.ByArea)
+                    {
+                        <li class="small text-muted"><span>@a.AreaName</span><span>@a.At9 / @a.At2 @(a.IncompleteLocations > 0 ? "(2 PM pending)" : "")</span></li>
+                    }
+                </ul>
+                @if (o.Labour.Locations == 0) { <div class="text-muted small mb-2">No attendance recorded yet today.</div> }
+                else if (o.Labour.IncompleteLocations > 0) { <div class="text-muted small mb-2">Full / half day counts only locations with both headcounts (@o.Labour.IncompleteLocations of @o.Labour.Locations still open).</div> }
+                <a asp-page="/Production/Labour/AttendanceHistory" asp-route-FromDate="@o.Today.ToString("yyyy-MM-dd")" asp-route-ToDate="@o.Today.ToString("yyyy-MM-dd")" class="btn btn-sm btn-outline-primary">Attendance &rarr;</a>
+                <a asp-page="/Production/Labour/OvertimeHistory" asp-route-FromDate="@o.Today.ToString("yyyy-MM-dd")" asp-route-ToDate="@o.Today.ToString("yyyy-MM-dd")" class="btn btn-sm btn-outline-secondary">Overtime &rarr;</a>
+            </div></div>
+        </div>
+        <div class="col-md-6 col-xl-3">
+            <div class="card h-100"><div class="card-body">
+                <div class="card-title-sm mb-1">Suggestions &amp; problems <span class="scope now">NOW</span></div>
+                <ul class="stat-list mb-2">
+                    <li><span>Active problems</span><strong>@o.Suggestions.ActiveProblems</strong></li>
+                    <li><span>Active suggestions</span><span>@o.Suggestions.ActiveSuggestions</span></li>
+                    <li><span>Permanent posts</span><span>@o.Suggestions.Permanent</span></li>
+                </ul>
+                @if (o.Suggestions.RecentProblems.Any())
+                {
+                    <div class="small text-muted">Latest problems</div>
+                    <ul class="list-unstyled small mb-2">
+                        @foreach (var p in o.Suggestions.RecentProblems)
+                        {
+                            <li class="text-truncate"><a asp-page="/Suggestions/Details" asp-route-id="@p.Id">@p.Title</a> <span class="text-muted">&middot; @p.AreaName</span></li>
+                        }
+                    </ul>
+                }
+                <a asp-page="/Suggestions/Index" asp-route-Type="@SuggestionRules.Problem" class="btn btn-sm btn-outline-primary">Problems &rarr;</a>
+                <a asp-page="/Suggestions/Index" class="btn btn-sm btn-outline-secondary">All posts &rarr;</a>
+            </div></div>
+        </div>
+    </div>
+
+    <!-- Recent activity -->
+    <div class="section-title">Recent activity</div>
+    <div class="card"><div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+            @foreach (var a in o.RecentActivity)
+            {
+                <li class="list-group-item d-flex flex-wrap gap-2 align-items-center small">
+                    <span class="text-muted" style="min-width:7rem">@When(a.WhenIndia)</span>
+                    <span class="badge bg-light text-dark border activity-kind">@a.Kind</span>
+                    @if (a.Page != null && (a.Id.HasValue || !a.Page.EndsWith("Details")))
+                    {
+                        <a asp-page="@a.Page" asp-route-id="@a.Id" class="text-break">@a.Text</a>
+                    }
+                    else
+                    {
+                        <span class="text-break">@a.Text</span>
+                    }
+                </li>
+            }
+            @if (!o.RecentActivity.Any()) { <li class="list-group-item text-muted small">No activity recorded yet.</li> }
+        </ul>
+    </div></div>
+
+    <!-- Definitions -->
+    <details class="mt-3" id="definitions">
+        <summary class="small text-muted">How these figures are calculated</summary>
+        <div class="small text-muted mt-2">
+            <ul>
+                <li><strong>Ready seedling stock</strong>: dbo.ReadyStock, physical = SUM(Quantity &minus; DispatchedQuantity); reserved = SUM(ReservedQuantity); available = physical &minus; reserved.</li>
+                <li><strong>Potted plant stock</strong>: dbo.PottedPlantStock, SUM(PhysicalQuantity); available = physical &minus; reserved.</li>
+                <li><strong>Seedling order</strong>: one customer booking (ISNULL(OrderBookingId, Id)); a multi-variety order is ONE order. Quantities are summed over its variety lines.</li>
+                <li><strong>Open / still to dispatch</strong>: lines with Status Pending; remaining = Quantity &minus; Dispatched &minus; legacy-fulfilled (never below 0).</li>
+                <li><strong>Top 3 varieties</strong>: Ready Stock physical per variety (dbo.PlantSpecies), and open remaining per variety; highest first, % of the all-variety total.</li>
+                <li><strong>Orders received / dispatched (period)</strong>: same definitions as the Daily Report &mdash; bookings by BookingDate (every status), seedling dispatches by DispatchDate (Dispatch Register).</li>
+                <li><strong>Maintenance overdue</strong>: the Maintenance module's own rule (not accepted within 4 / 24 / 72 h by priority, or expected visit date passed).</li>
+                <li><strong>Store low stock</strong>: active items whose available quantity is below their Minimum Stock.</li>
+                <li><strong>Labour</strong>: today's 9:00 AM / 2:00 PM attendance; Full Day / Half Day per the Labour module (only when both headcounts are in).</li>
+                <li><strong>Dates</strong>: every date is an India (Asia/Kolkata) date; timestamps stored in UTC or server time are converted before they are counted, so an entry at 02:00 IST counts on that India day.</li>
+                <li><strong>Pending past expected delivery date</strong>: counted exactly as recorded; old pending bookings need a separate business review.</li>
+                <li>Full list: docs/MANAGEMENT_DASHBOARD.md.</li>
+            </ul>
+        </div>
+    </details>
+
+    <!-- Production detail (Phase L) -->
+    <details class="mt-4" id="production-detail" @(Model.DetailFiltered ? "open" : "")>
+        <summary class="section-title d-inline-block">Production detail &mdash; seed, cutting, ready, outlet, stock health, trends</summary>
+
+        <form method="get" class="row g-2 align-items-end my-3 p-3 border rounded bg-light">
+            <input type="hidden" name="Range" value="@o.Period.Key" />
+            <input type="hidden" name="FromDate" value="@o.Period.From.ToString("yyyy-MM-dd")" />
+            <input type="hidden" name="ToDate" value="@o.Period.To.ToString("yyyy-MM-dd")" />
+            <div class="col-12 small text-muted">These filters narrow this detail section only. Period: <strong>@periodLabel</strong>.</div>
+            <div class="col-6 col-md-auto">
+                <label class="form-label small mb-0">Area</label>
+                <select name="AreaId" class="form-select form-select-sm">
+                    <option value="">All Areas</option>
+                    @foreach (var a in Model.Dashboard.Areas)
+                    {
+                        <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name @(a.AreaType != null ? $"({a.AreaType})" : "")</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-md-auto">
+                <label class="form-label small mb-0">Variety</label>
+                <select name="SpeciesId" class="form-select form-select-sm">
+                    <option value="">All Varieties</option>
+                    @foreach (var s in Model.Dashboard.SpeciesOptions)
+                    {
+                        <option value="@s.Id" selected="@(Model.SpeciesId == s.Id)">@s.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-md-auto">
+                <label class="form-label small mb-0">Pot Size</label>
+                <select name="PotSize" class="form-select form-select-sm">
+                    <option value="">All Pot Sizes</option>
+                    @foreach (var p in Model.Dashboard.PotSizeOptions)
+                    {
+                        <option value="@p" selected="@(Model.PotSize == p)">@p</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+                <a asp-page="/ManagementDashboard/Index" asp-route-Range="@o.Period.Key" asp-route-FromDate="@o.Period.From.ToString("yyyy-MM-dd")" asp-route-ToDate="@o.Period.To.ToString("yyyy-MM-dd")" class="btn btn-sm btn-outline-secondary">Clear</a>
+            </div>
+        </form>
 
     <!-- Section A: Overall Production Summary -->
     <h5>Overall Production Summary <span class="badge bg-secondary">Balance</span></h5>
@@ -247,9 +769,9 @@
         </div>
         <div class="col-6 col-md-2">
             <div class="card h-100"><div class="card-body">
-                <div class="text-muted small">Ready Stock</div>
+                <div class="text-muted small">Ready Stock &mdash; total owned</div>
                 <div class="fs-4">@Qty(Model.Dashboard.Production.ReadyStockQuantity)</div>
-                <div class="text-muted small">plants confirmed Ready</div>
+                <div class="text-muted small">approved &minus; dispatched@(Model.Dashboard.Production.ReadyStockInTransit > 0 ? $", incl. {Qty(Model.Dashboard.Production.ReadyStockInTransit)} in transit" : "")</div>
             </div></div>
         </div>
         <div class="col-6 col-md-2">
@@ -465,4 +987,5 @@
             </div></div>
         </div>
     </div>
+    </details>
 </div>

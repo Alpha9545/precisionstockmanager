@@ -32,14 +32,17 @@ namespace PlantStockManager.Pages.Admin
         private readonly UserRoleRepository _userRoleRepo;
         private readonly AreaRepository _areaRepo;
         private readonly AdministrativeAccessGuard _guard;
+        private readonly BedSowingRoleGuard _bedSowingGuard;
 
         public UsersModel(
             DatabaseHelper dbHelper,
             RoleRepository roleRepo,
             UserRoleRepository userRoleRepo,
             AreaRepository areaRepo,
-            AdministrativeAccessGuard guard)
+            AdministrativeAccessGuard guard,
+            BedSowingRoleGuard bedSowingGuard)
         {
+            _bedSowingGuard = bedSowingGuard;
             _db = dbHelper;
             _roleRepo = roleRepo;
             _userRoleRepo = userRoleRepo;
@@ -80,6 +83,8 @@ namespace PlantStockManager.Pages.Admin
 
             if (!_guard.CanManageAdministrators(User) && await _guard.IsAdministrativeRoleAsync(role.Id))
                 return Deny("Only a System Administrator can create a user with an administrative role.");
+            if (await _bedSowingGuard.RoleCarriesTransplantAsync(role.Id))
+                return Deny(PlantStockManager.Services.BedSowingRules.ProtectedRoleMessage);
 
             if (newUser.AreaId.HasValue && await _areaRepo.GetAreaById(newUser.AreaId.Value) == null)
                 return Deny("Selected Area does not exist.");
@@ -174,6 +179,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx))
                     return Deny("Selected role does not exist.");
                 if (!fullAccess && await _guard.IsAdministrativeRoleAsync(newRole.Id))
                     return Deny("Only a System Administrator can assign an administrative role.");
+                // 2026-10-12: a role change REPLACES the user's assignments -- never to or from the
+                // Bed Sowing Transplanter (BedSowing.Transplant).
+                if (await _bedSowingGuard.RoleCarriesTransplantAsync(newRole.Id) || await _bedSowingGuard.UserHoldsTransplantRoleAsync(editUser.Id))
+                    return Deny(PlantStockManager.Services.BedSowingRules.ProtectedRoleMessage);
                 if (editUser.AreaId.HasValue && await _areaRepo.GetAreaById(editUser.AreaId.Value) == null)
                     return Deny("Selected Area does not exist.");
             }

@@ -1,0 +1,61 @@
+@model PlantStockManager.Pages.Production.MaterialStock.AddModel
+@* Tray part of Add Material -- the former Add Tray Stock form (same fields, same order,
+   same server rules in TrayAddForm). Trays are a COUNT per cavity: no kg, no conversion. *@
+<form method="post" asp-page-handler="Tray" id="addTrayForm" class="@(Model.Kind == PlantStockManager.Services.MaterialStockRules.TraysKind ? "" : "d-none")">
+    <input type="hidden" asp-for="Tray.SubmissionToken" />
+    @if (!Model.TrayAreas.Any())
+    {
+        <div class="alert alert-warning">You are not assigned to any Area. Ask an administrator to assign your Area.</div>
+    }
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label fw-bold" for="trayAreaSelect">Area</label>
+            <select asp-for="Tray.AreaId" id="trayAreaSelect" class="form-select" required>
+                <option value="">-- Select Area --</option>
+                @foreach (var a in Model.TrayAreas)
+                {
+                    <option value="@a.Id" selected="@(Model.Tray.AreaId == a.Id)">@a.Name</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-6">
+            <label class="form-label fw-bold" for="trayPolyhouseSelect">Polyhouse</label>
+            <select asp-for="Tray.PolyhouseId" id="trayPolyhouseSelect" class="form-select" required>
+                <option value="">@(Model.Tray.AreaId > 0 ? (Model.TrayPolyhouses.Any() ? "-- Select Polyhouse --" : "-- No Polyhouse in this Area --") : "-- Select Area first --")</option>
+                @foreach (var p in Model.TrayPolyhouses)
+                {
+                    <option value="@p.Id" selected="@(Model.Tray.PolyhouseId == p.Id)">@p.Name</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-6">
+            <label class="form-label fw-bold" for="trayCavity">Cavity</label>
+            <select asp-for="Tray.TraySize" id="trayCavity" class="form-select" required>
+                <option value="">-- Select Cavity --</option>
+                @foreach (var t in Model.TraySizes)
+                {
+                    <option value="@t" selected="@(Model.Tray.TraySize == t)">@t</option>
+                }
+            </select>
+        </div>
+        <div class="col-md-6">
+            <label class="form-label fw-bold" for="trayQuantity">Tray Quantity</label>
+            <div class="input-group">
+                <input type="number" step="1" min="1" asp-for="Tray.Quantity" id="trayQuantity" asp-format="{0:0}" class="form-control" placeholder="e.g. 100" required />
+                <span class="input-group-text">trays</span>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <label class="form-label fw-bold" for="trayDate">Date / Time</label>
+            <input type="datetime-local" asp-for="Tray.TransactionDate" id="trayDate" asp-format="{0:yyyy-MM-ddTHH:mm}" class="form-control" required />
+        </div>
+        <div class="col-12">
+            <label class="form-label" for="trayRemarks">Remark <span class="text-muted">(optional)</span></label>
+            <textarea asp-for="Tray.Remarks" id="trayRemarks" class="form-control" rows="2" maxlength="500" placeholder="e.g. New trays received"></textarea>
+        </div>
+    </div>
+    <div class="text-center mt-4">
+        <a asp-page="/Production/MaterialStock/Index" class="btn btn-secondary me-2">Cancel</a>
+        <button type="submit" class="btn btn-success" id="addTrayBtn">Add Tray Stock</button>
+    </div>
+</form>

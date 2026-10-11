@@ -1,0 +1,103 @@
+@page
+@model PlantStockManager.Pages.Production.Transplanting.IndexModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Transplanting";
+    var all = Model.AllEligible;
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <h3 class="mb-0">Transplanting</h3>
+        <div class="d-flex flex-wrap gap-2">
+            @if (Model.PendingIncoming > 0)
+            {
+                <a asp-page="/Production/MotherPlantTransfers/Index" class="btn btn-sm btn-warning" id="incoming-link">@Model.PendingIncoming incoming transfer(s) to receive</a>
+            }
+            <a asp-page="/Production/Transplanting/History" class="btn btn-sm btn-outline-secondary">Transplanting History</a>
+        </div>
+    </div>
+    <p class="text-muted small mb-3">
+        Ready Stock in your Mother Plant Areas. Choose a batch to transplant its seedlings into larger cavity trays: the batch loses the plants used
+        (transplanted + lost), a new batch is created in the target tray, and the empty target trays are taken from that polyhouse's Tray Stock.
+    </p>
+
+    @if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+
+    <form method="get" class="row g-2 align-items-end mb-3 p-2 border rounded bg-light">
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0">Area</label>
+            <select name="AreaId" class="form-select form-select-sm">
+                <option value="">All</option>
+                @foreach (var a in all.GroupBy(r => r.AreaId).Select(g => g.First()))
+                {
+                    <option value="@a.AreaId" selected="@(Model.AreaId == a.AreaId)">@a.AreaName</option>
+                }
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0">Polyhouse</label>
+            <select name="PolyhouseId" class="form-select form-select-sm">
+                <option value="">All</option>
+                @foreach (var p in all.Where(r => r.PolyhouseId.HasValue).GroupBy(r => r.PolyhouseId).Select(g => g.First()))
+                {
+                    <option value="@p.PolyhouseId" selected="@(Model.PolyhouseId == p.PolyhouseId)">@p.AreaName / @p.PolyhouseName</option>
+                }
+            </select>
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small mb-0">Variety</label>
+            <select name="SpeciesId" class="form-select form-select-sm">
+                <option value="">All</option>
+                @foreach (var v in all.GroupBy(r => r.SpeciesId).Select(g => g.First()).OrderBy(v => v.SpeciesName))
+                {
+                    <option value="@v.SpeciesId" selected="@(Model.SpeciesId == v.SpeciesId)">@v.SpeciesName?.Trim()</option>
+                }
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0">Cavity</label>
+            <select name="Cavity" class="form-select form-select-sm">
+                <option value="">All</option>
+                @foreach (var c in DirectSowingRules.CavityTypes)
+                {
+                    <option value="@c" selected="@(Model.Cavity == c)">@c</option>
+                }
+            </select>
+        </div>
+        <div class="col-8 col-md-2">
+            <label class="form-label small mb-0">Batch / sowing</label>
+            <input name="Batch" value="@Model.Batch" class="form-control form-control-sm" />
+        </div>
+        <div class="col-4 col-md-1 d-grid"><button class="btn btn-sm btn-primary">Filter</button></div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle" id="eligible">
+            <thead class="table-light">
+                <tr><th>Variety</th><th>Source Batch</th><th>Area / Polyhouse</th><th>Origin</th><th>Cavity</th><th class="text-end">Available Plants</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Eligible)
+                {
+                    <tr>
+                        <td>@r.SpeciesName?.Trim()<div class="small text-muted">@r.PlantTypeName</div></td>
+                        <td>@r.BatchNo<div class="small text-muted">@r.SowingCode &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@r.Id">lineage</a></div></td>
+                        <td>@r.AreaName<div class="small text-muted">@(r.PolyhouseName ?? "-")</div></td>
+                        <td><span class="badge @(r.IsSowingBatch ? "bg-secondary" : r.OriginType == PlantStockManager.Models.ReadyStock.OriginTransplant ? "bg-success" : "bg-info text-dark")">@r.OriginLabel</span></td>
+                        <td>@r.CavityType</td>
+                        <td class="text-end fw-bold">@Qty(r.AvailableQuantity)
+                            @if (r.ReservedQuantity > 0) { <div class="small text-muted fw-normal">@Qty(r.ReservedQuantity) reserved</div> }
+                        </td>
+                        <td><a asp-page="/Production/Transplanting/Create" asp-route-id="@r.Id" class="btn btn-sm btn-success">Transplant</a></td>
+                    </tr>
+                }
+                @if (!Model.Eligible.Any())
+                {
+                    <tr><td colspan="7" class="text-center text-muted" id="no-eligible">No Ready Stock to transplant@(all.Any() ? " matches these filters" : " in your Mother Plant Areas yet -- receive an incoming transfer first").</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

@@ -1,0 +1,196 @@
+@page
+@model PlantStockManager.Pages.Production.BedSowing.CreateModel
+@{
+    ViewData["Title"] = "New Bed Sowing";
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">New Bed Sowing</h4>
+            <small class="text-muted">Seed is sown into a bed &mdash; no cavity, no trays, no Ready Date and no Ready Stock yet (the Ready Date starts when seedlings are transplanted into trays). The seed is deducted from the Main Office seed lot; a Bed No. (BS-YYYY-NNNNN) is generated on save.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (!Model.SchemaReady)
+            {
+                <div class="alert alert-warning">Bed Sowing is not set up in this database yet (migration 2026-10-12_BedSowing.sql).</div>
+            }
+            else if (!Model.Locations.Any())
+            {
+                <div class="alert alert-warning">No Bed Sowing Polyhouse is available to you. Bed Sowing is done only at the Bed Sowing Polyhouse of a Main Office Area you have access to.</div>
+            }
+            else
+            {
+                <div class="mb-3 p-3 bg-light border rounded">
+                    <label class="form-label fw-bold mb-1" for="lotFinder">Find seed lot</label>
+                    <input type="search" id="lotFinder" class="form-control" autocomplete="off"
+                           placeholder="Type part of the variety, crop, colour, supplier or lot number..." />
+                    <div class="list-group mt-1 d-none" id="lotFinderResults" style="max-height: 260px; overflow-y: auto;"></div>
+                    <div class="form-text">Picking a result fills Species, Variety and Seed Lot below. Only Main Office lots with stock are shown.</div>
+                </div>
+
+                <form method="post" id="bedForm">
+                    <input type="hidden" asp-for="Bed.SubmissionToken" />
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold" for="sowingDate">Sowing Date</label>
+                            <input type="date" asp-for="Bed.SowingDate" id="sowingDate" class="form-control" required
+                                   max="@PlantStockManager.Services.AppClock.Today.ToString("yyyy-MM-dd")" />
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label fw-bold" for="polyhouseSelect">Polyhouse</label>
+                            <select asp-for="Bed.PolyhouseId" id="polyhouseSelect" class="form-select" required>
+                                @if (Model.Locations.Count > 1)
+                                {
+                                    <option value="">-- Select Polyhouse --</option>
+                                }
+                                @foreach (var l in Model.Locations)
+                                {
+                                    <option value="@l.PolyhouseId">@l.PolyhouseName (@l.AreaName)</option>
+                                }
+                            </select>
+                            <div class="form-text">Bed Sowing is allowed only here; the server checks it again.</div>
+                        </div>
+
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold" for="plantTypeSelect">Species</label>
+                            <select asp-for="PlantTypeId" id="plantTypeSelect" class="form-select" required>
+                                <option value="">-- Select Species --</option>
+                                @foreach (var t in Model.PlantTypes)
+                                {
+                                    <option value="@t.Id">@t.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold" for="varietySelect">Variety</label>
+                            <select asp-for="Bed.SpeciesId" id="varietySelect" class="form-select" required
+                                    data-selected="@(Model.Bed.SpeciesId > 0 ? Model.Bed.SpeciesId.ToString() : "")">
+                                <option value="">-- Select Species first --</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-8">
+                            <label class="form-label fw-bold" for="seedLotSelect">Main Office Seed Lot</label>
+                            <select asp-for="Bed.SeedStockId" id="seedLotSelect" class="form-select" required
+                                    data-selected="@(Model.Bed.SeedStockId > 0 ? Model.Bed.SeedStockId.ToString() : "")">
+                                <option value="">-- Select Variety first --</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold" for="quantityInput">Quantity (seeds)</label>
+                            <input type="number" step="1" min="1" asp-for="Bed.Quantity" asp-format="{0:0.##}" id="quantityInput" class="form-control" required />
+                            <div class="text-danger small d-none" id="quantityWarning">More than the lot has available.</div>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label fw-bold" for="remarks">Notes</label>
+                            <textarea asp-for="Bed.Remarks" id="remarks" class="form-control" rows="2" maxlength="500"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="text-center mt-4">
+                        <a asp-page="/Production/BedSowing/Index" class="btn btn-secondary me-2">Cancel</a>
+                        <button type="submit" class="btn btn-success" id="saveButton">Save Bed Sowing</button>
+                    </div>
+                </form>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const handlerUrl = '@Url.Page("/Production/BedSowing/Create")';
+            let available = null;
+
+            function fill($select, items, placeholder, textFn, dataFn) {
+                const selected = String($select.data('selected') || '');
+                $select.empty().append($('<option>').val('').text(placeholder));
+                items.forEach(function (it) {
+                    const $o = $('<option>').val(it.id).text(textFn(it));
+                    if (dataFn) dataFn($o, it);
+                    if (String(it.id) === selected) $o.prop('selected', true);
+                    $select.append($o);
+                });
+                $select.data('selected', '');
+            }
+            function loadVarieties() {
+                const typeId = $('#plantTypeSelect').val();
+                const $v = $('#varietySelect');
+                if (!typeId) { fill($v, [], '-- Select Species first --', x => x.name); onVariety(); return; }
+                $.getJSON(handlerUrl, { handler: 'Varieties', plantTypeId: typeId }, function (list) {
+                    fill($v, list, '-- Select Variety --', x => x.name);
+                    onVariety();
+                });
+            }
+            function onVariety() { loadLots(); }
+            function loadLots() {
+                const speciesId = $('#varietySelect').val();
+                const $lot = $('#seedLotSelect');
+                if (!speciesId) { fill($lot, [], '-- Select Variety first --', x => x.lot); onLot(); return; }
+                $.getJSON(handlerUrl, { handler: 'SeedLots', speciesId: speciesId }, function (list) {
+                    fill($lot, list, list.length ? '-- Select Seed Lot --' : '-- No Main Office stock for this variety --',
+                        x => x.lot + ' - ' + (x.source || 'unknown source') + ' @@ ' + x.area + ' (available: ' + formatQuantity(x.available) + ' ' + x.unit + ')',
+                        ($o, x) => $o.attr('data-available', x.available));
+                    onLot();
+                });
+            }
+            function onLot() {
+                const a = parseFloat($('#seedLotSelect option:selected').attr('data-available'));
+                available = isNaN(a) ? null : a;
+                checkQty();
+            }
+            function checkQty() {
+                const q = parseFloat($('#quantityInput').val());
+                $('#quantityWarning').toggleClass('d-none', !(available !== null && !isNaN(q) && q > available));
+            }
+            $('#plantTypeSelect').on('change', loadVarieties);
+            $('#varietySelect').on('change', onVariety);
+            $('#seedLotSelect').on('change', onLot);
+            $('#quantityInput').on('input', checkQty);
+
+            let timer = null;
+            $('#lotFinder').on('input', function () {
+                clearTimeout(timer);
+                const term = $(this).val().trim();
+                const $res = $('#lotFinderResults');
+                if (term.length < 2) { $res.addClass('d-none').empty(); return; }
+                timer = setTimeout(function () {
+                    $.getJSON(handlerUrl, { handler: 'FindLots', term: term }, function (list) {
+                        $res.empty();
+                        if (!list.length) $res.append($('<div class="list-group-item text-muted">').text('No Main Office lot with stock matches "' + term + '".'));
+                        list.forEach(function (x) {
+                            $('<button type="button" class="list-group-item list-group-item-action">')
+                                .text(x.variety + ' (' + x.crop + ') - lot ' + x.lot + ' - ' + (x.source || 'unknown source') + ' - available ' + formatQuantity(x.available))
+                                .on('click', function () {
+                                    $('#plantTypeSelect').val(x.plantTypeId);
+                                    $('#varietySelect').data('selected', String(x.speciesId));
+                                    $('#seedLotSelect').data('selected', String(x.id));
+                                    loadVarieties();
+                                    $res.addClass('d-none').empty();
+                                    $('#lotFinder').val(x.variety + ' - lot ' + x.lot);
+                                }).appendTo($res);
+                        });
+                        $res.removeClass('d-none');
+                    });
+                }, 250);
+            });
+            $('#bedForm').on('submit', function () { if (this.checkValidity()) $('#saveButton').prop('disabled', true).text('Saving...'); });
+            if ($('#plantTypeSelect').val()) loadVarieties();
+        });
+    </script>
+}

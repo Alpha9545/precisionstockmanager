@@ -8,7 +8,8 @@ namespace PlantStockManager.Tests
     // Dependency-aware Delete / Deactivate against a REAL SQL Server.
     //
     // Runs only when PSM_TEST_CONNECTION holds a connection string, and only
-    // against the PlantsIMS2_Test database (any other database is refused).
+    // against the PlantsIMS2_Test database or a PlantsIMS2_Scratch_* copy (any other database is
+    // refused -- IntegrationDatabase).
     // Otherwise every test here is SKIPPED, never silently passed.
     //
     // Safety: each test runs inside ONE transaction that is ALWAYS rolled
@@ -21,10 +22,10 @@ namespace PlantStockManager.Tests
     //
     //   PowerShell:  $env:PSM_TEST_CONNECTION = "Server=...;Database=PlantsIMS2_Test;..."
     //                dotnet test --filter FullyQualifiedName~DeleteIntegrationTests
+    [Collection("ScratchDb")]   // 2026-10-10: on a scratch copy other E2E classes write too -- never at the same time
     public class DeleteIntegrationTests
     {
         private const string ConnectionVariable = "PSM_TEST_CONNECTION";
-        private const string RequiredDatabase = "PlantsIMS2_Test";
 
         private sealed class TestDb : IAsyncDisposable
         {
@@ -45,17 +46,17 @@ namespace PlantStockManager.Tests
             public static async Task<TestDb> OpenAsync()
             {
                 var cs = Environment.GetEnvironmentVariable(ConnectionVariable);
-                Skip.If(string.IsNullOrWhiteSpace(cs), $"Set {ConnectionVariable} to a {RequiredDatabase} connection string to run the database tests.");
+                Skip.If(string.IsNullOrWhiteSpace(cs), $"Set {ConnectionVariable} to a {IntegrationDatabase.Allowed} connection string to run the database tests.");
 
                 var conn = new SqlConnection(cs);
                 await conn.OpenAsync();
                 using (var dbName = new SqlCommand("SELECT DB_NAME()", conn))
                 {
                     var name = (string)(await dbName.ExecuteScalarAsync())!;
-                    if (!string.Equals(name, RequiredDatabase, StringComparison.OrdinalIgnoreCase))
+                    if (!IntegrationDatabase.IsAllowed(name))
                     {
                         await conn.DisposeAsync();
-                        throw new InvalidOperationException($"Refusing to run database tests against '{name}'. Only {RequiredDatabase} is allowed.");
+                        throw new InvalidOperationException($"Refusing to run database tests against '{name}'. Only {IntegrationDatabase.Allowed} is allowed.");
                     }
                 }
                 var config = new ConfigurationBuilder()
@@ -260,9 +261,12 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@Code", Name("CP")), ("@Mp", motherPla
             var stockId = await db.IntAsync(@"
 INSERT INTO dbo.CuttingStock (SpeciesId, AreaId, PhysicalQuantity, CreatedDate, CreatedBy) VALUES (@S, @A, 0, SYSUTCDATETIME(), N'ZZTEST');
 SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", speciesId), ("@A", areaId));
+            // Every new entry names its destination (2026-09-28_CuttingEntryDestination.sql).
             await db.ScalarAsync(@"
-INSERT INTO dbo.CuttingProductions (ProductionCode, MotherPlantId, SpeciesId, AreaId, CuttingStockId, CuttingDate, Quantity, SupervisorId, Remarks, CreatedBy)
-VALUES (@Code, @Mp, @S, @A, @Stock, CAST(GETDATE() AS DATE), 5, @Sup, N'ZZTEST', N'ZZTEST')",
+INSERT INTO dbo.CuttingProductions (ProductionCode, MotherPlantId, SpeciesId, AreaId, CuttingStockId, CuttingDate, Quantity, SupervisorId, Remarks, CreatedBy,
+                                    DestinationType, DestinationAreaId)
+VALUES (@Code, @Mp, @S, @A, @Stock, CAST(GETDATE() AS DATE), 5, @Sup, N'ZZTEST', N'ZZTEST',
+        N'PotProduction', @A)",
                 ("@Code", db.Name("CPROD")), ("@Mp", mpId), ("@S", speciesId), ("@A", areaId), ("@Stock", stockId), ("@Sup", supervisorId));
 
             var result = await db.MotherPlants.DeleteAsync(db.Conn, db.Tx, mpId);

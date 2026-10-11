@@ -1,0 +1,245 @@
+@page
+@model PlantStockManager.Pages.Production.BedSowing.TransplantModel
+@{
+    ViewData["Title"] = "Bed Transplanting";
+    var b = Model.Selected;
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <h2 class="mb-0">Bed Transplanting</h2>
+        <div class="d-flex gap-2">
+            <a asp-page="/Production/BedSowing/History" class="btn btn-outline-secondary">History</a>
+            <a asp-page="/Production/BedSowing/Index" class="btn btn-outline-secondary">Bed Sowing</a>
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (Model.Error != null)
+    {
+        <div class="alert alert-danger">@Model.Error</div>
+    }
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">Bed Sowing is not set up in this database yet (migration 2026-10-12_BedSowing.sql).</div>
+    }
+    else
+    {
+        <div class="alert alert-info small mb-3">
+            Move seedlings from a bed into <strong>complete</strong> cavity trays. Each transplant takes the empty trays (and, in a Main Office
+            Polyhouse, the growing material) from the target Polyhouse and becomes a growing tray batch in Sowing Approvals. Its Ready Date =
+            transplant date + the variety's Ready Days. Transplanting <strong>all</strong> the remaining seedlings fills as many complete
+            trays as possible and records the rest as waste (a bed loss) in the same save, closing the bed; transplanting part of a
+            bed takes complete trays only and leaves the rest in the bed.
+        </div>
+
+        <h5>Beds waiting for transplanting</h5>
+        <div class="table-responsive mb-4">
+            <table class="table table-sm table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Bed No.</th><th>Variety</th><th>Sowing Date</th>
+                        <th class="text-end">Original</th><th class="text-end">Transplanted</th><th class="text-end">Lost</th>
+                        <th class="text-end">Remaining</th><th>Status</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var x in Model.Beds)
+                    {
+                        <tr class="@(b?.Id == x.Id ? "table-primary" : "")">
+                            <td><a asp-page="/Production/BedSowing/Details" asp-route-id="@x.Id">@x.BedSowingCode</a></td>
+                            <td>@x.SpeciesName <span class="text-muted">(@x.PlantTypeName)</span></td>
+                            <td>@x.SowingDate.ToString("dd/MM/yyyy")</td>
+                            <td class="text-end">@Qty(x.Quantity)</td>
+                            <td class="text-end">@Qty(x.TransplantedQuantity)</td>
+                            <td class="text-end">@Qty(x.LostQuantity)</td>
+                            <td class="text-end fw-semibold">@Qty(x.RemainingQuantity)</td>
+                            <td><span class="badge @(x.Status == "PendingTransplant" ? "bg-warning text-dark" : "bg-info text-dark")">@x.StatusLabel</span></td>
+                            <td><a asp-route-bedId="@x.Id" class="btn btn-sm @(b?.Id == x.Id ? "btn-primary" : "btn-outline-primary")">Select</a></td>
+                        </tr>
+                    }
+                    @if (!Model.Beds.Any())
+                    {
+                        <tr><td colspan="9" class="text-center text-muted">No bed is waiting for transplanting in your Areas.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (b != null && !Model.CanOperate)
+        {
+            <div class="alert alert-secondary" id="viewOnly">
+                Transplanting and bed losses are recorded only by the Bed Sowing Transplanter of this bed's Area.
+                You can view this bed, and correct it from <a asp-page="/Production/BedSowing/Details" asp-route-id="@b.Id">its details</a> (reversals are audited).
+            </div>
+        }
+        else if (b != null)
+        {
+            <div class="row g-4">
+                <div class="col-lg-8">
+                    <div class="card shadow-sm">
+                        <div class="card-header">
+                            <strong>Transplant from @b.BedSowingCode</strong> &mdash; @b.SpeciesName, @Qty(b.RemainingQuantity) seedlings remaining
+                        </div>
+                        <div class="card-body">
+                            <form method="post" asp-page-handler="Transplant" id="transplantForm">
+                                <input type="hidden" asp-for="Entry.BedSowingId" />
+                                <input type="hidden" asp-for="Entry.SubmissionToken" />
+                                <input type="hidden" asp-for="BedId" />
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label fw-bold" for="targetSelect">Target Polyhouse</label>
+                                        <select asp-for="Entry.TargetPolyhouseId" id="targetSelect" class="form-select" required>
+                                            @if (Model.Targets.Count != 1)
+                                            {
+                                                <option value="">-- Select Polyhouse --</option>
+                                            }
+                                            @foreach (var t in Model.Targets)
+                                            {
+                                                <option value="@t.PolyhouseId" data-area-id="@t.AreaId">@t.PolyhouseName (@t.AreaName)</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label fw-bold" for="transplantDate">Transplant Date</label>
+                                        <input type="date" asp-for="Entry.TransplantDate" id="transplantDate" class="form-control" required
+                                               min="@b.SowingDate.ToString("yyyy-MM-dd")" max="@PlantStockManager.Services.AppClock.Today.ToString("yyyy-MM-dd")" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label fw-bold" for="cavitySelect">Cavity</label>
+                                        <select asp-for="Entry.CavityType" id="cavitySelect" class="form-select" required>
+                                            <option value="">-- Select --</option>
+                                            @foreach (var c in Model.CavityTypes)
+                                            {
+                                                <option value="@c" data-cavity="@PlantStockManager.Services.DirectSowingRules.CavityCount(c)">@c</option>
+                                            }
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label fw-bold" for="qtyInput">Quantity (seedlings)</label>
+                                        <input type="number" step="1" min="1" max="@b.RemainingQuantity.ToString("0")" asp-for="Entry.Quantity" asp-format="{0:0.##}" id="qtyInput" class="form-control" required
+                                               data-remaining="@b.RemainingQuantity.ToString("0")" />
+                                        <div class="form-text">All @Qty(b.RemainingQuantity) remaining: complete trays, and any seedlings left over are recorded as waste. Less: complete trays only.</div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label fw-bold" for="traysOut">Output Trays</label>
+                                        <input type="number" asp-for="Entry.OutputTrays" id="traysOut" class="form-control" readonly tabindex="-1" placeholder="calculated" />
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label fw-bold" for="readyOut">Ready Date</label>
+                                        <input type="text" id="readyOut" class="form-control" readonly tabindex="-1" placeholder="cavity + quantity first"
+                                               data-days="@(Model.ReadyDays?.ToString() ?? "")" />
+                                        <div class="form-text">@(Model.ReadyDays is int rd ? $"Transplant date + {rd} Ready Days; the server calculates it again." : "Ready Days are not configured for this variety -- the transplant will be refused.")</div>
+                                    </div>
+                                    <div class="col-12"><div class="small text-danger d-none" id="trayError"></div></div>
+                                    <div class="col-12"><div class="alert alert-info py-2 mb-0 d-none" id="transplantSummary" aria-live="polite"></div></div>
+
+                                    <partial name="~/Pages/Production/SeedSowing/_GrowingMaterial.cshtml" model="Model.GrowingMaterial" />
+
+                                    <div class="col-md-6">
+                                        <label class="form-label fw-bold" for="notes">Notes</label>
+                                        <input type="text" asp-for="Entry.Remarks" id="notes" class="form-control" maxlength="400" />
+                                    </div>
+                                </div>
+                                <div class="text-end mt-3">
+                                    <button type="submit" class="btn btn-primary" id="transplantButton">Save Transplant</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-4">
+                    <div class="card shadow-sm">
+                        <div class="card-header"><strong>Record bed loss</strong></div>
+                        <div class="card-body">
+                            <form method="post" asp-page-handler="Loss" id="lossForm">
+                                <input type="hidden" asp-for="BedId" />
+                                <input type="hidden" asp-for="LossToken" />
+                                <div class="mb-2">
+                                    <label class="form-label fw-bold" for="lossQty">Quantity lost</label>
+                                    <input type="number" step="1" min="1" max="@b.RemainingQuantity.ToString("0")" asp-for="LossQuantity" asp-format="{0:0.##}" id="lossQty" class="form-control" required />
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label fw-bold" for="lossDate">Date</label>
+                                    <input type="date" asp-for="LossDate" id="lossDate" class="form-control" required
+                                           min="@b.SowingDate.ToString("yyyy-MM-dd")" max="@PlantStockManager.Services.AppClock.Today.ToString("yyyy-MM-dd")" />
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label fw-bold" for="lossReason">Reason</label>
+                                    <input type="text" asp-for="LossReason" id="lossReason" class="form-control" maxlength="400" required />
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label" for="lossRemarks">Notes</label>
+                                    <input type="text" asp-for="LossRemarks" id="lossRemarks" class="form-control" maxlength="400" />
+                                </div>
+                                <button type="submit" class="btn btn-outline-danger w-100" id="lossButton">Record loss</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@section Scripts {
+    <script src="~/js/growing-material.js" asp-append-version="true"></script>
+    <script>
+        $(function () {
+            if (!$('#transplantForm').length) return;
+            const handlerUrl = '@Url.Page("/Production/BedSowing/Transplant")';
+            // Output Trays = Quantity / cavity in complete trays (the server checks it again). All the remaining
+            // seedlings: full trays = remaining / cavity (integer), the rest is recorded as waste in the same save.
+            const remaining = parseFloat($('#qtyInput').attr('data-remaining'));
+            const fmt = n => Number(n).toLocaleString('en-IN');
+            let transplanted = 0;
+            function calc() {
+                const q = parseFloat($('#qtyInput').val());
+                const c = parseInt($('#cavitySelect option:selected').attr('data-cavity'), 10);
+                const cavity = $('#cavitySelect').val();
+                const $err = $('#trayError').addClass('d-none').text('');
+                const $sum = $('#transplantSummary').addClass('d-none').text('');
+                $('#traysOut').val(''); $('#readyOut').val(''); transplanted = 0;
+                if (isNaN(q) || isNaN(c) || q <= 0) return;
+                const full = Math.floor(q / c), waste = q - full * c;
+                if (waste > 0 && q !== remaining) {
+                    $err.removeClass('d-none').text(fmt(q) + ' seedlings do not fill complete ' + cavity + ' trays.' +
+                        (full > 0 ? ' Use ' + fmt(full * c) + ' (' + full + ' trays), or transplant all ' + fmt(remaining) + ' remaining (the rest is then recorded as waste).' : ' Transplant all ' + fmt(remaining) + ' remaining to record them as waste.'));
+                    return;
+                }
+                transplanted = full * c;
+                $('#traysOut').val(full);
+                $sum.removeClass('d-none').text(full > 0
+                    ? fmt(transplanted) + ' seedlings will be transplanted into ' + full + ' ' + cavity + ' trays' + (waste > 0 ? ', and ' + fmt(waste) + ' seedlings will be recorded as waste.' : '.')
+                    : 'Not enough seedlings for one ' + cavity + ' tray: no tray batch will be created, and ' + fmt(waste) + ' seedlings will be recorded as waste.');
+                showReady();
+            }
+            // Ready Date = transplant date + the variety's Ready Days (preview; the server recalculates).
+            function showReady() {
+                const days = parseInt($('#readyOut').attr('data-days'), 10), d = $('#transplantDate').val();
+                if (isNaN(days) || !d || !(parseInt($('#traysOut').val(), 10) > 0)) { $('#readyOut').val(''); return; }
+                const p = d.split('-').map(Number), dt = new Date(Date.UTC(p[0], p[1] - 1, p[2] + days));
+                $('#readyOut').val(String(dt.getUTCDate()).padStart(2, '0') + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' + dt.getUTCFullYear());
+            }
+            $('#transplantDate').on('change input', showReady);
+            $('#qtyInput').on('input', calc);
+            $('#cavitySelect').on('change', calc);
+            calc();
+            initGrowingMaterial({
+                url: handlerUrl,
+                area: () => $('#targetSelect option:selected').attr('data-area-id') || '',
+                polyhouse: () => $('#targetSelect').val(),
+                cavity: () => $('#cavitySelect').val(),
+                quantity: () => transplanted,                     // the seedlings that go into trays (not the waste)
+                triggers: '#targetSelect, #cavitySelect, #qtyInput'
+            });
+            $('#transplantForm').on('submit', function () { if (this.checkValidity()) $('#transplantButton').prop('disabled', true).text('Saving...'); });
+            $('#lossForm').on('submit', function () { if (this.checkValidity()) $('#lossButton').prop('disabled', true).text('Saving...'); });
+        });
+    </script>
+}

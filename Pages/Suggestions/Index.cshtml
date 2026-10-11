@@ -1,0 +1,189 @@
+@page
+@model PlantStockManager.Pages.Suggestions.IndexModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Suggestions & Problems";
+}
+
+<style>
+    .sp-tiles .tile { border: 1px solid #dee2e6; border-radius: .5rem; padding: .5rem .75rem; background: #fff; height: 100%; }
+    .sp-tiles .tile .label { font-size: .8rem; color: #6c757d; }
+    .sp-tiles .tile .value { font-size: 1.4rem; font-weight: 700; }
+    .sp-card .thumb { width: 96px; height: 96px; object-fit: cover; border-radius: .4rem; flex-shrink: 0; background: #f1f3f5; }
+    .sp-card .thumb-empty { width: 96px; height: 96px; border-radius: .4rem; flex-shrink: 0; background: #f1f3f5; display: flex; align-items: center; justify-content: center; font-size: 2rem; }
+    .sp-card .title { font-weight: 600; font-size: 1.05rem; }
+    .sp-card.deleted { opacity: .65; }
+    .sp-card .min-w-0 { min-width: 0; }
+    @@media (max-width: 575.98px) { .sp-card .thumb, .sp-card .thumb-empty { width: 72px; height: 72px; } }
+</style>
+
+<div class="container mt-4 mb-5">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+            <h3 class="mb-0">@ViewData["Title"]</h3>
+            <small class="text-muted">
+                @(Model.IsManager ? "All Areas -- administrator view (expired and deleted posts too)." : "Posts from all Areas. A post stays open for " + SuggestionRules.LifetimeHours + " hours unless an administrator makes it permanent.")
+            </small>
+        </div>
+        @if (Model.CanCreate)
+        {
+            <a asp-page="/Suggestions/Create" class="btn btn-success" id="createPostBtn">+ Create Post</a>
+        }
+    </div>
+
+    @if (TempData["Success"] is string ok) { <div class="alert alert-success" id="listSuccess">@ok</div> }
+    @if (TempData["Error"] is string bad) { <div class="alert alert-danger" id="listError">@bad</div> }
+
+    <div class="row g-2 mb-3 sp-tiles" id="suggestionCounts">
+        <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Active"><div class="label">Active posts</div><div class="value">@Model.Counts.Active</div></div></div>
+        <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Problems"><div class="label">⚠ Problems (active)</div><div class="value">@Model.Counts.ActiveProblems</div></div></div>
+        <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Suggestions"><div class="label">💡 Suggestions (active)</div><div class="value">@Model.Counts.ActiveSuggestions</div></div></div>
+        <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Permanent"><div class="label">⭐ Permanent</div><div class="value">@Model.Counts.Permanent</div></div></div>
+        @if (Model.IsManager)
+        {
+            <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Expired"><div class="label">Expired</div><div class="value">@Model.Counts.Expired</div></div></div>
+            <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Deleted"><div class="label">Deleted</div><div class="value">@Model.Counts.Deleted</div></div></div>
+        }
+        <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Comments"><div class="label">Comments (active posts)</div><div class="value">@Model.Counts.Comments</div></div></div>
+    </div>
+
+    <form method="get" class="card card-body mb-3 py-2" id="filterForm">
+        <div class="row g-2 align-items-end">
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0" for="lifetimeFilter">Show</label>
+                <select name="Lifetime" id="lifetimeFilter" class="form-select form-select-sm">
+                    @foreach (var l in Model.LifetimeChoices)
+                    {
+                        <option value="@l" selected="@(Model.Lifetime == l)">@l</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0" for="typeFilter">Type</label>
+                <select name="Type" id="typeFilter" class="form-select form-select-sm">
+                    <option value="">All types</option>
+                    @foreach (var t in Model.Types)
+                    {
+                        <option value="@t.Code" selected="@(Model.Type == t.Code)">@t.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0" for="statusFilter">Status</label>
+                <select name="Status" id="statusFilter" class="form-select form-select-sm">
+                    <option value="">All statuses</option>
+                    @foreach (var s in SuggestionRules.Statuses)
+                    {
+                        <option value="@s" selected="@(Model.Status == s)">@SuggestionRules.StatusLabel(s)</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0" for="areaFilter">Area</label>
+                <select name="AreaId" id="areaFilter" class="form-select form-select-sm">
+                    <option value="">All Areas</option>
+                    @foreach (var a in Model.Areas)
+                    {
+                        <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0" for="polyhouseFilter">Polyhouse</label>
+                <select name="PolyhouseId" id="polyhouseFilter" class="form-select form-select-sm" disabled="@(!Model.Polyhouses.Any())">
+                    <option value="">@(Model.Polyhouses.Any() ? "All Polyhouses" : "Choose an Area first")</option>
+                    @foreach (var p in Model.Polyhouses)
+                    {
+                        <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                    }
+                </select>
+            </div>
+            @if (Model.IsManager)
+            {
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="postedByFilter">Posted by</label>
+                    <select name="PostedById" id="postedByFilter" class="form-select form-select-sm">
+                        <option value="">Anyone</option>
+                        @foreach (var u in Model.Posters)
+                        {
+                            <option value="@u.Id" selected="@(Model.PostedById == u.Id)">@u.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="fromDate">From</label>
+                    <input type="date" name="FromDate" id="fromDate" class="form-control form-control-sm" value="@Model.FromDate?.ToString("yyyy-MM-dd")" />
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="toDate">To</label>
+                    <input type="date" name="ToDate" id="toDate" class="form-control form-control-sm" value="@Model.ToDate?.ToString("yyyy-MM-dd")" />
+                </div>
+            }
+            <div class="col-12 col-md-auto d-flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+                <a asp-page="/Suggestions/Index" class="btn btn-outline-secondary btn-sm">Reset</a>
+            </div>
+        </div>
+    </form>
+
+    <div id="postList">
+        @foreach (var p in Model.Posts)
+        {
+            <div class="card shadow-sm mb-2 sp-card @(p.IsDeleted ? "deleted" : "")" data-post-id="@p.Id" data-post-no="@p.PostNo">
+                <a asp-page="/Suggestions/Details" asp-route-id="@p.Id" class="card-body d-flex gap-3 text-reset text-decoration-none py-2">
+                    @if (p.PhotoId.HasValue)
+                    {
+                        <img class="thumb" loading="lazy" alt="Photo" src="@Url.Page("/Suggestions/Details", "Photo", new { id = p.Id })" />
+                    }
+                    else
+                    {
+                        <div class="thumb-empty" aria-hidden="true">@SuggestionRules.TypeIcon(p.TypeCode)</div>
+                    }
+                    <div class="flex-grow-1 min-w-0">
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                            <span class="badge @SuggestionRules.TypeBadge(p.TypeCode)" data-type="@p.TypeCode">@SuggestionRules.TypeIcon(p.TypeCode) @p.TypeName</span>
+                            <span class="badge @SuggestionRules.StatusBadge(p.Status)" data-status="@p.Status">@SuggestionRules.StatusLabel(p.Status)</span>
+                            <partial name="_Lifetime" model="p" />
+                            <span class="text-muted small ms-auto">@p.PostNo</span>
+                        </div>
+                        <div class="title text-break">@p.Title</div>
+                        <div class="small text-muted">
+                            <span>Area: @p.AreaName</span>
+                            @if (p.PolyhouseName != null) { <span> · Polyhouse: @p.PolyhouseName</span> }
+                        </div>
+                        <div class="small text-muted">
+                            Posted by @(p.PostedByName ?? "—") · @AppClock.ToIndiaTime(p.CreatedAt).ToString("dd MMM yyyy, hh:mm tt")
+                            · <span data-comments="@p.CommentCount">💬 @p.CommentCount @(p.CommentCount == 1 ? "Comment" : "Comments")</span>
+                        </div>
+                    </div>
+                </a>
+            </div>
+        }
+        @if (!Model.Posts.Any())
+        {
+            <div class="alert alert-light border text-center" id="noPosts">No posts to show.</div>
+        }
+    </div>
+
+    @if (Model.PageCount > 1)
+    {
+        <nav aria-label="Pages" class="mt-3">
+            <ul class="pagination pagination-sm justify-content-center flex-wrap">
+                <li class="page-item @(Model.PageNo <= 1 ? "disabled" : "")"><a class="page-link" asp-page="/Suggestions/Index" asp-all-route-data="Model.RouteFor(Model.PageNo - 1)">Previous</a></li>
+                <li class="page-item disabled"><span class="page-link">Page @Model.PageNo of @Model.PageCount (@Model.Total posts)</span></li>
+                <li class="page-item @(Model.PageNo >= Model.PageCount ? "disabled" : "")"><a class="page-link" asp-page="/Suggestions/Index" asp-all-route-data="Model.RouteFor(Model.PageNo + 1)">Next</a></li>
+            </ul>
+        </nav>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        // The Polyhouse list belongs to the chosen Area -- re-filter on change.
+        (function () {
+            const area = document.getElementById('areaFilter');
+            const poly = document.getElementById('polyhouseFilter');
+            if (area && poly) area.addEventListener('change', function () { poly.value = ''; document.getElementById('filterForm').submit(); });
+        })();
+    </script>
+}

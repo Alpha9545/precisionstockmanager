@@ -1,0 +1,94 @@
+@page
+@model PlantStockManager.Pages.Store.ReportsModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Store Reports";
+    string Q(decimal q) => StoreRules.Qty(q);
+}
+
+<div class="container-fluid mt-4">
+    <h3 class="mb-3">Store Reports -- <span id="reportTitle">@Model.Title</span></h3>
+    <ul class="nav nav-pills mb-3 flex-wrap" id="reportTabs">
+        @foreach (var (key, title) in PlantStockManager.Pages.Store.ReportsModel.ReportList)
+        {
+            <li class="nav-item"><a class="nav-link py-1 @(Model.Report == key ? "active" : "")" asp-page="/Store/Reports" asp-route-report="@key"
+                asp-route-fromDate="@Model.FromDate?.ToString("yyyy-MM-dd")" asp-route-toDate="@Model.ToDate?.ToString("yyyy-MM-dd")" asp-route-itemId="@Model.ItemId" asp-route-areaId="@Model.AreaId" asp-route-polyhouseId="@Model.PolyhouseId">@title</a></li>
+        }
+    </ul>
+    <form method="get" class="row g-2 align-items-end mb-3" id="reportFilter">
+        <input type="hidden" name="report" value="@Model.Report" />
+        <div class="col-6 col-md-2"><label class="form-label small" for="fromDate">From</label><input type="date" name="fromDate" id="fromDate" value="@Model.FromDate?.ToString("yyyy-MM-dd")" class="form-control" /></div>
+        <div class="col-6 col-md-2"><label class="form-label small" for="toDate">To</label><input type="date" name="toDate" id="toDate" value="@Model.ToDate?.ToString("yyyy-MM-dd")" class="form-control" /></div>
+        <div class="col-12 col-md-3"><label class="form-label small" for="itemFilter">Item</label>
+            <select name="itemId" id="itemFilter" class="form-select"><option value="">All items</option>
+                @foreach (var i in Model.Items) { <option value="@i.Id" selected="@(Model.ItemId == i.Id)">@i.Display</option> }</select></div>
+        <div class="col-6 col-md-2"><label class="form-label small" for="areaFilter">Area</label>
+            <select name="areaId" id="areaFilter" class="form-select" onchange="if (this.form.polyhouseId) this.form.polyhouseId.value=''; this.form.submit()"><option value="">All</option>
+                @foreach (var a in Model.AreaOptions) { <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option> }</select></div>
+        @if (Model.PolyhouseOptions.Any())
+        {
+            <div class="col-6 col-md-2"><label class="form-label small" for="polyhouseFilter">Polyhouse</label>
+                <select name="polyhouseId" id="polyhouseFilter" class="form-select"><option value="">All</option>
+                    @foreach (var p in Model.PolyhouseOptions) { <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option> }</select></div>
+        }
+        <div class="col-6 col-md-auto"><button type="submit" class="btn btn-success w-100">Filter</button></div>
+    </form>
+
+    @if (Model.Report == "Stock")
+    {
+        <p class="small text-muted">Main Office stock, and where everything else is: out on issue (not settled yet), returned but not yet confirmed, permanently assigned (kept + transferred), consumed@(Model.IsManager ? ", and the ledger check (stock = sum of the item's transactions)" : "").</p>
+        <div class="table-responsive"><table class="table table-sm table-bordered align-middle" id="stockReport">
+            <thead class="table-light"><tr><th>Item</th><th>Type</th><th>Unit</th><th class="text-end">Main Office</th><th class="text-end">Out on issue</th><th class="text-end">Return pending</th><th class="text-end">Assigned</th><th class="text-end">Consumed</th><th class="text-end">Minimum</th>@if (Model.IsManager) { <th>Ledger check</th> }</tr></thead>
+            <tbody>
+                @foreach (var i in Model.Items.Where(i => Model.ItemId == null || i.Id == Model.ItemId))
+                {
+                    var h = Model.Holdings.Where(x => x.ItemId == i.Id).ToList();
+                    var ledger = Model.LedgerSums.TryGetValue(i.Id, out var s) ? s : 0;
+                    <tr data-code="@i.ItemCode"><td>@i.Display</td><td>@i.ItemType</td><td>@i.UnitName</td>
+                        <td class="text-end fw-bold @(i.IsLow ? "text-danger" : "")">@Q(i.AvailableQuantity)</td><td class="text-end">@Q(h.Sum(x => x.OutOnIssue))</td><td class="text-end">@Q(h.Sum(x => x.PendingReturn))</td>
+                        <td class="text-end">@Q(h.Sum(x => x.Assigned))</td><td class="text-end">@Q(h.Sum(x => x.Consumed))</td><td class="text-end">@Q(i.MinimumStock)</td>
+                        @if (Model.IsManager) { <td class="@(ledger == i.AvailableQuantity ? "text-success" : "text-danger fw-bold")">@(ledger == i.AvailableQuantity ? "OK" : $"MISMATCH ({Q(ledger)})")</td> }</tr>
+                }
+            </tbody>
+        </table></div>
+    }
+    else if (Model.Report is "Transactions" or "Purchase" or "Issue" or "Return" or "Transfer" or "ItemHistory")
+    {
+        <div class="small text-muted mb-1" id="transactionTotals">@Model.Transactions.Count transaction(s) · total quantity @Q(Model.Transactions.Sum(t => Math.Abs(t.Quantity)))
+            @if (Model.Report == "Purchase") { <span> · value @Model.Transactions.Sum(t => (t.UnitCost ?? 0) * t.Quantity).ToString("0.00")</span> }</div>
+        <div class="table-responsive"><table class="table table-sm table-bordered align-middle" id="transactionReport">
+            <thead class="table-light"><tr><th>Date</th><th>Type</th><th>Item</th><th class="text-end">Qty</th><th class="text-end">Before</th><th class="text-end">After</th><th>Request</th><th>Location</th><th>Supplier / Ref</th><th class="text-end">Unit cost</th><th>Remarks</th><th>By</th></tr></thead>
+            <tbody>
+                @foreach (var t in Model.Transactions)
+                {
+                    <tr data-type="@t.TransactionType"><td>@t.TransactionDate.ToString("dd-MM-yyyy")</td><td>@StoreRules.TypeLabel(t.TransactionType)</td><td>@t.ItemCode @t.ItemName</td>
+                        <td class="text-end">@Q(t.Quantity)</td><td class="text-end">@Q(t.BalanceBefore)</td><td class="text-end">@Q(t.BalanceAfter)</td>
+                        <td>@if (t.RequestId.HasValue) { <a asp-page="/Store/RequestDetails" asp-route-id="@t.RequestId">@t.RequestNo</a> }</td>
+                        <td>@t.Location</td><td>@t.VendorName @t.Reference</td><td class="text-end">@(t.UnitCost?.ToString("0.00"))</td><td>@t.Remarks</td><td>@t.CreatedByName</td></tr>
+                }
+                @if (!Model.Transactions.Any()) { <tr><td colspan="12" class="text-center text-muted">No transactions.</td></tr> }
+            </tbody>
+        </table></div>
+    }
+
+    @if (Model.Report is "Consumption" or "PolyhouseWise" or "AreaWise" or "ItemHistory")
+    {
+        var rows = Model.Report == "AreaWise" ? Model.AreaWise.ToList()
+                 : Model.Report == "Consumption" ? Model.Holdings.Where(h => h.Consumed > 0).ToList()
+                 : Model.Holdings;
+        if (Model.Report == "ItemHistory") { <h5 class="mt-3">Where this item is now</h5> }
+        <div class="table-responsive"><table class="table table-sm table-bordered align-middle" id="holdingReport">
+            <thead class="table-light"><tr><th>@(Model.Report == "AreaWise" ? "Area" : "Area / Polyhouse")</th><th>Item</th><th>Type</th>
+                <th class="text-end">Out on issue</th><th class="text-end">Return pending</th><th class="text-end">Kept</th><th class="text-end">Transferred</th><th class="text-end">At location now</th><th class="text-end">Consumed</th></tr></thead>
+            <tbody>
+                @foreach (var h in rows)
+                {
+                    <tr data-area="@h.AreaId" data-polyhouse="@h.PolyhouseId" data-code="@h.ItemCode"><td>@(Model.Report == "AreaWise" ? h.AreaName : h.Location)</td><td>@h.ItemCode @h.ItemName <span class="text-muted small">@h.UnitName</span></td><td>@h.ItemType</td>
+                        <td class="text-end">@Q(h.OutOnIssue)</td><td class="text-end">@Q(h.PendingReturn)</td><td class="text-end">@Q(h.Kept)</td><td class="text-end">@Q(h.Transferred)</td>
+                        <td class="text-end fw-bold">@Q(h.AtLocation)</td><td class="text-end">@Q(h.Consumed)</td></tr>
+                }
+                @if (!rows.Any()) { <tr><td colspan="9" class="text-center text-muted">Nothing at the Areas for these filters.</td></tr> }
+            </tbody>
+        </table></div>
+    }
+</div>

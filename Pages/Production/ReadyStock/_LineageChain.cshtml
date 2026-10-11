@@ -1,0 +1,19 @@
+@model IReadOnlyList<PlantStockManager.Models.ReadyStock>
+@using PlantStockManager.Models
+@* A batch's lineage, oldest (the original sowing batch) first: sowing -> received in a Mother
+   Plant Area -> transplanted ... -> the batch itself. Each step is its own Ready Stock batch. *@
+<ol class="list-group list-group-numbered mb-3 lineage">
+    @foreach (var b in Model)
+    {
+        <li class="list-group-item d-flex justify-content-between align-items-start flex-wrap gap-2">
+            <div class="ms-1 me-auto">
+                <div class="fw-bold">
+                    @(b.OriginType switch { ReadyStock.OriginTransfer => "Received in Mother Plant Area", ReadyStock.OriginTransplant => "Transplanted", _ => "Original sowing batch" })
+                    &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@b.Id">batch #@b.Id</a>
+                </div>
+                <div class="small">@b.AreaName / @(b.PolyhouseName ?? "-") &middot; @b.CavityType &middot; @b.SpeciesName?.Trim() &middot; @b.BatchNo (@b.SowingCode, sown @b.SowingDate.ToString("dd/MM/yyyy"))</div>
+            </div>
+            <span class="small text-nowrap">now @Qty(b.PhysicalQuantity) plants@(b.InTransitQuantity > 0 ? $", {Qty(b.InTransitQuantity)} in transit" : "")</span>
+        </li>
+    }
+</ol>

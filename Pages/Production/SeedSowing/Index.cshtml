@@ -63,7 +63,7 @@
                     <tr>
                         <td>@sw.SowingCode</td>
                         <td>@sw.SpeciesName <span class="text-muted">(@sw.PlantTypeName)</span></td>
-                        <td>@(sw.IsCuttingSource ? "Cutting" : "Seed lot " + (string.IsNullOrEmpty(sw.BatchNo) ? "-" : sw.BatchNo))</td>
+                        <td>@(sw.IsCuttingSource ? "Cutting" : sw.IsBedSowingSource ? "Bed " + sw.BedSowingCode : sw.IsTransplantSource ? "Transplant " + sw.TransplantCode : "Seed lot " + (string.IsNullOrEmpty(sw.BatchNo) ? "-" : sw.BatchNo))</td>
                         <td>@sw.AreaName</td>
                         <td>@(sw.PolyhouseName ?? "-")</td>
                         <td>@sw.CavityType@(sw.NumberOfTrays.HasValue ? $" x{sw.NumberOfTrays}" : "")</td>

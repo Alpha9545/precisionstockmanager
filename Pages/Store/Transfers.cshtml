@@ -1,0 +1,75 @@
+@page
+@model PlantStockManager.Pages.Store.TransfersModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Store Transfers";
+}
+
+<div class="container-fluid mt-4">
+    <h3 class="mb-3">Permanent Transfers</h3>
+    @if (TempData["Success"] != null) { <div class="alert alert-success" id="transferSuccess">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-warning">@TempData["Error"]</div> }
+    @if (!ModelState.IsValid)
+    {
+        <div class="alert alert-danger" id="transferErrors"><ul class="mb-0">@foreach (var err in ModelState.Values.SelectMany(v => v.Errors)) { <li>@err.ErrorMessage</li> }</ul></div>
+    }
+
+    @if (Model.IsManager)
+    {
+        <form method="post" class="card card-body shadow-sm mb-4" id="transferForm" style="max-width: 1000px;">
+            <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
+            <h6>Main Office → Area / Polyhouse (stays assigned there; never returns to stock)</h6>
+            <div class="row g-2">
+                <div class="col-12 col-md-4"><label class="form-label small" for="itemSelect">Item</label>
+                    <select name="ItemId" id="itemSelect" class="form-select"><option value="">-- Select item --</option>
+                        @foreach (var i in Model.Items) { <option value="@i.Id" selected="@(Model.ItemId == i.Id)">@i.Display (@StoreRules.Qty(i.AvailableQuantity) @i.UnitName)</option> }</select></div>
+                <div class="col-6 col-md-2"><label class="form-label small" for="quantity">Quantity</label>
+                    <input type="number" step="any" min="0" name="Quantity" id="quantity" value="@Model.Quantity" class="form-control" /></div>
+                <div class="col-6 col-md-3"><label class="form-label small" for="areaSelect">Area</label>
+                    <select name="AreaId" id="areaSelect" class="form-select"><option value="">-- Select Area --</option>
+                        @foreach (var a in Model.Areas) { <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option> }</select></div>
+                <div class="col-6 col-md-3"><label class="form-label small" for="polyhouseSelect">Polyhouse (optional)</label>
+                    <select name="PolyhouseId" id="polyhouseSelect" class="form-select"><option value="">-- Whole Area --</option>
+                        @foreach (var p in Model.Polyhouses) { <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option> }</select></div>
+                <div class="col-6 col-md-2"><label class="form-label small" for="transferDate">Date</label>
+                    <input type="date" name="TransferDate" id="transferDate" value="@Model.TransferDate?.ToString("yyyy-MM-dd")" max="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" /></div>
+                <div class="col-6 col-md-3"><label class="form-label small" for="reference">Reference</label>
+                    <input type="text" name="Reference" id="reference" value="@Model.Reference" maxlength="100" class="form-control" /></div>
+                <div class="col-12 col-md-7"><label class="form-label small" for="remarks">Reason / remarks (required)</label>
+                    <input type="text" name="Remarks" id="remarks" value="@Model.Remarks" maxlength="500" class="form-control" /></div>
+            </div>
+            <div class="mt-3"><button type="submit" class="btn btn-success" id="transferBtn">Transfer Permanently</button></div>
+        </form>
+    }
+
+    <h5>Transfers</h5>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle" id="transferTable">
+            <thead class="table-light"><tr><th>Date</th><th>Item</th><th class="text-end">Qty</th><th>To</th><th class="text-end">Main Office stock after</th><th>Reference</th><th>Remarks</th><th>By</th></tr></thead>
+            <tbody>
+                @foreach (var t in Model.Transfers)
+                {
+                    <tr><td>@t.TransactionDate.ToString("dd-MM-yyyy")</td><td>@t.ItemCode @t.ItemName</td><td class="text-end">@StoreRules.Qty(-t.Quantity) @t.UnitName</td>
+                        <td>@t.Location</td><td class="text-end">@StoreRules.Qty(t.BalanceAfter)</td><td>@t.Reference</td><td>@t.Remarks</td><td>@t.CreatedByName</td></tr>
+                }
+                @if (!Model.Transfers.Any()) { <tr><td colspan="8" class="text-center text-muted">No transfers.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const area = document.getElementById('areaSelect'), polyhouse = document.getElementById('polyhouseSelect');
+            if (!area) return;
+            area.addEventListener('change', function () {
+                polyhouse.innerHTML = '<option value="">-- Whole Area --</option>';
+                if (!area.value) return;
+                fetch('@Url.Page("/Store/Transfers")?handler=Polyhouses&areaId=' + encodeURIComponent(area.value))
+                    .then(function (r) { return r.json(); })
+                    .then(function (list) { list.forEach(function (p) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; polyhouse.appendChild(o); }); });
+            });
+        })();
+    </script>
+}

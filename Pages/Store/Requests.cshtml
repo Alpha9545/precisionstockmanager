@@ -1,0 +1,28 @@
+@page
+@model PlantStockManager.Pages.Store.RequestsModel
+@using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Store Requests";
+    var canRequest = await FeatureAccess.CanAccessPageAsync(User, "/Store/NewRequest");
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Store Requests</h3>
+        @if (canRequest) { <a asp-page="/Store/NewRequest" class="btn btn-primary">+ New Request</a> }
+    </div>
+    @if (TempData["Error"] != null) { <div class="alert alert-warning">@TempData["Error"]</div> }
+    <form method="get" class="row g-2 align-items-end mb-3" id="requestFilter">
+        <div class="col-6 col-md-2"><label class="form-label" for="statusFilter">Status</label>
+            <select name="status" id="statusFilter" class="form-select"><option value="">All</option>
+                @foreach (var s in StoreRules.Statuses) { <option value="@s" selected="@(Model.Status == s)">@s</option> }</select></div>
+        <div class="col-6 col-md-3"><label class="form-label" for="areaFilter">Area</label>
+            <select name="areaId" id="areaFilter" class="form-select"><option value="">All my Areas</option>
+                @foreach (var a in Model.AreaOptions) { <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option> }</select></div>
+        <div class="col-6 col-md-auto form-check ms-2"><input type="checkbox" class="form-check-input" name="mine" value="true" id="mine" checked="@Model.Mine" />
+            <label class="form-check-label" for="mine">Raised by me</label></div>
+        <div class="col-6 col-md-auto"><button type="submit" class="btn btn-success w-100">Filter</button></div>
+    </form>
+    <partial name="_RequestTable" model="Model.Requests" view-data='new ViewDataDictionary(ViewData) { ["TableId"] = "requestTable", ["Empty"] = "No requests for the selected filters." }' />
+</div>

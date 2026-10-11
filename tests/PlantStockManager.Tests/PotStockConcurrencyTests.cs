@@ -9,16 +9,16 @@ namespace PlantStockManager.Tests
     // identical first-time-allocation race TrayStockRepository did before
     // its own sp_getapplock fix. Same structure, same safety rules: runs
     // only when PSM_TEST_CONNECTION holds a connection string, only against
-    // PlantsIMS2_Test (any other database is refused), uses TWO independent
+    // PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy (any other database is refused -- IntegrationDatabase), uses TWO independent
     // connections/transactions (a real cross-connection race needs two
     // separate transactions), and BOTH are always rolled back -- nothing
     // this test does is ever kept. Picks an active (AreaId, PotSize) pair
     // with zero existing EmptyPotInventory rows, so the allocation is a
     // genuine first-time race, never touching a pool that already exists.
+    [Collection("ScratchDb")]   // 2026-10-10: on a scratch copy other E2E classes write too -- never at the same time
     public class PotStockConcurrencyTests
     {
         private const string ConnectionVariable = "PSM_TEST_CONNECTION";
-        private const string RequiredDatabase = "PlantsIMS2_Test";
 
         private static async Task<SqlConnection> OpenAsync(string cs)
         {
@@ -26,10 +26,10 @@ namespace PlantStockManager.Tests
             await conn.OpenAsync();
             using var dbName = new SqlCommand("SELECT DB_NAME()", conn);
             var name = (string)(await dbName.ExecuteScalarAsync())!;
-            if (!string.Equals(name, RequiredDatabase, StringComparison.OrdinalIgnoreCase))
+            if (!IntegrationDatabase.IsAllowed(name))
             {
                 await conn.DisposeAsync();
-                throw new InvalidOperationException($"Refusing to run database tests against '{name}'. Only {RequiredDatabase} is allowed.");
+                throw new InvalidOperationException($"Refusing to run database tests against '{name}'. Only {IntegrationDatabase.Allowed} is allowed.");
             }
             return conn;
         }
@@ -46,7 +46,7 @@ namespace PlantStockManager.Tests
         public async Task GetOrCreateLockedAsync_TwoSimultaneousFirstTimeAllocations_SerializeCleanly_NoDuplicateRow()
         {
             var cs = Environment.GetEnvironmentVariable(ConnectionVariable);
-            Skip.If(string.IsNullOrWhiteSpace(cs), $"Set {ConnectionVariable} to a {RequiredDatabase} connection string to run the database tests.");
+            Skip.If(string.IsNullOrWhiteSpace(cs), $"Set {ConnectionVariable} to a {IntegrationDatabase.Allowed} connection string to run the database tests.");
 
             int areaId;
             string potSize;
@@ -131,7 +131,7 @@ ORDER BY a.Id", probe);
         public async Task GetOrCreateLockedAsync_UnrelatedPotSizeAreaCombination_IsNeverBlocked()
         {
             var cs = Environment.GetEnvironmentVariable(ConnectionVariable);
-            Skip.If(string.IsNullOrWhiteSpace(cs), $"Set {ConnectionVariable} to a {RequiredDatabase} connection string to run the database tests.");
+            Skip.If(string.IsNullOrWhiteSpace(cs), $"Set {ConnectionVariable} to a {IntegrationDatabase.Allowed} connection string to run the database tests.");
 
             using var conn = await OpenAsync(cs!);
             using var tx = conn.BeginTransaction();

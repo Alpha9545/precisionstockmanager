@@ -1,0 +1,216 @@
+@page
+@model PlantStockManager.Pages.Production.Labour.OvertimeModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = Model.IsEdit ? "Edit Overtime" : "Add Overtime";
+    var max = DailyLabourRules.MaxCount;
+}
+
+<style>
+    .labour-group { border: 1px solid #dee2e6; border-radius: .5rem; padding: .75rem; height: 100%; }
+    .labour-group h6 { margin-bottom: .5rem; font-weight: 700; }
+    .labour-count { font-size: 1.15rem; text-align: center; }
+    .labour-result { background: #f1f8f4; border: 1px solid #b7dfc6; border-radius: .5rem; }
+    .labour-result .cell { padding: .4rem .25rem; }
+    .labour-result .value { font-size: 1.35rem; font-weight: 700; line-height: 1.1; }
+</style>
+
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm mx-auto" style="max-width: 720px;">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h4 class="mb-0">@ViewData["Title"]</h4>
+                <small class="text-muted">Workers who work beyond the normal working day -- headcounts only.</small>
+            </div>
+            <a asp-page="/Production/Labour/OvertimeHistory" class="btn btn-outline-secondary btn-sm">Overtime History</a>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger" id="overtimeErrors">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (!Model.IsEdit && !Model.Areas.Any())
+            {
+                <div class="alert alert-warning">You are not assigned to any Area. Ask an administrator to assign your Area.</div>
+            }
+
+            <form method="post" id="overtimeForm" novalidate>
+                <input type="hidden" asp-for="SubmitToken" />
+                @if (Model.IsEdit)
+                {
+                    <input type="hidden" asp-for="Id" />
+                    <dl class="row mb-3">
+                        <dt class="col-5 col-sm-4">Date</dt><dd class="col-7 col-sm-8">@Model.Existing!.LabourDate.ToString("dd-MM-yyyy")</dd>
+                        <dt class="col-5 col-sm-4">Area</dt><dd class="col-7 col-sm-8">@Model.Existing.AreaName</dd>
+                        <dt class="col-5 col-sm-4">Polyhouse</dt><dd class="col-7 col-sm-8">@(Model.Existing.PolyhouseId.HasValue ? Model.Existing.PolyhouseName : "—")</dd>
+                    </dl>
+                }
+                else
+                {
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-sm-4">
+                            <label class="form-label fw-bold" for="labourDate">Date</label>
+                            <input type="date" asp-for="LabourDate" id="labourDate" asp-format="{0:yyyy-MM-dd}" max="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" required />
+                        </div>
+                        <div class="col-12 col-sm-4">
+                            <label class="form-label fw-bold" for="areaSelect">Area</label>
+                            <select asp-for="AreaId" id="areaSelect" class="form-select" required>
+                                <option value="">-- Select Area --</option>
+                                @foreach (var a in Model.Areas)
+                                {
+                                    <option value="@a.Id" data-main-office="@(DailyLabourRules.RequiresPolyhouse(a.AreaType) ? "1" : "0")" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-12 col-sm-4" id="polyhouseGroup" style="@(Model.SelectedAreaIsMainOffice ? "" : "display:none")">
+                            <label class="form-label fw-bold" for="polyhouseSelect">Polyhouse</label>
+                            <select asp-for="PolyhouseId" id="polyhouseSelect" class="form-select" disabled="@(!Model.SelectedAreaIsMainOffice)">
+                                <option value="">@(Model.Polyhouses.Any() ? "-- Select Polyhouse --" : "-- No Polyhouse in this Area --")</option>
+                                @foreach (var p in Model.Polyhouses)
+                                {
+                                    <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                }
+
+                <div class="row g-3">
+                    <div class="col-12 col-sm-6">
+                        <div class="labour-group">
+                            <h6>Workers</h6>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label small mb-1" for="maleWorkers">Male</label>
+                                    <input type="number" inputmode="numeric" step="1" min="0" max="@max" asp-for="MaleWorkers" id="maleWorkers" class="form-control labour-count" placeholder="0" />
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small mb-1" for="femaleWorkers">Female</label>
+                                    <input type="number" inputmode="numeric" step="1" min="0" max="@max" asp-for="FemaleWorkers" id="femaleWorkers" class="form-control labour-count" placeholder="0" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <div class="labour-group">
+                            <h6>Overtime period</h6>
+                            <div class="row g-2">
+                                <div class="col-6">
+                                    <label class="form-label small mb-1" for="startTime">Start</label>
+                                    <input type="time" step="60" name="StartTime" id="startTime" value="@Model.StartTime?.ToString("HH:mm")" class="form-control" required />
+                                </div>
+                                <div class="col-6">
+                                    <label class="form-label small mb-1" for="endTime">End</label>
+                                    <input type="time" step="60" name="EndTime" id="endTime" value="@Model.EndTime?.ToString("HH:mm")" class="form-control" required />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="labour-result row g-0 text-center mt-3 py-1" id="overtimeResult">
+                    <div class="col-6 col-sm-3 cell"><div class="small text-muted">Duration</div><div class="value" id="duration">—</div></div>
+                    <div class="col-6 col-sm-3 cell"><div class="small text-muted">Male Worker-Hours</div><div class="value" id="maleHours">—</div></div>
+                    <div class="col-6 col-sm-3 cell"><div class="small text-muted">Female Worker-Hours</div><div class="value" id="femaleHours">—</div></div>
+                    <div class="col-6 col-sm-3 cell"><div class="small text-muted">Total Worker-Hours</div><div class="value" id="totalHours">—</div></div>
+                    <div class="col-12 small text-muted pb-1">Worker-hours = workers × duration. Calculated again by the server when saved.</div>
+                </div>
+
+                <div class="mt-3">
+                    <label class="form-label fw-bold" for="workDescription">Work Description</label>
+                    <textarea asp-for="WorkDescription" id="workDescription" class="form-control" rows="2" maxlength="@LabourOvertimeRules.MaxDescriptionLength" placeholder="e.g. Polyhouse cleaning and maintenance" required></textarea>
+                </div>
+                <div class="mt-3">
+                    <label class="form-label" for="remarks">Remark <span class="text-muted">(optional)</span></label>
+                    <textarea asp-for="Remarks" id="remarks" class="form-control" rows="2" maxlength="@LabourOvertimeRules.MaxRemarksLength"></textarea>
+                </div>
+
+                <div class="d-flex flex-column flex-sm-row justify-content-center gap-2 mt-4">
+                    <button type="submit" class="btn btn-success btn-lg" id="saveOvertimeBtn">@(Model.IsEdit ? "Save Correction" : "Save Overtime")</button>
+                    @if (Model.IsEdit)
+                    {
+                        <a asp-page="/Production/Labour/OvertimeDetails" asp-route-id="@Model.Id" class="btn btn-outline-secondary btn-lg">Cancel</a>
+                    }
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            // Live preview only; the database computes the saved duration and worker-hours.
+            const male = document.getElementById('maleWorkers'), female = document.getElementById('femaleWorkers');
+            const start = document.getElementById('startTime'), end = document.getElementById('endTime');
+            function count(input) {
+                const v = input.value.trim();
+                if (v === '') return 0;
+                return /^\d+$/.test(v) && Number(v) <= @max ? Number(v) : NaN;
+            }
+            function minutes(t) {
+                const m = /^(\d{2}):(\d{2})/.exec(t.value);
+                return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
+            }
+            function hours(n) { return isNaN(n) ? '—' : (Math.round(n * 100) / 100).toString(); }
+            function recalc() {
+                const d = minutes(end) - minutes(start);
+                const ok = !isNaN(d) && d > 0;
+                document.getElementById('duration').textContent = ok ? (Math.floor(d / 60) ? Math.floor(d / 60) + 'h' + (d % 60 ? ' ' + (d % 60) + 'm' : '') : (d % 60) + 'm') : (isNaN(d) ? '—' : 'End must be after start');
+                const m = count(male), f = count(female);
+                document.getElementById('maleHours').textContent = ok ? hours(m * d / 60) : '—';
+                document.getElementById('femaleHours').textContent = ok ? hours(f * d / 60) : '—';
+                document.getElementById('totalHours').textContent = ok ? hours((m + f) * d / 60) : '—';
+            }
+            [male, female, start, end].forEach(function (i) { i.addEventListener('input', recalc); i.addEventListener('change', recalc); });
+            recalc();
+
+            document.getElementById('overtimeForm').addEventListener('submit', function () {
+                const btn = document.getElementById('saveOvertimeBtn');
+                setTimeout(function () { btn.disabled = true; btn.textContent = 'Saving...'; }, 0);
+            });
+
+            const area = document.getElementById('areaSelect');
+            if (!area) return;   // edit mode: date and location are fixed
+            const group = document.getElementById('polyhouseGroup');
+            const polyhouse = document.getElementById('polyhouseSelect');
+            function isMainOffice() {
+                const o = area.options[area.selectedIndex];
+                return !!o && o.dataset.mainOffice === '1';
+            }
+            // Polyhouse only for Main Office Areas (the server enforces the same rule).
+            area.addEventListener('change', function () {
+                if (!isMainOffice()) {
+                    group.style.display = 'none';
+                    polyhouse.disabled = true;
+                    polyhouse.value = '';
+                    return;
+                }
+                group.style.display = '';
+                polyhouse.disabled = false;
+                polyhouse.innerHTML = '<option value="">Loading...</option>';
+                fetch('@Url.Page("/Production/Labour/Overtime")?handler=Polyhouses&areaId=' + encodeURIComponent(area.value))
+                    .then(function (r) { return r.json(); })
+                    .then(function (list) {
+                        polyhouse.innerHTML = '';
+                        const first = document.createElement('option');
+                        first.value = ''; first.textContent = list.length ? '-- Select Polyhouse --' : '-- No Polyhouse in this Area --';
+                        polyhouse.appendChild(first);
+                        list.forEach(function (p) {
+                            const o = document.createElement('option');
+                            o.value = p.id; o.textContent = p.name;
+                            polyhouse.appendChild(o);
+                        });
+                    })
+                    .catch(function () { polyhouse.innerHTML = '<option value="">-- Could not load Polyhouses --</option>'; });
+            });
+        })();
+    </script>
+}

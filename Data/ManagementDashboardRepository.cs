@@ -1,5 +1,6 @@
 using Microsoft.Data.SqlClient;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Data
 {
@@ -124,7 +125,7 @@ WHERE (@AreaId IS NULL OR AreaId = @AreaId)
 
             // Ready Stock (Balance) -- unit: plants confirmed Ready
             // through Phase K only. Computed once, shared with Section B.
-            result.ReadyStockQuantity = await GetReadyStockTotalAsync(conn, filters);
+            (result.ReadyStockQuantity, result.ReadyStockReserved, result.ReadyStockInTransit) = await GetReadyStockTotalsAsync(conn, filters);
 
             // Seed Stock (Balance) -- grouped by Unit; Step 3's "do not
             // mix units" rule means these are never summed together.
@@ -160,7 +161,10 @@ WHERE IsActive = 1
         // ClassifyReadyAlert EXACTLY as Pages/Production/ReadyAlerts/
         // Index.cshtml.cs does -- never a second classification.
         // ------------------------------------------------------------
-        public async Task<ReadyStockSummary> GetReadyStockSummaryAsync(ManagementDashboardFilters filters)
+        // today: the business date to classify against. null keeps the original server
+        // date (DateTime.Today) for existing callers such as the Daily Report; the
+        // Management Dashboard passes the India date (AppClock.Today).
+        public async Task<ReadyStockSummary> GetReadyStockSummaryAsync(ManagementDashboardFilters filters, DateTime? today = null)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
@@ -185,8 +189,8 @@ WHERE Status = 'Sown'
                 }
             }
 
-            var today = DateTime.Today;
-            var horizon = today.AddDays(SeedSowingRepository.DefaultReadySoonWindowDays);
+            var classifyDay = (today ?? DateTime.Today).Date;
+            var horizon = classifyDay.AddDays(SeedSowingRepository.DefaultReadySoonWindowDays);
             var candidates = await _seedSowingRepo.GetAlertCandidatesAsync(horizon);
             var scoped = candidates
                 .Where(s => !filters.AreaId.HasValue || s.AreaId == filters.AreaId.Value)
@@ -194,7 +198,7 @@ WHERE Status = 'Sown'
 
             foreach (var sowing in scoped)
             {
-                var category = SeedSowingRepository.ClassifyReadyAlert(sowing.Status, sowing.ExpectedReadyDate, today, SeedSowingRepository.DefaultReadySoonWindowDays);
+                var category = SeedSowingRepository.ClassifyReadyAlert(sowing.Status, sowing.ExpectedReadyDate, classifyDay, SeedSowingRepository.DefaultReadySoonWindowDays);
                 switch (category)
                 {
                     case "Overdue":
@@ -408,12 +412,12 @@ WHERE BookingDate >= @FromDate AND BookingDate < @ToDateExclusive
 SELECT COUNT(*), ISNULL(SUM(Quantity), 0)
 FROM dbo.Dispatches
 WHERE Status = 'Completed'
-  AND DispatchDate >= @FromDate AND DispatchDate < @ToDateExclusive
+  AND DispatchDate >= @FromUtc AND DispatchDate < @ToUtcExclusive   -- DispatchDate is SYSUTCDATETIME()
   AND (@AreaId IS NULL OR AreaId = @AreaId)
   AND (@SpeciesId IS NULL OR SpeciesId = @SpeciesId)
   AND (@PotSize IS NULL OR PotSize = @PotSize)", conn))
             {
-                AddDateRange(cmd, filters);
+                AddUtcDateRange(cmd, filters);
                 AddAreaSpeciesPotSize(cmd, filters);
                 using var reader = await cmd.ExecuteReaderAsync();
                 if (await reader.ReadAsync())
@@ -476,11 +480,10 @@ WHERE Status = 'Completed'
 
             using (var cmd = new SqlCommand(@"
 SELECT COUNT(*), ISNULL(SUM(QuantitySown), 0)
-FROM dbo.SeedSowings
-WHERE Status <> 'Cancelled'
-  AND SowingDate >= @FromDate AND SowingDate < @ToDateExclusive
+FROM #SOWING# s
+WHERE SowingDate >= @FromDate AND SowingDate < @ToDateExclusive
   AND (@AreaId IS NULL OR AreaId = @AreaId)
-  AND (@SpeciesId IS NULL OR SpeciesId = @SpeciesId)", conn))
+  AND (@SpeciesId IS NULL OR SpeciesId = @SpeciesId)".Replace("#SOWING#", BedSowingSchema.SowingActivitySql(await BedSowingSchema.ReadyAsync(conn))), conn))
             {
                 AddDateRange(cmd, filters);
                 AddAreaSpecies(cmd, filters);
@@ -565,10 +568,10 @@ GROUP BY Status", conn))
 SELECT COUNT(*), ISNULL(SUM(ConfirmedQuantity), 0)
 FROM dbo.InternalTransfers
 WHERE StockType = 'Cutting' AND Status = 'Transplanted'
-  AND ConfirmedDate >= @FromDate AND ConfirmedDate < @ToDateExclusive
+  AND ConfirmedDate >= @FromUtc AND ConfirmedDate < @ToUtcExclusive   -- ConfirmedDate is SYSUTCDATETIME()
   AND (@AreaId IS NULL OR SourceAreaId = @AreaId OR DestinationAreaId = @AreaId)", conn))
             {
-                AddDateRange(cmd, filters);
+                AddUtcDateRange(cmd, filters);
                 cmd.Parameters.AddWithValue("@AreaId", (object?)filters.AreaId ?? DBNull.Value);
                 using var reader = await cmd.ExecuteReaderAsync();
                 if (await reader.ReadAsync())
@@ -584,19 +587,19 @@ FROM dbo.CuttingStockTransactions t
 INNER JOIN dbo.CuttingStock cs ON t.CuttingStockId = cs.Id
 INNER JOIN dbo.Area a ON cs.AreaId = a.Id
 INNER JOIN dbo.PlantSpecies ps ON cs.SpeciesId = ps.Id
-WHERE t.TransactionDate >= @FromDate AND t.TransactionDate < @ToDateExclusive
+WHERE t.TransactionDate >= @FromUtc AND t.TransactionDate < @ToUtcExclusive   -- TransactionDate is SYSUTCDATETIME()
   AND (@AreaId IS NULL OR cs.AreaId = @AreaId)
   AND (@SpeciesId IS NULL OR cs.SpeciesId = @SpeciesId)
 ORDER BY t.TransactionDate DESC", conn))
             {
-                AddDateRange(cmd, filters);
+                AddUtcDateRange(cmd, filters);
                 AddAreaSpecies(cmd, filters);
                 using var reader = await cmd.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
                 {
                     result.RecentActivity.Add(new CuttingActivityItem
                     {
-                        TransactionDate = reader.GetDateTime(0),
+                        TransactionDate = AppClock.ToIndiaTime(reader.GetDateTime(0)),
                         TransactionType = reader.GetString(1),
                         Quantity = reader.GetDecimal(2),
                         AreaName = reader.IsDBNull(3) ? null : reader.GetString(3),
@@ -655,12 +658,18 @@ ORDER BY t.TransactionDate DESC", conn))
                 },
                 new StockHealthRow
                 {
-                    Domain = "Ready Stock",
+                    // dbo.ReadyStock DOES carry ReservedQuantity (seedling booking
+                    // reservations) and a computed AvailableQuantity = Quantity -
+                    // ReservedQuantity - DispatchedQuantity; the earlier "single balance
+                    // column" note was wrong and hid reserved seedlings. 2026-10-09: plants
+                    // in transit to a Mother Plant Area are at neither location -- shown as
+                    // In Transit, not as physical or available stock.
+                    Domain = "Ready Stock (seedlings)",
                     Unit = "plants",
-                    Physical = readyStock.ReadyStockQuantity,
-                    Reserved = null,
-                    Available = null, // single balance column only, no Reserved/InTransit
-                    InTransit = null
+                    Physical = production.ReadyStockQuantity - production.ReadyStockInTransit,
+                    Reserved = production.ReadyStockReserved,
+                    Available = production.ReadyStockQuantity - production.ReadyStockInTransit - production.ReadyStockReserved,
+                    InTransit = production.ReadyStockInTransit
                 }
             };
 
@@ -700,13 +709,12 @@ ORDER BY t.TransactionDate DESC", conn))
 
             using (var cmd = new SqlCommand(@"
 SELECT SowingDate AS D, SUM(QuantitySown) AS V
-FROM dbo.SeedSowings
-WHERE Status <> 'Cancelled'
-  AND SowingDate >= @FromDate AND SowingDate < @ToDateExclusive
+FROM #SOWING# s
+WHERE SowingDate >= @FromDate AND SowingDate < @ToDateExclusive
   AND (@AreaId IS NULL OR AreaId = @AreaId)
   AND (@SpeciesId IS NULL OR SpeciesId = @SpeciesId)
 GROUP BY SowingDate
-ORDER BY SowingDate", conn))
+ORDER BY SowingDate".Replace("#SOWING#", BedSowingSchema.SowingActivitySql(await BedSowingSchema.ReadyAsync(conn))), conn))
             {
                 AddDateRange(cmd, filters);
                 AddAreaSpecies(cmd, filters);
@@ -716,14 +724,18 @@ ORDER BY SowingDate", conn))
             }
 
             using (var cmd = new SqlCommand(@"
-SELECT CAST(TransactionDate AS DATE) AS D, SUM(Quantity) AS V
-FROM dbo.ReadyStockTransactions
-WHERE TransactionType = 'Confirmed'
-  AND TransactionDate >= @FromDate AND TransactionDate < @ToDateExclusive
-GROUP BY CAST(TransactionDate AS DATE)
+SELECT CAST(DATEADD(MINUTE, @OffsetMinutes, t.TransactionDate) AS DATE) AS D, SUM(t.Quantity) AS V
+FROM dbo.ReadyStockTransactions t
+INNER JOIN dbo.ReadyStock rs ON rs.Id = t.ReadyStockId
+WHERE t.TransactionType = 'Confirmed'
+  AND t.TransactionDate >= @FromUtc AND t.TransactionDate < @ToUtcExclusive   -- TransactionDate is SYSUTCDATETIME()
+  AND (@AreaId IS NULL OR rs.AreaId = @AreaId)
+  AND (@SpeciesId IS NULL OR rs.SpeciesId = @SpeciesId)
+GROUP BY CAST(DATEADD(MINUTE, @OffsetMinutes, t.TransactionDate) AS DATE)
 ORDER BY D", conn))
             {
-                AddDateRange(cmd, filters);
+                AddUtcDateRange(cmd, filters);
+                AddAreaSpecies(cmd, filters);
                 using var reader = await cmd.ExecuteReaderAsync();
                 while (await reader.ReadAsync())
                     points.Add(new TrendPoint { BucketDate = reader.GetDateTime(0), Series = "Confirmed Ready", Value = reader.GetDecimal(1) });
@@ -739,15 +751,15 @@ ORDER BY D", conn))
             var points = new List<TrendPoint>();
 
             using var cmd = new SqlCommand(@"
-SELECT CAST(d.DispatchDate AS DATE) AS D, SUM(d.Quantity) AS V
+SELECT CAST(DATEADD(MINUTE, @OffsetMinutes, d.DispatchDate) AS DATE) AS D, SUM(d.Quantity) AS V
 FROM dbo.Dispatches d
 WHERE d.Status = 'Completed'
-  AND d.DispatchDate >= @FromDate AND d.DispatchDate < @ToDateExclusive
+  AND d.DispatchDate >= @FromUtc AND d.DispatchDate < @ToUtcExclusive   -- DispatchDate is SYSUTCDATETIME()
   AND (@AreaId IS NULL OR d.AreaId = @AreaId)
   AND (@SpeciesId IS NULL OR d.SpeciesId = @SpeciesId)
-GROUP BY CAST(d.DispatchDate AS DATE)
+GROUP BY CAST(DATEADD(MINUTE, @OffsetMinutes, d.DispatchDate) AS DATE)
 ORDER BY D", conn);
-            AddDateRange(cmd, filters);
+            AddUtcDateRange(cmd, filters);
             AddAreaSpecies(cmd, filters);
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -757,22 +769,312 @@ ORDER BY D", conn);
         }
 
         // ------------------------------------------------------------
+        // Management overview (top of the page) -- company-wide, ONE
+        // round trip: a single batch with several result sets. Every
+        // Ready Stock figure (totals, Top 3, Plant Type, Area/Polyhouse)
+        // is summed in C# from result set 1 alone, so the numbers always
+        // reconcile and nothing is counted twice. Formulas mirror the
+        // existing owners of each rule:
+        //   Ready Stock   physical = Quantity - DispatchedQuantity, available =
+        //                 Quantity - ReservedQuantity - DispatchedQuantity
+        //                 (dbo.ReadyStock's own PhysicalQuantity/AvailableQuantity
+        //                 computed columns; SeedlingFulfilmentRepository.GetAvailabilityAsync)
+        //   Potted stock  available = Physical - Reserved (PottedPlantStock.AvailableQuantity)
+        //   Booking order ISNULL(OrderBookingId, Id) (BookingOrders.EffectiveOrderSql);
+        //                 remaining = max(0, Quantity - Dispatched - legacy-fulfilled)
+        //                 (SeedlingBookingSummary.RemainingQuantity)
+        //   Low stock     IsActive AND AvailableQuantity < MinimumStock (StoreItem.IsLow)
+        // Date handling: the period is India business dates. DATE columns are
+        // compared directly; SYSUTCDATETIME() columns against the UTC bounds of
+        // those dates (AppClock.IndiaToUtc).
+        // ------------------------------------------------------------
+        public sealed class OverviewData
+        {
+            public List<ReadyStockSlice> ReadyStock { get; } = new();
+            public List<PottedStockByArea> PottedStock { get; } = new();
+            public SeedlingOrderSummary Seedlings { get; } = new();
+            public List<VarietyQuantity> OpenBookingByVariety { get; } = new();
+            public ProductionActivity Production { get; } = new();
+            public int MaintenanceClosedInPeriod { get; set; }
+            public StoreSnapshot Store { get; } = new();
+            public List<RecentPost> RecentProblems { get; } = new();
+            public List<ActivityItem> RecentActivity { get; } = new();
+        }
+
+        public const int RecentActivityPerSource = 5;
+
+        public async Task<OverviewData> GetOverviewAsync(DashboardPeriod period, DateTime todayIndia)
+        {
+            var data = new OverviewData();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new SqlCommand(@"
+-- 1. Ready Stock by Area x Polyhouse x Variety
+SELECT rs.AreaId, a.Name, a.AreaType, rs.PolyhouseId, ph.Name, ph.AreaId, rs.SpeciesId, ps.Name, pt.Name,
+       SUM(rs.Quantity - rs.DispatchedQuantity - rs.InTransitQuantity), SUM(rs.ReservedQuantity),
+       SUM(rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity), COUNT(*), pa.Name
+FROM dbo.ReadyStock rs
+LEFT JOIN dbo.Area a ON a.Id = rs.AreaId
+LEFT JOIN dbo.Polyhouses ph ON ph.Id = rs.PolyhouseId
+LEFT JOIN dbo.Area pa ON pa.Id = ph.AreaId
+LEFT JOIN dbo.PlantSpecies ps ON ps.Id = rs.SpeciesId
+LEFT JOIN dbo.PlantTypes pt ON pt.Id = ps.PlantTypeId
+WHERE rs.Quantity - rs.DispatchedQuantity - rs.InTransitQuantity <> 0 OR rs.ReservedQuantity <> 0   -- in transit: at neither location
+GROUP BY rs.AreaId, a.Name, a.AreaType, rs.PolyhouseId, ph.Name, ph.AreaId, pa.Name, rs.SpeciesId, ps.Name, pt.Name;
+
+-- 2. Potted Plant Stock by Area
+SELECT s.AreaId, a.Name, a.AreaType, SUM(s.PhysicalQuantity), SUM(s.ReservedQuantity), SUM(s.InTransitQuantity)
+FROM dbo.PottedPlantStock s
+LEFT JOIN dbo.Area a ON a.Id = s.AreaId
+GROUP BY s.AreaId, a.Name, a.AreaType;
+
+-- Open (Pending) seedling booking lines, computed once
+DECLARE @open TABLE (OrderId INT, SpeciesId INT NULL, PlantId INT, Quantity DECIMAL(18,2), Dispatched DECIMAL(18,2),
+                     Reserved DECIMAL(18,2), DeliveryDate DATE NULL, Remaining DECIMAL(18,2));
+INSERT INTO @open
+SELECT ISNULL(b.OrderBookingId, b.Id), b.SpeciesId, b.PlantId, b.Quantity, b.DispatchedQuantity, b.ReservedQuantity, b.DeliveryDate,
+       CASE WHEN b.Quantity - b.DispatchedQuantity - ISNULL(leg.Qty, 0) > 0 THEN b.Quantity - b.DispatchedQuantity - ISNULL(leg.Qty, 0) ELSE 0 END
+FROM dbo.Bookings b
+LEFT JOIN (SELECT it.BookingId, SUM(CAST(it.QuantityUtilized AS DECIMAL(18,2))) AS Qty
+           FROM dbo.InventoryTransactions it
+           WHERE it.TransactionType = 'Allocation' AND it.BookingId IS NOT NULL
+           GROUP BY it.BookingId) leg ON leg.BookingId = b.Id
+WHERE ISNULL(b.Status, 'Pending') = 'Pending';
+
+-- 3. Open seedling orders (orders = DISTINCT OrderId, quantities = SUM over lines)
+SELECT COUNT(DISTINCT OrderId), COUNT(*), ISNULL(SUM(Quantity), 0), ISNULL(SUM(Dispatched), 0), ISNULL(SUM(Remaining), 0), ISNULL(SUM(Reserved), 0),
+       COUNT(DISTINCT CASE WHEN DeliveryDate < @Today AND Remaining > 0 THEN OrderId END),
+       ISNULL(SUM(CASE WHEN DeliveryDate < @Today THEN Remaining END), 0),
+       COUNT(DISTINCT CASE WHEN DeliveryDate = @Today AND Remaining > 0 THEN OrderId END),
+       ISNULL(SUM(CASE WHEN DeliveryDate = @Today THEN Remaining END), 0)
+FROM @open;
+
+-- 4. Still to dispatch, by Variety
+SELECT o.SpeciesId, ps.Name, pt.Name, SUM(o.Remaining)
+FROM @open o
+LEFT JOIN dbo.PlantSpecies ps ON ps.Id = o.SpeciesId
+LEFT JOIN dbo.PlantTypes pt ON pt.Id = ISNULL(ps.PlantTypeId, o.PlantId)
+WHERE o.Remaining > 0
+GROUP BY o.SpeciesId, ps.Name, pt.Name;
+
+-- 5. Production in the period
+SELECT (SELECT COUNT(*) FROM #SOWING# s WHERE s.SowingDate >= @FromDate AND s.SowingDate < @ToDateExclusive),
+       (SELECT ISNULL(SUM(s.QuantitySown), 0) FROM #SOWING# s WHERE s.SowingDate >= @FromDate AND s.SowingDate < @ToDateExclusive),
+       (SELECT COUNT(*) FROM dbo.CuttingProductions WHERE CuttingDate >= @FromDate AND CuttingDate < @ToDateExclusive),
+       (SELECT ISNULL(SUM(Quantity), 0) FROM dbo.CuttingProductions WHERE CuttingDate >= @FromDate AND CuttingDate < @ToDateExclusive),
+       (SELECT ISNULL(SUM(Quantity), 0) FROM dbo.PotProductionEntries WHERE ProductionDate >= @FromDate AND ProductionDate < @ToDateExclusive),
+       (SELECT ISNULL(SUM(Quantity), 0) FROM dbo.ReadyStockTransactions WHERE TransactionType = 'Confirmed' AND TransactionDate >= @FromUtc AND TransactionDate < @ToUtcExclusive),
+       (SELECT COUNT(*) FROM dbo.MaintenanceTickets WHERE Status = 'Closed' AND ClosedAt >= @FromUtc AND ClosedAt < @ToUtcExclusive);
+
+-- 6. Store requests waiting
+SELECT ISNULL(SUM(CASE WHEN Status = 'Pending' THEN 1 ELSE 0 END), 0), ISNULL(SUM(CASE WHEN Status = 'Approved' THEN 1 ELSE 0 END), 0)
+FROM dbo.StoreRequests;
+
+-- 7. Store items below minimum (StoreItem.IsLow)
+SELECT i.ItemCode, i.Name, i.AvailableQuantity, i.MinimumStock, LTRIM(RTRIM(u.UnitName))
+FROM dbo.StoreItems i
+LEFT JOIN dbo.UnitMaster u ON u.UnitId = i.UnitId
+WHERE i.IsActive = 1 AND i.AvailableQuantity < i.MinimumStock
+ORDER BY i.Name;
+
+-- 8. Latest active problems
+SELECT TOP 5 p.Id, p.PostNo, p.Title, a.Name, p.Status, p.IsPermanent, p.CreatedAt
+FROM dbo.SuggestionPosts p
+LEFT JOIN dbo.Area a ON a.Id = p.AreaId
+WHERE p.IsDeleted = 0 AND p.TypeCode = N'Problem' AND (p.IsPermanent = 1 OR p.ExpiresAt > SYSUTCDATETIME())
+ORDER BY p.CreatedAt DESC, p.Id DESC;
+
+-- 9. Recent activity: the latest few of each kind, newest first by Id (clustered key).
+--    Columns: Kind, WhenUtc, Id, Code, Party, Detail, Extra, Quantity, Lines. Every time is
+--    returned as UTC; dbo.Bookings.BookingDate (GETDATE(), SQL Server local time) is shifted by
+--    SQL Server's own exact offset, so nothing depends on the web server's time zone.
+SELECT TOP (@PerSource) 'Booking', DATEADD(MINUTE, -@ServerOffset, MIN(b.BookingDate)), ISNULL(b.OrderBookingId, b.Id),
+       NULL, MAX(b.CustomerName), NULL, NULL, CAST(SUM(b.Quantity) AS DECIMAL(18,2)), COUNT(*)
+FROM dbo.Bookings b
+GROUP BY ISNULL(b.OrderBookingId, b.Id)
+ORDER BY MAX(b.Id) DESC;
+SELECT TOP (@PerSource) 'Seedling Dispatch', d.CreatedDate, d.BookingId, d.DispatchCode, d.CustomerName, NULL, NULL, d.TotalQuantity, NULL
+FROM dbo.SeedlingDispatches d ORDER BY d.Id DESC;
+SELECT TOP (@PerSource) 'Potted Dispatch', d.CreatedDate, NULL, d.DispatchCode, ps.Name, d.PotSize, NULL, d.Quantity, NULL
+FROM dbo.Dispatches d LEFT JOIN dbo.PlantSpecies ps ON ps.Id = d.SpeciesId ORDER BY d.Id DESC;
+SELECT TOP (@PerSource) 'Ready Stock', t.TransactionDate, NULL, rs.BatchNo, ps.Name, NULL, NULL, t.Quantity, NULL
+FROM dbo.ReadyStockTransactions t
+INNER JOIN dbo.ReadyStock rs ON rs.Id = t.ReadyStockId
+LEFT JOIN dbo.PlantSpecies ps ON ps.Id = rs.SpeciesId
+WHERE t.TransactionType = 'Confirmed' ORDER BY t.Id DESC;
+SELECT TOP (@PerSource) 'Maintenance', t.RequestedAt, t.Id, t.TicketNo, a.Name, t.Title, t.Priority, NULL, NULL
+FROM dbo.MaintenanceTickets t LEFT JOIN dbo.Area a ON a.Id = t.AreaId ORDER BY t.Id DESC;
+SELECT TOP (@PerSource) 'Store Request', r.RequestedAt, r.Id, r.RequestNo, a.Name, r.Status, NULL, NULL, NULL
+FROM dbo.StoreRequests r LEFT JOIN dbo.Area a ON a.Id = r.AreaId ORDER BY r.Id DESC;
+SELECT TOP (@PerSource) p.TypeCode, p.CreatedAt, p.Id, p.PostNo, a.Name, p.Title, NULL, NULL, NULL
+FROM dbo.SuggestionPosts p LEFT JOIN dbo.Area a ON a.Id = p.AreaId WHERE p.IsDeleted = 0 ORDER BY p.Id DESC;".Replace("#SOWING#", BedSowingSchema.SowingActivitySql(await BedSowingSchema.ReadyAsync(conn))), conn);
+            cmd.Parameters.Add("@Today", System.Data.SqlDbType.Date).Value = todayIndia.Date;
+            cmd.Parameters.Add("@FromDate", System.Data.SqlDbType.Date).Value = period.From.Date;
+            cmd.Parameters.Add("@ToDateExclusive", System.Data.SqlDbType.Date).Value = period.ToExclusive.Date;
+            cmd.Parameters.Add("@FromUtc", System.Data.SqlDbType.DateTime2).Value = AppClock.IndiaToUtc(period.From.Date);
+            cmd.Parameters.Add("@ToUtcExclusive", System.Data.SqlDbType.DateTime2).Value = AppClock.IndiaToUtc(period.ToExclusive.Date);
+            cmd.Parameters.Add("@PerSource", System.Data.SqlDbType.Int).Value = RecentActivityPerSource;
+            cmd.CommandText = "DECLARE @ServerOffset INT = " + ServerOffsetSql + ";\n" + cmd.CommandText;
+
+            using var r = await cmd.ExecuteReaderAsync();
+            string? S(int i) => r.IsDBNull(i) ? null : r.GetString(i);
+            int? I(int i) => r.IsDBNull(i) ? null : r.GetInt32(i);
+            decimal M(int i) => r.IsDBNull(i) ? 0m : Convert.ToDecimal(r.GetValue(i));
+
+            while (await r.ReadAsync())
+                data.ReadyStock.Add(new ReadyStockSlice
+                {
+                    AreaId = r.GetInt32(0),
+                    AreaName = ManagementDashboardCalculations.CleanName(S(1), $"Area {r.GetInt32(0)}"),
+                    AreaType = S(2),
+                    PolyhouseId = I(3),
+                    PolyhouseName = S(4) is { } ph ? ManagementDashboardCalculations.CleanName(ph, "") : null,
+                    PolyhouseAreaId = I(5),
+                    PolyhouseAreaName = S(13) is { } pan ? ManagementDashboardCalculations.CleanName(pan, "") : null,
+                    SpeciesId = r.GetInt32(6),
+                    VarietyName = ManagementDashboardCalculations.CleanName(S(7), $"Variety {r.GetInt32(6)}"),
+                    PlantTypeName = S(8) is { } pt ? ManagementDashboardCalculations.CleanName(pt, "") : null,
+                    Physical = M(9), Reserved = M(10), Available = M(11), Batches = r.GetInt32(12),
+                });
+
+            await r.NextResultAsync();
+            while (await r.ReadAsync())
+                data.PottedStock.Add(new PottedStockByArea
+                {
+                    AreaId = I(0),
+                    AreaName = ManagementDashboardCalculations.CleanName(S(1), "(No Area)"),
+                    AreaType = S(2),
+                    Physical = M(3), Reserved = M(4), InTransit = M(5),
+                });
+
+            await r.NextResultAsync();
+            if (await r.ReadAsync())
+            {
+                var s = data.Seedlings;
+                s.OpenOrders = r.GetInt32(0);
+                s.OpenLines = r.GetInt32(1);
+                s.OpenBookedQuantity = M(2);
+                s.OpenDispatchedQuantity = M(3);
+                s.OpenRemainingQuantity = M(4);
+                s.OpenReservedQuantity = M(5);
+                s.OverdueOrders = r.GetInt32(6);
+                s.OverdueRemainingQuantity = M(7);
+                s.DueTodayOrders = r.GetInt32(8);
+                s.DueTodayRemainingQuantity = M(9);
+            }
+
+            await r.NextResultAsync();
+            while (await r.ReadAsync())
+                data.OpenBookingByVariety.Add(new VarietyQuantity
+                {
+                    SpeciesId = I(0),
+                    VarietyName = ManagementDashboardCalculations.CleanName(S(1), ManagementDashboardCalculations.NoVariety),
+                    PlantTypeName = S(2) is { } pt ? ManagementDashboardCalculations.CleanName(pt, "") : null,
+                    Quantity = M(3),
+                });
+
+            await r.NextResultAsync();
+            if (await r.ReadAsync())
+            {
+                var p = data.Production;
+                p.Sowings = r.GetInt32(0);
+                p.SownQuantity = M(1);
+                p.CuttingEntries = r.GetInt32(2);
+                p.CuttingsProduced = M(3);
+                p.PotsProduced = M(4);
+                p.ReadyApprovedQuantity = M(5);
+                data.MaintenanceClosedInPeriod = r.GetInt32(6);
+            }
+
+            await r.NextResultAsync();
+            if (await r.ReadAsync())
+            {
+                data.Store.PendingReview = r.GetInt32(0);
+                data.Store.ApprovedAwaitingIssue = r.GetInt32(1);
+            }
+
+            await r.NextResultAsync();
+            while (await r.ReadAsync())
+            {
+                data.Store.LowStockCount++;
+                if (data.Store.LowStockItems.Count < 5)
+                    data.Store.LowStockItems.Add(new StoreLowItem { ItemCode = r.GetString(0), Name = r.GetString(1), Available = M(2), Minimum = M(3), Unit = S(4) });
+            }
+
+            await r.NextResultAsync();
+            while (await r.ReadAsync())
+                data.RecentProblems.Add(new RecentPost
+                {
+                    Id = r.GetInt32(0), PostNo = S(1), Title = r.GetString(2), AreaName = S(3), Status = r.GetString(4),
+                    IsPermanent = r.GetBoolean(5), CreatedAtIndia = AppClock.ToIndiaTime(r.GetDateTime(6)),
+                });
+
+            for (var source = 0; source < 7; source++)
+            {
+                await r.NextResultAsync();
+                while (await r.ReadAsync())
+                {
+                    var kind = r.GetString(0);
+                    var id = I(2);
+                    data.RecentActivity.Add(new ActivityItem
+                    {
+                        Kind = kind,
+                        WhenIndia = AppClock.ToIndiaTime(r.GetDateTime(1)),
+                        Id = id,
+                        Text = ManagementDashboardCalculations.ActivityText(kind, id, S(3), S(4), S(5), S(6),
+                            r.IsDBNull(7) ? null : M(7), I(8)),
+                        Page = kind switch
+                        {
+                            "Booking" or "Seedling Dispatch" => "/Bookings/BookingDetails",
+                            "Potted Dispatch" => "/Production/Dispatch/Index",
+                            "Ready Stock" => "/Production/ReadyStock/Index",
+                            "Maintenance" => "/Maintenance/Details",
+                            "Store Request" => "/Store/RequestDetails",
+                            _ => "/Suggestions/Details",
+                        },
+                    });
+                }
+            }
+
+            return data;
+        }
+
+        // SQL Server's own current UTC offset in minutes (exact, unlike a DATEDIFF of two
+        // clock reads). dbo.Bookings.BookingDate is written with GETDATE(), i.e. SQL Server
+        // local time: shifting a UTC instant by this offset gives the matching BookingDate.
+        public const string ServerOffsetSql = "DATEPART(TZOFFSET, SYSDATETIMEOFFSET())";
+
+        // Newest first across every source; at most `take` items.
+        public static List<ActivityItem> MergeActivity(IEnumerable<ActivityItem> items, int take)
+            => items.OrderByDescending(a => a.WhenIndia).ThenBy(a => a.Kind).Take(take).ToList();
+
+        // ------------------------------------------------------------
         // Helpers
         // ------------------------------------------------------------
-        private static async Task<decimal> GetReadyStockTotalAsync(SqlConnection conn, ManagementDashboardFilters filters)
+        // Ready Stock balance: physical = Quantity - DispatchedQuantity, and the
+        // part of it reserved for seedling bookings (ReservedQuantity).
+        // 2026-10-09: + plants in transit to a Mother Plant Area (part of the total, at neither location).
+        private static async Task<(decimal Physical, decimal Reserved, decimal InTransit)> GetReadyStockTotalsAsync(SqlConnection conn, ManagementDashboardFilters filters)
         {
             using var cmd = new SqlCommand(@"
-SELECT ISNULL(SUM(Quantity - DispatchedQuantity), 0)   -- Phase C: physical = approved - dispatched
+SELECT ISNULL(SUM(Quantity - DispatchedQuantity), 0), ISNULL(SUM(ReservedQuantity), 0), ISNULL(SUM(InTransitQuantity), 0)   -- Phase C: physical = approved - dispatched
 FROM dbo.ReadyStock
 WHERE (@AreaId IS NULL OR AreaId = @AreaId)
   AND (@SpeciesId IS NULL OR SpeciesId = @SpeciesId)", conn);
             AddAreaSpecies(cmd, filters);
-            return (decimal)(await cmd.ExecuteScalarAsync() ?? 0m);
+            using var reader = await cmd.ExecuteReaderAsync();
+            await reader.ReadAsync();
+            return (reader.GetDecimal(0), reader.GetDecimal(1), reader.GetDecimal(2));
         }
 
-        // Step 8B/8D (Daily Report by Plant Type): the exact same Balance
-        // formula as GetReadyStockTotalAsync above (Quantity - DispatchedQuantity),
-        // grouped by dbo.PlantTypes instead of collapsed into one total.
+        private static async Task<decimal> GetReadyStockTotalAsync(SqlConnection conn, ManagementDashboardFilters filters)
+            => (await GetReadyStockTotalsAsync(conn, filters)).Physical;
+
+        // Step 8B/8D (Daily Report by Plant Type), redefined 2026-10-10 (docs/STOCK_DEFINITIONS.md):
+        // Ready Stock AVAILABLE for booking/dispatch per Plant Type =
+        // Quantity - Reserved - Dispatched - InTransit (the computed AvailableQuantity) --
+        // the WhatsApp template's fixed "Ready Stock" label cannot be renamed, so the figure
+        // is the primary operational one; never reserved or in-transit plants.
         // Starts FROM dbo.PlantTypes (LEFT JOIN out to PlantSpecies/ReadyStock)
         // so every current PlantType is always one entry in the result, 0
         // when it has no Ready Stock -- never a missing entry. ORDER BY pt.Id
@@ -783,7 +1085,7 @@ WHERE (@AreaId IS NULL OR AreaId = @AreaId)
         {
             var result = new List<ReadyStockPlantTypeQuantity>();
             using var cmd = new SqlCommand(@"
-SELECT pt.Name, ISNULL(SUM(rs.Quantity - rs.DispatchedQuantity), 0)
+SELECT pt.Name, ISNULL(SUM(rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity), 0)
 FROM dbo.PlantTypes pt
 LEFT JOIN dbo.PlantSpecies ps ON ps.PlantTypeId = pt.Id
 LEFT JOIN dbo.ReadyStock rs ON rs.SpeciesId = ps.Id
@@ -853,6 +1155,15 @@ GROUP BY ss.Unit";
         {
             cmd.Parameters.AddWithValue("@FromDate", filters.EffectiveFromDate);
             cmd.Parameters.AddWithValue("@ToDateExclusive", filters.EffectiveToDateExclusive);
+        }
+
+        // For SYSUTCDATETIME() columns: the UTC instants that bound the selected India
+        // dates, plus the India offset for bucketing such a column by India day.
+        private static void AddUtcDateRange(SqlCommand cmd, ManagementDashboardFilters filters)
+        {
+            cmd.Parameters.AddWithValue("@FromUtc", AppClock.IndiaToUtc(filters.EffectiveFromDate));
+            cmd.Parameters.AddWithValue("@ToUtcExclusive", AppClock.IndiaToUtc(filters.EffectiveToDateExclusive));
+            cmd.Parameters.AddWithValue("@OffsetMinutes", AppClock.IndiaOffsetMinutes);
         }
 
         private static void AddAreaSpecies(SqlCommand cmd, ManagementDashboardFilters filters)

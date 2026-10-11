@@ -1,0 +1,121 @@
+@page
+@model PlantStockManager.Pages.Maintenance.RaiseModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Raise Maintenance Ticket";
+}
+
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm mx-auto" style="max-width: 720px;">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h4 class="mb-0">@ViewData["Title"]</h4>
+                <small class="text-muted">Electrical, welding or plumbing problem at your Area.</small>
+            </div>
+            <a asp-page="/Maintenance/MyTickets" class="btn btn-outline-secondary btn-sm">My Tickets</a>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger" id="ticketErrors">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (!Model.Areas.Any())
+            {
+                <div class="alert alert-warning">You are not assigned to any Area. Ask an administrator to assign your Area.</div>
+            }
+
+            <form method="post" enctype="multipart/form-data" id="raiseForm" novalidate>
+                <input type="hidden" asp-for="SubmitToken" />
+                <div class="row g-3">
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label fw-bold" for="categorySelect">Category</label>
+                        <select asp-for="CategoryId" id="categorySelect" class="form-select" required>
+                            <option value="">-- Select Category --</option>
+                            @foreach (var c in Model.Categories)
+                            {
+                                <option value="@c.Id" selected="@(Model.CategoryId == c.Id)">@c.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label fw-bold" for="prioritySelect">Priority</label>
+                        <select asp-for="Priority" id="prioritySelect" class="form-select" required>
+                            @foreach (var p in MaintenanceRules.Priorities)
+                            {
+                                <option value="@p" selected="@(Model.Priority == p)">@p</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label fw-bold" for="areaSelect">Area</label>
+                        <select asp-for="AreaId" id="areaSelect" class="form-select" required>
+                            <option value="">-- Select Area --</option>
+                            @foreach (var a in Model.Areas)
+                            {
+                                <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label fw-bold" for="polyhouseSelect">Polyhouse <span class="text-muted fw-normal">(optional)</span></label>
+                        <select asp-for="PolyhouseId" id="polyhouseSelect" class="form-select">
+                            <option value="">-- Whole Area --</option>
+                            @foreach (var p in Model.Polyhouses)
+                            {
+                                <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold" for="title">Problem</label>
+                        <input type="text" asp-for="Title" id="title" class="form-control" maxlength="@MaintenanceRules.MaxTitleLength" placeholder="e.g. Polyhouse fan motor is not working" required />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold" for="description">Description</label>
+                        <textarea asp-for="Description" id="description" class="form-control" rows="3" maxlength="@MaintenanceRules.MaxDescriptionLength" placeholder="e.g. Fan stopped working at approximately 11:30 AM." required></textarea>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold" for="photos">Photos <span class="text-muted fw-normal">(optional, up to @MaintenanceRules.MaxPhotosPerStage; JPEG / PNG / WebP, 5 MB each)</span></label>
+                        <input type="file" name="Photos" id="photos" class="form-control" accept="image/jpeg,image/png,image/webp" multiple />
+                    </div>
+                </div>
+                <div class="d-flex justify-content-center mt-4">
+                    <button type="submit" class="btn btn-success btn-lg" id="raiseBtn">Raise Ticket</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const area = document.getElementById('areaSelect');
+            const polyhouse = document.getElementById('polyhouseSelect');
+            area.addEventListener('change', function () {
+                polyhouse.innerHTML = '<option value="">-- Whole Area --</option>';
+                if (!area.value) return;
+                fetch('@Url.Page("/Maintenance/Raise")?handler=Polyhouses&areaId=' + encodeURIComponent(area.value))
+                    .then(function (r) { return r.json(); })
+                    .then(function (list) {
+                        list.forEach(function (p) {
+                            const o = document.createElement('option');
+                            o.value = p.id; o.textContent = p.name;
+                            polyhouse.appendChild(o);
+                        });
+                    });
+            });
+            document.getElementById('raiseForm').addEventListener('submit', function () {
+                const btn = document.getElementById('raiseBtn');
+                setTimeout(function () { btn.disabled = true; btn.textContent = 'Saving...'; }, 0);
+            });
+        })();
+    </script>
+}

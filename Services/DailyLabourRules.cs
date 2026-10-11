@@ -2,7 +2,8 @@ using PlantStockManager.Models;
 
 namespace PlantStockManager.Services
 {
-    // Daily Labour Count (Database/Migrations/2026-10-04_DailyLabourCounts.sql):
+    // Daily Labour (Database/Migrations/2026-10-04_DailyLabourCounts.sql, and since
+    // 2026-10-06 two-time attendance -- 2026-10-06_DailyLabourAttendance.sql):
     // supervisors record daily HEADCOUNTS only -- no names, worker ids or wages.
     // The location + date is the record's identity:
     //   Main Office Area (Area.AreaType = DirectSowingRules.MainOfficeAreaType)
@@ -25,6 +26,57 @@ namespace PlantStockManager.Services
         public const string FutureDateMessage = "Future dates are not allowed.";
         public const string WholeNumberMessage = "Labour counts must be whole numbers.";
         public const string AlreadyExistsMessage = "Labour record already exists for this date and location. It has been loaded for editing.";
+
+        // ---- Two-time attendance (2026-10-06_DailyLabourAttendance.sql) ----------------------
+        // Headcounts at 9:00 AM and 2:00 PM; Full/Half Day are ESTIMATED from the two counts
+        // because individual workers are not identified (Classify). A day with only one
+        // attendance time recorded is Incomplete and stays out of the Full/Half Day totals.
+        public const string Morning = "AM09";
+        public const string Afternoon = "PM14";
+        public static readonly IReadOnlyList<string> AttendanceTimes = new[] { Morning, Afternoon };
+
+        public const string EstimateNote = "Full Day / Half Day are estimated from the 9:00 AM and 2:00 PM headcounts "
+            + "(Full Day = the smaller count, Half Day = the difference), separately for male and female workers. "
+            + "Individual workers are not identified.";
+        public const string AttendanceRequiredMessage = "Enter the 9:00 AM attendance, the 2:00 PM attendance, or both.";
+        public const string LegacyRecordExistsMessage = "This date and location already has a manual labour record (entered before attendance was introduced). Attendance cannot be added for it.";
+        public const string ManualEntryRetiredMessage = "Daily Labour is now recorded as 9:00 AM and 2:00 PM attendance. Manual Full Day / Half Day entry is no longer used for new records.";
+
+        public static bool IsAttendanceTime(string? code) => code == Morning || code == Afternoon;
+
+        public static string AttendanceTimeLabel(string? code) => code switch
+        {
+            Morning => "9:00 AM",
+            Afternoon => "2:00 PM",
+            _ => code ?? string.Empty,
+        };
+
+        // Full Day = present at both times (the smaller count); Half Day = present at only
+        // one time (the difference). Applied separately to male and female counts.
+        public static (int FullDay, int HalfDay) Classify(int at9, int at2)
+            => (Math.Min(at9, at2), Math.Abs(at9 - at2));
+
+        // One attendance time on the form: both counts blank = not entered (allowed only if
+        // that time was never recorded -- a recorded time can be corrected, not removed);
+        // otherwise both counts are required and each must be 0..MaxCount.
+        public static List<string> ValidateAttendanceTime(int? male, int? female, string code, bool alreadyRecorded)
+        {
+            var label = AttendanceTimeLabel(code);
+            var errors = new List<string>();
+            if (!male.HasValue && !female.HasValue)
+            {
+                if (alreadyRecorded)
+                    errors.Add($"{label} attendance is already recorded -- correct the counts instead of leaving them blank (enter 0 if none).");
+                return errors;
+            }
+            foreach (var (value, who) in new[] { (male, "Male"), (female, "Female") })
+            {
+                var error = ValidateCount(value, $"{label} {who}");
+                if (error != null)
+                    errors.Add(error);
+            }
+            return errors;
+        }
 
         public static bool RequiresPolyhouse(string? areaType)
             => string.Equals(areaType, DirectSowingRules.MainOfficeAreaType, StringComparison.Ordinal);

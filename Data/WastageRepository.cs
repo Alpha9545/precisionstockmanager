@@ -47,10 +47,26 @@ namespace PlantStockManager.Data
             public decimal? Percent => OutOf is > 0 ? Math.Round(Quantity / OutOf.Value * 100m, 2, MidpointRounding.AwayFromZero) : null;
         }
 
-        private const string Sql = @"
-SELECT * FROM (
-    SELECT CAST(rc.ConfirmationDate AS date) AS WDate,
-           CASE sw.SourceType WHEN N'Cutting' THEN N'Cutting tray' ELSE N'Seed tray' END AS ProductionType,
+        // The loss sources, one row each, with WDate = the loss's calendar day.
+        // Every date column here is a SYSUTCDATETIME() timestamp (or a business
+        // date stored at midnight). indiaDays = false keeps the original UTC
+        // CAST(... AS date) day used by this report since Phase D; true buckets
+        // by the India (Asia/Kolkata) day instead -- used by the Daily
+        // Operations Report (Data/DailyOperationsReportRepository.cs), which
+        // needs @IndiaOffsetMinutes. Adding +05:30 to a midnight business date
+        // never changes its day, so both kinds of value land on the right day.
+        public const string SeedLotProductionType = "Seed lot";
+
+        private static string Day(string column, bool indiaDays)
+            => indiaDays ? $"CAST(DATEADD(MINUTE, @IndiaOffsetMinutes, {column}) AS date)" : $"CAST({column} AS date)";
+
+        // bedReady (2026-10-12_BedSowing.sql applied): bed losses are a loss source too, and an
+        // approval's wastage on a tray batch transplanted from a bed is labelled as such.
+        public const string BedLossProductionType = "Bed sowing (bed loss)";
+
+        public static string SourcesSql(bool indiaDays, bool bedReady = false) => $@"
+    SELECT {Day("rc.ConfirmationDate", indiaDays)} AS WDate,
+           CASE sw.SourceType WHEN N'Cutting' THEN N'Cutting tray' {(bedReady ? "WHEN N'BedSowing' THEN N'Bed transplant tray' WHEN N'Transplant' THEN N'Transplanted tray' " : "")}ELSE N'Seed tray' END AS ProductionType,
            CASE sw.SourceType WHEN N'Cutting' THEN N'Cutting' ELSE N'Seed' END AS Material,
            RTRIM(ps.Name) AS Variety, pt.Name AS PlantType, ps.Color, sw.CavityType AS Cavity, CAST(NULL AS nvarchar(50)) AS PotSize,
            sw.AreaId, a.Name AS AreaName, rc.WastageQuantity AS Quantity, sw.QuantitySown AS OutOf,
@@ -64,7 +80,7 @@ SELECT * FROM (
     WHERE rc.Status = 'Confirmed' AND rc.WastageQuantity > 0
 
     UNION ALL
-    SELECT CAST(t.TransactionDate AS date), N'Cutting delivery (transit loss)', N'Cutting',
+    SELECT {Day("t.TransactionDate", indiaDays)}, N'Cutting delivery (transit loss)', N'Cutting',
            RTRIM(ps.Name), pt.Name, ps.Color, NULL, NULL,
            c.AreaId, a.Name, -t.Quantity, it.Quantity,
            t.Remarks, it.TransferCode, u.Name, NULL
@@ -78,7 +94,7 @@ SELECT * FROM (
     WHERE t.TransactionType = 'TransitLoss'
 
     UNION ALL
-    SELECT CAST(b.ReadyDate AS date), N'Pot production (pots lost)', N'Potted plant',
+    SELECT {Day("b.ReadyDate", indiaDays)}, N'Pot production (pots lost)', N'Potted plant',
            RTRIM(ps.Name), pt.Name, ps.Color, NULL, b.PotSize,
            b.AreaId, a.Name, pe.Potted - b.ReadyQuantity, pe.Potted,
            b.WastageReason, b.BatchCode, u.Name, b.ReadyRemarks
@@ -91,7 +107,7 @@ SELECT * FROM (
     WHERE b.Status IN ('Ready', 'Lost') AND pe.Potted > b.ReadyQuantity
 
     UNION ALL
-    SELECT CAST(b.ReadyDate AS date), N'Pot production (cuttings not potted)', N'Cutting',
+    SELECT {Day("b.ReadyDate", indiaDays)}, N'Pot production (cuttings not potted)', N'Cutting',
            RTRIM(ps.Name), pt.Name, ps.Color, NULL, b.PotSize,
            b.AreaId, a.Name, b.CuttingAllocated - pe.Potted, b.CuttingAllocated,
            N'Not potted', b.BatchCode, u.Name, b.ReadyRemarks
@@ -104,7 +120,7 @@ SELECT * FROM (
     WHERE b.Status IN ('Ready', 'Lost') AND b.UnusedCuttingAction = 'Wastage' AND b.CuttingAllocated > pe.Potted
 
     UNION ALL
-    SELECT CAST(t.TransactionDate AS date), N'Potted plant stock', N'Potted plant',
+    SELECT {Day("t.TransactionDate", indiaDays)}, N'Potted plant stock', N'Potted plant',
            RTRIM(ps.Name), pt.Name, ps.Color, NULL, p.PotSize,
            p.AreaId, a.Name, -t.Quantity, NULL,
            t.Remarks, NULL, u.Name, NULL
@@ -117,7 +133,7 @@ SELECT * FROM (
     WHERE t.TransactionType = 'Wastage'
 
     UNION ALL
-    SELECT CAST(t.TransactionDate AS date), N'Ready tray stock', N'Ready tray',
+    SELECT {Day("t.TransactionDate", indiaDays)}, N'Ready tray stock', N'Ready tray',
            RTRIM(ps.Name), pt.Name, ps.Color, r.CavityType, NULL,
            r.AreaId, a.Name, -t.Quantity, NULL,
            t.Remarks, sw.SowingCode, u.Name, NULL
@@ -131,7 +147,7 @@ SELECT * FROM (
     WHERE t.TransactionType = 'Wastage'
 
     UNION ALL
-    SELECT CAST(t.TransactionDate AS date), N'Seed lot', N'Seed',
+    SELECT {Day("t.TransactionDate", indiaDays)}, N'Seed lot', N'Seed',
            RTRIM(ps.Name), pt.Name, ps.Color, NULL, NULL,
            ss.AreaId, a.Name, -t.Quantity, NULL,
            t.Remarks, sw.SowingCode, u.Name, NULL
@@ -145,7 +161,7 @@ SELECT * FROM (
     WHERE t.TransactionType = 'Wastage'
 
     UNION ALL
-    SELECT CAST(t.TransactionDate AS date), N'Cutting pool', N'Cutting',
+    SELECT {Day("t.TransactionDate", indiaDays)}, N'Cutting pool', N'Cutting',
            RTRIM(ps.Name), pt.Name, ps.Color, NULL, NULL,
            cs.AreaId, a.Name, -t.Quantity, NULL,
            t.Remarks, sw.SowingCode, u.Name, NULL
@@ -156,7 +172,29 @@ SELECT * FROM (
     LEFT JOIN dbo.Area a ON a.Id = cs.AreaId
     LEFT JOIN dbo.SeedSowings sw ON t.ReferenceType = 'SeedSowing' AND sw.Id = t.ReferenceId
     LEFT JOIN dbo.IMSUsers u ON u.Id = t.UserId
-    WHERE t.TransactionType = 'Wastage'
+    WHERE t.TransactionType = 'Wastage'" + (bedReady ? $@"
+
+    UNION ALL
+    SELECT {Day("CAST(o.OperationDate AS datetime2)", indiaDays)}, N'{BedLossProductionType}', N'Seedling',
+           RTRIM(ps.Name), pt.Name, ps.Color, NULL, NULL,
+           b.AreaId, a.Name, o.Quantity, b.Quantity,
+           o.Reason, b.BedSowingCode, u.Name, o.Remarks
+    FROM dbo.BedSowingOperations o
+    INNER JOIN dbo.BedSowings b ON b.Id = o.BedSowingId
+    INNER JOIN dbo.PlantSpecies ps ON ps.Id = b.SpeciesId
+    INNER JOIN dbo.PlantTypes pt ON pt.Id = ps.PlantTypeId
+    INNER JOIN dbo.Area a ON a.Id = b.AreaId
+    LEFT JOIN dbo.IMSUsers u ON u.Id = o.CreatedById
+    WHERE o.OperationType = N'Loss' AND o.Status = N'Active'" : "");
+
+        // The Wasted Stock report's own query: byte-for-byte unchanged without the Bed Sowing tables
+        // (DailyOperationsReportRulesTests pins it); with them, the same query plus the bed losses.
+        private static readonly string Sql = BuildSql(bedReady: false);
+        private static readonly string SqlWithBedLosses = BuildSql(bedReady: true);
+
+        private static string BuildSql(bool bedReady) => @"
+SELECT * FROM (
+" + SourcesSql(indiaDays: false, bedReady).TrimStart('\r', '\n') + @"
 ) w
 WHERE w.WDate BETWEEN @From AND @To
   AND (@Search IS NULL OR w.Variety LIKE @Like OR ISNULL(w.PlantType, '') LIKE @Like OR ISNULL(w.Reference, '') LIKE @Like)
@@ -168,7 +206,7 @@ ORDER BY w.WDate DESC";
             var list = new List<WastageRow>();
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(Sql, conn);
+            using var cmd = new SqlCommand(await BedSowingSchema.ReadyAsync(conn) ? SqlWithBedLosses : Sql, conn);
             var term = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
             cmd.Parameters.AddWithValue("@From", from.Date);
             cmd.Parameters.AddWithValue("@To", to.Date);

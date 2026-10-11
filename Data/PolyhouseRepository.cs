@@ -78,6 +78,23 @@ ORDER BY a.Name, p.Name", conn);
             return await ReadListAsync(cmd);
         }
 
+        // Direct Seed Sowing locations (2026-10-08): Direct Seed Sowing is done ONLY in
+        // the Main Areas, so only Polyhouses of an ACTIVE Area whose AreaType is
+        // MainOffice (DirectSowingRules.MainOfficeAreaType) -- never a Mother Plant,
+        // Outlet or other Area, and never a Polyhouse without an Area. The caller
+        // still applies the user's Area scope; SeedSowingRepository.InsertAsync
+        // re-checks the same rule inside its transaction.
+        public async Task<List<Polyhouse>> GetDirectSowingPolyhousesAsync()
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new SqlCommand(BaseSelect + @"
+WHERE p.AreaId IS NOT NULL AND a.IsActive = 1 AND a.AreaType = @MainOffice
+ORDER BY a.Name, p.Name", conn);
+            cmd.Parameters.AddWithValue("@MainOffice", Services.DirectSowingRules.MainOfficeAreaType);
+            return await ReadListAsync(cmd);
+        }
+
         public async Task<Polyhouse?> GetByIdAsync(int id)
         {
             using var conn = _dbHelper.GetConnection();

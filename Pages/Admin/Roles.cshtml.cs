@@ -27,9 +27,11 @@ namespace PlantStockManager.Pages.Admin
         private readonly RoleRepository _roleRepo;
         private readonly UserRoleRepository _userRoleRepo;
         private readonly AdministrativeAccessGuard _guard;
+        private readonly BedSowingRoleGuard _bedSowingGuard;
 
-        public RolesModel(RoleRepository roleRepo, UserRoleRepository userRoleRepo, AdministrativeAccessGuard guard)
+        public RolesModel(RoleRepository roleRepo, UserRoleRepository userRoleRepo, AdministrativeAccessGuard guard, BedSowingRoleGuard bedSowingGuard)
         {
+            _bedSowingGuard = bedSowingGuard;
             _roleRepo = roleRepo;
             _userRoleRepo = userRoleRepo;
             _guard = guard;
@@ -139,6 +141,16 @@ namespace PlantStockManager.Pages.Admin
             if (adminChanged && !fullAccess)
             {
                 ErrorMessage = "Only a System Administrator can grant or revoke Admin.* permissions.";
+                await LoadAsync();
+                return Page();
+            }
+
+            // 2026-10-12: BedSowing.Transplant stays on the Bed Sowing Transplanter role only, and that
+            // role's permissions are fixed (BedSowingRoleGuard).
+            var bedSowingDenial = await _bedSowingGuard.CheckRolePermissionChangeAsync(roleId, validRequested.Select(p => p.Id).ToList());
+            if (bedSowingDenial != null)
+            {
+                ErrorMessage = bedSowingDenial;
                 await LoadAsync();
                 return Page();
             }

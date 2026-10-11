@@ -10,17 +10,21 @@ namespace PlantStockManager.Pages.Production.SeedSowing
 {
     // Phase B -- DIRECT SOWING (no Seed Issue step).
     //
-    // The user picks: Sowing Date, Area (site) -> Polyhouse (inside it),
-    // Supervisor, Species -> Variety -> Main Office seed lot, Seed Quantity,
+    // The user picks: Sowing Date, Polyhouse, Supervisor, Species -> Variety -> Main Office seed lot, Seed Quantity,
     // Cavity, Tray Count. The seed is consumed directly from Main Office
     // Seed Stock inside one locked transaction (SeedSowingRepository), which
     // also generates the batch number (YYYY-MM-DD-L-NNN) and the Expected
     // Ready Date (Sowing Date + the variety's growing days).
     //
     // Page access: "Sowing.Enter" (FeatureAuthorizationConventions).
-    // Area scope: the user must be allowed to work in the chosen growing Area
-    // (AreaAccessService) -- checked on every request, never trusted from the
-    // form. Main Office seed is central stock, so the lot itself is not
+    // Location (2026-10-08): Direct Seed Sowing is done ONLY in the Main Areas
+    // (AreaType MainOffice). There is no Area field: the user picks a Polyhouse
+    // of a Main Area they may work in, and the Area is that Polyhouse's own Area
+    // from the database (shown read-only). A posted AreaId is never trusted --
+    // one that disagrees with the Polyhouse is refused, here and again inside
+    // SeedSowingRepository.InsertAsync (DirectSowingRules.ResolveDirectSowingArea).
+    // Area scope: the user must be allowed to work in that Area
+    // (SeedlingAreaScope) -- checked on every request. Main Office seed is central stock, so the lot itself is not
     // Area-scoped to the operator.
     public class CreateModel : PageModel
     {
@@ -32,6 +36,7 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         private readonly PlantTypeRepository _plantTypeRepo;
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
         private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
+        private readonly MaterialStockRepository _materialRepo;
 
         public CreateModel(
             SeedSowingRepository seedSowingRepo,
@@ -42,8 +47,10 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             PlantTypeRepository plantTypeRepo,
             PlantSpeciesRepository plantSpeciesRepo,
             SeedlingAreaScope areaAccessService,
-            UserRoleRepository userRoleRepo)
+            UserRoleRepository userRoleRepo,
+            MaterialStockRepository materialRepo)
         {
+            _materialRepo = materialRepo;
             _userRoleRepo = userRoleRepo;
             _seedSowingRepo = seedSowingRepo;
             _seedStockRepo = seedStockRepo;
@@ -64,30 +71,35 @@ namespace PlantStockManager.Pages.Production.SeedSowing
 
         private readonly UserRoleRepository _userRoleRepo;
 
-        public List<Area> Areas { get; set; } = new();
+        // Main Area Polyhouses this user may sow in (each carries its AreaId / AreaName).
+        public List<Polyhouse> Polyhouses { get; set; } = new();
+        // The Main Area shown read-only: the selected Polyhouse's Area, or the only
+        // Main Area offered. Display only -- never posted.
+        public string? MainAreaName { get; set; }
         public List<PlantType> PlantTypes { get; set; } = new();
         public List<Employee> Supervisors { get; set; } = new();
         public IReadOnlyList<string> CavityTypes => DirectSowingRules.CavityTypes;
+        public GrowingMaterialViewModel GrowingMaterial { get; set; } = new();
 
         public async Task OnGetAsync()
         {
             SeedSowing.SowingDate = DateTime.Today;
+            SeedSowing.SubmissionToken = Guid.NewGuid();   // one-time token: a repeated submit creates nothing twice
             await LoadDropdownsAsync();
         }
 
-        // ---- AJAX lookups (GET, read-only) -------------------------------
-
-        // Polyhouse is REQUIRED and must belong to the chosen Area (its trays
-        // come from that Polyhouse's Tray Stock). Offered: only the chosen,
-        // accessible Area's Polyhouses -- a Polyhouse with no Area can never
-        // hold trays, so it is not offered.
-        public async Task<JsonResult> OnGetPolyhousesAsync(int areaId)
+        // Growing Material preview for the chosen Polyhouse, tray size and seed
+        // quantity (physical trays = CEILING(quantity / cavity), as the save uses).
+        // The Area is the Polyhouse's own (database), never a request value.
+        public async Task<JsonResult> OnGetMaterialPreviewAsync(int polyhouseId, string? cavityType, decimal quantity)
         {
-            if (areaId <= 0 || !_areaAccessService.CanAccessArea(User, areaId))
-                return new JsonResult(Array.Empty<object>());
-            var list = (await _polyhouseRepo.GetByAreaIdAsync(areaId)).OrderBy(p => p.Name);
-            return new JsonResult(list.Select(p => new { id = p.Id, name = p.Name }));
+            var polyhouse = (await LoadPolyhousesAsync()).FirstOrDefault(p => p.Id == polyhouseId);
+            if (polyhouse?.AreaId is not > 0)
+                return new JsonResult(new { applicable = false, trays = 0, materials = Array.Empty<object>() });
+            return new JsonResult(await GrowingMaterialForm.PreviewAsync(_materialRepo, polyhouse.AreaId.Value, polyhouse.Id, cavityType, quantity));
         }
+
+        // ---- AJAX lookups (GET, read-only) -------------------------------
 
         // Live tray calculation for the form. Uses the SAME server function as
         // the save (DirectSowingRules.CalculateTrays), so the preview and the
@@ -159,12 +171,9 @@ namespace PlantStockManager.Pages.Production.SeedSowing
 
             if (SeedSowing.SowingDate == default)
                 ModelState.AddModelError(string.Empty, "Sowing Date is required.");
-            // Growing Area and Polyhouse are required: the sowing's physical
-            // trays come from that Polyhouse's Tray Stock (re-checked in
-            // SeedSowingRepository.InsertAsync, which also verifies the
-            // Polyhouse belongs to the Area).
-            if (SeedSowing.AreaId <= 0)
-                ModelState.AddModelError(string.Empty, "Please select the Growing Area for this sowing.");
+            // Polyhouse is required: the sowing's physical trays come from that
+            // Polyhouse's Tray Stock. The Area is NOT an input: it is derived from
+            // the Polyhouse below (and again in SeedSowingRepository.InsertAsync).
             if (SeedSowing.PolyhouseId is not > 0)
                 ModelState.AddModelError(string.Empty, PlantStockManager.Data.TrayStockRepository.PolyhouseRequiredMessage);
             if (SeedSowing.SpeciesId <= 0)
@@ -189,6 +198,15 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             else if (!DirectSowingRules.IsValidCavityType(SeedSowing.CavityType))
                 ModelState.AddModelError(string.Empty, $"Tray size must be one of: {string.Join(", ", DirectSowingRules.CavityTypes)}.");
 
+            // Growing material: one radio choice (two posted values = a tampered form).
+            // Whether one is REQUIRED depends on the growing Area -- decided by the
+            // repository under its transaction (Main Office Polyhouses only).
+            var materialPostError = GrowingMaterialForm.ValidatePosted(Request);
+            if (materialPostError != null)
+                ModelState.AddModelError(string.Empty, materialPostError);
+            if (SeedSowing.SubmissionToken is not { } token || token == Guid.Empty)
+                ModelState.AddModelError(string.Empty, "This form has expired. Reload the page and enter the sowing again.");
+
             // The supervisor who will approve this batch (re-checked in the
             // repository inside the save transaction).
             var approverIds = (await _userRoleRepo.GetSowingApproversAsync()).Select(a => a.EmployeeID).ToList();
@@ -197,10 +215,24 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             if (!supervisorOk)
                 ModelState.AddModelError(string.Empty, supervisorError!);
 
-            // Area authorization on the growing Area (tamper-proof: checked here,
-            // the repository re-checks that the Polyhouse belongs to this Area).
-            if (SeedSowing.AreaId > 0 && !_areaAccessService.CanAccessArea(User, SeedSowing.AreaId))
-                ModelState.AddModelError(string.Empty, "You are not authorized to sow in the selected Area.");
+            // Growing location: the Area comes from the selected Polyhouse in the
+            // database. The Polyhouse must belong to an active Main Area; a posted
+            // AreaId (the form has none) that disagrees with it is refused; then
+            // the user must be allowed to work in that Area. The repository
+            // re-checks all of this inside the save transaction.
+            if (SeedSowing.PolyhouseId is > 0)
+            {
+                var polyhouse = await _polyhouseRepo.GetByIdAsync(SeedSowing.PolyhouseId.Value);
+                var area = polyhouse?.AreaId is > 0 ? await _areaRepo.GetAreaById(polyhouse.AreaId.Value) : null;
+                var (locationOk, derivedAreaId, locationError) = DirectSowingRules.ResolveDirectSowingArea(
+                    SeedSowing.AreaId, SeedSowing.PolyhouseId, polyhouse != null, polyhouse?.AreaId, area?.AreaType, area?.IsActive == true);
+                if (!locationOk)
+                    ModelState.AddModelError(string.Empty, locationError!);
+                else if (!_areaAccessService.CanAccessArea(User, derivedAreaId))
+                    ModelState.AddModelError(string.Empty, "You are not authorized to sow in the selected Polyhouse's Area.");
+                else
+                    SeedSowing.AreaId = derivedAreaId;
+            }
 
             if (!ModelState.IsValid)
             {
@@ -221,29 +253,48 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 await LoadDropdownsAsync();
                 return Page();
             }
+            if (SeedSowing.IsDuplicateSubmission)
+            {
+                TempData["Success"] = $"Sowing batch {SeedSowing.SowingCode} was already saved from this form -- nothing was recorded twice.";
+                return RedirectToPage("/Production/SeedSowing/Details", new { id = SeedSowing.Id });
+            }
 
             // The sub-tray remainder is recorded as 'Wastage' on the seed lot by
             // SeedSowingRepository.InsertAsync (step 6b) -- it never stays in the lot.
             var seedRemainder = SeedSowing.SeedQuantity - SeedSowing.QuantitySown;
             TempData["Success"] = $"Sowing batch {SeedSowing.SowingCode} recorded: {QuantityFormat.Qty(SeedSowing.NumberOfTrays)} complete trays, {QuantityFormat.Qty(SeedSowing.QuantitySown)} seeds used (deducted from the lot)"
                 + (seedRemainder > 0 ? $"; {QuantityFormat.Qty(seedRemainder)} remaining seeds recorded as waste (not returned to the lot)." : ".")
-                + $" Expected ready: {SeedSowing.ExpectedReadyDate:dd-MM-yyyy}.";
+                + $" Expected ready: {SeedSowing.ExpectedReadyDate:dd-MM-yyyy}."
+                + await MaterialUsedTextAsync(_materialRepo, SeedSowing.Id);
             return RedirectToPage("/Production/SeedSowing/Details", new { id = SeedSowing.Id });
+        }
+
+        // " Cocopeat used: 150.00 kg from Facility-3." -- read back from the ledger.
+        internal static async Task<string> MaterialUsedTextAsync(MaterialStockRepository repo, int seedSowingId)
+        {
+            var used = (await repo.GetForSowingAsync(seedSowingId)).FirstOrDefault(t => t.TransactionType == MaterialStockRules.Consume);
+            return used == null ? "" : $" {used.MaterialName} used: {MaterialStockRules.Kg(used.StockQuantity, used.Unit)} from {used.PolyhouseName}.";
         }
 
         private async Task LoadDropdownsAsync()
         {
-            // Growing Area is required. Offered: active Areas this user may work in.
-            Areas = (await _areaRepo.GetAllAreas())
-                .Where(a => a.IsActive && _areaAccessService.CanAccessArea(User, a.Id))
-                .OrderBy(a => a.Name)
-                .ToList();
+            // Offered: Polyhouses of the active Main Areas this user may work in.
+            Polyhouses = await LoadPolyhousesAsync();
+            var areaNames = Polyhouses.Select(p => p.AreaName).Distinct().ToList();
+            MainAreaName = Polyhouses.FirstOrDefault(p => p.Id == SeedSowing.PolyhouseId)?.AreaName
+                           ?? (areaNames.Count == 1 ? areaNames[0] : null);
 
             PlantTypes = await _plantTypeRepo.GetAllPlantTypes();
             // Supervisor = who will approve: Sowing Supervisors only, never
             // the person recording this sowing.
             var me = User.GetUserId();
             Supervisors = (await _userRoleRepo.GetSowingApproversAsync()).Where(a => a.EmployeeID != me).ToList();
+            GrowingMaterial = new GrowingMaterialViewModel { Materials = await _materialRepo.GetTypesAsync(), SelectedId = SeedSowing.GrowingMaterialTypeId };
         }
+
+        private async Task<List<Polyhouse>> LoadPolyhousesAsync()
+            => (await _polyhouseRepo.GetDirectSowingPolyhousesAsync())
+                .Where(p => p.AreaId is > 0 && _areaAccessService.CanAccessArea(User, p.AreaId))
+                .ToList();
     }
 }

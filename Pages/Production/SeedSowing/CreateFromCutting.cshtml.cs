@@ -31,11 +31,13 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         private readonly PolyhouseRepository _polyhouseRepo;
         private readonly InternalTransferRepository _internalTransferRepo;
         private readonly AreaAccessService _areaAccess;
+        private readonly MaterialStockRepository _materialRepo;
 
         public CreateFromCuttingModel(SeedSowingRepository seedSowingRepo, CuttingStockRepository cuttingStockRepo,
             UserRoleRepository userRoleRepo, PolyhouseRepository polyhouseRepo, InternalTransferRepository internalTransferRepo,
-            AreaAccessService areaAccess)
+            AreaAccessService areaAccess, MaterialStockRepository materialRepo)
         {
+            _materialRepo = materialRepo;
             _seedSowingRepo = seedSowingRepo;
             _cuttingStockRepo = cuttingStockRepo;
             _userRoleRepo = userRoleRepo;
@@ -60,6 +62,13 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         // tied to one delivery) falls back to the pool's Available Quantity.
         [BindProperty] public int? TransferId { get; set; }
 
+        // Growing Material (Main Office Polyhouses): exactly one, deducted from the
+        // destination Polyhouse. One-time form token: a repeated submit creates nothing twice.
+        public const string MaterialField = "GrowingMaterialTypeId";
+        [BindProperty] public int? GrowingMaterialTypeId { get; set; }
+        [BindProperty] public Guid SubmissionToken { get; set; }
+        public GrowingMaterialViewModel GrowingMaterial { get; set; } = new();
+
         public List<CuttingStockModel> StockPools { get; set; } = new();
         // The chosen Cutting Stock pool, for display in the anchored (one
         // specific delivery) view -- resolved directly, not from StockPools,
@@ -76,6 +85,7 @@ namespace PlantStockManager.Pages.Production.SeedSowing
 
         public async Task<IActionResult> OnGetAsync(int? cuttingStockId, int? transferId = null)
         {
+            SubmissionToken = Guid.NewGuid();
             await LoadAsync();
             if (cuttingStockId.HasValue)
             {
@@ -164,6 +174,16 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             return new JsonResult(list.Select(u => new { id = u.EmployeeID, name = u.Name }));
         }
 
+        // Growing Material preview for a destination Polyhouse this user may sow into
+        // (its Area comes from the Polyhouse); physical trays = CEILING(quantity / cavity).
+        public async Task<JsonResult> OnGetMaterialPreviewAsync(int polyhouseId, string? cavityType, decimal quantity)
+        {
+            var destination = (await LoadDestinationsAsync()).FirstOrDefault(p => p.Id == polyhouseId);
+            if (destination == null)
+                return new JsonResult(new { applicable = false, trays = 0, materials = Array.Empty<object>() });
+            return new JsonResult(await GrowingMaterialForm.PreviewAsync(_materialRepo, destination.AreaId!.Value, destination.Id, cavityType, quantity));
+        }
+
         // Live preview -- the same function the save uses.
         public JsonResult OnGetTrayCalculation(decimal quantity, string? cavityType)
         {
@@ -226,6 +246,12 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             else if (destination == null)
                 ModelState.AddModelError(string.Empty, CuttingSowingDestinationRules.InvalidDestinationMessage);
 
+            var materialPostError = GrowingMaterialForm.ValidatePosted(Request, MaterialField);
+            if (materialPostError != null)
+                ModelState.AddModelError(string.Empty, materialPostError);
+            if (SubmissionToken == Guid.Empty)
+                ModelState.AddModelError(string.Empty, "This form has expired. Reload the page and confirm the sowing again.");
+
             if (!SupervisorId.HasValue || SupervisorId.Value <= 0)
                 ModelState.AddModelError(string.Empty, CuttingSowingDestinationRules.SupervisorRequiredMessage);
             else if (destination != null)
@@ -255,7 +281,9 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 SupervisorId = SupervisorId,
                 Remarks = Remarks,
                 CreatedBy = User.Identity?.Name ?? "System",
-                CreatedById = User.GetUserId()
+                CreatedById = User.GetUserId(),
+                GrowingMaterialTypeId = GrowingMaterialTypeId,
+                SubmissionToken = SubmissionToken
             };
             // Area isolation: the repository re-checks both the growing Area and the pool's own Area under its lock,
             // and re-validates the destination is a real growing Area (never Main Office / Outlet).
@@ -271,10 +299,17 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 return Page();
             }
 
+            if (sowing.IsDuplicateSubmission)
+            {
+                TempData["Success"] = $"Tray sowing {sowing.SowingCode} was already saved from this form -- nothing was recorded twice.";
+                return RedirectToPage("/Production/SeedSowing/Details", new { id = sowing.Id });
+            }
+
             var cuttingRemainder = sowing.SeedQuantity - sowing.QuantitySown;
             TempData["Success"] = $"Tray sowing {sowing.SowingCode} recorded: {QuantityFormat.Qty(sowing.NumberOfTrays)} complete trays, {QuantityFormat.Qty(sowing.QuantitySown)} cuttings used"
                 + (cuttingRemainder > 0 ? $"; {QuantityFormat.Qty(cuttingRemainder)} remaining cuttings recorded as waste (never returned to Cutting Stock)." : ".")
-                + $" Expected ready: {sowing.ExpectedReadyDate:dd-MM-yyyy}.";
+                + $" Expected ready: {sowing.ExpectedReadyDate:dd-MM-yyyy}."
+                + await CreateModel.MaterialUsedTextAsync(_materialRepo, sowing.Id);
             return RedirectToPage("/Production/SeedSowing/Details", new { id = sowing.Id });
         }
 
@@ -296,6 +331,7 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 .OrderBy(s => s.SpeciesName).ThenBy(s => s.AreaName)
                 .ToList();
             Destinations = await LoadDestinationsAsync();
+            GrowingMaterial = new GrowingMaterialViewModel { Materials = await _materialRepo.GetTypesAsync(), SelectedId = GrowingMaterialTypeId, FieldName = MaterialField };
         }
 
         // The supervisors of the currently chosen destination Polyhouse (used to

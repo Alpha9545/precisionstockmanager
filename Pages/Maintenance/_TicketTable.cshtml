@@ -1,0 +1,44 @@
+@model IEnumerable<PlantStockManager.Models.MaintenanceTicket>
+@using PlantStockManager.Services
+@{
+    var now = DateTime.UtcNow;
+    var today = AppClock.Today;
+    var tableId = ViewData["TableId"] as string ?? "ticketTable";
+    var empty = ViewData["Empty"] as string ?? "No tickets.";
+}
+<div class="table-responsive">
+    <table class="table table-bordered table-striped table-sm align-middle" id="@tableId">
+        <thead class="table-light">
+            <tr>
+                <th>Ticket No</th><th>Category</th><th>Area</th><th>Polyhouse</th><th>Problem</th><th>Priority</th>
+                <th>Requested</th><th>Expected Visit</th><th>Worker</th><th>Status</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var t in Model)
+            {
+                var overdue = t.OverdueReason(now, today);
+                <tr data-id="@t.Id" class="@(overdue != null ? "table-danger" : "")">
+                    <td class="text-nowrap fw-bold">@t.TicketNo</td>
+                    <td>@t.CategoryName</td>
+                    <td>@t.AreaName</td>
+                    <td>@(t.PolyhouseId.HasValue ? t.PolyhouseName : "—")</td>
+                    <td>@t.Title</td>
+                    <td><span class="badge @MaintenanceRules.PriorityBadge(t.Priority)">@t.Priority</span></td>
+                    <td class="text-nowrap">@AppClock.ToIndiaTime(t.RequestedAt).ToString("dd-MM-yyyy hh:mm tt")</td>
+                    <td class="text-nowrap">@(t.ExpectedVisitDate?.ToString("dd-MM-yyyy") ?? "—")</td>
+                    <td>@(t.AssignedWorkerName ?? "—")</td>
+                    <td class="text-nowrap">
+                        <span class="badge @MaintenanceRules.StatusBadge(t.Status)">@MaintenanceRules.StatusLabel(t.Status)</span>
+                        @if (overdue != null) { <span class="badge bg-danger" title="@overdue">Overdue</span> }
+                    </td>
+                    <td><a asp-page="/Maintenance/Details" asp-route-id="@t.Id" class="btn btn-sm btn-outline-primary">Open</a></td>
+                </tr>
+            }
+            @if (!Model.Any())
+            {
+                <tr><td colspan="11" class="text-center text-muted">@empty</td></tr>
+            }
+        </tbody>
+    </table>
+</div>

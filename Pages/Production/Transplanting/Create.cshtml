@@ -1,0 +1,152 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.Transplanting.CreateModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Transplant into Trays";
+    var s = Model.Source;
+    var cavities = TransplantRules.TargetCavityTypes.ToDictionary(c => c, c => DirectSowingRules.CavityCount(c) ?? 0);
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 960px;">
+        <div class="card-header">
+            <h4 class="mb-0">Transplant into Trays</h4>
+            <small class="text-muted">
+                @if (Model.ToSowingApprovals)
+                {
+                    <text>The plants become a growing tray batch in Sowing Approvals (complete trays only); its Ready Date = transplant date + the variety's Ready Days.
+                    The batch gives up the plants used (transplanted + lost); the empty trays come from the polyhouse's Tray Stock.</text>
+                }
+                else
+                {
+                    <text>A transformation, not a multiplication: the batch loses the seedlings used (transplanted + lost), the new batch holds only the
+                    successfully transplanted plants, and the empty target trays come from the polyhouse's Tray Stock.</text>
+                }
+            </small>
+        </div>
+        <div class="card-body">
+            <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
+
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered mb-3">
+                    <tbody>
+                        <tr><th class="w-50">Mother Plant Area</th><td>@s.AreaName</td></tr>
+                        <tr><th>Variety</th><td>@s.SpeciesName?.Trim() (@s.PlantTypeName)</td></tr>
+                        <tr><th>Batch</th><td>@s.BatchNo &middot; @s.SowingCode &middot; @s.CavityType <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@s.Id" class="small">lineage</a></td></tr>
+                        <tr><th>Available to transplant</th><td class="fw-bold" id="available" data-value="@((int)s.AvailableQuantity)">@Qty(s.AvailableQuantity) plants</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            @if (s.AvailableQuantity <= 0)
+            {
+                <div class="alert alert-warning">No plants of this batch are available to transplant.</div>
+            }
+            else
+            {
+                <form method="post" id="transplant-form">
+                    <input type="hidden" asp-for="SubmissionToken" />
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label asp-for="TargetCavityType" class="form-label fw-bold">Cavity</label>
+                            <select asp-for="TargetCavityType" class="form-select" id="cavity" required>
+                                <option value="">-- choose --</option>
+                                @foreach (var c in cavities) { <option value="@c.Key" data-size="@c.Value">@c.Key (@c.Value plants / tray)</option> }
+                            </select>
+                            <span asp-validation-for="TargetCavityType" class="text-danger small"></span>
+                            <div class="form-text" id="trays-available"></div>
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="TransplantedQuantity" class="form-label fw-bold">Plants transplanted</label>
+                            <input asp-for="TransplantedQuantity" type="number" min="1" step="1" class="form-control" id="transplanted" required />
+                            <span asp-validation-for="TransplantedQuantity" class="text-danger small"></span>
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="LostQuantity" class="form-label">Lost / damaged <span class="text-muted">(if any)</span></label>
+                            <input asp-for="LostQuantity" type="number" min="0" step="1" class="form-control" id="lost" />
+                            <span asp-validation-for="LostQuantity" class="text-danger small"></span>
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="TransplantDate" class="form-label fw-bold">Transplant date</label>
+                            <input asp-for="TransplantDate" type="date" class="form-control" id="date" max="@AppClock.Today.ToString("yyyy-MM-dd")" required />
+                            <span asp-validation-for="TransplantDate" class="text-danger small"></span>
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="TargetPolyhouseId" class="form-label fw-bold">Polyhouse</label>
+                            <select asp-for="TargetPolyhouseId" class="form-select" id="polyhouse" required>
+                                @if (Model.TargetPolyhouses.Count != 1) { <option value="">-- choose --</option> }
+                                @foreach (var p in Model.TargetPolyhouses) { <option value="@p.Id">@p.Name</option> }
+                            </select>
+                            <span asp-validation-for="TargetPolyhouseId" class="text-danger small"></span>
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="Notes" class="form-label">Notes</label>
+                            <input asp-for="Notes" class="form-control" maxlength="500" />
+                        </div>
+                    </div>
+
+                    <div class="alert alert-light border mt-3 mb-0" id="preview" aria-live="polite"
+                         data-days="@(Model.ReadyDays?.ToString() ?? "")" data-whole="@(Model.ToSowingApprovals ? "1" : "0")">
+                        <div class="row g-2 small">
+                            <div class="col-6 col-md-3">Output trays<br /><strong id="p-trays">-</strong></div>
+                            <div class="col-6 col-md-3">Ready Date<br /><strong id="p-ready">-</strong></div>
+                            <div class="col-6 col-md-3">Empty trays here<br /><strong id="p-have">-</strong></div>
+                            <div class="col-6 col-md-3">Left in this batch<br /><strong id="p-left">-</strong></div>
+                        </div>
+                        <div class="small mt-2" id="p-check"></div>
+                        @if (Model.ToSowingApprovals && Model.ReadyDays == null)
+                        {
+                            <div class="small text-danger">Ready Days are not configured for this variety -- the transplant will be refused (Administration &gt; Plant Master).</div>
+                        }
+                        <div class="small text-muted">Shown as you type; the server recalculates and re-checks everything when you save.</div>
+                    </div>
+
+                    <div class="text-center mt-4">
+                        <a asp-page="/Production/Transplanting/Index" class="btn btn-secondary me-2">Back</a>
+                        <button type="submit" class="btn btn-success" id="saveBtn">Save transplant</button>
+                    </div>
+                </form>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const trays = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.TrayBalances));
+            const available = parseInt($('#available').data('value') || '0', 10);
+            const days = parseInt($('#preview').attr('data-days'), 10);
+            const wholeOnly = $('#preview').attr('data-whole') === '1';
+            const fmt = n => Number(n).toLocaleString('en-IN');
+            const int = sel => { const v = $(sel).val(); return v === '' || v == null ? null : parseInt(v, 10); };
+            function readyDate() {
+                const d = $('#date').val();
+                if (isNaN(days) || !d) return '-';
+                const p = d.split('-').map(Number), dt = new Date(Date.UTC(p[0], p[1] - 1, p[2] + days));
+                return String(dt.getUTCDate()).padStart(2, '0') + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' + dt.getUTCFullYear();
+            }
+            function recalc() {
+                const size = parseInt($('#cavity option:selected').data('size') || '0', 10);
+                const t = int('#transplanted'), lost = int('#lost') ?? 0;
+                const have = trays[$('#polyhouse').val() + '|' + $('#cavity').val()] ?? 0;
+                $('#p-have').text($('#polyhouse').val() && $('#cavity').val() ? fmt(have) : '-');
+                $('#p-left').text(t !== null ? `${fmt(available - t - lost)} plants` : '-');
+                if (!(size && t > 0)) { $('#p-trays,#p-ready').text('-'); $('#p-check').text(''); return; }
+                const full = Math.floor(t / size), last = t - full * size;
+                // complete trays only on the tray-batch path; otherwise the last tray may be partial (ceiling)
+                const n = wholeOnly ? full : Math.ceil(t / size);
+                $('#p-trays').text(!wholeOnly && last > 0 ? `${fmt(full)} full + 1 with ${fmt(last)}` : fmt(n));
+                $('#p-ready').text(wholeOnly ? readyDate() : '-');
+                const msgs = [];
+                if (wholeOnly && last > 0) msgs.push(`${fmt(t)} plants do not fill complete trays: use ${fmt(full * size)} (${fmt(full)} trays); the rest stays in this batch.`);
+                if (t + lost > available) msgs.push(`Only ${fmt(available)} plants are available.`);
+                if (n > have) msgs.push(`${fmt(n)} empty trays needed, ${fmt(have)} in Tray Stock.`);
+                $('#p-check').html(msgs.length ? '<span class="text-danger">' + msgs.join(' ') + '</span>' : '<span class="text-success">OK to save.</span>');
+            }
+            $('#cavity,#polyhouse,#transplanted,#lost,#date').on('input change', recalc);
+            recalc();
+            $('#transplant-form').on('submit', function () { if (this.checkValidity()) $('#saveBtn').prop('disabled', true); });
+        });
+    </script>
+}

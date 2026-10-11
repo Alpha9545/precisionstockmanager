@@ -1,0 +1,346 @@
+@page
+@model PlantStockManager.Pages.ManagementDashboard.DailyOperationsReportModel
+@using PlantStockManager.Models
+@using PlantStockManager.Services
+@using R = PlantStockManager.Services.DailyOperationsReportRules
+@{
+    ViewData["Title"] = "Daily Operations Report";
+    var r = Model.Report;
+    var unavailable = R.UnavailableNotes(r);
+}
+
+@functions {
+    // A figure, or "Not available" with its reason as a tooltip.
+    private static Microsoft.AspNetCore.Html.IHtmlContent Fig(string text, ReportFigure f)
+        => f.Available
+            ? new Microsoft.AspNetCore.Html.HtmlString(System.Net.WebUtility.HtmlEncode(text))
+            : new Microsoft.AspNetCore.Html.HtmlString($"<span class='na' title='{System.Net.WebUtility.HtmlEncode(f.UnavailableReason ?? "")}'>{R.NotAvailable}</span>");
+}
+
+<style>
+    .dor .report-card { max-width: 52rem; }
+    .dor .report-date { font-size: 1.35rem; font-weight: 600; }
+    .dor .rpt-section { font-size: .8rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #6c757d; border-bottom: 1px solid #dee2e6; padding-bottom: .25rem; margin: 1.25rem 0 .5rem; }
+    .dor dl.rpt { display: grid; grid-template-columns: minmax(9rem, 13rem) 1fr; gap: .35rem 1rem; margin: 0; }
+    .dor dl.rpt dt { font-weight: 500; color: #495057; }
+    .dor dl.rpt dd { margin: 0; font-variant-numeric: tabular-nums; }
+    .dor .sub { color: #6c757d; font-size: .85em; }
+    .dor .na { color: #8a6d3b; font-style: italic; }
+    .dor .names { line-height: 1.5; }
+    .dor .history td, .dor .history th { white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .dor .history tr.selected { background: #e7f1ff; }
+    .dor pre.rpt-text { white-space: pre-wrap; font-size: .85rem; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: .375rem; padding: .75rem; }
+    @@media (max-width: 576px) { .dor dl.rpt { grid-template-columns: 1fr; gap: 0 0; } .dor dl.rpt dd { margin-bottom: .5rem; } }
+
+    /* Print / Save as PDF: only the report itself -- no sidebar, header, buttons, history or forms. */
+    @@media print {
+        .sidebar, .top-header, footer, .d-print-none { display: none !important; }
+        .main-content { margin: 0 !important; max-height: none !important; overflow: visible !important; background: #fff !important; }
+        body { background: #fff !important; }
+        .dor { margin: 0 !important; padding: 0 !important; }
+        .dor .report-card { max-width: none; border: 0 !important; box-shadow: none !important; }
+        .dor .na { color: #000; }
+        @@page { margin: 1.2cm; }
+    }
+</style>
+
+<div class="container-fluid mt-4 dor">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-1">
+        <h2 class="mb-0">Daily Operations Report</h2>
+        <span class="badge bg-dark d-print-none">Administrator only</span>
+    </div>
+    <div class="text-muted small mb-3 d-print-none">
+        Read live from the operational tables for any India (IST) date; viewing this page never writes anything.
+        <a asp-page="/ManagementDashboard/Index">&larr; Management Dashboard</a> &middot; <a href="#definitions">Definitions</a>
+    </div>
+
+    <!-- Date navigation -->
+    <div class="d-flex flex-wrap align-items-end gap-2 mb-3 p-2 border rounded bg-light d-print-none" id="date-nav">
+        @if (Model.PreviousDate is { } prev)
+        {
+            <a class="btn btn-sm btn-outline-primary" id="prev-day" asp-page="./DailyOperationsReport" asp-all-route-data="@Model.RouteFor(prev)">&larr; Previous Day</a>
+        }
+        <form method="get" class="d-flex flex-wrap align-items-end gap-2 m-0">
+            <input type="hidden" name="From" value="@Model.HistoryFrom.ToString("yyyy-MM-dd")" />
+            <input type="hidden" name="To" value="@Model.HistoryTo.ToString("yyyy-MM-dd")" />
+            <div>
+                <label for="report-date" class="form-label small mb-0">Report date</label>
+                <input type="date" id="report-date" name="Date" class="form-control form-control-sm" value="@Model.ReportDate.ToString("yyyy-MM-dd")" max="@Model.Today.ToString("yyyy-MM-dd")" min="@R.EarliestSelectableDate.ToString("yyyy-MM-dd")" required />
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary">Show</button>
+        </form>
+        @if (Model.NextDate is { } next)
+        {
+            <a class="btn btn-sm btn-outline-primary" id="next-day" asp-page="./DailyOperationsReport" asp-all-route-data="@Model.RouteFor(next)">Next Day &rarr;</a>
+        }
+        else
+        {
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="There is no report for a future date">Next Day &rarr;</button>
+        }
+        @if (!r.IsToday)
+        {
+            <a class="btn btn-sm btn-outline-secondary" asp-page="./DailyOperationsReport">Today</a>
+        }
+        <div class="ms-auto d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-sm btn-success" data-copy-target="report-text" id="copy-report">Copy Report</button>
+            <button type="button" class="btn btn-sm btn-outline-dark" onclick="window.print()" id="print-report">Print / Save as PDF</button>
+            <a class="btn btn-sm btn-outline-secondary" asp-page="./DailyOperationsReport" asp-page-handler="Text" asp-route-Date="@Model.ReportDate.ToString("yyyy-MM-dd")">Download .txt</a>
+        </div>
+    </div>
+    <div class="small text-success mb-2 d-print-none" id="copy-status" role="status" aria-live="polite"></div>
+
+    @foreach (var n in Model.Notices)
+    {
+        <div class="alert alert-info py-2 d-print-none">@n</div>
+    }
+
+    <!-- The report -->
+    <div class="card report-card mb-4" id="report">
+        <div class="card-body">
+            <div class="report-date">Date: @r.ReportDate.ToString("yyyy-MM-dd") <span class="sub">(@r.ReportDate.ToString("dddd, d MMMM yyyy"))</span></div>
+            @if (r.IsToday)
+            {
+                <div class="small text-warning-emphasis">Today &mdash; live figures up to @r.GeneratedAtIndia.ToString("HH:mm") IST.</div>
+            }
+
+            <div class="rpt-section">Daily Operations</div>
+            <dl class="rpt">
+                <dt>Sowing</dt>
+                <dd>
+                    @Fig(R.Qty(r.Sowing), r.Sowing)
+                    @if (r.Sowing.Available && r.Sowing.Count > 0)
+                    {
+                        <span class="sub">(@R.Indian(r.Sowing.Count) entries &middot; seed @R.Indian(r.SeedSowingQuantity), cutting @R.Indian(r.CuttingSowingQuantity))</span>
+                    }
+                </dd>
+
+                <dt>Ready Stock <span class="sub d-block">available for booking/dispatch</span></dt>
+                <dd>
+                    @if (!r.ReadyStockAvailable)
+                    {
+                        <span class="na" title="@r.ReadyStockUnavailableReason">@R.NotAvailable</span>
+                    }
+                    else if (r.ReadyStock.Count == 0)
+                    {
+                        <text>0</text>
+                    }
+                    else
+                    {
+                        @foreach (var line in r.ReadyStock)
+                        {
+                            <div>@line.PlantTypeName: <strong>@R.Indian(line.Available)</strong>
+                                <span class="sub">(physical @R.Indian(line.Physical), reserved @R.Indian(line.Reserved)@(line.InTransit != 0 ? $", in transit {R.Indian(line.InTransit)}" : ""))</span></div>
+                        }
+                        <div class="sub" id="ready-totals">Totals &mdash; available @R.Indian(r.ReadyStockAvailableTotal) &middot; physical @R.Indian(r.ReadyStockPhysicalTotal) &middot; reserved @R.Indian(r.ReadyStockReservedTotal) &middot; in transit @R.Indian(r.ReadyStockInTransitTotal) &middot; owned @R.Indian(r.ReadyStockOwnedTotal)</div>
+                    }
+                    @if (r.ReadyStockAvailable)
+                    {
+                        <div class="sub">@r.ReadyStockBasis</div>
+                    }
+                </dd>
+
+                <dt>Bookings</dt>
+                <dd>
+                    Seedling: @Fig(R.Count(r.SeedlingBookings), r.SeedlingBookings), Potted: @Fig(R.Count(r.PottedBookings), r.PottedBookings)
+                    @if (r.SeedlingBookings.Available && r.SeedlingBookings.Count > 0)
+                    {
+                        <div class="sub">Seedling: @R.Indian(r.SeedlingBookings.Count) order(s), @R.Indian(r.SeedlingBookings.Lines) variety line(s), @R.Indian(r.SeedlingBookings.Quantity) plants</div>
+                    }
+                </dd>
+
+                <dt>Dispatch</dt>
+                <dd>
+                    Seedling: @Fig(R.Count(r.SeedlingDispatch), r.SeedlingDispatch), Potted: @Fig(R.Count(r.PottedDispatch), r.PottedDispatch)
+                    @if ((r.SeedlingDispatch.Available && r.SeedlingDispatch.Count > 0) || (r.PottedDispatch.Available && r.PottedDispatch.Count > 0))
+                    {
+                        <div class="sub">Quantity &mdash; seedlings @R.Qty(r.SeedlingDispatch), potted plants @R.Qty(r.PottedDispatch)</div>
+                    }
+                </dd>
+
+                <dt>Outlet Sales</dt>
+                <dd>@Fig(R.Count(r.OutletSales), r.OutletSales)</dd>
+
+                <dt>Fertilizer Usage</dt>
+                <dd>
+                    @Fig(R.FertilizerText(r), r.Fertilizer)
+                    @if (r.Fertilizer.Available && r.Fertilizer.Count > 0)
+                    {
+                        <span class="sub">(@R.Indian(r.Fertilizer.Count) issue entries)</span>
+                    }
+                </dd>
+
+                <dt>Wastage</dt>
+                <dd>@Fig(R.WastageText(r), r.Wastage)</dd>
+            </dl>
+
+            <div class="rpt-section">Software Activity</div>
+            <dl class="rpt">
+                <dt>Total Employees</dt>
+                <dd>@R.Indian(r.TotalEmployees)</dd>
+                @if (!r.LoginDataAvailable)
+                {
+                    <dt>Logged In</dt><dd><span class="na" title="@r.LoginUnavailableReason">@R.NotAvailable</span></dd>
+                    <dt>Active Users</dt><dd><span class="na" title="@r.LoginUnavailableReason">@R.NotAvailable</span></dd>
+                    <dt>No Activity Recorded</dt><dd><span class="na" title="@r.LoginUnavailableReason">@R.NotAvailable</span></dd>
+                    <dt>Not Logged In</dt><dd><span class="na" title="@r.LoginUnavailableReason">@R.NotAvailable</span></dd>
+                }
+                else
+                {
+                    <dt>Logged In</dt>
+                    <dd>@R.Indian(r.LoggedIn.Count) <span class="sub">(@R.Indian(r.LoginEvents) login event(s))</span></dd>
+                    <dt>Active Users</dt>
+                    <dd>@R.Indian(r.ActiveUsers.Count)@if (r.ActiveUsers.Count > 0) {<span class="sub names"> &mdash; @R.Names(r.ActiveUsers)</span>}</dd>
+                    <dt>No Activity Recorded</dt>
+                    <dd class="names">@R.Names(r.NoActivityRecorded)</dd>
+                    <dt>Not Logged In</dt>
+                    <dd class="names">@R.Names(r.NotLoggedIn)</dd>
+                    @if (r.ActivityWithoutLogin.Count > 0)
+                    {
+                        <dt>Activity Without New Login</dt>
+                        <dd class="names">@R.Names(r.ActivityWithoutLogin) <div class="sub">Not logged in today, but recorded work (an earlier login's session was still open).</div></dd>
+                    }
+                }
+            </dl>
+
+            @if (unavailable.Count > 0 || r.Notes.Count > 0)
+            {
+                <div class="rpt-section">Notes</div>
+                <ul class="small mb-0" id="report-notes">
+                    @foreach (var n in unavailable.Concat(r.Notes))
+                    {
+                        <li>@n</li>
+                    }
+                </ul>
+            }
+            <div class="mt-3">Thank You!</div>
+        </div>
+    </div>
+
+    <textarea id="report-text" class="visually-hidden" readonly aria-hidden="true" tabindex="-1">@Model.ReportText</textarea>
+
+    <!-- History -->
+    <div class="d-print-none">
+        <h4 class="mt-2">Report history</h4>
+        <form method="get" class="d-flex flex-wrap align-items-end gap-2 mb-2 p-2 border rounded bg-light">
+            <input type="hidden" name="Date" value="@Model.ReportDate.ToString("yyyy-MM-dd")" />
+            <div>
+                <label for="hist-from" class="form-label small mb-0">From</label>
+                <input type="date" id="hist-from" name="From" class="form-control form-control-sm" value="@Model.HistoryFrom.ToString("yyyy-MM-dd")" max="@Model.Today.ToString("yyyy-MM-dd")" />
+            </div>
+            <div>
+                <label for="hist-to" class="form-label small mb-0">To</label>
+                <input type="date" id="hist-to" name="To" class="form-control form-control-sm" value="@Model.HistoryTo.ToString("yyyy-MM-dd")" max="@Model.Today.ToString("yyyy-MM-dd")" />
+            </div>
+            <div class="form-check mb-1">
+                <input class="form-check-input" type="checkbox" id="show-all" name="ShowAll" value="true" @(Model.ShowAll ? "checked" : "") />
+                <label class="form-check-label small" for="show-all">Show every day as a full report</label>
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary">Apply</button>
+            <span class="small text-muted">Up to @R.MaxHistoryDays days.</span>
+        </form>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-hover align-middle history">
+                <thead class="table-light">
+                    <tr>
+                        <th>Date</th>
+                        <th class="text-end">Sowing</th>
+                        <th class="text-end">Bookings<br /><span class="sub">Seedling / Potted</span></th>
+                        <th class="text-end">Dispatch<br /><span class="sub">Seedling / Potted</span></th>
+                        <th class="text-end">Outlet Sales</th>
+                        <th class="text-end">Wastage</th>
+                        <th class="text-end">Logged In</th>
+                        <th class="text-end">Active Users</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var h in Model.History)
+                    {
+                        <tr class="@(h.ReportDate == r.ReportDate ? "selected" : "")">
+                            <td><a asp-page="./DailyOperationsReport" asp-all-route-data="@Model.RouteFor(h.ReportDate)">@h.ReportDate.ToString("yyyy-MM-dd")</a> <span class="sub">@h.ReportDate.ToString("ddd")</span></td>
+                            <td class="text-end">@Fig(R.Qty(h.Sowing), h.Sowing)</td>
+                            <td class="text-end">@Fig(R.Count(h.SeedlingBookings), h.SeedlingBookings) / @Fig(R.Count(h.PottedBookings), h.PottedBookings)</td>
+                            <td class="text-end">@Fig(R.Count(h.SeedlingDispatch), h.SeedlingDispatch) / @Fig(R.Count(h.PottedDispatch), h.PottedDispatch)</td>
+                            <td class="text-end">@Fig(R.Count(h.OutletSales), h.OutletSales)</td>
+                            <td class="text-end">@Fig(R.Qty(h.Wastage), h.Wastage)</td>
+                            @if (h.LoginDataAvailable)
+                            {
+                                <td class="text-end">@R.Indian(h.LoggedIn.Count)</td>
+                                <td class="text-end">@R.Indian(h.ActiveUsers.Count)</td>
+                            }
+                            else
+                            {
+                                <td class="text-end"><span class="na" title="@h.LoginUnavailableReason">@R.NotAvailable</span></td>
+                                <td class="text-end"><span class="na" title="@h.LoginUnavailableReason">@R.NotAvailable</span></td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (Model.ShowAll && Model.FullReports.Count > 0)
+        {
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-3 mb-2">
+                <h5 class="mb-0">Full reports, @Model.FullReports[0].ReportDate.ToString("yyyy-MM-dd") to @Model.FullReports[^1].ReportDate.ToString("yyyy-MM-dd")</h5>
+                <button type="button" class="btn btn-sm btn-outline-success" data-copy-target="all-reports-text">Copy all</button>
+            </div>
+            <textarea id="all-reports-text" class="visually-hidden" readonly aria-hidden="true" tabindex="-1">@Model.FullReportsText</textarea>
+            <div class="row g-3">
+                @foreach (var fr in Model.FullReports)
+                {
+                    <div class="col-12 col-lg-6 col-xxl-4">
+                        <pre class="rpt-text mb-0">@R.ToPlainText(fr)</pre>
+                    </div>
+                }
+            </div>
+        }
+
+        <details class="mt-4 mb-5" id="definitions">
+            <summary class="fw-semibold">Definitions and data sources</summary>
+            <div class="small mt-2">
+                <p class="mb-1">All dates are India (IST) calendar days. A figure shows <em>@R.NotAvailable</em> when the system has no records of that kind before the selected date, so it cannot tell "nothing happened" from "not recorded yet"; a <strong>0</strong> means records exist and none fell on that day.</p>
+                <ul>
+                    <li><strong>Sowing</strong> &mdash; total plants sown (QuantitySown) across Direct Seed Sowing and Cutting Sowing entries dated that day, excluding cancelled sowings.</li>
+                    <li><strong>Ready Stock</strong> &mdash; per Plant Type at the end of the day, rebuilt from the Ready Stock ledger: <em>available for booking/dispatch</em> (the main figure) = physical &minus; reserved; <em>physical</em> = owned &minus; in transit; <em>owned</em> = approved &minus; dispatched. Plants in transit to a Mother Plant Area are counted once (in owned, not physical). Movements are dated by their business date (dispatch, sale, wastage, transfer or transplanting date) from 2026-10-10; older ones by the day they were recorded, and the notes list any day this affects. Shown only while the ledger fully explains every batch's current balances.</li>
+                    <li><strong>Bookings</strong> &mdash; Seedling: new booking orders (one Booking Number, however many varieties), dated by the order's first line, any status. Potted: potted plant bookings, any status.</li>
+                    <li><strong>Dispatch</strong> &mdash; Seedling: completed dispatch events (not lines). Potted: completed potted plant dispatches (cancelled ones excluded).</li>
+                    <li><strong>Outlet Sales</strong> &mdash; number of outlet sales recorded with that sale date.</li>
+                    <li><strong>Fertilizer Usage</strong> &mdash; quantity issued that day, per unit (units are never added together).</li>
+                    <li><strong>Wastage</strong> &mdash; plants, cuttings and pots lost that day, from the same sources as the Wasted Stock report; seed-lot losses are shown separately in their own unit.</li>
+                    <li><strong>Total Employees</strong> &mdash; @R.EmployeeListNote</li>
+                    <li><strong>Logged In</strong> &mdash; employees with at least one successful login that day (login events are shown separately).</li>
+                    <li><strong>Active Users</strong> &mdash; logged-in employees who also recorded qualifying work that day: stock ledger movements, seedling/potted bookings they are credited with, or fertilizer issues they entered. Page views are not activity.</li>
+                    <li><strong>No Activity Recorded</strong> &mdash; logged in, but none of that qualifying work recorded. Active Users + No Activity Recorded = Logged In.</li>
+                    <li><strong>Not Logged In</strong> &mdash; no login recorded that day. Logged In + Not Logged In = Total Employees. Anyone among them who still recorded work (a login session can stay open for days) is listed under <em>Activity Without New Login</em>.</li>
+                </ul>
+            </div>
+        </details>
+    </div>
+</div>
+
+<script>
+    (function () {
+        var status = document.getElementById('copy-status');
+        function done(msg) { status.textContent = msg; setTimeout(function () { status.textContent = ''; }, 4000); }
+        function fallbackCopy(text) {
+            var ta = document.createElement('textarea');
+            ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            var ok = false; try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+            document.body.removeChild(ta);
+            return ok;
+        }
+        document.querySelectorAll('[data-copy-target]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var text = document.getElementById(btn.getAttribute('data-copy-target')).value;
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text).then(function () { done('Report copied to the clipboard.'); },
+                        function () { done(fallbackCopy(text) ? 'Report copied to the clipboard.' : 'Copy failed: select the text and copy it manually.'); });
+                } else {
+                    done(fallbackCopy(text) ? 'Report copied to the clipboard.' : 'Copy failed: select the text and copy it manually.');
+                }
+            });
+        });
+    })();
+</script>

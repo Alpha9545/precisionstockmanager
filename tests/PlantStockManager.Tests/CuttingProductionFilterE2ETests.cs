@@ -360,10 +360,15 @@ namespace PlantStockManager.Tests
             var areaAMotherPlants = await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.MotherPlants WHERE AreaId = @A AND Id IN (SELECT MotherPlantId FROM dbo.CuttingProductions)", ("@A", AreaA));
             Assert.Equal(areaAMotherPlants, kiran.Options.MotherPlants.Count);
 
-            // an Area with no records, and a user with no Area at all: nothing
+            // a user of another Area sees exactly that Area's records, and a user with no Area at all: nothing.
+            // 2026-10-10 fixture fix: Samarth Ropvatika (Area 123) had no records when this was written; it has
+            // recorded cutting production since 2026-10-02 -- so check "only its own" explicitly, from the database.
             var none = env.Register(await env.LoginAsync(111));                         // Samarth Ropvatika (Area 123)
             await none.OnGetAsync(null, null);
-            Assert.Empty(none.Items);
+            Assert.All(none.Items, c => Assert.Equal(123, c.AreaId));
+            Assert.Empty(Only(d, none.Items));                                           // none of this test's Area A / B records
+            var area123Records = await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.CuttingProductions WHERE AreaId = 123");
+            Assert.True(none.Items.Count <= area123Records);
             var noAreas = env.Register(new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim(AreaAccessService.RoleNameClaimType, "Mother Plant Supervisor") }, "test")));
             await noAreas.OnGetAsync(null, null);
             Assert.Empty(noAreas.Items);

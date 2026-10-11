@@ -1,0 +1,175 @@
+@page
+@model PlantStockManager.Pages.Production.Labour.AttendanceHistoryModel
+@using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Attendance History";
+    var canEnter = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/Attendance");
+    var s = Model.Summary;
+    string N(int? v) => v.HasValue ? v.Value.ToString() : "—";
+}
+
+<style>
+    .labour-summary .tile { border: 1px solid #dee2e6; border-radius: .5rem; padding: .5rem .75rem; background: #fff; height: 100%; }
+    .labour-summary .tile .label { font-size: .8rem; color: #6c757d; }
+    .labour-summary .tile .value { font-size: 1.35rem; font-weight: 700; }
+    .labour-summary .tile.primary { background: #f1f8f4; border-color: #b7dfc6; }
+    #attendanceTable th.grp { text-align: center; }
+    #attendanceTable tr.date-total td { background: #eef6f1; font-weight: 700; }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Attendance History</h3>
+        <div class="d-flex gap-2">
+            <a asp-page="/Production/Labour/Index" class="btn btn-outline-secondary" title="Full/Half Day records entered by hand before attendance was introduced">Manual Records</a>
+            @if (canEnter)
+            {
+                <a asp-page="/Production/Labour/Attendance" class="btn btn-primary">+ Daily Attendance</a>
+            }
+        </div>
+    </div>
+
+    <form method="get" class="row g-2 align-items-end mb-3" id="attendanceFilter">
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="fromDate">From Date</label>
+            <input type="date" name="fromDate" id="fromDate" value="@Model.FromDate?.ToString("yyyy-MM-dd")" class="form-control" />
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="toDate">To Date</label>
+            <input type="date" name="toDate" id="toDate" value="@Model.ToDate?.ToString("yyyy-MM-dd")" class="form-control" />
+        </div>
+        <div class="col-12 col-md-3">
+            <label class="form-label" for="areaFilter">Area</label>
+            <select name="areaId" id="areaFilter" class="form-select" onchange="if (this.form.polyhouseId) this.form.polyhouseId.value=''; this.form.submit()">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.AreaOptions)
+                {
+                    <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                }
+            </select>
+        </div>
+        @if (Model.ShowPolyhouseFilter)
+        {
+            <div class="col-12 col-md-3">
+                <label class="form-label" for="polyhouseFilter">Polyhouse</label>
+                <select name="polyhouseId" id="polyhouseFilter" class="form-select" onchange="this.form.submit()">
+                    <option value="">All Polyhouses</option>
+                    @foreach (var p in Model.PolyhouseOptions)
+                    {
+                        <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                    }
+                </select>
+            </div>
+        }
+        <div class="col-6 col-md-auto">
+            <button type="submit" class="btn btn-success w-100">Filter</button>
+        </div>
+        <div class="col-6 col-md-auto">
+            <a asp-page="/Production/Labour/AttendanceHistory" class="btn btn-outline-secondary w-100">Clear</a>
+        </div>
+    </form>
+
+    <div class="labour-summary row g-2 mb-2" id="attendanceSummary">
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Male Full Day</div><div class="value" id="sumMaleFull">@s.MaleFullDay</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Male Half Day</div><div class="value" id="sumMaleHalf">@s.MaleHalfDay</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Female Full Day</div><div class="value" id="sumFemaleFull">@s.FemaleFullDay</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Female Half Day</div><div class="value" id="sumFemaleHalf">@s.FemaleHalfDay</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile primary"><div class="label">Total Full Day</div><div class="value" id="sumTotalFull">@s.TotalFullDay</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile primary"><div class="label">Total Half Day</div><div class="value" id="sumTotalHalf">@s.TotalHalfDay</div></div></div>
+    </div>
+    <div class="small text-muted mb-3" id="summaryNote">
+        @s.Days day(s) · @s.CompleteDays complete · <span class="@(s.IncompleteDays > 0 ? "text-danger fw-bold" : "")">@s.IncompleteDays incomplete (not in totals)</span>
+        @if (s.ManualDays > 0) { <span> · @s.ManualDays manual (entered before attendance)</span> }
+        · Labour days @s.LabourDays.ToString("0.#") (half day = 0.5)
+        <br />@DailyLabourRules.EstimateNote
+    </div>
+
+    @if (Model.Truncated)
+    {
+        <div class="alert alert-warning py-2">Showing the latest @Model.Days.Count of @s.Days days -- narrow the dates to see the rest. The totals above include all @s.Days.</div>
+    }
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-striped table-sm align-middle" id="attendanceTable">
+            <thead class="table-light">
+                <tr>
+                    <th rowspan="2">Date</th><th rowspan="2">Area</th><th rowspan="2">Polyhouse</th>
+                    <th colspan="2" class="grp">9:00 AM</th><th colspan="2" class="grp">2:00 PM</th>
+                    <th colspan="2" class="grp">Male</th><th colspan="2" class="grp">Female</th>
+                    <th colspan="2" class="grp">Total</th>
+                    <th rowspan="2">Status</th><th rowspan="2"></th>
+                </tr>
+                <tr>
+                    <th class="text-end">Male</th><th class="text-end">Female</th>
+                    <th class="text-end">Male</th><th class="text-end">Female</th>
+                    <th class="text-end">Full Day</th><th class="text-end">Half Day</th>
+                    <th class="text-end">Full Day</th><th class="text-end">Half Day</th>
+                    <th class="text-end">Full Day</th><th class="text-end">Half Day</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var (date, rows, total) in Model.ByDate)
+                {
+                    foreach (var d in rows)
+                    {
+                        <tr data-source="@d.Source" data-complete="@(d.IsComplete ? "1" : "0")">
+                            <td class="text-nowrap">@d.LabourDate.ToString("dd-MM-yyyy")</td>
+                            <td>@d.AreaName</td>
+                            <td>@(d.PolyhouseId.HasValue ? d.PolyhouseName : "—")</td>
+                            <td class="text-end">@N(d.Male9)</td>
+                            <td class="text-end">@N(d.Female9)</td>
+                            <td class="text-end">@N(d.Male2)</td>
+                            <td class="text-end">@N(d.Female2)</td>
+                            <td class="text-end">@N(d.MaleFullDay)</td>
+                            <td class="text-end">@N(d.MaleHalfDay)</td>
+                            <td class="text-end">@N(d.FemaleFullDay)</td>
+                            <td class="text-end">@N(d.FemaleHalfDay)</td>
+                            <td class="text-end fw-bold">@N(d.TotalFullDay)</td>
+                            <td class="text-end fw-bold">@N(d.TotalHalfDay)</td>
+                            <td class="text-nowrap">
+                                @if (d.IsManual)
+                                {
+                                    <span class="badge bg-secondary" title="Entered as Full/Half Day counts before attendance was introduced">Manual</span>
+                                }
+                                else if (!d.IsComplete)
+                                {
+                                    <span class="badge bg-warning text-dark">Incomplete -- @(d.Has9 ? "2:00 PM" : "9:00 AM") missing</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-success">Complete</span>
+                                }
+                                @if (d.Corrected) { <span class="badge bg-info text-dark">Corrected</span> }
+                            </td>
+                            <td>
+                                @if (!d.IsManual && canEnter)
+                                {
+                                    <a asp-page="/Production/Labour/Attendance" asp-route-labourDate="@d.LabourDate.ToString("yyyy-MM-dd")" asp-route-areaId="@d.AreaId" asp-route-polyhouseId="@d.PolyhouseId" class="btn btn-sm btn-outline-primary">Open</a>
+                                }
+                                else if (d.IsManual && Model.IsFullAccess)
+                                {
+                                    <a asp-page="/Production/Labour/Entry" asp-route-id="@d.ManualId" class="btn btn-sm btn-outline-secondary">Edit</a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    <tr class="date-total">
+                        <td colspan="7">Total @date.ToString("dd-MM-yyyy") (@total.CompleteDays complete@(total.IncompleteDays > 0 ? $", {total.IncompleteDays} incomplete not counted" : ""))</td>
+                        <td class="text-end">@total.MaleFullDay</td>
+                        <td class="text-end">@total.MaleHalfDay</td>
+                        <td class="text-end">@total.FemaleFullDay</td>
+                        <td class="text-end">@total.FemaleHalfDay</td>
+                        <td class="text-end">@total.TotalFullDay</td>
+                        <td class="text-end">@total.TotalHalfDay</td>
+                        <td colspan="2"></td>
+                    </tr>
+                }
+                @if (!Model.Days.Any())
+                {
+                    <tr><td colspan="15" class="text-center text-muted">No attendance for the selected filters.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

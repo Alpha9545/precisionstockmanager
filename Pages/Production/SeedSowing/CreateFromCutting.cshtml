@@ -35,8 +35,9 @@
                 <div class="alert alert-warning">No active growing Main Area / Polyhouse is available to sow into.</div>
             }
 
-            <form method="post">
+            <form method="post" id="cuttingSowingForm">
                 <input type="hidden" asp-for="TransferId" />
+                <input type="hidden" asp-for="SubmissionToken" />
                 <div class="row g-3">
                     <div class="col-md-8">
                         <label class="form-label fw-bold">Cutting Stock</label>
@@ -92,7 +93,7 @@
                             <option value="">-- Select Main Area Polyhouse --</option>
                             @foreach (var p in Model.Destinations)
                             {
-                                <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.AreaName - @p.Name</option>
+                                <option value="@p.Id" data-area="@p.AreaId" selected="@(Model.PolyhouseId == p.Id)">@p.AreaName - @p.Name</option>
                             }
                         </select>
                         <small class="text-muted">Select a Polyhouse from a Main Area.</small>
@@ -113,6 +114,8 @@
                     </div>
                     <div class="col-12"><div class="text-danger small d-none" id="trayError"></div></div>
 
+                    <partial name="_GrowingMaterial" model="Model.GrowingMaterial" />
+
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Sowing Supervisor <span class="text-muted fw-normal">(the only person who can approve)</span></label>
                         <select asp-for="SupervisorId" id="supervisorSelect" class="form-select" required disabled="@(Model.Supervisors.Any() ? null : "disabled")">
@@ -131,7 +134,7 @@
                 </div>
                 <div class="text-center mt-4">
                     <a asp-page="/Production/CuttingStock/Index" class="btn btn-secondary me-2">Back</a>
-                    <button type="submit" class="btn btn-success">Confirm Sowing</button>
+                    <button type="submit" class="btn btn-success" id="confirmSowingButton">Confirm Sowing</button>
                 </div>
             </form>
         </div>
@@ -139,8 +142,18 @@
 </div>
 
 @section Scripts {
+    <script src="~/js/growing-material.js" asp-append-version="true"></script>
     <script>
         $(function () {
+            initGrowingMaterial({
+                url: '@Url.Page("/Production/SeedSowing/CreateFromCutting")',
+                area: () => $('#polyhouseSelect option:selected').data('area'),
+                polyhouse: () => $('#polyhouseSelect').val(),
+                cavity: () => $('#cavity').val(),
+                quantity: () => $('#qty').val(),
+                triggers: '#polyhouseSelect, #cavity'
+            });
+            $('#cuttingSowingForm').on('submit', function () { if (this.checkValidity()) $('#confirmSowingButton').prop('disabled', true).text('Saving...'); });
             const url = '@Url.Page("/Production/SeedSowing/CreateFromCutting")';
             let keepSupervisor = '@(Model.SupervisorId.HasValue ? Model.SupervisorId.ToString() : "")';
             function loadSupervisors() {

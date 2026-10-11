@@ -75,34 +75,95 @@ ORDER BY p.Code", conn);
                 Assert.Contains(p, permissions);
             // exactly the prior 8 plus the one new grant -- nothing else slipped in
             // (+ Labour.View / Labour.Enter, 2026-10-04_DailyLabourCounts.sql)
-            Assert.Equal(11, permissions.Count);
+            // (+ Maintenance.Raise / Maintenance.View, 2026-10-06_MaintenanceTickets.sql)
+            // (+ Store.Request / Store.View, 2026-10-06_StoreInventory.sql)
+            // (+ ReadyStock.ReceiveTransfer / Transplant.Enter / Transplant.View, 2026-10-09_ReadyStockTransplanting.sql)
+            foreach (var p in new[] { "ReadyStock.ReceiveTransfer", "Transplant.Enter", "Transplant.View" })
+                Assert.Contains(p, permissions);
+            Assert.DoesNotContain("Transplant.Reverse", permissions);              // reversal stays full-access only
+            Assert.DoesNotContain("ReadyStock.TransferToMotherPlant", permissions); // receivers do not send
+            // (+ TrayStock.ReceiveTransfer, 2026-10-10_TrayTransfers.sql: receives empty-tray transfers; never sends or adjusts)
+            var trayTransfers = await TrayTransfersAppliedAsync(conn);
+            if (trayTransfers)
+                Assert.Contains("TrayStock.ReceiveTransfer", permissions);
+            // (+ TrayStock.ViewMotherPlant, 2026-10-11_TrayAccessByLocation.sql: READ-ONLY trays of own Mother Plant Areas)
+            var alignment = await TrayAccessAppliedAsync(conn);
+            if (alignment)
+                Assert.Contains("TrayStock.ViewMotherPlant", permissions);
+            Assert.DoesNotContain("TrayStock.ReceiveTransferMainArea", permissions);   // receives only in Mother Plant Areas
+            // never: adding, adjusting or sending trays, or growing material
+            foreach (var p in new[] { "TrayStock.Transfer", "TrayStock.Adjust", "TrayStock.Enter", "TrayStock.EnterMotherPlant", "MaterialStock.Add", "MaterialStock.View" })
+                Assert.DoesNotContain(p, permissions);
+            Assert.Equal(18 + (trayTransfers ? 1 : 0) + (alignment ? 1 : 0), permissions.Count);
+        }
+
+        private static async Task<bool> TrayTransfersAppliedAsync(SqlConnection conn)
+        {
+            using var cmd = new SqlCommand("SELECT CASE WHEN OBJECT_ID(N'dbo.TrayTransfers', N'U') IS NULL THEN 0 ELSE 1 END", conn);
+            return (int)(await cmd.ExecuteScalarAsync())! == 1;
+        }
+
+        private static async Task<bool> TrayAccessAppliedAsync(SqlConnection conn)
+        {
+            using var cmd = new SqlCommand("SELECT CASE WHEN EXISTS (SELECT 1 FROM dbo.Permissions WHERE Code = N'TrayStock.ReceiveTransferMainArea') THEN 1 ELSE 0 END", conn);
+            return (int)(await cmd.ExecuteScalarAsync())! == 1;
         }
 
         [SkippableFact]
         public async Task OtherRoles_PermissionSets_AreUnaffectedByThisFix()
         {
             using var conn = await OpenAsync();
-            // Known, pre-existing permission counts (as seeded by Database/PhaseA_RoleBasedAccess.sql
-            // and later migrations, none of which this fix touches) -- a regression guard that this
-            // migration never widened ANY role other than Mother Plant Supervisor.
-            var expectedCounts = new Dictionary<string, int>
+            // The EXACT permission set of every other role -- a regression guard that no migration
+            // widened a role it was not meant to. 2026-10-10: compares sets (not counts) and reports
+            // EVERY role that differs at once; before, the loop stopped at the first role, so the
+            // Booking Executive difference hid the others (Sowing Supervisor, Sowing Operator).
+            // Sources: Database/PhaseA_RoleBasedAccess.sql, the migrations named, and -- where stated --
+            // grants present in the data copy since at least 2026-10-01 that no script makes.
+            var trayTransfers = await TrayTransfersAppliedAsync(conn);
+            string[] Tray1010(params string[] codes) => trayTransfers ? codes : Array.Empty<string>();
+            var trayAccess = await TrayAccessAppliedAsync(conn);
+            string[] Tray1011(params string[] codes) => trayAccess ? codes : Array.Empty<string>();
+            var expected = new Dictionary<string, string[]>
             {
-                ["Booking Executive"] = 4,
-                ["Dispatch Executive"] = 5,
-                ["Fertilizer Supervisor"] = 3,
-                ["Office Coordinator"] = 7,
-                ["Outlet Sales"] = 5,        // no Labour access: Outlet is excluded from Daily Labour
-                ["Pot Production Operator"] = 5,
-                ["Purchase Officer"] = 3,
-                ["Sowing Supervisor"] = 9,   // + TrayStock.Enter (2026-10-04_TrayStockAreaCavity.sql), + Labour.View / Labour.Enter (2026-10-04_DailyLabourCounts.sql)
-                ["Main Office Store Keeper"] = 13,
-                ["Sowing Operator"] = 10,
+                // INTENDED set (owner decision 2026-10-10): PhaseA (4) + TrayStock.EnterMotherPlant (2026-10-09).
+                // NO Dispatch.Enter (the Dispatch Executive enters dispatches) and NO Dispatch.View (booking pages
+                // show dispatch status with Booking.View). Both were granted in the data through the Roles page
+                // between 2026-10-01 and 2026-10-04; until 2026-10-11_RolePermissionAlignment.sql is approved and
+                // applied, this test fails and names them -- deliberately not hidden.
+                ["Booking Executive"] = new[] { "Booking.Enter", "Booking.View", "Dashboard.View", "ReadyStock.View", "TrayStock.EnterMotherPlant" },
+                ["Dispatch Executive"] = new[] { "Booking.View", "Dashboard.View", "Dispatch.Enter", "Dispatch.View", "ReadyStock.View" },
+                // + Maintenance.* (10-06_MaintenanceTickets), Store.* (10-06_StoreInventory)
+                ["Fertilizer Supervisor"] = new[] { "Dashboard.View", "Fertilizer.Enter", "Fertilizer.View", "Maintenance.Raise", "Maintenance.View", "Store.Request", "Store.View" },
+                // + Maintenance.* / Store.* (10-06); ReadyStock.TransferToMotherPlant, TrayStock.EnterMotherPlant (10-09); TrayStock.Transfer (10-10)
+                ["Office Coordinator"] = new[] { "Booking.View", "Dashboard.View", "Dispatch.View", "Maintenance.Raise", "Maintenance.View", "ReadyStock.TransferToMotherPlant",
+                    "ReadyStock.View", "Reports.View", "SeedStock.View", "Sowing.View", "Store.Request", "Store.View", "TrayStock.EnterMotherPlant" }.Concat(Tray1010("TrayStock.Transfer")).ToArray(),
+                ["Outlet Sales"] = new[] { "Dashboard.View", "Outlet.Confirm", "Outlet.Purchase", "Outlet.Sell", "Outlet.View" },   // no Labour: Outlet is excluded
+                ["Pot Production Operator"] = new[] { "Dashboard.View", "InternalTransfer.Enter", "InternalTransfer.View", "PotProduction.Enter", "PotProduction.View" },
+                ["Purchase Officer"] = new[] { "Dashboard.View", "Purchase.Enter", "Purchase.View" },
+                // + TrayStock.Enter, Labour.* (10-04); Maintenance.* / Store.* (10-06); MaterialStock.View / Add / History (10-08);
+                //   ReadyStock.TransferToMotherPlant (10-09); TrayStock.Adjust, TrayStock.Transfer (10-10);
+                //   TrayStock.ReceiveTransferMainArea (10-11_TrayAccessByLocation: receives into own Main Office Areas)
+                ["Sowing Supervisor"] = new[] { "Dashboard.View", "Labour.Enter", "Labour.View", "MainOffice.Confirm", "Maintenance.Raise", "Maintenance.View",
+                    "MaterialStock.Add", "MaterialStock.History", "MaterialStock.View", "ReadyStock.Confirm", "ReadyStock.TransferToMotherPlant", "ReadyStock.View",
+                    "SeedStock.View", "Sowing.View", "Store.Request", "Store.View", "TrayStock.Enter" }
+                    .Concat(Tray1010("TrayStock.Adjust", "TrayStock.Transfer")).Concat(Tray1011("TrayStock.ReceiveTransferMainArea")).ToArray(),
+                // + Store.Manage (10-06_StoreInventory)
+                ["Main Office Store Keeper"] = new[] { "Dashboard.View", "InternalTransfer.Enter", "InternalTransfer.View", "MainOffice.Confirm", "MainOffice.View",
+                    "PotProduction.View", "Purchase.Enter", "Purchase.View", "Reports.View", "SeedStock.Enter", "SeedStock.View", "Sowing.Enter", "Sowing.View", "Store.Manage" },
+                // PhaseA (5) + the cutting / main-office / dispatch grants in the data since at least 2026-10-01
+                ["Sowing Operator"] = new[] { "CuttingDelivery.Enter", "CuttingDelivery.View", "CuttingPlan.View", "Dashboard.View", "Dispatch.Enter",
+                    "MainOffice.Confirm", "MainOffice.View", "ReadyStock.View", "SeedStock.View", "Sowing.Enter", "Sowing.View" },
             };
-            foreach (var (role, expectedCount) in expectedCounts)
+            var differences = new List<string>();
+            foreach (var (role, codes) in expected)
             {
-                var permissions = await PermissionsForRoleAsync(conn, role);
-                Assert.Equal(expectedCount, permissions.Count);
+                var actual = await PermissionsForRoleAsync(conn, role);
+                var extra = actual.Except(codes).ToList();
+                var missing = codes.Except(actual).ToList();
+                if (extra.Count > 0 || missing.Count > 0)
+                    differences.Add($"{role}: unexpected [{string.Join(", ", extra)}] missing [{string.Join(", ", missing)}]");
             }
+            Assert.True(differences.Count == 0, "Role permission sets differ from the migrations:\n" + string.Join("\n", differences));
         }
     }
 }

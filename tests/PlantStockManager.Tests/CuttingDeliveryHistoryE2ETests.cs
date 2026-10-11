@@ -453,10 +453,12 @@ namespace PlantStockManager.Tests
             Assert.DoesNotContain(mainOffice.Rows, r => r.Kind == "E" && !r.HasDelivery);
             Assert.All(mainOffice.Rows, r => Assert.True(r.DestinationAreaId == MainOfficeArea || r.PendingAreaId == MainOfficeArea || r.SourceAreaId == MainOfficeArea));
 
-            // Green Bless Nursery (Area 127): none of the others' deliveries, only its own entry
+            // Green Bless Nursery (Area 127): none of the others' deliveries, only its own entries and deliveries.
+            // 2026-10-10 fixture fix: Green Bless has recorded deliveries of its own since this was written
+            // (35 in the copy), so "no delivery at all" is replaced by "every delivery shown is Green Bless's".
             var greenBless = await LoadAsync(env, await env.LoginAsync(110));
             Assert.Empty(Mine(d, greenBless.Rows));
-            Assert.DoesNotContain(greenBless.Rows, r => r.HasDelivery);
+            Assert.All(greenBless.Rows.Where(r => r.HasDelivery), r => Assert.True(r.SourceAreaId == 127 || r.DestinationAreaId == 127));
             Assert.All(greenBless.Rows, r => Assert.Equal(127, r.SourceAreaId));
 
             // a user with no Area, and an empty Area list
@@ -494,11 +496,17 @@ namespace PlantStockManager.Tests
             Assert.Empty(Mine(d, byDestination.Rows).Intersect(Set(d.B1, d.B2, d.B3, d.B5)));
             Assert.Equal(Set(d.A1, d.A3), Mine(d, byDestination.Rows));
 
-            var options = (await LoadAsync(env, kiranUser)).Options;                                       // nothing from Area 122 in her dropdowns
+            var unfiltered = await LoadAsync(env, kiranUser);
+            var options = unfiltered.Options;                                                               // nothing from Area 122 in her dropdowns
             Assert.Equal(new[] { AreaA }, options.SourceAreas.Select(o => o.Id).ToArray());
             Assert.DoesNotContain(options.MotherPlants, o => o.Id == MpB);
             Assert.DoesNotContain(options.Supervisors, o => o.Id == SupB);
-            Assert.DoesNotContain(options.ReceivedBy, o => o.Id == Mahadev || o.Id == Maya);
+            // 2026-10-10 fixture fix: Area 1's own deliveries have since been received by Maya and Somnath (Main
+            // Office), so they legitimately appear. The rule: a receiver is offered only if they received a
+            // delivery this user can see -- never someone known only from another Area's deliveries.
+            var herReceivers = unfiltered.Rows.Where(r => r.ConfirmedById.HasValue).Select(r => r.ConfirmedById!.Value).ToHashSet();
+            Assert.All(options.ReceivedBy, o => Assert.Contains(o.Id, herReceivers));
+            if (!herReceivers.Contains(Mahadev)) Assert.DoesNotContain(options.ReceivedBy, o => o.Id == Mahadev);
             Assert.Equal(new[] { "Kiran" }, options.EnteredBy.Select(o => o.Value).ToArray());
             Assert.DoesNotContain(options.SourcePolyhouses, o => d.PolyhouseB.HasValue && d.PolyhouseB != d.PolyhouseA && o.Id == d.PolyhouseB);
         }

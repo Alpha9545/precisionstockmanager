@@ -1,0 +1,119 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.Transplanting.DetailsModel
+@using PlantStockManager.Services
+@using PlantStockManager.Authorization
+@{
+    ViewData["Title"] = "Transplanting " + Model.T.TransplantCode;
+    var t = Model.T;
+}
+
+<div class="container mt-4">
+    @if (TempData["Success"] != null) { <div class="alert alert-success" id="msg-success">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger" id="msg-error">@TempData["Error"]</div> }
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <h4 class="mb-0">Transplanting @t.TransplantCode</h4>
+            <span class="badge fs-6 @(t.Status == TransplantRules.StatusCompleted ? "bg-success" : "bg-secondary")" id="status">@t.Status</span>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <table class="table table-sm table-bordered mb-0">
+                        <tbody>
+                            <tr><th class="w-50">Date</th><td>@t.TransplantDate.ToString("dd/MM/yyyy")</td></tr>
+                            <tr><th>Variety</th><td>@t.SpeciesName (@t.PlantTypeName)</td></tr>
+                            <tr><th>Source batch</th><td><a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@t.SourceReadyStockId">#@t.SourceReadyStockId</a> &middot; @t.BatchNo &middot; @t.SourceCavityType<div class="small text-muted">@t.SourceAreaName / @(t.SourcePolyhouseName ?? "-")</div></td></tr>
+                            <tr><th>Target</th><td>@t.AreaName / @t.PolyhouseName</td></tr>
+                            @if (t.OutputIsTrayBatch)
+                            {
+                                <tr><th>Tray batch (Sowing Approvals)</th><td><a asp-page="/Production/SeedSowing/Details" asp-route-id="@t.OutputSeedSowingId">@t.OutputSowingCode</a> &middot; @t.TargetCavityType
+                                    <div class="small text-muted">@(t.OutputSowingStatus == "Sown" ? "Growing -- waiting for approval" : t.OutputSowingStatus)</div></td></tr>
+                                <tr><th>Ready Date</th><td>@t.OutputReadyDate?.ToString("dd/MM/yyyy") <span class="small text-muted">(transplant date + @t.OutputReadyDays Ready Days)</span></td></tr>
+                            }
+                            else
+                            {
+                                <tr><th>Output batch</th><td>@if (t.OutputReadyStockId is int o) { <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@o">#@o</a> } @t.TargetCavityType</td></tr>
+                            }
+                            <tr><th>Recorded by</th><td>@t.CreatedBy, @AppClock.ToIndiaTime(t.CreatedAt).ToString("dd/MM/yyyy HH:mm") IST</td></tr>
+                            @if (!string.IsNullOrWhiteSpace(t.Notes)) { <tr><th>Notes</th><td>@t.Notes</td></tr> }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="col-md-6">
+                    <table class="table table-sm table-bordered mb-0" id="equation">
+                        <tbody>
+                            <tr><th class="w-50">Seedlings selected (source consumed)</th><td class="text-end">@Qty(t.SelectedQuantity)</td></tr>
+                            <tr><th>&nbsp;&nbsp;= successfully transplanted</th><td class="text-end fw-bold">@Qty(t.TransplantedQuantity)</td></tr>
+                            <tr><th>&nbsp;&nbsp;+ lost / damaged</th><td class="text-end">@Qty(t.LostQuantity)</td></tr>
+                            <tr><th>Target cavity capacity</th><td class="text-end">@t.TargetCavitySize plants / tray</td></tr>
+                            <tr><th>Output trays (empty trays used)</th><td class="text-end">@t.OutputTrays@if (t.PlantsInLastTray > 0 && t.PlantsInLastTray < t.TargetCavitySize) {<span class="small text-muted"> (last tray @Qty(t.PlantsInLastTray) plants)</span>}</td></tr>
+                        </tbody>
+                    </table>
+                    @if (t.Status == TransplantRules.StatusReversed)
+                    {
+                        <div class="alert alert-secondary mt-2 mb-0 small">Reversed by @t.ReversedByName on @(t.ReversedAt.HasValue ? AppClock.ToIndiaTime(t.ReversedAt.Value).ToString("dd/MM/yyyy HH:mm") : "") IST: @t.ReversalReason</div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!t.OutputIsTrayBatch)
+    {
+        <h5>Lineage of the output batch</h5>
+        <partial name="/Pages/Production/ReadyStock/_LineageChain.cshtml" model="Model.Lineage" />
+    }
+
+    <h5>Ledger entries of this operation</h5>
+    <div class="table-responsive">
+        <table class="table table-sm table-striped" id="ledger">
+            <thead class="table-light"><tr><th>When (IST)</th><th>Batch</th><th>Type</th><th class="text-end">Plants</th><th class="text-end">Before</th><th>Remarks</th></tr></thead>
+            <tbody>
+                @foreach (var l in Model.Ledger)
+                {
+                    <tr>
+                        <td>@AppClock.ToIndiaTime(l.TransactionDate).ToString("dd/MM/yyyy HH:mm")</td>
+                        <td>#@l.ReadyStockId</td>
+                        <td>@l.TransactionType</td>
+                        <td class="text-end">@Qty(l.Quantity)</td>
+                        <td class="text-end">@Qty(l.BeforeQuantity)</td>
+                        <td class="small">@l.Remarks</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (User.HasPermission(PlantStockManager.Pages.Production.Transplanting.DetailsModel.ReversePermission) && t.Status == TransplantRules.StatusCompleted)
+    {
+        <div class="card border-danger mb-4">
+            <div class="card-body">
+                <h6 class="text-danger">Reverse this transplanting</h6>
+                @if (Model.CanReverse)
+                {
+                    <p class="small mb-2">@(t.OutputIsTrayBatch ? $"Cancels tray batch {t.OutputSowingCode}" : $"Takes the {Qty(t.TransplantedQuantity)} plants back out of output batch #{t.OutputReadyStockId}"), returns @Qty(t.SelectedQuantity) plants
+                        (transplanted + lost) to source batch #@t.SourceReadyStockId and @t.OutputTrays empty trays to Tray Stock. Every step is a new ledger entry.</p>
+                    <form method="post" asp-page-handler="Reverse" asp-route-id="@t.Id" class="input-group" id="reverse-form">
+                        <input name="reason" class="form-control" maxlength="500" placeholder="Reason for the reversal" required />
+                        <button type="submit" class="btn btn-danger">Reverse</button>
+                    </form>
+                }
+                else
+                {
+                    <p class="small mb-0" id="reverse-blocked">@Model.ReverseBlockedReason</p>
+                }
+            </div>
+        </div>
+    }
+    <a asp-page="/Production/Transplanting/History" class="btn btn-secondary mb-4">Back to history</a>
+</div>
+
+@section Scripts {
+    <script>
+        document.getElementById('reverse-form')?.addEventListener('submit', function (e) {
+            if (!confirm('Reverse this transplanting?')) { e.preventDefault(); return; }
+            this.querySelector('button').disabled = true;
+        });
+    </script>
+}

@@ -32,6 +32,39 @@
                     <div class="col-md-6"><strong>Expected Ready Date:</strong> @(s.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</div>
                     <div class="col-md-6"><strong>Sown from:</strong> @s.SourceLabel @(s.IsCuttingSource ? "(" + s.SourceAreaName + ")" : (string.IsNullOrEmpty(s.BatchNo) ? "-" : s.BatchNo))</div>
                     <div class="col-md-6"><strong>Assigned Supervisor:</strong> @(s.SupervisorName ?? "-")</div>
+                    <div class="col-md-6"><strong>Origin:</strong> @s.OriginLabel</div>
+                    @if (s.IsBedSowingSource)
+                    {
+                        <div class="col-md-6">
+                            <strong>Bed:</strong> <a asp-page="/Production/BedSowing/Details" asp-route-id="@s.BedSowingId">@s.BedSowingCode</a>,
+                            transplanted @(s.BedTransplantDate?.ToString("dd/MM/yyyy")) (@s.BedTransplantCode)
+                        </div>
+                        <div class="col-12 small text-muted">
+                            Sowing Date is the bed's; Expected Ready Date = transplant date + Ready Days. At most the
+                            @Qty(s.RemainingReadyQuantity) seedlings still in these trays can be approved.
+                        </div>
+                    }
+                    @if (s.IsTransplantSource)
+                    {
+                        <div class="col-md-6">
+                            <strong>Transplanted from Ready Stock:</strong> <a asp-page="/Production/Transplanting/Details" asp-route-id="@s.TransplantId">@s.TransplantCode</a>,
+                            transplanted @(s.TransplantDate?.ToString("dd/MM/yyyy"))
+                        </div>
+                        <div class="col-12 small text-muted">
+                            Sowing Date is the original sowing's; Expected Ready Date = transplant date + Ready Days. At most the
+                            @Qty(s.RemainingReadyQuantity) plants still in these trays can be approved.
+                        </div>
+                    }
+                    @{
+                        // Bed Sowing and transplanted tray batches: approved only from their Ready Date (the same
+                        // rule the server applies inside the approval transaction).
+                        var (readyNow, notReadyError) = PlantStockManager.Services.BedSowingRules.ValidateApprovalReadyDate(
+                            s.SourceType, s.ExpectedReadyDate, PlantStockManager.Services.AppClock.Today);
+                    }
+                    @if (!readyNow)
+                    {
+                        <div class="col-12"><div class="alert alert-warning mb-0 mt-2" id="notReadyYet">@notReadyError</div></div>
+                    }
                 </div>
             </div>
 
@@ -134,7 +167,8 @@
 
                 <div class="text-center mt-4">
                     <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-secondary me-2">Cancel</a>
-                    <button type="submit" class="btn btn-success">Approve &amp; Close Batch</button>
+                    @{ var approveBlocked = !PlantStockManager.Services.BedSowingRules.ValidateApprovalReadyDate(s.SourceType, s.ExpectedReadyDate, PlantStockManager.Services.AppClock.Today).Ok; }
+                    <button type="submit" class="btn btn-success" disabled="@approveBlocked">Approve &amp; Close Batch</button>
                 </div>
             </form>
         </div>

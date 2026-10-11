@@ -1,0 +1,77 @@
+@page
+@model PlantStockManager.Pages.Production.BedSowing.HistoryModel
+@{
+    ViewData["Title"] = "Bed Transplant History";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <h2 class="mb-0">Bed Transplant &amp; Loss History</h2>
+        <a asp-page="/Production/BedSowing/Index" class="btn btn-outline-secondary">Bed Sowing</a>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">Bed Sowing is not set up in this database yet (migration 2026-10-12_BedSowing.sql).</div>
+    }
+    else
+    {
+        <form method="get" class="row g-2 align-items-end mb-3">
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="from">From</label>
+                <input type="date" id="from" name="From" value="@Model.From?.ToString("yyyy-MM-dd")" class="form-control" />
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="to">To</label>
+                <input type="date" id="to" name="To" value="@Model.To?.ToString("yyyy-MM-dd")" class="form-control" />
+            </div>
+            <div class="col-12 col-md-2"><button type="submit" class="btn btn-primary w-100">Show</button></div>
+        </form>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Date</th><th>No.</th><th>Bed</th><th>Type</th><th class="text-end">Quantity</th><th>Cavity x Trays</th>
+                        <th>Into / reason</th><th>Tray batch</th><th>Recorded by</th><th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var o in Model.Operations)
+                    {
+                        <tr class="@(o.IsActive ? "" : "text-muted")">
+                            <td>@o.OperationDate.ToString("dd/MM/yyyy")</td>
+                            <td>@o.OperationCode</td>
+                            <td><a asp-page="/Production/BedSowing/Details" asp-route-id="@o.BedSowingId">@o.BedSowingCode</a></td>
+                            <td>@(o.IsTransplant ? "Transplant" : "Bed loss")</td>
+                            <td class="text-end">@Qty(o.Quantity)</td>
+                            <td>@(o.IsTransplant ? $"{o.CavityType} x {o.OutputTrays}" : "-")</td>
+                            <td>@(o.IsTransplant ? o.TargetPolyhouseName : o.Reason)</td>
+                            <td>
+                                @if (o.SeedSowingId.HasValue)
+                                {
+                                    <a asp-page="/Production/SeedSowing/Details" asp-route-id="@o.SeedSowingId">@o.SowingCode</a>
+                                    <span class="small text-muted">@(o.SowingStatus == "Sown" ? "growing" : o.SowingStatus)</span>
+                                }
+                                else { <span class="text-muted">-</span> }
+                            </td>
+                            <td>@o.CreatedBy <div class="small text-muted">@PlantStockManager.Services.AppClock.ToIndiaTime(o.CreatedDate).ToString("dd/MM/yyyy HH:mm")</div></td>
+                            <td>
+                                @if (o.IsActive) { <span class="badge bg-success">Active</span> }
+                                else
+                                {
+                                    <span class="badge bg-secondary">Reversed</span>
+                                    <div class="small">by @o.ReversedBy: @o.ReversalReason</div>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (!Model.Operations.Any())
+                    {
+                        <tr><td colspan="10" class="text-center text-muted">No bed transplant or loss in this period.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

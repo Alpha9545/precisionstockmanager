@@ -1,0 +1,236 @@
+@page
+@model PlantStockManager.Pages.Production.MaterialStock.TrayTransfersModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Tray Transfers";
+    var pending = Model.Transfers.Where(t => t.Status == TrayTransferRules.StatusPending).ToList();
+}
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h4 class="mb-0">Tray Transfers</h4>
+        <a asp-page="/Production/MaterialStock/Index" asp-route-Material="@MaterialStockRules.TraysKind" class="btn btn-sm btn-outline-secondary">Back to Material Stock</a>
+    </div>
+    @if (TempData["Success"] != null) { <div class="alert alert-success" role="status">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger" role="alert">@TempData["Error"]</div> }
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div asp-validation-summary="All" class="alert alert-danger" role="alert"></div>
+    }
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning" role="alert">Tray transfers are not set up in this database yet (migration 2026-10-10_TrayTransfers.sql has not been applied).</div>
+        return;
+    }
+    <p class="text-muted small">
+        Empty trays leave the source Polyhouse when a transfer is sent and are <strong>in transit</strong> (in neither
+        Polyhouse) until the destination receives them. A rejected or cancelled transfer returns the trays to the source.
+        In transit now: <strong id="inTransitTotal">@QuantityFormat.Qty(pending.Sum(t => t.Quantity))</strong> trays
+        in @pending.Count transfer@(pending.Count == 1 ? "" : "s").
+    </p>
+
+    @if (Model.CanSend)
+    {
+        <div class="card shadow-sm mb-4">
+            <div class="card-header"><h5 class="mb-0">Send trays</h5></div>
+            <div class="card-body">
+                @if (!Model.SourceAreas.Any())
+                {
+                    <div class="alert alert-warning mb-0">You may not send trays from any Area. Ask an administrator to assign your Area.</div>
+                }
+                else
+                {
+                    <form method="post" asp-page-handler="Send" id="sendForm">
+                        <input type="hidden" asp-for="Input.SubmissionToken" />
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="srcArea">From Area</label>
+                                <select asp-for="Input.SourceAreaId" id="srcArea" class="form-select" required>
+                                    <option value="">-- Select Area --</option>
+                                    @foreach (var a in Model.SourceAreas)
+                                    {
+                                        <option value="@a.Id" selected="@(Model.Input.SourceAreaId == a.Id)">@a.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="srcPolyhouse">From Polyhouse</label>
+                                <select asp-for="Input.SourcePolyhouseId" id="srcPolyhouse" class="form-select" required>
+                                    <option value="">-- Select Polyhouse --</option>
+                                    @foreach (var p in Model.Polyhouses.Where(p => Model.SourceAreas.Any(a => a.Id == p.AreaId)))
+                                    {
+                                        <option value="@p.Id" data-area="@p.AreaId" selected="@(Model.Input.SourcePolyhouseId == p.Id)">@p.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="dstArea">To Area</label>
+                                <select asp-for="Input.DestinationAreaId" id="dstArea" class="form-select" required>
+                                    <option value="">-- Select Area --</option>
+                                    @foreach (var a in Model.DestinationAreas)
+                                    {
+                                        <option value="@a.Id" selected="@(Model.Input.DestinationAreaId == a.Id)">@a.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="dstPolyhouse">To Polyhouse</label>
+                                <select asp-for="Input.DestinationPolyhouseId" id="dstPolyhouse" class="form-select" required>
+                                    <option value="">-- Select Polyhouse --</option>
+                                    @foreach (var p in Model.Polyhouses.Where(p => Model.DestinationAreas.Any(a => a.Id == p.AreaId)))
+                                    {
+                                        <option value="@p.Id" data-area="@p.AreaId" selected="@(Model.Input.DestinationPolyhouseId == p.Id)">@p.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold" for="trCavity">Cavity</label>
+                                <select asp-for="Input.TraySize" id="trCavity" class="form-select" required>
+                                    <option value="">-- Select Cavity --</option>
+                                    @foreach (var t in Model.TraySizes)
+                                    {
+                                        <option value="@t" selected="@(Model.Input.TraySize == t)">@t</option>
+                                    }
+                                </select>
+                                <div class="form-text" id="srcBalance" aria-live="polite"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold" for="trQuantity">Trays</label>
+                                <input type="number" step="1" min="1" asp-for="Input.Quantity" id="trQuantity" asp-format="{0:0}" class="form-control" required />
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold" for="trDate">Date sent</label>
+                                <input type="date" asp-for="Input.TransferDate" id="trDate" asp-format="{0:yyyy-MM-dd}" max="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" required />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="trRemarks">Remark <span class="text-muted">(optional)</span></label>
+                                <textarea asp-for="Input.Remarks" id="trRemarks" class="form-control" rows="2" maxlength="@TrayTransferRules.MaxReasonLength"></textarea>
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <button type="submit" class="btn btn-success" id="sendBtn">Send Trays</button>
+                        </div>
+                    </form>
+                }
+            </div>
+        </div>
+    }
+
+    <div class="d-flex flex-wrap gap-2 mb-2" role="group" aria-label="Filter by status">
+        <a asp-page="./TrayTransfers" class="btn btn-sm @(string.IsNullOrEmpty(Model.Status) ? "btn-success" : "btn-outline-success")">All</a>
+        @foreach (var s in new[] { TrayTransferRules.StatusPending, TrayTransferRules.StatusReceived, TrayTransferRules.StatusRejected, TrayTransferRules.StatusCancelled })
+        {
+            <a asp-page="./TrayTransfers" asp-route-status="@s" class="btn btn-sm @(Model.Status == s ? "btn-success" : "btn-outline-success")">@TrayTransferRules.StatusLabel(s)</a>
+        }
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle" id="transfersTable">
+            <thead>
+                <tr>
+                    <th>Transfer</th>
+                    <th>Date sent</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Cavity</th>
+                    <th class="text-end">Trays</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Transfers.Any())
+                {
+                    <tr class="stack-empty"><td colspan="8" class="text-center text-muted">No tray transfers.</td></tr>
+                }
+                @foreach (var t in Model.Transfers)
+                {
+                    <tr>
+                        <td data-label="Transfer">
+                            <strong>@t.TransferCode</strong>
+                            <div class="small text-muted">by @t.CreatedBy</div>
+                            @if (!string.IsNullOrEmpty(t.Remarks)) { <div class="small">@t.Remarks</div> }
+                        </td>
+                        <td data-label="Date sent">@t.TransferDate.ToString("dd/MM/yyyy")</td>
+                        <td data-label="From">@t.SourceAreaName / @t.SourcePolyhouseName</td>
+                        <td data-label="To">@t.DestinationAreaName / @t.DestinationPolyhouseName</td>
+                        <td data-label="Cavity">@t.TraySize</td>
+                        <td data-label="Trays" class="text-end">@QuantityFormat.Qty(t.Quantity)</td>
+                        <td data-label="Status">
+                            <span class="badge @(t.Status switch { "Pending" => "bg-warning text-dark", "Received" => "bg-success", _ => "bg-secondary" })">@TrayTransferRules.StatusLabel(t.Status)</span>
+                            @if (t.ClosedAt.HasValue)
+                            {
+                                <div class="small text-muted">@t.ClosedBy, @AppClock.ToIndiaTime(t.ClosedAt.Value).ToString("dd/MM/yyyy HH:mm")</div>
+                            }
+                            @if (!string.IsNullOrEmpty(t.CloseReason)) { <div class="small">@t.CloseReason</div> }
+                        </td>
+                        <td data-label="Action">
+                            @if (Model.MayReceive(t))
+                            {
+                                <form method="post" asp-page-handler="Receive" class="d-flex flex-wrap gap-1 mb-1">
+                                    <input type="hidden" name="TransferId" value="@t.Id" />
+                                    <label class="visually-hidden" for="rcv_@t.Id">Date received for @t.TransferCode</label>
+                                    <input type="date" name="ReceivedDate" id="rcv_@t.Id" value="@Model.Today.ToString("yyyy-MM-dd")"
+                                           min="@t.TransferDate.ToString("yyyy-MM-dd")" max="@Model.Today.ToString("yyyy-MM-dd")" class="form-control form-control-sm" style="max-width: 10rem;" required />
+                                    <button type="submit" class="btn btn-sm btn-success">Receive</button>
+                                </form>
+                                <form method="post" asp-page-handler="Reject" class="d-flex flex-wrap gap-1 mb-1">
+                                    <input type="hidden" name="TransferId" value="@t.Id" />
+                                    <label class="visually-hidden" for="rej_@t.Id">Reason for rejecting @t.TransferCode</label>
+                                    <input type="text" name="Reason" id="rej_@t.Id" class="form-control form-control-sm" style="max-width: 14rem;" placeholder="Reason to reject" maxlength="@TrayTransferRules.MaxReasonLength" required />
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Reject</button>
+                                </form>
+                            }
+                            @if (Model.MayCancel(t))
+                            {
+                                <form method="post" asp-page-handler="Cancel" class="d-flex flex-wrap gap-1">
+                                    <input type="hidden" name="TransferId" value="@t.Id" />
+                                    <label class="visually-hidden" for="can_@t.Id">Reason for cancelling @t.TransferCode</label>
+                                    <input type="text" name="Reason" id="can_@t.Id" class="form-control form-control-sm" style="max-width: 14rem;" placeholder="Reason to cancel" maxlength="@TrayTransferRules.MaxReasonLength" required />
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Cancel transfer</button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            document.querySelectorAll('form[method="post"]').forEach(function (f) {
+                f.addEventListener('submit', function () { f.querySelectorAll('button[type="submit"]').forEach(function (b) { b.disabled = true; }); });
+            });
+            const pools = @Json.Serialize(Model.SourcePools.Select(p => new { polyhouse = p.PolyhouseId, size = p.TraySize, qty = p.PhysicalQuantity }));
+            function link(areaId, phId) {
+                const area = document.getElementById(areaId), ph = document.getElementById(phId);
+                if (!area || !ph) return;
+                const all = Array.from(ph.querySelectorAll('option[data-area]')).map(function (o) { return o.cloneNode(true); });
+                function filter() {
+                    const keep = ph.value;
+                    ph.querySelectorAll('option[data-area]').forEach(function (o) { o.remove(); });
+                    all.filter(function (o) { return area.value && o.dataset.area === area.value; })
+                       .forEach(function (o) { const c = o.cloneNode(true); c.selected = c.value === keep; ph.appendChild(c); });
+                    showBalance();
+                }
+                area.addEventListener('change', filter);
+                ph.addEventListener('change', showBalance);
+                filter();
+            }
+            function showBalance() {
+                const ph = document.getElementById('srcPolyhouse'), cavity = document.getElementById('trCavity'), out = document.getElementById('srcBalance');
+                if (!ph || !cavity || !out) return;
+                if (!ph.value || !cavity.value) { out.textContent = ''; return; }
+                const p = pools.find(function (x) { return String(x.polyhouse) === ph.value && x.size === cavity.value; });
+                out.textContent = 'Available to send: ' + (p ? Number(p.qty) : 0) + ' trays';
+            }
+            link('srcArea', 'srcPolyhouse');
+            link('dstArea', 'dstPolyhouse');
+            const cav = document.getElementById('trCavity');
+            if (cav) cav.addEventListener('change', showBalance);
+        })();
+    </script>
+}

@@ -1,0 +1,91 @@
+@page
+@model PlantStockManager.Pages.Production.Transplanting.HistoryModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Transplanting History";
+    var f = Model.Filter;
+    var done = Model.Rows.Where(r => r.Status == TransplantRules.StatusCompleted).ToList();
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <h3 class="mb-0">Transplanting History</h3>
+        <a asp-page="/Production/Transplanting/Index" class="btn btn-sm btn-outline-success">Transplanting</a>
+    </div>
+
+    <form method="get" class="row g-2 align-items-end mb-3 p-2 border rounded bg-light">
+        <div class="col-6 col-md-2"><label class="form-label small mb-0">From</label><input type="date" name="Filter.From" value="@f.From?.ToString("yyyy-MM-dd")" class="form-control form-control-sm" /></div>
+        <div class="col-6 col-md-2"><label class="form-label small mb-0">To</label><input type="date" name="Filter.To" value="@f.To?.ToString("yyyy-MM-dd")" class="form-control form-control-sm" /></div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0">Area</label>
+            <select name="Filter.AreaId" class="form-select form-select-sm"><option value="">All</option>
+                @foreach (var a in Model.Areas) { <option value="@a.Id" selected="@(f.AreaId == a.Id)">@a.Name</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0">Polyhouse</label>
+            <select name="Filter.PolyhouseId" class="form-select form-select-sm"><option value="">All</option>
+                @foreach (var p in Model.Polyhouses) { <option value="@p.Id" selected="@(f.PolyhouseId == p.Id)">@p.Name</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0">Variety</label>
+            <select name="Filter.SpeciesId" class="form-select form-select-sm"><option value="">All</option>
+                @foreach (var v in Model.Varieties) { <option value="@v.Id" selected="@(f.SpeciesId == v.Id)">@v.Name</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0">Target cavity</label>
+            <select name="Filter.CavityType" class="form-select form-select-sm"><option value="">All</option>
+                @foreach (var c in TransplantRules.TargetCavityTypes) { <option value="@c" selected="@(f.CavityType == c)">@c</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-2"><label class="form-label small mb-0">Batch / sowing</label><input name="Filter.BatchNo" value="@f.BatchNo" class="form-control form-control-sm" /></div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0">Status</label>
+            <select name="Filter.Status" class="form-select form-select-sm"><option value="">All</option>
+                <option value="@TransplantRules.StatusCompleted" selected="@(f.Status == TransplantRules.StatusCompleted)">Completed</option>
+                <option value="@TransplantRules.StatusReversed" selected="@(f.Status == TransplantRules.StatusReversed)">Reversed</option>
+            </select>
+        </div>
+        <div class="col-6 col-md-1 d-grid"><button class="btn btn-sm btn-primary">Filter</button></div>
+        <div class="col-6 col-md-1 d-grid"><a asp-page="/Production/Transplanting/History" class="btn btn-sm btn-outline-secondary">Clear</a></div>
+    </form>
+
+    <div class="row g-2 mb-3" id="totals">
+        <div class="col-6 col-md-3"><div class="border rounded p-2 bg-white"><div class="small text-muted">Transplanted (completed)</div><div class="fs-5 fw-bold">@Qty(done.Sum(r => r.TransplantedQuantity))</div></div></div>
+        <div class="col-6 col-md-3"><div class="border rounded p-2 bg-white"><div class="small text-muted">Lost / damaged</div><div class="fs-5 fw-bold">@Qty(done.Sum(r => r.LostQuantity))</div></div></div>
+        <div class="col-12 col-md-6"><div class="border rounded p-2 bg-white"><div class="small text-muted">Output by cavity (plants / trays)</div>
+            <div class="small">@(done.Any() ? string.Join(" · ", done.GroupBy(r => r.TargetCavityType).OrderBy(g => DirectSowingRules.CavityCount(g.Key)).Select(g => $"{g.Key}: {Qty(g.Sum(r => r.TransplantedQuantity))} / {g.Sum(r => r.OutputTrays)}")) : "-")</div></div></div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle" id="history">
+            <thead class="table-light">
+                <tr><th>Code</th><th>Date</th><th>Status</th><th>Variety</th><th>Source (batch / cavity)</th><th>Target (Area / Polyhouse)</th><th>Target cavity</th>
+                    <th class="text-end">Selected</th><th class="text-end">Transplanted</th><th class="text-end">Lost</th><th class="text-end">Trays</th><th>By</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Rows)
+                {
+                    <tr>
+                        <td><a asp-page="/Production/Transplanting/Details" asp-route-id="@r.Id">@r.TransplantCode</a></td>
+                        <td>@r.TransplantDate.ToString("dd/MM/yyyy")</td>
+                        <td><span class="badge @(r.Status == TransplantRules.StatusCompleted ? "bg-success" : "bg-secondary")">@r.Status</span></td>
+                        <td>@r.SpeciesName<div class="small text-muted">@r.PlantTypeName</div></td>
+                        <td>@r.BatchNo &middot; @r.SourceCavityType<div class="small text-muted">@r.SourceAreaName / @(r.SourcePolyhouseName ?? "-") &middot; @r.SowingCode</div></td>
+                        <td>@r.AreaName / @r.PolyhouseName</td>
+                        <td>@r.TargetCavityType</td>
+                        <td class="text-end">@Qty(r.SelectedQuantity)</td>
+                        <td class="text-end fw-bold">@Qty(r.TransplantedQuantity)</td>
+                        <td class="text-end">@(r.LostQuantity > 0 ? Qty(r.LostQuantity) : "-")</td>
+                        <td class="text-end">@r.OutputTrays@if (r.PlantsInLastTray > 0 && r.PlantsInLastTray < r.TargetCavitySize) {<div class="small text-muted">last: @Qty(r.PlantsInLastTray)</div>}</td>
+                        <td class="small">@r.CreatedBy</td>
+                    </tr>
+                }
+                @if (!Model.Rows.Any()) { <tr><td colspan="12" class="text-center text-muted">No transplanting matches.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+    @if (Model.Rows.Count >= PlantStockManager.Pages.Production.Transplanting.HistoryModel.MaxRows) { <div class="small text-muted">Showing the latest @PlantStockManager.Pages.Production.Transplanting.HistoryModel.MaxRows; narrow the filters to see older ones.</div> }
+</div>

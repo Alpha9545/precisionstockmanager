@@ -1,0 +1,30 @@
+@page
+@model PlantStockManager.Pages.Maintenance.AssignedModel
+@{
+    ViewData["Title"] = "Assigned Tickets";
+}
+
+<div class="container-fluid mt-4">
+    <h3 class="mb-1">Assigned Tickets</h3>
+    @if (Model.IsWorker)
+    {
+        <p class="text-muted" id="tradeInfo">Your trade: @string.Join(", ", Model.Trades)</p>
+    }
+    else
+    {
+        <div class="alert alert-info py-2" id="notWorker">You are not a maintenance worker. Below: Open tickets waiting for a worker, and tickets in progress (administrators can assign / reassign from a ticket).</div>
+    }
+    @if (TempData["Error"] != null) { <div class="alert alert-warning">@TempData["Error"]</div> }
+
+    <h5 class="mt-3">@(Model.IsWorker ? "Available to accept" : "Waiting for a worker") <span class="badge bg-primary">@Model.Available.Count</span></h5>
+    <partial name="_TicketTable" model="Model.Available" view-data='new ViewDataDictionary(ViewData) { ["TableId"] = "availableTable", ["Empty"] = "No open tickets." }' />
+
+    <h5 class="mt-4">@(Model.IsWorker ? "My assigned tickets" : "In progress") <span class="badge bg-warning text-dark">@Model.Mine.Count</span></h5>
+    <partial name="_TicketTable" model="Model.Mine" view-data='new ViewDataDictionary(ViewData) { ["TableId"] = "mineTable", ["Empty"] = "Nothing assigned." }' />
+
+    @if (Model.IsWorker)
+    {
+        <h5 class="mt-4">Completed <span class="badge bg-secondary">@Model.Done.Count</span></h5>
+        <partial name="_TicketTable" model="Model.Done" view-data='new ViewDataDictionary(ViewData) { ["TableId"] = "doneTable", ["Empty"] = "No closed tickets yet." }' />
+    }
+</div>

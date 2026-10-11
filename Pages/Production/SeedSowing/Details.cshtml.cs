@@ -10,14 +10,19 @@ namespace PlantStockManager.Pages.Production.SeedSowing
     {
         private readonly SeedSowingRepository _seedSowingRepo;
         private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
+        private readonly MaterialStockRepository _materialRepo;
 
-        public DetailsModel(SeedSowingRepository seedSowingRepo, SeedlingAreaScope areaAccessService)
+        public DetailsModel(SeedSowingRepository seedSowingRepo, SeedlingAreaScope areaAccessService, MaterialStockRepository materialRepo)
         {
+            _materialRepo = materialRepo;
             _seedSowingRepo = seedSowingRepo;
             _areaAccessService = areaAccessService;
         }
 
         public SeedSowingModel? SeedSowing { get; set; }
+
+        // Material Stock rows of this sowing: its consumption and, if cancelled, the return.
+        public List<PlantStockManager.Models.MaterialTransaction> MaterialMovements { get; set; } = new();
 
         // Phase 24 (Phase J): the same date-derived, read-only alert
         // category shown on the Ready Alerts list, computed via the one
@@ -44,6 +49,7 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 TempData["Error"] = "You are not authorized to view this Sowing record.";
                 return RedirectToPage("/Production/SeedSowing/Index");
             }
+            MaterialMovements = await _materialRepo.GetForSowingAsync(SeedSowing.Id);
 
             AlertCategory = SeedSowingRepository.ClassifyReadyAlert(
                 SeedSowing.Status, SeedSowing.ExpectedReadyDate, DateTime.Today, SeedSowingRepository.DefaultReadySoonWindowDays);

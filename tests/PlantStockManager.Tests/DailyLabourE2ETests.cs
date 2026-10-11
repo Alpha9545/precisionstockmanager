@@ -33,7 +33,9 @@ namespace PlantStockManager.Tests
     {
         private const string ConnectionVariable = "PSM_SCRATCH_CONNECTION";
         private const string RequiredPrefix = "PlantsIMS2_Scratch_";
-        private const int SowingSup = 6, MpSup = 110, OutletSales = 112, BookingExec = 15, Admin = 21;
+        private const int MpSup = 110, OutletSales = 112, BookingExec = 15, Admin = 21;
+        // 2026-10-10: looked up per run (FixtureUsers) -- user 6 is no longer a Sowing Supervisor in the local data
+        private static int SowingSup = 6;
         private const int MainOffice = 2, GreenBless = 127, Samarth = 123, Outlet = 124;
         private const int Facility5 = 2, Facility3 = 3;
         private static readonly DateTime D1 = new(2001, 3, 1), D2 = new(2001, 3, 2), D3 = new(2001, 3, 3);
@@ -117,6 +119,8 @@ namespace PlantStockManager.Tests
             Skip.If(await env.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID('dbo.DailyLabourCounts') IS NULL THEN 0 ELSE 1 END") == 0,
                 "The scratch copy does not have 2026-10-04_DailyLabourCounts.sql applied.");
             await env.CleanupAsync();
+            SowingSup = await env.ScalarAsync<int>(FixtureUsers.MainOfficeSowingSupervisorSql);
+            Skip.If(SowingSup == 0, "No active Sowing Supervisor is assigned to the Main Office Area in this copy.");
             return env;
         }
 
@@ -158,27 +162,7 @@ namespace PlantStockManager.Tests
             Assert.Equal(2, await env.ScalarAsync<int>(@"SELECT COUNT(DISTINCT rp.RoleId) FROM dbo.RolePermissions rp JOIN dbo.Permissions p ON p.Id = rp.PermissionId WHERE p.Code LIKE 'Labour.%'"));
         }
 
-        // ---- location rule -----------------------------------------------------------------------------
-
-        [SkippableFact]
-        public async Task MainOffice_RequiresPolyhouse_AndSavesPolyhouseWise()
-        {
-            var env = await OpenAsync();
-            try
-            {
-                var (r, page) = await PostAsync(env, SowingSup, D1, MainOffice, null, 10, 2, 8, 1);
-                Assert.IsType<PageResult>(r);
-                Assert.Contains(DailyLabourRules.PolyhouseRequiredMessage, Errors(page));
-                Assert.Equal(0, await env.CountAsync(D1, MainOffice, null));
-
-                (r, _) = await PostAsync(env, SowingSup, D1, MainOffice, Facility5, 10, 2, 8, 1);
-                AssertSaved(r);
-                var row = await env.Get<DailyLabourCountRepository>().GetByIdAsync((await env.Get<DailyLabourCountRepository>().FindIdAsync(D1, MainOffice, Facility5))!.Value);
-                Assert.Equal((10, 2, 8, 1, 21, 19.5m, SowingSup), (row!.MaleFullDay, row.MaleHalfDay, row.FemaleFullDay, row.FemaleHalfDay, row.TotalWorkers, row.LabourDays, row.CreatedById));
-                Assert.Equal("Facility-5", row.PolyhouseName);
-            }
-            finally { await env.CleanupAsync(); }
-        }
+        // ---- location rule (Polyhouse dropdown handler, still used by the page) ----------------------
 
         [SkippableFact]
         public async Task PolyhouseDropdown_OnlyThatMainOfficeAreasPolyhouses_NoneForOtherAreas()
@@ -205,128 +189,64 @@ namespace PlantStockManager.Tests
             Assert.Empty((IEnumerable<object>)(await mp.OnGetPolyhousesAsync(MainOffice)).Value!);
         }
 
+        // ---- retired: new manual records (2026-10-06) -------------------------------------------------
+        // Daily Labour is now entered as 9:00 AM / 2:00 PM attendance (DailyLabourAttendanceE2ETests covers
+        // the location rule, authorization, dates, counts and duplicates for the new entry). The manual page
+        // creates nothing any more -- for every user, on GET and on POST.
+
         [SkippableFact]
-        public async Task OtherArea_IsAreaWise_PolyhouseRejected()
+        public async Task NewManualRecord_IsRetired_ForEveryUser_NothingIsSaved()
         {
             var env = await OpenAsync();
             try
             {
-                var gbPolyhouse = await env.ScalarAsync<int>("SELECT TOP 1 Id FROM dbo.Polyhouses WHERE AreaId = 127");
-                var (r, page) = await PostAsync(env, MpSup, D1, GreenBless, gbPolyhouse, 15, 3, 12, 2);
-                Assert.IsType<PageResult>(r);
-                Assert.Contains(DailyLabourRules.PolyhouseNotAllowedMessage, Errors(page));
-
-                (r, _) = await PostAsync(env, MpSup, D1, GreenBless, null, 15, 3, 12, 2);
-                AssertSaved(r);
-                var id = await env.Get<DailyLabourCountRepository>().FindIdAsync(D1, GreenBless, null);
-                var row = await env.Get<DailyLabourCountRepository>().GetByIdAsync(id!.Value);
-                Assert.Null(row!.PolyhouseId);
-                Assert.Equal((18, 14, 32, 29.5m), (row.TotalMale, row.TotalFemale, row.TotalWorkers, row.LabourDays));
-            }
-            finally { await env.CleanupAsync(); }
-        }
-
-        // ---- authorization -----------------------------------------------------------------------------
-
-        [SkippableFact]
-        public async Task TamperedAreaOrPolyhouse_IsRejected()
-        {
-            var env = await OpenAsync();
-            try
-            {
-                // Sowing Supervisor (Main Office only) -> Green Bless
-                var (r, page) = await PostAsync(env, SowingSup, D1, GreenBless, null, 1, 0, 0, 0);
-                Assert.IsType<PageResult>(r);
-                Assert.Contains(DailyLabourRules.NotAuthorizedMessage, Errors(page));
-                // Mother Plant Supervisor (Green Bless only) -> Main Office + Facility-5
-                (r, page) = await PostAsync(env, MpSup, D1, MainOffice, Facility5, 1, 0, 0, 0);
-                Assert.Contains(DailyLabourRules.NotAuthorizedMessage, Errors(page));
-                // Main Office + a Polyhouse of another Area
-                var gbPolyhouse = await env.ScalarAsync<int>("SELECT TOP 1 Id FROM dbo.Polyhouses WHERE AreaId = 127");
-                (r, page) = await PostAsync(env, SowingSup, D1, MainOffice, gbPolyhouse, 1, 0, 0, 0);
-                Assert.Contains(DailyLabourRules.PolyhouseNotInAreaMessage, Errors(page));
-                // Non-existent ids
-                (r, page) = await PostAsync(env, Admin, D1, 999999, null, 1, 0, 0, 0);
-                Assert.IsType<PageResult>(r);
-                (r, page) = await PostAsync(env, SowingSup, D1, MainOffice, 999999, 1, 0, 0, 0);
-                Assert.IsType<PageResult>(r);
-
+                foreach (var user in new[] { SowingSup, MpSup, Admin })
+                {
+                    var get = env.Page<EntryPage>(await env.LoginAsync(user), "GET");
+                    Assert.Equal("/Production/Labour/Attendance", Assert.IsType<RedirectToPageResult>(await get.OnGetAsync()).PageName);
+                    Assert.Equal(DailyLabourRules.ManualEntryRetiredMessage, get.TempData["Success"]);
+                }
+                foreach (var (user, area, polyhouse) in new[] { (SowingSup, MainOffice, (int?)Facility5), (MpSup, GreenBless, (int?)null), (Admin, Samarth, (int?)null) })
+                {
+                    var (r, _) = await PostAsync(env, user, D1, area, polyhouse, 10, 2, 8, 1);
+                    Assert.Equal("/Production/Labour/Attendance", Assert.IsType<RedirectToPageResult>(r).PageName);
+                }
                 Assert.Equal(0, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.DailyLabourCounts WHERE LabourDate = @D", ("@D", D1)));
             }
             finally { await env.CleanupAsync(); }
         }
 
+        // The database keeps guarding the older table (TR_DailyLabourCounts_Location), and Outlet stays out
+        // of the manual Labour Records list.
         [SkippableFact]
-        public async Task Outlet_IsExcluded_EvenForAnAdministrator_AndByTheDatabase()
+        public async Task ManualRecords_LocationRuleStillEnforcedByTheDatabase_OutletExcluded()
         {
             var env = await OpenAsync();
             try
             {
-                var (r, page) = await PostAsync(env, Admin, D1, Outlet, null, 2, 0, 3, 1);
-                Assert.IsType<PageResult>(r);
-                Assert.Contains(DailyLabourRules.OutletNotAllowedMessage, Errors(page));
-
-                var get = env.Page<EntryPage>(await env.LoginAsync(Admin), "GET");
-                await get.OnGetAsync();
-                Assert.DoesNotContain(get.Areas, a => a.AreaType == OutletRules.AreaType);
-                Assert.Contains(get.Areas, a => a.Id == MainOffice);
-                Assert.Contains(get.Areas, a => a.Id == GreenBless);
-                var find = (await get.OnGetFindAsync(D1, Outlet, null)).Value!;
-                Assert.Null(find.GetType().GetProperty("id")!.GetValue(find));
+                var repo = env.Get<DailyLabourCountRepository>();
+                var gbPolyhouse = await env.ScalarAsync<int>("SELECT TOP 1 Id FROM dbo.Polyhouses WHERE AreaId = 127");
+                foreach (var (area, polyhouse, number) in new[] { (MainOffice, (int?)null, 51711), (GreenBless, (int?)gbPolyhouse, 51712), (MainOffice, (int?)gbPolyhouse, 51713), (Outlet, (int?)null, 51714) })
+                {
+                    var ex = await Assert.ThrowsAsync<SqlException>(() => repo.CreateAsync(
+                        new DailyLabourCount { LabourDate = D1, AreaId = area, PolyhouseId = polyhouse, MaleFullDay = 1 }, Admin));
+                    Assert.Equal(number, ex.Number);
+                }
+                Assert.Equal(0, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.DailyLabourCounts WHERE LabourDate = @D", ("@D", D1)));
 
                 var list = env.Page<IndexPage>(await env.LoginAsync(Admin), "GET");
                 list.AreaId = Outlet;
                 await list.OnGetAsync();
                 Assert.Null(list.AreaId);
                 Assert.DoesNotContain(list.AreaOptions, a => a.AreaType == OutletRules.AreaType);
-
-                // The trigger is the final guard.
-                var ex = await Assert.ThrowsAsync<SqlException>(() => env.Get<DailyLabourCountRepository>().CreateAsync(
-                    new DailyLabourCount { LabourDate = D1, AreaId = Outlet, MaleFullDay = 1 }, Admin));
-                Assert.Equal(51714, ex.Number);
-                Assert.Equal(0, await env.CountAsync(D1, Outlet, null));
             }
             finally { await env.CleanupAsync(); }
         }
 
-        [SkippableFact]
-        public async Task Remark_IsOptional_SavedEditedAndLimitedTo500()
-        {
-            var env = await OpenAsync();
-            try
-            {
-                var repo = env.Get<DailyLabourCountRepository>();
-                var (r, page) = await PostAsync(env, MpSup, D1, GreenBless, null, 1, 0, 0, 0, remarks: new string('x', 501));
-                Assert.Contains("Remark cannot be longer than 500 characters.", Errors(page));
-                Assert.Equal(0, await env.CountAsync(D1, GreenBless, null));
-
-                AssertSaved((await PostAsync(env, MpSup, D1, GreenBless, null, 15, 3, 12, 2, remarks: "  Weeding and potting  ")).Result);
-                var id = (await repo.FindIdAsync(D1, GreenBless, null))!.Value;
-                Assert.Equal("Weeding and potting", (await repo.GetByIdAsync(id))!.Remarks);
-
-                var get = env.Page<EntryPage>(await env.LoginAsync(MpSup), "GET");
-                get.Id = id;
-                await get.OnGetAsync();
-                Assert.Equal("Weeding and potting", get.Remarks);
-
-                AssertSaved((await PostAsync(env, MpSup, null, null, null, 15, 3, 12, 2, id: id, remarks: "Rain -- half day")).Result);
-                Assert.Equal("Rain -- half day", (await repo.GetByIdAsync(id))!.Remarks);
-                AssertSaved((await PostAsync(env, MpSup, null, null, null, 15, 3, 12, 2, id: id, remarks: "   ")).Result);
-                Assert.Null((await repo.GetByIdAsync(id))!.Remarks);   // blank = no remark
-
-                AssertSaved((await PostAsync(env, SowingSup, D1, MainOffice, Facility5, 10, 2, 8, 1)).Result);   // remark optional
-                Assert.Null((await repo.GetByIdAsync((await repo.FindIdAsync(D1, MainOffice, Facility5))!.Value))!.Remarks);
-
-                var list = env.Page<IndexPage>(await env.LoginAsync(MpSup), "GET");
-                list.FromDate = D1; list.ToDate = D1;
-                await list.OnGetAsync();
-                Assert.Single(list.Records);
-            }
-            finally { await env.CleanupAsync(); }
-        }
+        // ---- correcting an older manual record: administrator only ------------------------------------
 
         [SkippableFact]
-        public async Task Edit_OfAnotherAreasRecord_IsForbidden_AndPostedLocationIsIgnored()
+        public async Task Edit_IsAdministratorOnly_AndPostedLocationIsIgnored()
         {
             var env = await OpenAsync();
             try
@@ -334,133 +254,65 @@ namespace PlantStockManager.Tests
                 var repo = env.Get<DailyLabourCountRepository>();
                 var (_, id) = await repo.CreateAsync(new DailyLabourCount { LabourDate = D1, AreaId = MainOffice, PolyhouseId = Facility5, MaleFullDay = 10, MaleHalfDay = 2, FemaleFullDay = 8, FemaleHalfDay = 1 }, SowingSup);
 
-                var mpGet = env.Page<EntryPage>(await env.LoginAsync(MpSup), "GET");
-                mpGet.Id = id;
-                Assert.IsType<ForbidResult>(await mpGet.OnGetAsync());
-                var (r, _) = await PostAsync(env, MpSup, D1, GreenBless, null, 99, 0, 0, 0, id: id);
-                Assert.IsType<ForbidResult>(r);
+                // Another Area's supervisor, and even the record's own Area supervisor: forbidden (GET and POST).
+                foreach (var user in new[] { MpSup, SowingSup })
+                {
+                    var get = env.Page<EntryPage>(await env.LoginAsync(user), "GET");
+                    get.Id = id;
+                    Assert.IsType<ForbidResult>(await get.OnGetAsync());
+                    var (r, _) = await PostAsync(env, user, D1, MainOffice, Facility5, 99, 0, 0, 0, id: id);
+                    Assert.IsType<ForbidResult>(r);
+                }
                 Assert.Equal(10, (await repo.GetByIdAsync(id))!.MaleFullDay);
 
-                // Authorized edit: counts change, the record keeps its own date/location even if others are posted.
-                var get = env.Page<EntryPage>(await env.LoginAsync(SowingSup), "GET");
-                get.Id = id;
-                Assert.IsType<PageResult>(await get.OnGetAsync());
-                Assert.Equal((10, 2, 8, 1), (get.MaleFullDay!.Value, get.MaleHalfDay!.Value, get.FemaleFullDay!.Value, get.FemaleHalfDay!.Value));
-
-                (r, _) = await PostAsync(env, SowingSup, D2, MainOffice, Facility3, 12, 2, 8, 1, id: id);
-                AssertSaved(r);
+                // Administrator: counts change, the record keeps its own date/location even if others are posted.
+                var adminGet = env.Page<EntryPage>(await env.LoginAsync(Admin), "GET");
+                adminGet.Id = id;
+                Assert.IsType<PageResult>(await adminGet.OnGetAsync());
+                Assert.Equal((10, 2, 8, 1), (adminGet.MaleFullDay!.Value, adminGet.MaleHalfDay!.Value, adminGet.FemaleFullDay!.Value, adminGet.FemaleHalfDay!.Value));
+                var (saved, _) = await PostAsync(env, Admin, D2, MainOffice, Facility3, 12, 2, 8, 1, id: id);
+                AssertSaved(saved);
                 var row = await repo.GetByIdAsync(id);
-                Assert.Equal((D1, MainOffice, (int?)Facility5, 12, SowingSup), (row!.LabourDate, row.AreaId, row.PolyhouseId, row.MaleFullDay, row.ModifiedById!.Value));
+                Assert.Equal((D1, MainOffice, (int?)Facility5, 12, Admin), (row!.LabourDate, row.AreaId, row.PolyhouseId, row.MaleFullDay, row.ModifiedById!.Value));
                 Assert.NotNull(row.ModifiedDate);
                 Assert.Equal(0, await env.CountAsync(D2, MainOffice, Facility3));
             }
             finally { await env.CleanupAsync(); }
         }
 
-        // ---- validation --------------------------------------------------------------------------------
-
         [SkippableFact]
-        public async Task Dates_FutureRejected_TodayAndPastAccepted()
-        {
-            var env = await OpenAsync();
-            int? todayId = null;
-            try
-            {
-                var (r, page) = await PostAsync(env, MpSup, DateTime.Today.AddDays(1), GreenBless, null, 1, 0, 0, 0);
-                Assert.Contains(DailyLabourRules.FutureDateMessage, Errors(page));
-                (r, page) = await PostAsync(env, MpSup, null, GreenBless, null, 1, 0, 0, 0);
-                Assert.IsType<PageResult>(r);
-
-                (r, _) = await PostAsync(env, MpSup, D1, GreenBless, null, 1, 0, 0, 0);   // past
-                AssertSaved(r);
-
-                todayId = await env.Get<DailyLabourCountRepository>().FindIdAsync(DateTime.Today, GreenBless, null);
-                Skip.If(todayId.HasValue, "Green Bless already has a record for today on this scratch copy.");
-                (r, _) = await PostAsync(env, MpSup, DateTime.Today, GreenBless, null, 1, 0, 0, 0);   // today
-                AssertSaved(r);
-                todayId = await env.Get<DailyLabourCountRepository>().FindIdAsync(DateTime.Today, GreenBless, null);
-                Assert.NotNull(todayId);
-            }
-            finally
-            {
-                if (todayId.HasValue) await env.ExecAsync("DELETE FROM dbo.DailyLabourCounts WHERE Id = @I AND CreatedById = @U", ("@I", todayId.Value), ("@U", MpSup));
-                await env.CleanupAsync();
-            }
-        }
-
-        [SkippableFact]
-        public async Task Counts_NegativeOverMaxMissingAndDecimal_Rejected()
-        {
-            var env = await OpenAsync();
-            var (r, page) = await PostAsync(env, MpSup, D1, GreenBless, null, -1, 0, 0, 0);
-            Assert.Contains("Male Full Day cannot be negative.", Errors(page));
-            (r, page) = await PostAsync(env, MpSup, D1, GreenBless, null, 0, 501, 0, 0);
-            Assert.Contains("Male Half Day cannot be more than 500.", Errors(page));
-            (r, page) = await PostAsync(env, MpSup, D1, GreenBless, null, 0, 0, null, 0);
-            Assert.Contains("Female Full Day is required (enter 0 if none).", Errors(page));
-            // "10.5" fails int model binding; the page replaces the framework message with the business one.
-            (r, page) = await PostAsync(env, MpSup, D1, GreenBless, null, null, 0, 0, 0,
-                before: p => p.ModelState.AddModelError("MaleFullDay", "The value '10.5' is not valid for MaleFullDay."));
-            Assert.Equal(new[] { "Male Full Day: " + DailyLabourRules.WholeNumberMessage }, Errors(page));
-            Assert.Equal(0, await env.CountAsync(D1, GreenBless, null));
-        }
-
-        // ---- duplicates --------------------------------------------------------------------------------
-
-        [SkippableFact]
-        public async Task SameDateAndLocation_OpensTheExistingRecord_NeverASecondRow()
+        public async Task Edit_RemarkAndCounts_AreValidated()
         {
             var env = await OpenAsync();
             try
             {
-                AssertSaved((await PostAsync(env, SowingSup, D1, MainOffice, Facility5, 10, 2, 8, 1)).Result);
-                var (r, _) = await PostAsync(env, SowingSup, D1, MainOffice, Facility5, 1, 1, 1, 1);
-                var redirect = Assert.IsType<RedirectToPageResult>(r);
-                Assert.Null(redirect.PageName);   // back to the Entry page, in edit mode
-                var id = await env.Get<DailyLabourCountRepository>().FindIdAsync(D1, MainOffice, Facility5);
-                Assert.Equal(id, (int)redirect.RouteValues!["id"]!);
-                Assert.Equal(true, redirect.RouteValues["loaded"]);
-                Assert.Equal(1, await env.CountAsync(D1, MainOffice, Facility5));
-                Assert.Equal(10, (await env.Get<DailyLabourCountRepository>().GetByIdAsync(id!.Value))!.MaleFullDay);   // not overwritten
+                var repo = env.Get<DailyLabourCountRepository>();
+                var (_, id) = await repo.CreateAsync(new DailyLabourCount { LabourDate = D1, AreaId = GreenBless, MaleFullDay = 15, MaleHalfDay = 3, FemaleFullDay = 12, FemaleHalfDay = 2 }, MpSup);
 
-                var loaded = env.Page<EntryPage>(await env.LoginAsync(SowingSup), "GET");
-                loaded.Id = id;
-                await loaded.OnGetAsync(loaded: true);
-                Assert.Equal(DailyLabourRules.AlreadyExistsMessage, loaded.ViewData["Info"]);
+                var (r, page) = await PostAsync(env, Admin, null, null, null, 15, 3, 12, 2, id: id, remarks: new string('x', 501));
+                Assert.Contains("Remark cannot be longer than 500 characters.", Errors(page));
+                AssertSaved((await PostAsync(env, Admin, null, null, null, 15, 3, 12, 2, id: id, remarks: "  Weeding and potting  ")).Result);
+                Assert.Equal("Weeding and potting", (await repo.GetByIdAsync(id))!.Remarks);
+                AssertSaved((await PostAsync(env, Admin, null, null, null, 15, 3, 12, 2, id: id, remarks: "   ")).Result);
+                Assert.Null((await repo.GetByIdAsync(id))!.Remarks);   // blank = no remark
 
-                // Area-wise
-                AssertSaved((await PostAsync(env, MpSup, D1, GreenBless, null, 15, 3, 12, 2)).Result);
-                Assert.IsType<RedirectToPageResult>((await PostAsync(env, MpSup, D1, GreenBless, null, 1, 1, 1, 1)).Result);
-                Assert.Equal(1, await env.CountAsync(D1, GreenBless, null));
-
-                // The Find handler used by the page
-                var find = env.Page<EntryPage>(await env.LoginAsync(SowingSup), "GET");
-                var found = (await find.OnGetFindAsync(D1, MainOffice, Facility5)).Value!;
-                Assert.Equal(id, (int?)found.GetType().GetProperty("id")!.GetValue(found));
-                var notMine = (await find.OnGetFindAsync(D1, GreenBless, null)).Value!;
-                Assert.Null(notMine.GetType().GetProperty("id")!.GetValue(notMine));   // not authorized: nothing revealed
+                (r, page) = await PostAsync(env, Admin, null, null, null, -1, 0, 0, 0, id: id);
+                Assert.Contains("Male Full Day cannot be negative.", Errors(page));
+                (r, page) = await PostAsync(env, Admin, null, null, null, 0, 501, 0, 0, id: id);
+                Assert.Contains("Male Half Day cannot be more than 500.", Errors(page));
+                (r, page) = await PostAsync(env, Admin, null, null, null, 0, 0, null, 0, id: id);
+                Assert.Contains("Female Full Day is required (enter 0 if none).", Errors(page));
+                // "10.5" fails int model binding; the page replaces the framework message with the business one.
+                (r, page) = await PostAsync(env, Admin, null, null, null, null, 0, 0, 0, id: id,
+                    before: p => p.ModelState.AddModelError("MaleFullDay", "The value '10.5' is not valid for MaleFullDay."));
+                Assert.Equal(new[] { "Male Full Day: " + DailyLabourRules.WholeNumberMessage }, Errors(page));
+                var row = await repo.GetByIdAsync(id);
+                Assert.Equal((15, 3, 12, 2), (row!.MaleFullDay, row.MaleHalfDay, row.FemaleFullDay, row.FemaleHalfDay));   // invalid edits changed nothing
             }
             finally { await env.CleanupAsync(); }
         }
 
-        [SkippableFact]
-        public async Task DifferentPolyhousesAndDifferentAreas_StaySeparate()
-        {
-            var env = await OpenAsync();
-            try
-            {
-                AssertSaved((await PostAsync(env, SowingSup, D1, MainOffice, Facility5, 10, 2, 8, 1)).Result);
-                AssertSaved((await PostAsync(env, SowingSup, D1, MainOffice, Facility3, 7, 1, 5, 2)).Result);
-                AssertSaved((await PostAsync(env, Admin, D1, GreenBless, null, 15, 3, 12, 2)).Result);
-                AssertSaved((await PostAsync(env, Admin, D1, Samarth, null, 4, 0, 3, 1)).Result);
-                Assert.Equal(1, await env.CountAsync(D1, MainOffice, Facility5));
-                Assert.Equal(1, await env.CountAsync(D1, MainOffice, Facility3));
-                Assert.Equal(0, await env.CountAsync(D1, MainOffice, null));   // never combined into one Main Office row
-                Assert.Equal(1, await env.CountAsync(D1, GreenBless, null));
-                Assert.Equal(1, await env.CountAsync(D1, Samarth, null));
-            }
-            finally { await env.CleanupAsync(); }
-        }
+        // ---- duplicates (repository guard) -------------------------------------------------------------
 
         [SkippableFact]
         public async Task SimultaneousSubmits_CreateExactlyOneRecord()

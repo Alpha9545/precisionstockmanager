@@ -1,0 +1,226 @@
+@page
+@model PlantStockManager.Pages.Maintenance.DetailsModel
+@using PlantStockManager.Services
+@{
+    var t = Model.Ticket;
+    ViewData["Title"] = $"Ticket {t.TicketNo}";
+    string When(DateTime? utc) => utc.HasValue ? AppClock.ToIndiaTime(utc.Value).ToString("dd-MM-yyyy hh:mm tt") : "—";
+}
+
+<style>
+    .mt-panel { border: 1px solid #b7dfc6; background: #f8fcf9; border-radius: .5rem; padding: .75rem 1rem; margin-bottom: 1rem; }
+    .mt-panel.warn { border-color: #f1d38a; background: #fffaf0; }
+    .mt-durations .tile { border: 1px solid #dee2e6; border-radius: .5rem; padding: .4rem .6rem; background: #fff; height: 100%; }
+    .mt-durations .label { font-size: .8rem; color: #6c757d; }
+    .mt-durations .value { font-size: 1.15rem; font-weight: 700; }
+    .mt-photo img { max-width: 160px; max-height: 120px; object-fit: cover; border-radius: .25rem; border: 1px solid #dee2e6; }
+    .mt-text { white-space: pre-wrap; word-break: break-word; }
+</style>
+
+<div class="container mt-4 mb-5" style="max-width: 980px;">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+        <div>
+            <h3 class="mb-1"><span id="ticketNo">@t.TicketNo</span> -- @t.Title</h3>
+            <span class="badge @MaintenanceRules.StatusBadge(t.Status)" id="ticketStatus">@MaintenanceRules.StatusLabel(t.Status)</span>
+            <span class="badge @MaintenanceRules.PriorityBadge(t.Priority)">@t.Priority</span>
+            <span class="badge bg-light text-dark border">@t.CategoryName</span>
+            @if (Model.OverdueReason != null)
+            {
+                <span class="badge bg-danger" id="overdueBadge">Overdue -- @Model.OverdueReason</span>
+            }
+        </div>
+        <div class="d-flex gap-2">
+            <a asp-page="/Maintenance/MyTickets" class="btn btn-outline-secondary btn-sm">My Tickets</a>
+            <a asp-page="/Maintenance/Assigned" class="btn btn-outline-secondary btn-sm">Assigned Tickets</a>
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null) { <div class="alert alert-success" id="ticketSuccess">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-warning" id="ticketError">@TempData["Error"]</div> }
+    @if (!ModelState.IsValid)
+    {
+        <div class="alert alert-danger" id="ticketErrors">
+            <ul class="mb-0">@foreach (var err in ModelState.Values.SelectMany(v => v.Errors)) { <li>@err.ErrorMessage</li> }</ul>
+        </div>
+    }
+
+    @* ---------- the next step for THIS user ---------- *@
+    @if (Model.Can(MaintenanceRules.Action.Accept))
+    {
+        <form method="post" asp-page-handler="Accept" asp-route-id="@t.Id" class="mt-panel" id="acceptForm">
+            <input type="hidden" asp-for="SubmitToken" />
+            <h6>Accept this ticket</h6>
+            <div class="row g-2">
+                <div class="col-12 col-sm-4"><label class="form-label small" for="expectedVisitDate">Expected visit date</label>
+                    <input type="date" name="ExpectedVisitDate" id="expectedVisitDate" value="@Model.ExpectedVisitDate?.ToString("yyyy-MM-dd")" min="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" required /></div>
+                <div class="col-12 col-sm-8"><label class="form-label small" for="expectedVisitRemarks">Visit remark (optional)</label>
+                    <input type="text" name="ExpectedVisitRemarks" id="expectedVisitRemarks" maxlength="@MaintenanceRules.MaxRemarksLength" class="form-control" /></div>
+            </div>
+            <button type="submit" class="btn btn-success mt-2" id="acceptBtn">Accept Ticket</button>
+        </form>
+    }
+    @if (Model.Can(MaintenanceRules.Action.Arrive))
+    {
+        <form method="post" asp-page-handler="Arrive" asp-route-id="@t.Id" class="mt-panel" id="arriveForm">
+            <input type="hidden" asp-for="SubmitToken" />
+            <h6>Visit</h6>
+            <p class="small mb-2">Press this when you reach @t.Location. The time is recorded by the server; a supervisor of the Area then confirms it.</p>
+            <button type="submit" class="btn btn-success" id="arriveBtn">I have arrived</button>
+        </form>
+    }
+    @if (Model.Can(MaintenanceRules.Action.ConfirmArrival))
+    {
+        <form method="post" asp-page-handler="ConfirmArrival" asp-route-id="@t.Id" class="mt-panel warn" id="confirmArrivalForm">
+            <input type="hidden" asp-for="SubmitToken" />
+            <h6>Confirm arrival</h6>
+            <p class="small mb-2">@t.AssignedWorkerName reported arriving at @When(t.ArrivedAt).</p>
+            <button type="submit" class="btn btn-warning" id="confirmArrivalBtn">Worker has arrived</button>
+        </form>
+    }
+    @if (Model.Can(MaintenanceRules.Action.StartWork))
+    {
+        <form method="post" asp-page-handler="StartWork" asp-route-id="@t.Id" class="mt-panel" id="startWorkForm">
+            <input type="hidden" asp-for="SubmitToken" />
+            <h6>Start work</h6>
+            <label class="form-label small" for="problemFound">What is the problem?</label>
+            <textarea name="ProblemFound" id="problemFound" class="form-control mb-2" rows="2" maxlength="@MaintenanceRules.MaxWorkTextLength" required>@Model.ProblemFound</textarea>
+            <label class="form-label small" for="workPerformed">What work is being performed?</label>
+            <textarea name="WorkPerformed" id="workPerformed" class="form-control" rows="2" maxlength="@MaintenanceRules.MaxWorkTextLength" required>@Model.WorkPerformed</textarea>
+            <button type="submit" class="btn btn-success mt-2" id="startWorkBtn">Start Work</button>
+        </form>
+    }
+    @if (Model.Can(MaintenanceRules.Action.Resolve))
+    {
+        <form method="post" asp-page-handler="Resolve" asp-route-id="@t.Id" enctype="multipart/form-data" class="mt-panel" id="resolveForm">
+            <input type="hidden" asp-for="SubmitToken" />
+            <h6>Work completed</h6>
+            <div class="row g-2">
+                <div class="col-12 col-sm-6"><label class="form-label small" for="workDone">Work done</label>
+                    <textarea name="WorkDone" id="workDone" class="form-control" rows="2" maxlength="@MaintenanceRules.MaxWorkTextLength" required>@Model.WorkDone</textarea></div>
+                <div class="col-12 col-sm-6"><label class="form-label small" for="resolution">Resolution</label>
+                    <textarea name="Resolution" id="resolution" class="form-control" rows="2" maxlength="@MaintenanceRules.MaxWorkTextLength" required>@Model.Resolution</textarea></div>
+                <div class="col-12 col-sm-6"><label class="form-label small" for="materialsUsed">Materials / parts used (optional)</label>
+                    <input type="text" name="MaterialsUsed" id="materialsUsed" value="@Model.MaterialsUsed" maxlength="@MaintenanceRules.MaxWorkTextLength" class="form-control" /></div>
+                <div class="col-12 col-sm-6"><label class="form-label small" for="workerRemarks">Remarks (optional)</label>
+                    <input type="text" name="WorkerRemarks" id="workerRemarks" value="@Model.WorkerRemarks" maxlength="@MaintenanceRules.MaxRemarksLength" class="form-control" /></div>
+                <div class="col-12"><label class="form-label small" for="completionPhotos">Completion photos (optional, JPEG / PNG / WebP, 5 MB each)</label>
+                    <input type="file" name="CompletionPhotos" id="completionPhotos" class="form-control" accept="image/jpeg,image/png,image/webp" multiple /></div>
+            </div>
+            <button type="submit" class="btn btn-success mt-2" id="resolveBtn">Work Completed</button>
+        </form>
+    }
+    @if (Model.Can(MaintenanceRules.Action.ConfirmCompletion))
+    {
+        <div class="mt-panel warn" id="completionPanel">
+            <h6>Confirm completion</h6>
+            <p class="small mb-2">@t.AssignedWorkerName reported the work completed at @When(t.WorkEndedAt). Check the work, then confirm -- or send it back with a reason.</p>
+            <div class="d-flex flex-wrap gap-2 align-items-start">
+                <form method="post" asp-page-handler="ConfirmCompletion" asp-route-id="@t.Id" id="confirmCompletionForm">
+                    <input type="hidden" asp-for="SubmitToken" />
+                    <button type="submit" class="btn btn-success" id="confirmCompletionBtn">Problem solved -- close ticket</button>
+                </form>
+                <form method="post" asp-page-handler="RejectCompletion" asp-route-id="@t.Id" class="d-flex gap-2 flex-grow-1" id="rejectCompletionForm">
+                    <input type="hidden" asp-for="SubmitToken" />
+                    <input type="text" name="Reason" id="rejectReason" class="form-control" maxlength="@MaintenanceRules.MaxRemarksLength" placeholder="Reason (required)" />
+                    <button type="submit" class="btn btn-outline-danger text-nowrap" id="rejectCompletionBtn">Not solved</button>
+                </form>
+            </div>
+        </div>
+    }
+    @if (Model.Can(MaintenanceRules.Action.Assign) || Model.Can(MaintenanceRules.Action.Reassign))
+    {
+        <form method="post" asp-page-handler="Assign" asp-route-id="@t.Id" class="mt-panel" id="assignForm">
+            <input type="hidden" asp-for="SubmitToken" />
+            <h6>@(t.Status == MaintenanceRules.Open ? "Assign" : "Reassign") (administrator)</h6>
+            <div class="row g-2">
+                <div class="col-12 col-sm-5"><label class="form-label small" for="workerSelect">@t.WorkerRoleName</label>
+                    <select name="WorkerId" id="workerSelect" class="form-select">
+                        <option value="">-- Select --</option>
+                        @foreach (var w in Model.Workers.Where(w => w.Id != t.AssignedWorkerId)) { <option value="@w.Id">@w.Name</option> }
+                    </select></div>
+                <div class="col-12 col-sm-3"><label class="form-label small" for="assignDate">Expected visit date</label>
+                    <input type="date" name="ExpectedVisitDate" id="assignDate" value="@Model.ExpectedVisitDate?.ToString("yyyy-MM-dd")" min="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" /></div>
+                <div class="col-12 col-sm-4"><label class="form-label small" for="assignRemarks">Remark (optional)</label>
+                    <input type="text" name="ExpectedVisitRemarks" id="assignRemarks" maxlength="@MaintenanceRules.MaxRemarksLength" class="form-control" /></div>
+            </div>
+            <button type="submit" class="btn btn-outline-primary mt-2" id="assignBtn">@(t.Status == MaintenanceRules.Open ? "Assign" : "Reassign")</button>
+        </form>
+    }
+    @if (Model.Can(MaintenanceRules.Action.Cancel))
+    {
+        <form method="post" asp-page-handler="Cancel" asp-route-id="@t.Id" class="mt-panel warn d-flex gap-2 align-items-center" id="cancelForm">
+            <input type="hidden" asp-for="SubmitToken" />
+            <input type="text" name="Reason" id="cancelReason" class="form-control" maxlength="@MaintenanceRules.MaxRemarksLength" placeholder="Reason for cancelling (required)" />
+            <button type="submit" class="btn btn-outline-danger text-nowrap" id="cancelBtn">Cancel Ticket</button>
+        </form>
+    }
+
+    @* ---------- the ticket ---------- *@
+    <div class="card shadow-sm mb-3">
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-3">Location</dt><dd class="col-sm-9">@t.AreaName @(t.PolyhouseId.HasValue ? $"/ {t.PolyhouseName}" : "(whole Area)")</dd>
+                <dt class="col-sm-3">Requested</dt><dd class="col-sm-9">@t.RequestedByName on @When(t.RequestedAt)</dd>
+                <dt class="col-sm-3">Description</dt><dd class="col-sm-9 mt-text">@t.Description</dd>
+                <dt class="col-sm-3">Assigned worker</dt><dd class="col-sm-9" id="assignedWorker">@(t.AssignedWorkerName ?? "—")</dd>
+                <dt class="col-sm-3">Expected visit</dt><dd class="col-sm-9">@(t.ExpectedVisitDate?.ToString("dd-MM-yyyy") ?? "—") @(t.ExpectedVisitRemarks == null ? "" : $"-- {t.ExpectedVisitRemarks}")</dd>
+                <dt class="col-sm-3">Arrived</dt><dd class="col-sm-9">@When(t.ArrivedAt)</dd>
+                <dt class="col-sm-3">Arrival confirmed</dt><dd class="col-sm-9">@(t.ArrivalConfirmedAt.HasValue ? $"{t.ArrivalConfirmedByName}, {When(t.ArrivalConfirmedAt)}" : "—")</dd>
+                <dt class="col-sm-3">Work start</dt><dd class="col-sm-9">@When(t.WorkStartedAt)</dd>
+                <dt class="col-sm-3">Problem found</dt><dd class="col-sm-9 mt-text">@(t.ProblemFound ?? "—")</dd>
+                <dt class="col-sm-3">Work performed</dt><dd class="col-sm-9 mt-text">@(t.WorkPerformed ?? "—")</dd>
+                <dt class="col-sm-3">Work end</dt><dd class="col-sm-9">@When(t.WorkEndedAt)</dd>
+                <dt class="col-sm-3">Work done</dt><dd class="col-sm-9 mt-text">@(t.WorkDone ?? "—")</dd>
+                <dt class="col-sm-3">Resolution</dt><dd class="col-sm-9 mt-text">@(t.Resolution ?? "—")</dd>
+                <dt class="col-sm-3">Materials used</dt><dd class="col-sm-9 mt-text">@(t.MaterialsUsed ?? "—")</dd>
+                <dt class="col-sm-3">Worker remarks</dt><dd class="col-sm-9 mt-text">@(t.WorkerRemarks ?? "—")</dd>
+                <dt class="col-sm-3">Completion confirmed</dt><dd class="col-sm-9">@(t.CompletionConfirmedAt.HasValue ? $"{t.CompletionConfirmedByName}, {When(t.CompletionConfirmedAt)}" : "—")</dd>
+                <dt class="col-sm-3">Closed</dt><dd class="col-sm-9">@When(t.ClosedAt)</dd>
+                @if (t.Status == MaintenanceRules.Cancelled)
+                {
+                    <dt class="col-sm-3">Cancelled</dt><dd class="col-sm-9">@t.CancelledByName, @When(t.CancelledAt) -- @t.CancelReason</dd>
+                }
+            </dl>
+        </div>
+    </div>
+
+    <div class="mt-durations row g-2 mb-3" id="durations">
+        <div class="col-6 col-md-3"><div class="tile"><div class="label">Response (request → arrival)</div><div class="value" id="responseTime">@MaintenanceRules.Format(t.ResponseTime)</div></div></div>
+        <div class="col-6 col-md-3"><div class="tile"><div class="label">On-site (arrival → work end)</div><div class="value" id="onSiteTime">@MaintenanceRules.Format(t.OnSiteTime)</div></div></div>
+        <div class="col-6 col-md-3"><div class="tile"><div class="label">Work (start → end)</div><div class="value" id="workTime">@MaintenanceRules.Format(t.WorkTime)</div></div></div>
+        <div class="col-6 col-md-3"><div class="tile"><div class="label">Resolution (request → closed)</div><div class="value" id="resolutionTime">@MaintenanceRules.Format(t.ResolutionTime)</div></div></div>
+    </div>
+
+    @if (Model.Photos.Any())
+    {
+        <h6>Photos</h6>
+        <div class="d-flex flex-wrap gap-3 mb-3" id="photoList">
+            @foreach (var p in Model.Photos)
+            {
+                var url = Url.Page("/Maintenance/Details", "Photo", new { id = t.Id, photoId = p.Id });
+                <a href="@url" target="_blank" rel="noopener" class="mt-photo text-decoration-none text-center small text-muted">
+                    <img src="@url" alt="@p.Stage photo" /><br />@p.Stage · @p.OriginalFileName
+                </a>
+            }
+        </div>
+    }
+
+    <h6>History</h6>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle small" id="eventTable">
+            <thead class="table-light"><tr><th>When</th><th>Event</th><th>Status</th><th>By</th><th>Note</th></tr></thead>
+            <tbody>
+                @foreach (var e in Model.Events)
+                {
+                    <tr>
+                        <td class="text-nowrap">@When(e.EventAt)</td>
+                        <td>@e.EventType</td>
+                        <td class="text-nowrap">@(e.FromStatus == null ? MaintenanceRules.StatusLabel(e.ToStatus) : $"{MaintenanceRules.StatusLabel(e.FromStatus)} → {MaintenanceRules.StatusLabel(e.ToStatus)}")</td>
+                        <td>@(e.ActorName ?? "—")</td>
+                        <td class="mt-text">@e.Note</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

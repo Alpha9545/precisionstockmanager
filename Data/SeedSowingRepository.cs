@@ -117,7 +117,8 @@ SELECT
     sw.ResponsiblePersonId, r.Name AS ResponsiblePersonName,
     sw.SupervisorId, sup.Name AS SupervisorName,
     sw.Remarks, sw.CreatedDate, sw.CreatedBy, sw.CreatedById, sw.ModifiedDate, sw.ModifiedBy,
-    COALESCE(ss.AvailableQuantity, cs.AvailableQuantity) AS SourceAvailableQuantity
+    COALESCE(ss.AvailableQuantity, cs.AvailableQuantity) AS SourceAvailableQuantity,
+    sw.GrowingMaterialTypeId, gm.Name AS GrowingMaterialName
 FROM dbo.SeedSowings sw
 INNER JOIN dbo.PlantSpecies ps ON sw.SpeciesId = ps.Id
 INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
@@ -129,7 +130,41 @@ LEFT JOIN dbo.CuttingStock cs ON sw.SourceCuttingStockId = cs.Id    -- cutting t
 LEFT JOIN dbo.Area ssa ON ssa.Id = COALESCE(ss.AreaId, cs.AreaId)
 LEFT JOIN dbo.SeedSources src ON sw.SeedSourceId = src.Id
 LEFT JOIN dbo.IMSUsers r ON sw.ResponsiblePersonId = r.Id
-LEFT JOIN dbo.IMSUsers sup ON sw.SupervisorId = sup.Id";
+LEFT JOIN dbo.IMSUsers sup ON sw.SupervisorId = sup.Id
+LEFT JOIN dbo.MaterialTypes gm ON gm.Id = sw.GrowingMaterialTypeId";
+
+        // 2026-10-12: the bed lineage of a tray batch transplanted from a Bed Sowing (bed code,
+        // transplant code and date). Read only when 2026-10-12_BedSowing.sql is applied
+        // (BedSowingSchema); otherwise the same columns are NULL, so Map() is unchanged.
+        // 2026-10-13: with 2026-10-13_TraysToSowingApprovals.sql also the lineage of a tray batch made by
+        // transplanting received Ready Stock (dbo.ReadyStockTransplants.OutputSeedSowingId).
+        private static string BaseSelectFor(bool bedReady, bool traysReady = false)
+        {
+            var columns = bedReady && traysReady
+                ? @",
+    sw.BedSowingId, bs.BedSowingCode, COALESCE(bo.OperationCode, rt.TransplantCode) AS BedTransplantCode,
+    COALESCE(bo.OperationDate, rt.TransplantDate) AS BedTransplantDate, rt.Id AS TransplantId, rt.SourceReadyStockId AS TransplantSourceReadyStockId"
+                : bedReady
+                ? @",
+    sw.BedSowingId, bs.BedSowingCode, bo.OperationCode AS BedTransplantCode, bo.OperationDate AS BedTransplantDate,
+    CAST(NULL AS INT) AS TransplantId, CAST(NULL AS INT) AS TransplantSourceReadyStockId"
+                : @",
+    CAST(NULL AS INT) AS BedSowingId, CAST(NULL AS NVARCHAR(30)) AS BedSowingCode, CAST(NULL AS NVARCHAR(30)) AS BedTransplantCode, CAST(NULL AS DATE) AS BedTransplantDate,
+    CAST(NULL AS INT) AS TransplantId, CAST(NULL AS INT) AS TransplantSourceReadyStockId";
+            var fromAt = BaseSelect.IndexOf("FROM dbo.SeedSowings sw", StringComparison.Ordinal);
+            var sql = BaseSelect[..fromAt].TrimEnd() + columns + Environment.NewLine + BaseSelect[fromAt..];
+            if (bedReady)
+                sql += @"
+LEFT JOIN dbo.BedSowings bs ON bs.Id = sw.BedSowingId
+LEFT JOIN dbo.BedSowingOperations bo ON bo.SeedSowingId = sw.Id";
+            if (bedReady && traysReady)
+                sql += @"
+LEFT JOIN dbo.ReadyStockTransplants rt ON rt.OutputSeedSowingId = sw.Id";
+            return sql;
+        }
+
+        private static async Task<string> BaseSelectAsync(SqlConnection conn)
+            => BaseSelectFor(await BedSowingSchema.ReadyAsync(conn), await BedSowingSchema.TraysToApprovalsAsync(conn));
 
         public async Task<List<SeedSowing>> GetAllAsync(string? status = null)
         {
@@ -137,7 +172,7 @@ LEFT JOIN dbo.IMSUsers sup ON sw.SupervisorId = sup.Id";
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
-            var sql = BaseSelect + " WHERE (@Status IS NULL OR sw.Status = @Status) ORDER BY sw.CreatedDate DESC";
+            var sql = await BaseSelectAsync(conn) + " WHERE (@Status IS NULL OR sw.Status = @Status) ORDER BY sw.CreatedDate DESC";
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@Status", (object?)status ?? DBNull.Value);
             using var reader = await cmd.ExecuteReaderAsync();
@@ -153,7 +188,7 @@ LEFT JOIN dbo.IMSUsers sup ON sw.SupervisorId = sup.Id";
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
-            var sql = BaseSelect + " WHERE sw.Id = @Id";
+            var sql = await BaseSelectAsync(conn) + " WHERE sw.Id = @Id";
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@Id", id);
             using var reader = await cmd.ExecuteReaderAsync();
@@ -188,19 +223,20 @@ LEFT JOIN dbo.IMSUsers sup ON sw.SupervisorId = sup.Id";
 SELECT a.Id AS AreaId, a.Name AS AreaName, pt.Id AS PlantTypeId, pt.Name AS PlantTypeName,
        ps.Id AS SpeciesId, ps.Name AS SpeciesName, ps.Color AS SpeciesColor,
        DAY(sw.SowingDate) AS Day, SUM(sw.QuantitySown) AS Quantity
-FROM dbo.SeedSowings sw
+FROM #SOWING# sw
 INNER JOIN dbo.Area a ON sw.AreaId = a.Id
 INNER JOIN dbo.PlantSpecies ps ON sw.SpeciesId = ps.Id
 INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
-WHERE sw.Status <> 'Cancelled'
-  AND YEAR(sw.SowingDate) = @Year AND MONTH(sw.SowingDate) = @Month
+WHERE YEAR(sw.SowingDate) = @Year AND MONTH(sw.SowingDate) = @Month
   AND (@AreaId IS NULL OR sw.AreaId = @AreaId)
   AND (@PlantTypeId IS NULL OR pt.Id = @PlantTypeId)
   AND (@Allowed IS NULL OR sw.AreaId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Allowed, ',')))
 GROUP BY a.Id, a.Name, pt.Id, pt.Name, ps.Id, ps.Name, ps.Color, DAY(sw.SowingDate)
 ORDER BY a.Name, pt.Name, ps.Name, Day";
 
-            using var cmd = new SqlCommand(sql, conn);
+            // 2026-10-12: sowing ACTIVITY -- a Bed Sowing once on its own date, never its
+            // transplanted tray batches again (BedSowingSchema.SowingActivitySql).
+            using var cmd = new SqlCommand(sql.Replace("#SOWING#", BedSowingSchema.SowingActivitySql(await BedSowingSchema.ReadyAsync(conn))), conn);
             cmd.Parameters.AddWithValue("@Year", year);
             cmd.Parameters.AddWithValue("@Month", month);
             cmd.Parameters.AddWithValue("@AreaId", (object?)areaId ?? DBNull.Value);
@@ -231,7 +267,7 @@ ORDER BY a.Name, pt.Name, ps.Name, Day";
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
-            var sql = BaseSelect + " WHERE sw.AreaId = @AreaId ORDER BY sw.CreatedDate DESC";
+            var sql = await BaseSelectAsync(conn) + " WHERE sw.AreaId = @AreaId ORDER BY sw.CreatedDate DESC";
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@AreaId", areaId);
             using var reader = await cmd.ExecuteReaderAsync();
@@ -275,7 +311,7 @@ ORDER BY a.Name, pt.Name, ps.Name, Day";
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
-            var sql = BaseSelect + @"
+            var sql = await BaseSelectAsync(conn) + @"
 WHERE sw.Status = 'Sown' AND sw.ExpectedReadyDate IS NOT NULL AND sw.ExpectedReadyDate <= @Horizon
       AND sw.ConfirmedReadyQuantity + sw.WastageQuantity < sw.QuantitySown
 ORDER BY sw.ExpectedReadyDate";
@@ -309,7 +345,7 @@ ORDER BY sw.ExpectedReadyDate";
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
-            var sql = BaseSelect + @"
+            var sql = await BaseSelectAsync(conn) + @"
 WHERE sw.Status = 'Sown' AND sw.ConfirmedReadyQuantity + sw.WastageQuantity < sw.QuantitySown
 ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
             using var cmd = new SqlCommand(sql, conn);
@@ -351,8 +387,9 @@ ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
         //      refuse if the quantity exceeds Available (no negative stock);
         //   2) the pool must be at an ACTIVE MainOffice Area, and its
         //      variety must match the variety chosen on the form;
-        //   3) the growing Area must be active and the Polyhouse must belong
-        //      to it (dbo.Polyhouses.AreaId);
+        //   3) the growing Area is the chosen Polyhouse's own Area
+        //      (dbo.Polyhouses.AreaId), which must be an active Main Area
+        //      (AreaType MainOffice) -- never taken from the request;
         //   4) Expected Ready Date = Sowing Date + the variety's growing days
         //      (dbo.PlantSpecies.ReadyStockDays) -- a variety without growing
         //      days is refused (no manual date);
@@ -367,12 +404,10 @@ ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
             entry.SourceCuttingStockId = null;
             if (entry.SourceSeedStockId <= 0)
                 return (false, "Main Office seed lot is required.", 0);
-            // Growing Area and Polyhouse are REQUIRED (2026-10-04): physical
-            // trays are taken from that Polyhouse's Tray Stock, never from a
-            // generic Area-level pool. ResolveGrowingLocation below still checks
-            // that the Polyhouse belongs to the Area.
-            if (entry.AreaId <= 0)
-                return (false, "Please select the Growing Area for this sowing.", 0);
+            // The Polyhouse is REQUIRED (2026-10-04): physical trays are taken
+            // from that Polyhouse's Tray Stock, never from a generic Area-level
+            // pool. Since 2026-10-08 the Area is NOT an input: step 3 derives it
+            // from the Polyhouse (Main Areas only).
             if (entry.PolyhouseId is not > 0)
                 return (false, TrayStockRepository.PolyhouseRequiredMessage, 0);
             // The operator's Seed Quantity (entered on the form). Only the seeds
@@ -397,6 +432,15 @@ ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
 
             try
             {
+                // 0) A repeat of an already-saved form (double click, refresh) finds
+                //    that sowing and creates nothing -- no second sowing, no second
+                //    seed / tray / material deduction.
+                if (await FindBySubmissionTokenAsync(conn, tx, entry))
+                {
+                    tx.Commit();
+                    return (true, null, entry.Id);
+                }
+
                 // 1) + 2) Lock the Main Office seed pool.
                 var lockCmd = new SqlCommand(@"
 SELECT ss.AreaId, ss.SpeciesId, ss.BatchNo, ss.SeedSourceId, ss.PhysicalQuantity, ss.InTransitQuantity,
@@ -462,37 +506,40 @@ WHERE ss.Id = @Id", conn, tx);
                 }
                 entry.ResponsiblePersonId = null;   // Phase D: the assigned supervisor is the only person recorded
 
-                // 3) Growing location. Polyhouse is optional; the Area
-                //    defaults to the Polyhouse's Area (when it has one) or to
-                //    the seed lot's Main Office Area. Nothing is invented: an
-                //    empty Polyhouse stays NULL.
+                // 3) Growing location (2026-10-08): Direct Seed Sowing is done ONLY in
+                //    the Main Areas. The Area is read from the database -- the chosen
+                //    Polyhouse's own dbo.Polyhouses.AreaId -- never from the request;
+                //    that Area must be an active MainOffice Area, and a posted AreaId
+                //    that disagrees with it (a forged form) is refused
+                //    (DirectSowingRules.ResolveDirectSowingArea). (A Polyhouse holding
+                //    tray stock cannot be moved to another Area at all --
+                //    PolyhouseRepository.UpdatePolyhouse -- and this sowing needs its trays.)
+                var phCmd = new SqlCommand(@"
+SELECT p.AreaId, a.AreaType, a.IsActive
+FROM dbo.Polyhouses p
+LEFT JOIN dbo.Area a ON a.Id = p.AreaId
+WHERE p.Id = @PolyhouseId", conn, tx);
+                phCmd.Parameters.AddWithValue("@PolyhouseId", entry.PolyhouseId!.Value);
+                bool polyhouseFound;
                 int? polyhouseAreaId = null;
-                if (entry.PolyhouseId is > 0)
+                string? polyhouseAreaType = null;
+                var polyhouseAreaActive = false;
+                using (var phReader = await phCmd.ExecuteReaderAsync())
                 {
-                    var phCmd = new SqlCommand("SELECT AreaId FROM dbo.Polyhouses WHERE Id = @PolyhouseId", conn, tx);
-                    phCmd.Parameters.AddWithValue("@PolyhouseId", entry.PolyhouseId.Value);
-                    var ph = await phCmd.ExecuteScalarAsync();
-                    if (ph == null)
+                    polyhouseFound = await phReader.ReadAsync();
+                    if (polyhouseFound)
                     {
-                        tx.Rollback();
-                        return (false, "Selected Polyhouse does not exist.", 0);
+                        polyhouseAreaId = phReader.IsDBNull(0) ? null : phReader.GetInt32(0);
+                        polyhouseAreaType = phReader.IsDBNull(1) ? null : phReader.GetString(1);
+                        polyhouseAreaActive = !phReader.IsDBNull(2) && phReader.GetBoolean(2);
                     }
-                    polyhouseAreaId = ph == DBNull.Value ? null : (int)ph;
                 }
-                var (locationOk, growingAreaId, growingPolyhouseId, locationError) = DirectSowingRules.ResolveGrowingLocation(
-                    seedLotAreaId, entry.AreaId > 0 ? entry.AreaId : null, entry.PolyhouseId, polyhouseAreaId);
+                var (locationOk, growingAreaId, locationError) = DirectSowingRules.ResolveDirectSowingArea(
+                    entry.AreaId, entry.PolyhouseId, polyhouseFound, polyhouseAreaId, polyhouseAreaType, polyhouseAreaActive);
                 if (!locationOk)
                 {
                     tx.Rollback();
                     return (false, locationError, 0);
-                }
-                var areaCmd = new SqlCommand("SELECT IsActive FROM dbo.Area WHERE Id = @AreaId", conn, tx);
-                areaCmd.Parameters.AddWithValue("@AreaId", growingAreaId);
-                var areaActive = await areaCmd.ExecuteScalarAsync();
-                if (areaActive == null || areaActive == DBNull.Value || !(bool)areaActive)
-                {
-                    tx.Rollback();
-                    return (false, "Selected Area does not exist or is inactive.", 0);
                 }
                 if (canAccessArea != null && !canAccessArea(growingAreaId))
                 {
@@ -500,7 +547,14 @@ WHERE ss.Id = @Id", conn, tx);
                     return (false, "You are not authorized to sow in this Area.", 0);
                 }
                 entry.AreaId = growingAreaId;
-                entry.PolyhouseId = growingPolyhouseId;
+
+                // 3b) Growing material: exactly one for a Main Office Polyhouse, none elsewhere.
+                var (materialOk, _, materialError) = await ValidateGrowingMaterialAsync(conn, tx, entry);
+                if (!materialOk)
+                {
+                    tx.Rollback();
+                    return (false, materialError, 0);
+                }
 
                 // 4) Expected Ready Date from the variety's growing days.
                 var species = await _plantSpeciesRepo.GetByIdAsync(speciesId);
@@ -523,10 +577,12 @@ WHERE ss.Id = @Id", conn, tx);
                 const string insertSql = @"
 INSERT INTO dbo.SeedSowings
 (SowingCode, SourceType, SourceSeedStockId, SpeciesId, AreaId, PolyhouseId, BatchNo, SeedSourceId, CavityType, NumberOfTrays, QuantitySown, SeedQuantity,
- SowingDate, ReadyStockDays, ExpectedReadyDate, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy, CreatedById)
+ SowingDate, ReadyStockDays, ExpectedReadyDate, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy, CreatedById,
+ GrowingMaterialTypeId, SubmissionToken)
 VALUES
 (@SowingCode, N'Seed', @SourceSeedStockId, @SpeciesId, @AreaId, @PolyhouseId, @BatchNo, @SeedSourceId, @CavityType, @NumberOfTrays, @QuantitySown, @SeedQuantity,
- @SowingDate, @ReadyStockDays, @ExpectedReadyDate, 'Sown', @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy, @CreatedById);
+ @SowingDate, @ReadyStockDays, @ExpectedReadyDate, 'Sown', @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy, @CreatedById,
+ @GrowingMaterialTypeId, @SubmissionToken);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
                 using var cmd = new SqlCommand(insertSql, conn, tx);
@@ -549,6 +605,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 cmd.Parameters.AddWithValue("@Remarks", (object?)entry.Remarks ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CreatedBy", (object?)entry.CreatedBy ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CreatedById", (object?)(entry.CreatedById ?? userId) ?? DBNull.Value);
+                AddMaterialParameters(cmd, entry);
 
                 var newId = (int)(await cmd.ExecuteScalarAsync())!;
 
@@ -591,6 +648,14 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 {
                     tx.Rollback();
                     return (false, trayMessage, 0);
+                }
+
+                // Material Stock: the ONE growing material, from the SAME Polyhouse.
+                var (materialConsumed, materialMessage) = await ConsumeGrowingMaterialAsync(conn, tx, entry, newId, sowingCode, userId);
+                if (!materialConsumed)
+                {
+                    tx.Rollback();
+                    return (false, materialMessage, 0);
                 }
 
                 tx.Commit();
@@ -727,6 +792,13 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
             using var tx = conn.BeginTransaction();
             try
             {
+                // A repeat of an already-saved form finds that sowing and creates nothing.
+                if (await FindBySubmissionTokenAsync(conn, tx, entry))
+                {
+                    tx.Commit();
+                    return (true, null, entry.Id);
+                }
+
                 var lockCmd = new SqlCommand(@"
 SELECT cs.AreaId, cs.SpeciesId, cs.PhysicalQuantity, cs.InTransitQuantity, a.Name AS AreaName
 FROM dbo.CuttingStock cs WITH (UPDLOCK, HOLDLOCK)
@@ -877,6 +949,15 @@ WHERE p.Id = @PolyhouseId", conn, tx);
                     return (false, "You are not authorized to sow in this Area.", 0);
                 }
 
+                // Growing material: exactly one for a Main Office Polyhouse, none elsewhere.
+                entry.AreaId = growingAreaId;
+                var (materialOk, _, materialError) = await ValidateGrowingMaterialAsync(conn, tx, entry);
+                if (!materialOk)
+                {
+                    tx.Rollback();
+                    return (false, materialError, 0);
+                }
+
                 // The Sowing Supervisor is chosen for the destination Area: an active
                 // user assigned to it who can approve sowings (SowingSupervisorRules),
                 // recorder included. Checked against the live assignments under
@@ -911,10 +992,12 @@ WHERE p.Id = @PolyhouseId", conn, tx);
                 const string insertSql = @"
 INSERT INTO dbo.SeedSowings
 (SowingCode, SourceType, SourceSeedStockId, SourceCuttingStockId, SpeciesId, AreaId, PolyhouseId, BatchNo, SeedSourceId, CavityType, NumberOfTrays, QuantitySown, SeedQuantity,
- SowingDate, ReadyStockDays, ExpectedReadyDate, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy, CreatedById)
+ SowingDate, ReadyStockDays, ExpectedReadyDate, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy, CreatedById,
+ GrowingMaterialTypeId, SubmissionToken)
 VALUES
 (@SowingCode, N'Cutting', NULL, @SourceCuttingStockId, @SpeciesId, @AreaId, @PolyhouseId, @BatchNo, NULL, @CavityType, @NumberOfTrays, @QuantitySown, @SeedQuantity,
- @SowingDate, @ReadyStockDays, @ExpectedReadyDate, 'Sown', NULL, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy, @CreatedById);
+ @SowingDate, @ReadyStockDays, @ExpectedReadyDate, 'Sown', NULL, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy, @CreatedById,
+ @GrowingMaterialTypeId, @SubmissionToken);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 using var cmd = new SqlCommand(insertSql, conn, tx);
                 cmd.Parameters.AddWithValue("@SowingCode", sowingCode);
@@ -934,6 +1017,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 cmd.Parameters.AddWithValue("@Remarks", (object?)entry.Remarks ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CreatedBy", (object?)entry.CreatedBy ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CreatedById", (object?)(entry.CreatedById ?? userId) ?? DBNull.Value);
+                AddMaterialParameters(cmd, entry);
                 var newId = (int)(await cmd.ExecuteScalarAsync())!;
 
                 if (transferId.HasValue)
@@ -998,6 +1082,14 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
                     return (false, trayMessage, 0);
                 }
 
+                // Material Stock: the ONE growing material, from the SAME Polyhouse.
+                var (materialConsumed, materialMessage) = await ConsumeGrowingMaterialAsync(conn, tx, entry, newId, sowingCode, userId);
+                if (!materialConsumed)
+                {
+                    tx.Rollback();
+                    return (false, materialMessage, 0);
+                }
+
                 tx.Commit();
                 entry.Id = newId;
                 entry.SowingCode = sowingCode;
@@ -1036,6 +1128,54 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
                 return (false, $"Tray size must be one of: {string.Join(", ", DirectSowingRules.CavityTypes)}."); // already validated by the caller; defensive only
             var requiredTrays = DirectSowingRules.PhysicalTraysRequired(confirmedQuantity, cavityType);
             return await _trayStockRepo.ConsumeForSowingAsync(conn, tx, areaId, polyhouseId, cavityType!, requiredTrays, "SeedSowing", seedSowingId, userId, remarks);
+        }
+
+        // Material Stock integration, shared by InsertAsync (Seed) and
+        // InsertFromCuttingAsync (Cutting). A sowing in a Main Office Polyhouse uses
+        // exactly ONE growing material (Cocopeat or Pitmos); a sowing anywhere else
+        // uses none -- material stock exists only at Main Office Polyhouses.
+        // TR_SeedSowings_GrowingMaterial repeats the rule in the database.
+        private static async Task<(bool Ok, bool Required, string? Error)> ValidateGrowingMaterialAsync(SqlConnection conn, SqlTransaction tx, SeedSowing entry)
+        {
+            var (ok, error, required) = await MaterialStockRepository.ValidateSowingMaterialAsync(conn, tx, entry.AreaId, entry.GrowingMaterialTypeId);
+            if (ok && !required)
+                entry.GrowingMaterialTypeId = null;
+            return (ok, required, error);
+        }
+
+        // Deducts physical trays x kg-per-tray (dbo.MaterialConsumptionRules) of the
+        // sowing's ONE material from its OWN Area + Polyhouse balance, inside the
+        // sowing's transaction, after the tray consumption. Physical trays =
+        // CEILING(quantity / cavity) -- exactly the trays Tray Stock gave out.
+        private static Task<(bool Ok, string? Message)> ConsumeGrowingMaterialAsync(
+            SqlConnection conn, SqlTransaction tx, SeedSowing entry, int seedSowingId, string sowingCode, int? userId)
+            => MaterialStockRepository.ConsumeForSowingAsync(conn, tx, entry.AreaId, entry.PolyhouseId, entry.GrowingMaterialTypeId, entry.CavityType,
+                DirectSowingRules.PhysicalTraysRequired(entry.SeedQuantity, entry.CavityType), seedSowingId, sowingCode, userId);
+
+        private static void AddMaterialParameters(SqlCommand cmd, SeedSowing entry)
+        {
+            cmd.Parameters.AddWithValue("@GrowingMaterialTypeId", (object?)entry.GrowingMaterialTypeId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@SubmissionToken", entry.SubmissionToken is { } token && token != Guid.Empty ? token : DBNull.Value);
+        }
+
+        // Duplicate-submit guard: the form's one-time token, looked up under a key-range
+        // lock (UPDLOCK, HOLDLOCK) so two simultaneous submits of the same form run one
+        // after the other and the second finds the first's sowing.
+        // UX_SeedSowings_SubmissionToken is the database backstop.
+        private static async Task<bool> FindBySubmissionTokenAsync(SqlConnection conn, SqlTransaction tx, SeedSowing entry)
+        {
+            if (entry.SubmissionToken is not { } token || token == Guid.Empty)
+                return false;
+            using var cmd = new SqlCommand(
+                "SELECT Id, SowingCode FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE SubmissionToken = @T", conn, tx);
+            cmd.Parameters.AddWithValue("@T", token);
+            using var r = await cmd.ExecuteReaderAsync();
+            if (!await r.ReadAsync())
+                return false;
+            entry.Id = r.GetInt32(0);
+            entry.SowingCode = r.GetString(1);
+            entry.IsDuplicateSubmission = true;
+            return true;
         }
 
         private static string TruncateBatch(string value) => value.Length <= 50 ? value : value[..50];
@@ -1078,6 +1218,21 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
                     tx.Rollback();
                     return (false, "This Seed Sowing record is already Cancelled.");
                 }
+                // 2026-10-12: a tray batch transplanted from a Bed Sowing took no seed from a lot
+                // (the bed did); it is undone by reversing its transplant (BedSowingRepository.
+                // ReverseOperationAsync), which puts the seedlings back in the bed.
+                if (sourceType == SeedSowing.SourceBedSowing)
+                {
+                    tx.Rollback();
+                    return (false, BedSowingRules.GenericCancelBlockedMessage);
+                }
+                // 2026-10-13: likewise a tray batch made from received Ready Stock: reverse its
+                // transplanting (Transplanting > Details), which returns the plants to the source batch.
+                if (sourceType == SeedSowing.SourceTransplant)
+                {
+                    tx.Rollback();
+                    return (false, "This tray batch was transplanted from Ready Stock. Reverse the transplanting instead (Transplanting > Details) -- the plants go back to their batch.");
+                }
                 // Phase B: once a Supervisor Approval exists (Ready Stock was
                 // created / wastage recorded) the sowing can no longer be
                 // cancelled -- cancel the approval first (Ready Confirmation
@@ -1110,6 +1265,16 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
                 {
                     tx.Rollback();
                     return (false, trayReversalMessage);
+                }
+
+                // Material Stock -- return exactly what this sowing consumed to the SAME
+                // Polyhouse balance (a clean no-op for a sowing without material).
+                var (materialReversalOk, materialReversalMessage) = await MaterialStockRepository.ReverseForSowingAsync(
+                    conn, tx, id, userId, "Reversal of cancelled Sowing");
+                if (!materialReversalOk)
+                {
+                    tx.Rollback();
+                    return (false, materialReversalMessage);
                 }
 
                 var updateCmd = new SqlCommand(
@@ -1178,7 +1343,15 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
                 CreatedById = reader.IsDBNull(reader.GetOrdinal("CreatedById")) ? null : reader.GetInt32(reader.GetOrdinal("CreatedById")),
                 ModifiedDate = reader.IsDBNull(reader.GetOrdinal("ModifiedDate")) ? null : reader.GetDateTime(reader.GetOrdinal("ModifiedDate")),
                 ModifiedBy = reader.IsDBNull(reader.GetOrdinal("ModifiedBy")) ? null : reader.GetString(reader.GetOrdinal("ModifiedBy")),
-                SourceAvailableQuantity = reader.IsDBNull(reader.GetOrdinal("SourceAvailableQuantity")) ? null : reader.GetDecimal(reader.GetOrdinal("SourceAvailableQuantity"))
+                SourceAvailableQuantity = reader.IsDBNull(reader.GetOrdinal("SourceAvailableQuantity")) ? null : reader.GetDecimal(reader.GetOrdinal("SourceAvailableQuantity")),
+                GrowingMaterialTypeId = reader.IsDBNull(reader.GetOrdinal("GrowingMaterialTypeId")) ? null : reader.GetInt32(reader.GetOrdinal("GrowingMaterialTypeId")),
+                GrowingMaterialName = reader.IsDBNull(reader.GetOrdinal("GrowingMaterialName")) ? null : reader.GetString(reader.GetOrdinal("GrowingMaterialName")),
+                BedSowingId = reader.IsDBNull(reader.GetOrdinal("BedSowingId")) ? null : reader.GetInt32(reader.GetOrdinal("BedSowingId")),
+                BedSowingCode = reader.IsDBNull(reader.GetOrdinal("BedSowingCode")) ? null : reader.GetString(reader.GetOrdinal("BedSowingCode")),
+                BedTransplantCode = reader.IsDBNull(reader.GetOrdinal("BedTransplantCode")) ? null : reader.GetString(reader.GetOrdinal("BedTransplantCode")),
+                BedTransplantDate = reader.IsDBNull(reader.GetOrdinal("BedTransplantDate")) ? null : reader.GetDateTime(reader.GetOrdinal("BedTransplantDate")),
+                TransplantId = reader.IsDBNull(reader.GetOrdinal("TransplantId")) ? null : reader.GetInt32(reader.GetOrdinal("TransplantId")),
+                TransplantSourceReadyStockId = reader.IsDBNull(reader.GetOrdinal("TransplantSourceReadyStockId")) ? null : reader.GetInt32(reader.GetOrdinal("TransplantSourceReadyStockId"))
             };
         }
     }

@@ -1,0 +1,11 @@
+@page
+@model PlantStockManager.Pages.Store.IssueModel
+@{
+    ViewData["Title"] = "Store Issue";
+}
+
+<div class="container-fluid mt-4">
+    <h3 class="mb-1">Issue</h3>
+    <p class="text-muted">Approved requests of every Area, waiting to be issued. Open a request to issue it (at most the approved quantity, at most what is in stock).</p>
+    <partial name="_RequestTable" model="Model.Requests" view-data='new ViewDataDictionary(ViewData) { ["TableId"] = "issueTable", ["Empty"] = "Nothing waiting to be issued." }' />
+</div>

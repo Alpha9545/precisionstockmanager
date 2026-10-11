@@ -1,0 +1,27 @@
+@page
+@model PlantStockManager.Pages.Store.ReturnsModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Store Returns";
+}
+
+<div class="container-fluid mt-4">
+    <h3 class="mb-1">Returns</h3>
+    <p class="text-muted">Items an Area declared as returned. They go back to Main Office stock only when the Store Keeper confirms the physical return (open the request).</p>
+    <partial name="_RequestTable" model="Model.Requests" view-data='new ViewDataDictionary(ViewData) { ["TableId"] = "pendingReturnTable", ["Empty"] = "No returns waiting for confirmation." }' />
+
+    <h5 class="mt-4">Confirmed returns (latest 50)</h5>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle" id="confirmedReturnTable">
+            <thead class="table-light"><tr><th>Date</th><th>Request</th><th>Item</th><th class="text-end">Qty</th><th>From</th><th class="text-end">Stock after</th><th>Confirmed by</th><th>Remarks</th></tr></thead>
+            <tbody>
+                @foreach (var t in Model.Confirmed)
+                {
+                    <tr><td>@t.TransactionDate.ToString("dd-MM-yyyy")</td><td>@t.RequestNo</td><td>@t.ItemCode @t.ItemName</td><td class="text-end">@StoreRules.Qty(t.Quantity)</td>
+                        <td>@t.Location</td><td class="text-end">@StoreRules.Qty(t.BalanceAfter)</td><td>@t.CreatedByName</td><td>@t.Remarks</td></tr>
+                }
+                @if (!Model.Confirmed.Any()) { <tr><td colspan="8" class="text-center text-muted">None yet.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>

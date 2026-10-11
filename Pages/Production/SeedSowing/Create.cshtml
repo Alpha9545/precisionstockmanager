@@ -23,11 +23,12 @@
                 </div>
             }
 
-            @if (!Model.Areas.Any())
+            @if (!Model.Polyhouses.Any())
             {
                 <div class="alert alert-warning">
-                    No growing Area is available to you. An Area appears here once at least one Polyhouse has been
-                    assigned to it (Administration &rarr; Polyhouse &rarr; "Belongs to Area") and you have access to that Area.
+                    No Main Area Polyhouse is available to you. Direct Seed Sowing is done only in the Polyhouses of a Main Area:
+                    a Polyhouse appears here once it is assigned to an active Main Area (Administration &rarr; Polyhouse &rarr;
+                    "Belongs to Area") and you have access to that Area.
                 </div>
             }
 
@@ -40,28 +41,36 @@
             </div>
 
             <form method="post" id="sowingForm">
+                <input type="hidden" asp-for="SeedSowing.SubmissionToken" />
                 <div class="row g-3">
                     <div class="col-md-4">
                         <label class="form-label fw-bold">Sowing Date</label>
                         <input type="date" asp-for="SeedSowing.SowingDate" id="sowingDate" class="form-control" required />
                     </div>
 
+                    @* Direct Seed Sowing is done only in the Main Areas. The Area is NOT a
+                       form field: it is the selected Polyhouse's own Area, shown here
+                       read-only and derived again by the server from the database. *@
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Growing Area</label>
-                        <select asp-for="SeedSowing.AreaId" id="areaSelect" class="form-select" required>
-                            <option value="">-- Select Area --</option>
-                            @foreach (var a in Model.Areas)
-                            {
-                                <option value="@a.Id">@a.Name</option>
-                            }
-                        </select>
+                        <label class="form-label fw-bold" for="mainAreaDisplay">Main Area</label>
+                        <input type="text" id="mainAreaDisplay" class="form-control" readonly tabindex="-1"
+                               value="@Model.MainAreaName" placeholder="Set by the Polyhouse" />
+                        <div class="form-text">Determined by the selected Polyhouse.</div>
                     </div>
 
                     <div class="col-md-4">
-                        <label class="form-label fw-bold">Polyhouse</label>
-                        <select asp-for="SeedSowing.PolyhouseId" id="polyhouseSelect" class="form-select" required
-                                data-selected="@Model.SeedSowing.PolyhouseId">
-                            <option value="">-- Select Area first --</option>
+                        <label class="form-label fw-bold" for="polyhouseSelect">Polyhouse</label>
+                        <select asp-for="SeedSowing.PolyhouseId" id="polyhouseSelect" class="form-select" required>
+                            <option value="">-- Select Polyhouse --</option>
+                            @foreach (var g in Model.Polyhouses.GroupBy(p => p.AreaName))
+                            {
+                                <optgroup label="@g.Key">
+                                    @foreach (var p in g)
+                                    {
+                                        <option value="@p.Id" data-area-id="@p.AreaId" data-area-name="@p.AreaName">@p.Name</option>
+                                    }
+                                </optgroup>
+                            }
                         </select>
                     </div>
 
@@ -139,6 +148,8 @@
                         <div class="text-danger small d-none" id="trayError"></div>
                     </div>
 
+                    <partial name="_GrowingMaterial" model="Model.GrowingMaterial" />
+
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Sowing Supervisor <span class="text-muted fw-normal">(the only person who can approve this batch)</span></label>
                         <select asp-for="SeedSowing.SupervisorId" class="form-select" required>
@@ -166,7 +177,7 @@
 
                 <div class="text-center mt-4">
                     <a asp-page="/Production/SeedSowing/Index" class="btn btn-secondary me-2">Cancel</a>
-                    <button type="submit" class="btn btn-success">Save Sowing</button>
+                    <button type="submit" class="btn btn-success" id="saveSowingButton">Save Sowing</button>
                 </div>
             </form>
         </div>
@@ -174,6 +185,7 @@
 </div>
 
 @section Scripts {
+    <script src="~/js/growing-material.js" asp-append-version="true"></script>
     <script>
         $(function () {
             const handlerUrl = '@Url.Page("/Production/SeedSowing/Create")';
@@ -192,14 +204,12 @@
                 $select.data('selected', '');
             }
 
-            function loadPolyhouses() {
-                const areaId = $('#areaSelect').val();
-                const $ph = $('#polyhouseSelect');
-                // Polyhouse is required: only the chosen Area's Polyhouses (its trays come from that Polyhouse).
-                if (!areaId) { fill($ph, [], '-- Select Area first --', x => x.name); return; }
-                $.getJSON(handlerUrl, { handler: 'Polyhouses', areaId: areaId }, function (list) {
-                    fill($ph, list, list.length ? '-- Select Polyhouse --' : '-- No Polyhouse in this Area --', x => x.name);
-                });
+            // Main Area: display only, from the selected Polyhouse (the server derives it again).
+            const mainAreas = [...new Set($('#polyhouseSelect option[data-area-name]').map((_, o) => $(o).attr('data-area-name')).get())];
+            function selectedAreaId() { return $('#polyhouseSelect option:selected').attr('data-area-id') || ''; }
+            function showMainArea() {
+                const name = $('#polyhouseSelect option:selected').attr('data-area-name');
+                $('#mainAreaDisplay').val(name || (mainAreas.length === 1 ? mainAreas[0] : ''));
             }
 
             function loadVarieties() {
@@ -261,7 +271,7 @@
                 $('#expectedReadyPreview').val(dd + '-' + mm + '-' + dt.getUTCFullYear());
             }
 
-            $('#areaSelect').on('change', loadPolyhouses);
+            $('#polyhouseSelect').on('change', showMainArea);
             $('#plantTypeSelect').on('change', loadVarieties);
             $('#varietySelect').on('change', onVarietyChange);
             $('#seedLotSelect').on('change', onLotChange);
@@ -321,8 +331,21 @@
                 }, 250);
             });
 
+            // Growing Material: stock of the chosen Polyhouse and what this sowing uses.
+            initGrowingMaterial({
+                url: handlerUrl,
+                area: selectedAreaId,
+                polyhouse: () => $('#polyhouseSelect').val(),
+                cavity: () => $('#cavitySelect').val(),
+                quantity: () => $('#quantityInput').val(),
+                triggers: '#polyhouseSelect, #cavitySelect, #quantityInput'
+            });
+            // One click only: the button is disabled once a valid form is submitted
+            // (the server's one-time token is the real duplicate guard).
+            $('#sowingForm').on('submit', function () { if (this.checkValidity()) $('#saveSowingButton').prop('disabled', true).text('Saving...'); });
+
             // Re-populate dependent lists after a failed POST.
-            loadPolyhouses();
+            showMainArea();
             if ($('#plantTypeSelect').val()) loadVarieties();
         });
     </script>

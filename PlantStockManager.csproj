@@ -22,4 +22,13 @@
     <None Remove="tests\**" />
   </ItemGroup>
 
+  <!-- The Android driver tracking app is a separate Gradle project (mobile/driver-android);
+       keep it out of the web application's build and publish output. -->
+  <ItemGroup>
+    <Compile Remove="mobile\**" />
+    <Content Remove="mobile\**" />
+    <EmbeddedResource Remove="mobile\**" />
+    <None Remove="mobile\**" />
+  </ItemGroup>
+
 </Project>

@@ -1,0 +1,189 @@
+@page
+@model PlantStockManager.Pages.Suggestions.CreateModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Create Suggestion / Problem";
+}
+
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm mx-auto" style="max-width: 720px;">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h4 class="mb-0">@ViewData["Title"]</h4>
+                <small class="text-muted">Report a problem or share a suggestion for your Area. Posts stay open for @SuggestionRules.LifetimeHours hours.</small>
+            </div>
+            <a asp-page="/Suggestions/Index" class="btn btn-outline-secondary btn-sm">All Posts</a>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger" id="postErrors">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <form method="post" enctype="multipart/form-data" id="postForm" novalidate>
+                <input type="hidden" asp-for="SubmitToken" />
+                <div class="row g-3">
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label fw-bold" for="typeSelect">Type</label>
+                        <select asp-for="TypeCode" id="typeSelect" class="form-select" required>
+                            @foreach (var t in Model.Types)
+                            {
+                                <option value="@t.Code" selected="@(Model.TypeCode == t.Code)">@SuggestionRules.TypeIcon(t.Code) @t.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <label class="form-label fw-bold" for="areaSelect">Area</label>
+                        <select asp-for="AreaId" id="areaSelect" class="form-select" required>
+                            <option value="">-- Select Area --</option>
+                            @foreach (var a in Model.Areas)
+                            {
+                                <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-6 @(Model.Polyhouses.Any() ? "" : "d-none")" id="polyhouseGroup">
+                        <label class="form-label fw-bold" for="polyhouseSelect">
+                            Polyhouse <span class="text-muted fw-normal" id="polyhouseHint">@(Model.PolyhouseRequired ? "(required)" : "(optional)")</span>
+                        </label>
+                        <select asp-for="PolyhouseId" id="polyhouseSelect" class="form-select">
+                            <option value="">@(Model.PolyhouseRequired ? "-- Select Polyhouse --" : "-- Whole Area --")</option>
+                            @foreach (var p in Model.Polyhouses)
+                            {
+                                <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold d-block">Photo <span class="text-muted fw-normal">(optional; JPEG / PNG / WebP, up to 5 MB)</span></label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <label for="cameraInput" class="btn btn-outline-primary mb-0" id="takePhotoBtn">📷 Take Photo</label>
+                            <label for="galleryInput" class="btn btn-outline-secondary mb-0" id="galleryBtn">🖼 Choose from Gallery</label>
+                            <button type="button" class="btn btn-link text-danger d-none" id="removePhotoBtn">Remove photo</button>
+                        </div>
+                        @* Two inputs, one photo: choosing in one clears the other (the server accepts at most one). *@
+                        <input type="file" name="Photos" id="cameraInput" class="visually-hidden" accept="image/*" capture="environment" />
+                        <input type="file" name="Photos" id="galleryInput" class="visually-hidden" accept="image/jpeg,image/png,image/webp" />
+                        <div class="mt-2 d-none" id="photoPreviewBox">
+                            <img id="photoPreview" alt="Selected photo" class="img-fluid rounded border" style="max-height: 260px;" />
+                            <div class="small text-muted mt-1" id="photoInfo"></div>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold" for="title">Title</label>
+                        <input asp-for="Title" id="title" class="form-control" maxlength="@SuggestionRules.MaxTitleLength" placeholder="e.g. Irrigation pipe leakage" required />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold" for="description">Details</label>
+                        <textarea asp-for="Description" id="description" class="form-control" rows="4" maxlength="@SuggestionRules.MaxDescriptionLength" placeholder="e.g. Water is leaking near the entrance. Please check and repair it." required></textarea>
+                    </div>
+                </div>
+                <div class="d-flex justify-content-center mt-4">
+                    <button type="submit" class="btn btn-success btn-lg" id="submitPostBtn">Submit</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const maxBytes = @MaintenancePhotoStore.MaxBytes;
+            const area = document.getElementById('areaSelect');
+            const group = document.getElementById('polyhouseGroup');
+            const polyhouse = document.getElementById('polyhouseSelect');
+            const hint = document.getElementById('polyhouseHint');
+            area.addEventListener('change', function () {
+                polyhouse.innerHTML = '';
+                group.classList.add('d-none');
+                if (!area.value) return;
+                fetch('@Url.Page("/Suggestions/Create")?handler=Polyhouses&areaId=' + encodeURIComponent(area.value))
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        const first = document.createElement('option');
+                        first.value = '';
+                        first.textContent = data.required ? '-- Select Polyhouse --' : '-- Whole Area --';
+                        polyhouse.appendChild(first);
+                        data.polyhouses.forEach(function (p) {
+                            const o = document.createElement('option');
+                            o.value = p.id; o.textContent = p.name;
+                            polyhouse.appendChild(o);
+                        });
+                        hint.textContent = data.required ? '(required)' : '(optional)';
+                        if (data.polyhouses.length > 0) group.classList.remove('d-none');
+                    });
+            });
+
+            // Photo: camera or gallery, one at a time, with a preview. A camera photo larger than
+            // 5 MB is scaled down in the browser first; the server still checks every upload.
+            const camera = document.getElementById('cameraInput');
+            const gallery = document.getElementById('galleryInput');
+            const box = document.getElementById('photoPreviewBox');
+            const preview = document.getElementById('photoPreview');
+            const info = document.getElementById('photoInfo');
+            const remove = document.getElementById('removePhotoBtn');
+            let previewUrl = null;
+            function clearPreview() {
+                if (previewUrl) URL.revokeObjectURL(previewUrl);
+                previewUrl = null;
+                box.classList.add('d-none');
+                remove.classList.add('d-none');
+                info.textContent = '';
+            }
+            function show(file) {
+                if (previewUrl) URL.revokeObjectURL(previewUrl);
+                previewUrl = URL.createObjectURL(file);
+                preview.src = previewUrl;
+                info.textContent = file.name + ' -- ' + (file.size / 1024 / 1024).toFixed(2) + ' MB';
+                box.classList.remove('d-none');
+                remove.classList.remove('d-none');
+            }
+            function shrink(input, file) {
+                const img = new Image();
+                const url = URL.createObjectURL(file);
+                img.onload = function () {
+                    const scale = Math.min(1, 2048 / Math.max(img.width, img.height));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.round(img.width * scale);
+                    canvas.height = Math.round(img.height * scale);
+                    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+                    URL.revokeObjectURL(url);
+                    canvas.toBlob(function (blob) {
+                        try {
+                            const smaller = new File([blob], (file.name || 'photo').replace(/\.[^.]*$/, '') + '.jpg', { type: 'image/jpeg' });
+                            const dt = new DataTransfer();
+                            dt.items.add(smaller);
+                            input.files = dt.files;
+                            show(smaller);
+                        } catch (e) { show(file); }   // older browser: the server will explain the size limit
+                    }, 'image/jpeg', 0.85);
+                };
+                img.onerror = function () { URL.revokeObjectURL(url); show(file); };
+                img.src = url;
+            }
+            function picked(input, other) {
+                other.value = '';
+                const file = input.files && input.files[0];
+                if (!file) { clearPreview(); return; }
+                if (file.size > maxBytes && file.type.indexOf('image/') === 0) shrink(input, file);
+                else show(file);
+            }
+            camera.addEventListener('change', function () { picked(camera, gallery); });
+            gallery.addEventListener('change', function () { picked(gallery, camera); });
+            remove.addEventListener('click', function () { camera.value = ''; gallery.value = ''; clearPreview(); });
+
+            document.getElementById('postForm').addEventListener('submit', function () {
+                const btn = document.getElementById('submitPostBtn');
+                setTimeout(function () { btn.disabled = true; btn.textContent = 'Saving...'; }, 0);
+            });
+        })();
+    </script>
+}

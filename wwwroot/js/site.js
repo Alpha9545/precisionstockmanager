@@ -116,3 +116,99 @@ window.formatQuantity = function (value, maxDecimals) {
     if (isNaN(n)) return '';
     return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: maxDecimals === undefined ? 2 : maxDecimals });
 };
+
+// 2026-10-09: phone-friendly data tables (CSS: "table-stack" in site.css). Every
+// table in the page body with ONE plain header row (no merged header cells), no
+// cells spanning rows and at least 4 columns gets class "table-stack", and each
+// cell gets data-label = its column's header, so on a phone each row reads as a
+// card of "Column: value" lines. Opt out with class "no-stack" (on the table or
+// a parent); pages' own mobile layouts (.for-desktop-records) are left alone.
+// Rows a page script adds later are labelled too. Display only -- no data changes.
+// 2026-10-10 accessibility: a table shown as cards (CSS display:block) loses its table
+// semantics in Chrome and Safari, so screen readers stopped announcing rows, columns and
+// headers. Every stacked table now carries the explicit ARIA table roles (the same as its
+// native ones, so desktop reading is unchanged), and the header row is visually hidden in
+// card view instead of display:none, so each cell keeps its column header for assistive
+// technology. The visible "Column:" label is decorative (site.css) -- not read twice.
+(function () {
+    // Column labels from the header -- one row, or two rows with grouped (merged)
+    // cells, e.g. "9:00 AM" over "Present" / "Absent" -> "9:00 AM · Present".
+    function headerLabels(table) {
+        const head = table.tHead;
+        if (!head || head.rows.length < 1 || head.rows.length > 2) return null;
+        const grid = [];
+        Array.from(head.rows).forEach(function (row, r) {
+            grid[r] = grid[r] || [];
+            let col = 0;
+            Array.from(row.cells).forEach(function (cell) {
+                while (grid[r][col] !== undefined) col++;
+                const text = (cell.innerText || cell.textContent || "").replace(/\s+/g, " ").trim();
+                for (let dr = 0; dr < cell.rowSpan; dr++)
+                    for (let dc = 0; dc < cell.colSpan; dc++) {
+                        grid[r + dr] = grid[r + dr] || [];
+                        grid[r + dr][col + dc] = text;
+                    }
+                col += cell.colSpan;
+            });
+        });
+        const width = Math.max.apply(null, grid.map(function (g) { return g.length; }));
+        if (width < 4) return null;
+        const labels = [];
+        for (let c = 0; c < width; c++) {
+            const parts = [];
+            grid.forEach(function (g) { const t = g[c]; if (t && parts.indexOf(t) < 0) parts.push(t); });
+            labels.push(parts.join(" · "));
+        }
+        return labels;
+    }
+    function labelRow(row, labels) {
+        let col = 0;
+        row.setAttribute("role", "row");
+        Array.from(row.cells).forEach(function (cell) {
+            if (!cell.hasAttribute("role")) cell.setAttribute("role", cell.tagName === "TH" ? "rowheader" : "cell");
+            if (cell.colSpan === 1 && !cell.hasAttribute("data-label") && labels[col]) cell.setAttribute("data-label", labels[col]);
+            // A labelled cell with nothing in it is hidden in card view (e.g. the days of a month
+            // grid without sowing), so a card shows only what has a value.
+            const empty = cell.hasAttribute("data-label") && !(cell.textContent || "").trim()
+                && !cell.querySelector("input, select, textarea, button, img, svg, a, i");
+            cell.classList.toggle("stack-empty", empty);
+            col += cell.colSpan;
+        });
+    }
+    function applyRoles(table) {
+        table.setAttribute("role", "table");
+        [table.tHead, table.tFoot].concat(Array.from(table.tBodies)).forEach(function (g) { if (g) g.setAttribute("role", "rowgroup"); });
+        if (table.tHead) Array.from(table.tHead.rows).forEach(function (r) {
+            r.setAttribute("role", "row");
+            Array.from(r.cells).forEach(function (c) { c.setAttribute("role", "columnheader"); });
+        });
+    }
+    function labelAll(table, labels) {
+        Array.from(table.tBodies).forEach(function (b) { Array.from(b.rows).forEach(function (r) { labelRow(r, labels); }); });
+        if (table.tFoot) Array.from(table.tFoot.rows).forEach(function (r) { labelRow(r, labels); });
+    }
+    function enhance(table) {
+        if (table.classList.contains("table-stack") || table.closest(".no-stack, .for-desktop-records") || !table.closest(".main-content")) return;
+        if (table.querySelector(":scope > tbody > tr > [rowspan]:not([rowspan='1'])")) return;
+        const labels = headerLabels(table);
+        if (!labels) return;
+        table.classList.add("table-stack");
+        applyRoles(table);
+        labelAll(table, labels);
+        new MutationObserver(function () { labelAll(table, labels); }).observe(table, { childList: true, subtree: true });
+    }
+    function scan(root) { (root || document).querySelectorAll("table").forEach(enhance); }
+    scan(document);
+    const main = document.querySelector(".main-content");
+    if (main) {
+        new MutationObserver(function (mutations) {
+            mutations.forEach(function (m) {
+                m.addedNodes.forEach(function (n) {
+                    if (n.nodeType !== 1) return;
+                    if (n.tagName === "TABLE") enhance(n); else if (n.querySelectorAll) scan(n);
+                });
+            });
+        }).observe(main, { childList: true, subtree: true });
+    }
+    window.enhanceTables = scan;
+})();

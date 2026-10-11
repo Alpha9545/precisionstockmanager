@@ -1,0 +1,55 @@
+@page
+@model PlantStockManager.Pages.Store.IndexModel
+@using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Inventory Store";
+    var canRequest = await FeatureAccess.CanAccessPageAsync(User, "/Store/NewRequest");
+}
+
+<style>
+    .store-tiles .tile { border: 1px solid #dee2e6; border-radius: .5rem; padding: .5rem .75rem; background: #fff; height: 100%; }
+    .store-tiles .tile .label { font-size: .8rem; color: #6c757d; }
+    .store-tiles .tile .value { font-size: 1.4rem; font-weight: 700; }
+    .store-tiles .tile.warn { background: #fffaf0; border-color: #f1d38a; }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Inventory Store</h3>
+        <div class="d-flex gap-2">
+            @if (canRequest) { <a asp-page="/Store/NewRequest" class="btn btn-primary">+ New Request</a> }
+            @if (Model.IsManager) { <a asp-page="/Store/StockEntry" class="btn btn-outline-primary">+ Stock Entry</a> }
+        </div>
+    </div>
+
+    <div class="store-tiles row g-2 mb-4" id="storeTiles">
+        <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Total Items"><div class="label">Total Items</div><div class="value">@Model.TotalItems</div></div></div>
+        <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Available Stock"><div class="label">Available Stock (units, Main Office)</div><div class="value">@StoreRules.Qty(Model.AvailableUnits)</div></div></div>
+        <div class="col-6 col-md-3 col-xl"><div class="tile @(Model.LowStock.Any() ? "warn" : "")" data-label="Low Stock Items"><div class="label">Low Stock Items</div><div class="value">@Model.LowStock.Count</div></div></div>
+        <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Pending Requests"><div class="label">Pending Requests</div><div class="value">@Model.Pending</div></div></div>
+        <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Approved Requests"><div class="label">Approved (to issue)</div><div class="value">@Model.ApprovedCount</div></div></div>
+        <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Issued Items"><div class="label">Issued, at the Areas</div><div class="value">@StoreRules.Qty(Model.IssuedOut)</div></div></div>
+        <div class="col-6 col-md-3 col-xl"><div class="tile @(Model.PendingReturns > 0 ? "warn" : "")" data-label="Pending Returns"><div class="label">Returns to confirm</div><div class="value">@Model.PendingReturns</div></div></div>
+        <div class="col-6 col-md-3 col-xl"><div class="tile" data-label="Permanently Assigned"><div class="label">Permanently Assigned</div><div class="value">@StoreRules.Qty(Model.Assigned)</div></div></div>
+    </div>
+
+    <h5>@(Model.IsManager ? "Waiting for the store" : "Waiting for you to settle")</h5>
+    <partial name="_RequestTable" model="Model.ActionNeeded" view-data='new ViewDataDictionary(ViewData) { ["TableId"] = "actionTable", ["Empty"] = "Nothing waiting." }' />
+
+    @if (Model.LowStock.Any())
+    {
+        <h5 class="mt-4">Low stock</h5>
+        <div class="table-responsive">
+            <table class="table table-sm table-bordered" id="lowStockTable">
+                <thead class="table-light"><tr><th>Item</th><th>Category</th><th class="text-end">Available</th><th class="text-end">Minimum</th><th>Unit</th></tr></thead>
+                <tbody>
+                    @foreach (var i in Model.LowStock)
+                    {
+                        <tr><td>@i.Display</td><td>@i.CategoryName</td><td class="text-end text-danger fw-bold">@StoreRules.Qty(i.AvailableQuantity)</td><td class="text-end">@StoreRules.Qty(i.MinimumStock)</td><td>@i.UnitName</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

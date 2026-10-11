@@ -1,0 +1,213 @@
+﻿@page
+@model PlantStockManager.Pages.Production.MaterialStock.AddModel
+@using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    // 2026-10-13: Empty Pots are entered on their existing page (Area + pot size, own Areas) -- offered
+    // here to users who may also add pots; that page checks its own permission and Area.
+    var canAddPots = await FeatureAccess.CanAccessPageAsync(User, "/Production/EmptyPotInventory/AddStock");
+    ViewData["Title"] = "Add Material";
+    var areas = Model.Locations.Select(l => (l.AreaId, l.AreaName)).Distinct().ToList();
+    var traysKind = MaterialStockRules.TraysKind;
+    var isTray = Model.Kind == traysKind;
+}
+
+<style>
+    .am-types { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .am-types .btn { min-width: 7.5rem; }
+    .am-unit-note { font-size: .85rem; }
+</style>
+
+<div class="container mt-4" style="max-width: 760px;">
+    <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h4 class="mb-0">Add Material</h4>
+            <a asp-page="/Production/MaterialStock/Index" class="btn btn-sm btn-outline-secondary">Back to Material Stock</a>
+        </div>
+        <div class="card-body">
+            @if (!ViewData.ModelState.IsValid)
+            {
+                <div asp-validation-summary="All" class="alert alert-danger" role="alert"></div>
+            }
+
+            @if (!Model.CanAddMaterials && !Model.CanAddTrays)
+            {
+                <div class="alert alert-warning">You may not add stock.</div>
+            }
+            else
+            {
+                @* One selector for the three stocks. It is not part of either form: each type
+                   posts its own form, and the server re-checks the permission for that type. *@
+                <div class="mb-3">
+                    <div class="form-label fw-bold mb-1" id="kindLabel">Material Type</div>
+                    <div class="am-types" role="radiogroup" aria-labelledby="kindLabel">
+                        @foreach (var m in Model.Materials)
+                        {
+                            <input type="radio" class="btn-check" name="kind" id="kind_@m.Code" value="@m.Code" autocomplete="off"
+                                   data-material-id="@m.Id" data-factor="@m.ConversionFactor.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                                   data-unit="@m.Unit.ToLowerInvariant()" checked="@(Model.Kind == m.Code)" />
+                            <label class="btn btn-outline-success" for="kind_@m.Code">@m.Name</label>
+                        }
+                        @if (Model.CanAddTrays)
+                        {
+                            <input type="radio" class="btn-check" name="kind" id="kind_@traysKind" value="@traysKind" autocomplete="off" checked="@isTray" />
+                            <label class="btn btn-outline-success" for="kind_@traysKind">Empty Trays</label>
+                        }
+                        @if (canAddPots)
+                        {
+                            <a asp-page="/Production/EmptyPotInventory/AddStock" class="btn btn-outline-success" id="kind_POTS">Empty Pots</a>
+                        }
+                    </div>
+                    <div class="form-text am-unit-note" id="kindNote">
+                        @(isTray ? "Trays are counted per cavity -- no kg and no conversion." : "Cocopeat and Pitmos are kept in kg, only in Main Office Polyhouses.")
+                    </div>
+                </div>
+
+                @if (Model.CanAddMaterials)
+                {
+                    <form method="post" id="addMaterialForm" class="@(isTray ? "d-none" : "")">
+                        <input type="hidden" asp-for="SubmissionToken" />
+                        <input type="hidden" asp-for="MaterialTypeId" id="materialTypeId" />
+                        @if (!Model.Locations.Any())
+                        {
+                            <div class="alert alert-warning">
+                                No Main Office Polyhouse is available to you. Cocopeat and Pitmos are kept only in the Polyhouses of a Main Office Area you are assigned to.
+                            </div>
+                        }
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="areaSelect">Area</label>
+                                <select asp-for="AreaId" id="areaSelect" class="form-select" required>
+                                    <option value="">-- Select Main Office Area --</option>
+                                    @foreach (var a in areas)
+                                    {
+                                        <option value="@a.AreaId">@a.AreaName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="polyhouseSelect">Polyhouse</label>
+                                <select asp-for="PolyhouseId" id="polyhouseSelect" class="form-select" required>
+                                    <option value="">-- Select Polyhouse --</option>
+                                    @foreach (var l in Model.Locations)
+                                    {
+                                        <option value="@l.PolyhouseId" data-area="@l.AreaId" selected="@(Model.PolyhouseId == l.PolyhouseId)">@l.PolyhouseName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="inputQuantity">Input Quantity</label>
+                                <div class="input-group">
+                                    <input type="number" step="0.001" min="0.001" asp-for="InputQuantity" id="inputQuantity" class="form-control" required />
+                                    <span class="input-group-text" id="unitLabel">kg</span>
+                                </div>
+                                <div class="form-text" id="inputHint">For Cocopeat enter the DRY quantity.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="border rounded bg-light p-2 h-100">
+                                    <div class="d-flex justify-content-between"><span class="text-muted">Conversion Factor</span><strong id="factorOut">-</strong></div>
+                                    <div class="d-flex justify-content-between"><span class="text-muted">Stock Added</span><strong id="stockOut">-</strong></div>
+                                    <div class="form-text mb-0" id="formulaOut">Preview -- the server applies the current conversion factor when saving.</div>
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" asp-for="Remarks">Remarks</label>
+                                <textarea asp-for="Remarks" class="form-control" rows="2" maxlength="500"></textarea>
+                            </div>
+                        </div>
+                        <div class="text-center mt-4">
+                            <a asp-page="/Production/MaterialStock/Index" class="btn btn-secondary me-2">Cancel</a>
+                            <button type="submit" class="btn btn-success" id="addButton">Add Stock</button>
+                        </div>
+                    </form>
+                }
+
+                @if (Model.CanAddTrays)
+                {
+                    <partial name="_AddTrayForm" model="Model" />
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const traysKind = '@traysKind';
+            // ---- type selector ----
+            function selectedKind() { return $('input[name="kind"]:checked'); }
+            function showKind() {
+                const $k = selectedKind();
+                const tray = $k.val() === traysKind;
+                $('#addTrayForm').toggleClass('d-none', !tray);
+                $('#addMaterialForm').toggleClass('d-none', tray);
+                $('#kindNote').text(tray ? 'Trays are counted per cavity -- no kg and no conversion.' : 'Cocopeat and Pitmos are kept in kg, only in Main Office Polyhouses.');
+                if (!tray && $k.length) $('#materialTypeId').val($k.data('material-id'));
+                preview();
+            }
+
+            // ---- Cocopeat / Pitmos: Area -> Polyhouse, live conversion preview ----
+            const $area = $('#areaSelect'), $ph = $('#polyhouseSelect');
+            const allPolyhouses = $ph.find('option[data-area]').clone();
+            function filterPolyhouses() {
+                const area = $area.val(), keep = $ph.val();
+                $ph.find('option[data-area]').remove();
+                allPolyhouses.filter(function () { return area && String($(this).data('area')) === String(area); }).each(function () { $ph.append($(this).clone()); });
+                $ph.val($ph.find('option[value="' + keep + '"]').length ? keep : '');
+            }
+            function kg(v, unit) { return Number(v).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 3 }) + ' ' + unit; }
+            function preview() {
+                const $m = selectedKind();
+                const q = parseFloat($('#inputQuantity').val());
+                if (!$m.length || $m.val() === traysKind) { $('#factorOut, #stockOut').text('-'); return; }
+                const factor = parseFloat($m.data('factor')), unit = $m.data('unit');
+                $('#unitLabel').text(unit);
+                $('#inputHint').toggleClass('invisible', factor === 1);
+                $('#factorOut').text(factor.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 }));
+                if (isNaN(q) || q <= 0) { $('#stockOut').text('-'); $('#formulaOut').text('Preview -- the server applies the current conversion factor when saving.'); return; }
+                const stock = Math.round(q * factor * 1000) / 1000;
+                $('#stockOut').text(kg(stock, unit));
+                $('#formulaOut').text(kg(q, unit) + ' x ' + factor.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 4 }) + ' = ' + kg(stock, unit) + ' (preview; the server recalculates).');
+            }
+            $area.on('change', filterPolyhouses);
+            $('#inputQuantity').on('change input', preview);
+            $('input[name="kind"]').on('change', showKind);
+            $('#addMaterialForm').on('submit', function () { if (this.checkValidity()) $('#addButton').prop('disabled', true).text('Saving...'); });
+
+            // ---- Tray: Area -> Polyhouse (only that Area's Polyhouses; the server re-checks on save) ----
+            const trayArea = document.getElementById('trayAreaSelect');
+            const trayPolyhouse = document.getElementById('trayPolyhouseSelect');
+            const handlerUrl = '@Url.Page("/Production/MaterialStock/Add")';
+            function setOptions(list, placeholder) {
+                trayPolyhouse.innerHTML = '';
+                const first = document.createElement('option');
+                first.value = ''; first.textContent = placeholder;
+                trayPolyhouse.appendChild(first);
+                list.forEach(function (p) {
+                    const o = document.createElement('option');
+                    o.value = p.id; o.textContent = p.name;
+                    trayPolyhouse.appendChild(o);
+                });
+            }
+            if (trayArea) {
+                trayArea.addEventListener('change', function () {
+                    if (!trayArea.value) { setOptions([], '-- Select Area first --'); return; }
+                    setOptions([], 'Loading...');
+                    fetch(handlerUrl + '?handler=TrayPolyhouses&areaId=' + encodeURIComponent(trayArea.value))
+                        .then(function (r) { return r.json(); })
+                        .then(function (list) { setOptions(list, list.length ? '-- Select Polyhouse --' : '-- No Polyhouse in this Area --'); })
+                        .catch(function () { setOptions([], '-- Could not load Polyhouses --'); });
+                });
+                // Double-click guard; the one-time SubmissionToken is the server-side guard.
+                document.getElementById('addTrayForm').addEventListener('submit', function () {
+                    const btn = document.getElementById('addTrayBtn');
+                    setTimeout(function () { btn.disabled = true; btn.textContent = 'Saving...'; }, 0);
+                });
+            }
+
+            filterPolyhouses();
+            showKind();
+        });
+    </script>
+}

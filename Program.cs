@@ -8,6 +8,7 @@ using PlantStockManager.Endpoints;
 using PlantStockManager.Models;
 using PlantStockManager.Services;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Authentication;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -69,9 +70,31 @@ builder.Services.AddScoped<CuttingStockRepository>();
 // Tray Stock: empty trays held per Area + Cavity (2026-10-04), added by the
 // Sowing Supervisor, consumed automatically by Seed/Cutting Sowing.
 builder.Services.AddScoped<TrayStockRepository>();
+builder.Services.AddScoped<TrayTransferRepository>(); // 2026-10-10: empty-tray transfers between Polyhouses
+builder.Services.AddScoped<MaterialStockRepository>(); // 2026-10-08: Cocopeat / Pitmos per Main Office Polyhouse (Data/MaterialStockRepository.cs)
 
 // Daily Labour Count (2026-10-04): daily labour headcounts per location, no worker records.
 builder.Services.AddScoped<DailyLabourCountRepository>();
+// Daily Labour Attendance (2026-10-06): 9:00 AM / 2:00 PM headcounts with an audit history.
+builder.Services.AddScoped<DailyLabourAttendanceRepository>();
+// Labour Overtime (2026-10-06): overtime entries with database-computed duration / worker-hours.
+builder.Services.AddScoped<LabourOvertimeRepository>();
+// Maintenance Tickets (2026-10-06): tickets, workflow, photos stored OUTSIDE wwwroot
+// (MaintenanceStorage:PhotoRoot; empty = <LocalApplicationData>/PlantStockManager/MaintenancePhotos).
+builder.Services.AddScoped<MaintenanceRepository>();
+builder.Services.AddScoped<PlantStockManager.Authorization.MaintenanceAuthorization>();
+builder.Services.AddSingleton(builder.Configuration.GetSection("MaintenanceStorage").Get<MaintenanceStorageOptions>() ?? new MaintenanceStorageOptions());
+builder.Services.AddSingleton<MaintenancePhotoStore>();
+// Inventory Store (2026-10-06): store items, insert-only ledger, multi-item requests.
+builder.Services.AddScoped<StoreRepository>();
+builder.Services.AddScoped<PlantStockManager.Authorization.StoreAuthorization>();
+// Suggestions & Problems (2026-10-07): posts (48-hour lifetime / permanent), comments and replies;
+// photos stored OUTSIDE wwwroot with the Maintenance photo rules
+// (SuggestionStorage:PhotoRoot; empty = <LocalApplicationData>/PlantStockManager/SuggestionPhotos).
+builder.Services.AddScoped<SuggestionRepository>();
+builder.Services.AddScoped<PlantStockManager.Authorization.SuggestionAuthorization>();
+builder.Services.AddSingleton(builder.Configuration.GetSection("SuggestionStorage").Get<SuggestionStorageOptions>() ?? new SuggestionStorageOptions());
+builder.Services.AddSingleton<SuggestionPhotoStore>();
 
 // Growing Partner foundation (Phase 17) -- deliberately separate from
 // VendorRepository/dbo.Vendors (Phase 11), see GrowingPartner.cs.
@@ -102,7 +125,11 @@ builder.Services.AddScoped<SeedStockRepository>();
 // shape rather than a StockType/transfer workflow. See
 // Database/Phase23_SeedSowing.sql for the full reasoning.
 builder.Services.AddScoped<SeedSowingRepository>();
+builder.Services.AddScoped<BedSowingRepository>();
+builder.Services.AddScoped<PlantStockManager.Authorization.BedSowingRoleGuard>();   // Bed Sowing Transplanter stays one person             // 2026-10-12: Bed Sowing -> bed transplanting
 builder.Services.AddScoped<ReadyStockRepository>(); // Phase 25 (Phase K)
+builder.Services.AddScoped<MotherPlantTransferRepository>(); // 2026-10-09: Main Area Ready Stock -> Mother Plant Area
+builder.Services.AddScoped<TransplantRepository>();          // 2026-10-09: transplanting in Mother Plant Areas
 builder.Services.AddScoped<ReadyConfirmationRepository>(); // Phase 25 (Phase K)
 builder.Services.AddScoped<SeedlingFulfilmentRepository>(); // Phase C: Ready Stock -> booking reservation -> dispatch
 builder.Services.AddSingleton<PlantStockManager.Services.SubmissionTokenGuard>(); // one-time tokens (Allocate Batch double-submit guard)
@@ -112,6 +139,7 @@ builder.Services.AddSingleton<PlantStockManager.Services.SubmissionTokenGuard>()
 // repository above, see Data/ManagementDashboardRepository.cs.
 builder.Services.AddScoped<ManagementDashboardRepository>();
 builder.Services.AddScoped<DailyReportService>(); // Step 3A: read-only daily report data assembly (no WhatsApp/scheduler yet)
+builder.Services.AddScoped<DailyOperationsReportRepository>(); // Daily Operations Report (any date, System Administrator only)
 
 // Step 8A/8G: Sendvise WhatsApp template sending -- DailyReportService ->
 // DailyReportWhatsAppFormatter (pure, no DI needed) -> SendviseClient ->
@@ -196,6 +224,8 @@ builder.Services.AddRazorPages(options =>
 
 
 var app = builder.Build();
+app.Logger.LogInformation("Maintenance photos are stored in {PhotoRoot}", app.Services.GetRequiredService<MaintenancePhotoStore>().Root);
+app.Logger.LogInformation("Suggestion photos are stored in {PhotoRoot}", app.Services.GetRequiredService<SuggestionPhotoStore>().Root);
 
 
 //app.Use(async (context, next) =>

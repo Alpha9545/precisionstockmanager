@@ -1,0 +1,201 @@
+@page
+@model PlantStockManager.Pages.Suggestions.DetailsModel
+@using PlantStockManager.Services
+@using PlantStockManager.Models
+@{
+    var p = Model.Post;
+    ViewData["Title"] = $"{p.PostNo} {p.Title}";
+}
+
+<style>
+    .sp-text { white-space: pre-line; overflow-wrap: anywhere; }
+    .sp-comment { border-left: 3px solid #dee2e6; padding: .5rem .75rem; margin-bottom: .5rem; background: #fff; border-radius: .25rem; }
+    .sp-reply { margin-left: 1.5rem; border-left-color: #b6d4fe; }
+    .sp-comment.deleted { background: #f8f9fa; }
+    .sp-actions { display: flex; flex-wrap: wrap; column-gap: 1rem; align-items: flex-start; }
+    .sp-actions details[open] { flex-basis: 100%; }
+    .sp-comment details > summary { display: inline-block; cursor: pointer; color: #0d6efd; font-size: .85rem; list-style: none; }
+    .sp-comment details > summary::-webkit-details-marker { display: none; }
+    .sp-photo { max-height: 480px; object-fit: contain; background: #f1f3f5; }
+    @@media (max-width: 575.98px) { .sp-reply { margin-left: .75rem; } }
+</style>
+
+<div class="container mt-4 mb-5" style="max-width: 900px;">
+    <div class="mb-2"><a asp-page="/Suggestions/Index" class="text-decoration-none">← Suggestions &amp; Problems</a></div>
+
+    @if (TempData["Success"] is string ok) { <div class="alert alert-success" id="postSuccess">@ok</div> }
+    @if (TempData["Error"] is string bad) { <div class="alert alert-warning" id="postError">@bad</div> }
+    @if (!ModelState.IsValid)
+    {
+        <div class="alert alert-danger" id="postErrors">
+            <ul class="mb-0">
+                @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                {
+                    <li>@err.ErrorMessage</li>
+                }
+            </ul>
+        </div>
+    }
+
+    <div class="card shadow-sm mb-3" id="postCard" data-post-id="@p.Id">
+        @if (p.PhotoId.HasValue)
+        {
+            <a href="@Url.Page("/Suggestions/Details", "Photo", new { id = p.Id })" target="_blank" rel="noopener">
+                <img class="card-img-top sp-photo" id="postPhoto" alt="Photo of @p.Title" src="@Url.Page("/Suggestions/Details", "Photo", new { id = p.Id })" />
+            </a>
+        }
+        <div class="card-body">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                <span class="badge @SuggestionRules.TypeBadge(p.TypeCode)" id="postType">@SuggestionRules.TypeIcon(p.TypeCode) @p.TypeName</span>
+                <span class="badge @SuggestionRules.StatusBadge(p.Status)" id="postStatus">@SuggestionRules.StatusLabel(p.Status)</span>
+                <span id="postLifetime"><partial name="_Lifetime" model="p" /></span>
+                <span class="text-muted small ms-auto">@p.PostNo</span>
+            </div>
+            <h4 class="text-break" id="postTitle">@p.Title</h4>
+            <dl class="row small mb-2">
+                <dt class="col-4 col-sm-3">Area</dt><dd class="col-8 col-sm-9" id="postArea">@p.AreaName</dd>
+                @if (p.PolyhouseName != null)
+                {
+                    <dt class="col-4 col-sm-3">Polyhouse</dt><dd class="col-8 col-sm-9" id="postPolyhouse">@p.PolyhouseName</dd>
+                }
+                <dt class="col-4 col-sm-3">Posted by</dt><dd class="col-8 col-sm-9" id="postedBy">@(p.PostedByName ?? "—")</dd>
+                <dt class="col-4 col-sm-3">Created</dt><dd class="col-8 col-sm-9" id="postCreated">@AppClock.ToIndiaTime(p.CreatedAt).ToString("dd-MM-yyyy hh:mm tt")</dd>
+                <dt class="col-4 col-sm-3">Validity</dt>
+                <dd class="col-8 col-sm-9" id="postValidity">
+                    @if (p.IsPermanent)
+                    {
+                        <span>Permanent -- does not expire</span>
+                        @if (p.MadePermanentAt.HasValue) { <span class="text-muted"> (by @p.MadePermanentByName, @AppClock.ToIndiaTime(p.MadePermanentAt.Value).ToString("dd-MM-yyyy hh:mm tt"))</span> }
+                    }
+                    else
+                    {
+                        <span>@(p.IsExpired ? "Expired" : "Expires") @AppClock.ToIndiaTime(p.ExpiresAt).ToString("dd-MM-yyyy hh:mm tt")</span>
+                        @if (!p.IsExpired) { <span class="text-muted"> (in @SuggestionRules.Remaining(p.ExpiresAt, Model.NowUtc))</span> }
+                    }
+                </dd>
+                @if (p.StatusChangedAt.HasValue)
+                {
+                    <dt class="col-4 col-sm-3">Status set</dt><dd class="col-8 col-sm-9">by @p.StatusChangedByName, @AppClock.ToIndiaTime(p.StatusChangedAt.Value).ToString("dd-MM-yyyy hh:mm tt")</dd>
+                }
+            </dl>
+            <h6 class="mb-1">Details</h6>
+            <div class="sp-text" id="postDescription">@p.Description</div>
+            @if (p.IsDeleted)
+            {
+                <div class="alert alert-dark mt-3 mb-0" id="deletedInfo">
+                    Deleted by @p.DeletedByName on @AppClock.ToIndiaTime(p.DeletedAt!.Value).ToString("dd-MM-yyyy hh:mm tt") -- reason: <span class="sp-text">@p.DeleteReason</span>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (Model.IsManager && !p.IsDeleted)
+    {
+        <div class="card border-primary mb-3" id="adminPanel">
+            <div class="card-header bg-primary text-white py-2">Administrator</div>
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-3 align-items-start">
+                    @if (p.IsPermanent)
+                    {
+                        <span class="btn btn-warning disabled" id="permanentBadge">⭐ Permanent</span>
+                    }
+                    else
+                    {
+                        <form method="post" asp-page-handler="MakePermanent" asp-route-id="@p.Id" id="makePermanentForm">
+                            <input type="hidden" asp-for="SubmitToken" />
+                            <button type="submit" class="btn btn-outline-warning" id="makePermanentBtn">⭐ Make Permanent</button>
+                        </form>
+                    }
+                    <form method="post" asp-page-handler="Status" asp-route-id="@p.Id" id="statusForm" class="d-flex flex-wrap gap-2 align-items-start">
+                        <input type="hidden" asp-for="SubmitToken" />
+                        <select name="NewStatus" id="newStatus" class="form-select" style="width: auto;">
+                            @foreach (var s in SuggestionRules.Statuses)
+                            {
+                                <option value="@s" selected="@(p.Status == s)">@SuggestionRules.StatusLabel(s)</option>
+                            }
+                        </select>
+                        <input type="text" name="StatusNote" id="statusNote" class="form-control" style="width: 220px;" maxlength="@SuggestionRules.MaxReasonLength" placeholder="Note (optional)" />
+                        <button type="submit" class="btn btn-outline-primary" id="statusBtn">Set Status</button>
+                    </form>
+                </div>
+                <details class="mt-3" id="deletePostBox">
+                    <summary class="text-danger">🗑 Delete post…</summary>
+                    <form method="post" asp-page-handler="Delete" asp-route-id="@p.Id" id="deletePostForm" class="mt-2">
+                        <input type="hidden" asp-for="SubmitToken" />
+                        <label class="form-label small" for="deleteReason">Reason (required; the post is kept for audit and hidden from users)</label>
+                        <textarea name="DeleteReason" id="deleteReason" class="form-control mb-2" rows="2" maxlength="@SuggestionRules.MaxReasonLength"></textarea>
+                        <button type="submit" class="btn btn-danger btn-sm" id="deletePostBtn">Delete post</button>
+                    </form>
+                </details>
+            </div>
+        </div>
+    }
+
+    <div class="card shadow-sm mb-3" id="commentsCard">
+        <div class="card-header py-2"><strong>Comments</strong> <span class="text-muted">(@p.CommentCount)</span></div>
+        <div class="card-body">
+            @foreach (var c in Model.Comments)
+            {
+                @await Html.PartialAsync("_Comment", c, new ViewDataDictionary(ViewData) { ["IsReply"] = false, ["Page"] = Model })
+                @foreach (var r in c.Replies)
+                {
+                    @await Html.PartialAsync("_Comment", r, new ViewDataDictionary(ViewData) { ["IsReply"] = true, ["RootId"] = c.Id, ["Page"] = Model })
+                }
+            }
+            @if (!Model.Comments.Any())
+            {
+                <p class="text-muted mb-0" id="noComments">No comments yet.</p>
+            }
+        </div>
+        @if (Model.CanComment)
+        {
+            <div class="card-footer">
+                <form method="post" asp-page-handler="Comment" asp-route-id="@p.Id" id="commentForm">
+                    <input type="hidden" asp-for="SubmitToken" />
+                    <label class="form-label fw-bold" for="commentText">Add Comment</label>
+                    <textarea name="CommentText" id="commentText" class="form-control mb-2" rows="2" maxlength="@SuggestionRules.MaxCommentLength" required>@(Model.ParentCommentId == null ? Model.CommentText : null)</textarea>
+                    <button type="submit" class="btn btn-primary btn-sm" id="commentBtn">Add Comment</button>
+                </form>
+            </div>
+        }
+        else if (!p.IsDeleted)
+        {
+            <div class="card-footer text-muted small">You can read this discussion but cannot comment on it.</div>
+        }
+    </div>
+
+    @if (Model.IsManager)
+    {
+        <div class="card mb-3" id="historyCard">
+            <div class="card-header py-2"><strong>History</strong> <small class="text-muted">(administrators)</small></div>
+            <div class="table-responsive">
+                <table class="table table-sm mb-0" id="historyTable">
+                    <thead class="table-light"><tr><th>When</th><th>Event</th><th>By</th><th>Details</th></tr></thead>
+                    <tbody>
+                        @foreach (var e in Model.Events)
+                        {
+                            <tr data-event="@e.EventType">
+                                <td class="text-nowrap">@AppClock.ToIndiaTime(e.CreatedAt).ToString("dd-MM-yyyy hh:mm tt")</td>
+                                <td>@e.EventType</td>
+                                <td>@e.ActorName</td>
+                                <td class="sp-text">@(e.FromStatus != null || e.ToStatus != null ? $"{SuggestionRules.StatusLabel(e.FromStatus)} → {SuggestionRules.StatusLabel(e.ToStatus)}. " : "")@e.Note</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        // Disable a form's button once it is sent (the server also refuses a second identical post).
+        document.querySelectorAll('form[method="post"]').forEach(function (f) {
+            f.addEventListener('submit', function () {
+                const btn = f.querySelector('button[type="submit"]');
+                if (btn) setTimeout(function () { btn.disabled = true; }, 0);
+            });
+        });
+    </script>
+}

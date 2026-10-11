@@ -2,8 +2,11 @@
 @model PlantStockManager.Pages.Production.Labour.IndexModel
 @inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
-    ViewData["Title"] = "Labour Records";
-    var canEnter = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/Entry");
+    ViewData["Title"] = "Manual Labour Records";
+    // Manual Full/Half Day records were retired on 2026-10-06 (Daily Attendance replaces them);
+    // only a full-access user may still correct one.
+    var canEnter = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/Attendance");
+    var canCorrect = PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.IsFullAccess(User);
     var s = Model.Summary;
 }
 
@@ -17,12 +20,16 @@
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <h3 class="mb-0">Labour Records</h3>
-        @if (canEnter)
-        {
-            <a asp-page="/Production/Labour/Entry" class="btn btn-primary">+ Daily Labour Entry</a>
-        }
+        <h3 class="mb-0">Manual Labour Records</h3>
+        <div class="d-flex gap-2">
+            <a asp-page="/Production/Labour/AttendanceHistory" class="btn btn-outline-secondary">Attendance History</a>
+            @if (canEnter)
+            {
+                <a asp-page="/Production/Labour/Attendance" class="btn btn-primary">+ Daily Attendance</a>
+            }
+        </div>
     </div>
+    <div class="alert alert-info py-2">These are the Full Day / Half Day records entered by hand before 9:00 AM / 2:00 PM attendance was introduced. New labour is recorded in Daily Attendance.</div>
 
     @if (TempData["Success"] != null)
     {
@@ -111,7 +118,7 @@
                         <td class="labour-remark">@(string.IsNullOrWhiteSpace(r.Remarks) ? "—" : r.Remarks)</td>
                         <td>@(r.CreatedByName ?? "—")</td>
                         <td>
-                            @if (canEnter)
+                            @if (canCorrect)
                             {
                                 <a asp-page="/Production/Labour/Entry" asp-route-id="@r.Id" class="btn btn-sm btn-outline-primary">Edit</a>
                             }

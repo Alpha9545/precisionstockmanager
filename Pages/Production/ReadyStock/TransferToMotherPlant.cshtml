@@ -1,0 +1,131 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.ReadyStock.TransferToMotherPlantModel
+@{
+    ViewData["Title"] = "Transfer to Mother Plant Area";
+    var b = Model.Batch;
+    var eligible = b.IsSowingBatch && b.InMainArea && Model.Cavity > 0 && Model.AvailableTrays >= 1;
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 820px;">
+        <div class="card-header">
+            <h4 class="mb-0">Transfer Ready Stock to a Mother Plant Area</h4>
+            <small class="text-muted">For transplanting into larger trays. The trays are <strong>in transit</strong> until the Mother Plant Supervisor receives them:
+                they cannot be booked, dispatched or sent again meanwhile, and they do not count as stock at either place.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered">
+                    <tbody>
+                        <tr><th class="w-50">Source Area / Polyhouse</th><td>@b.AreaName / @(b.PolyhouseName ?? "-")</td></tr>
+                        <tr><th>Variety</th><td>@b.SpeciesName?.Trim() (@b.PlantTypeName)</td></tr>
+                        <tr><th>Batch / Sowing</th><td>@b.BatchNo &middot; @b.SowingCode (sown @b.SowingDate.ToString("dd/MM/yyyy"))</td></tr>
+                        <tr><th>Tray cavity</th><td>@b.CavityType</td></tr>
+                        <tr><th>Ready plants (batch)</th><td>@Qty(b.Quantity)</td></tr>
+                        <tr><th>Reserved / Dispatched / In transit</th><td>@Qty(b.ReservedQuantity) / @Qty(b.DispatchedQuantity) / @Qty(b.InTransitQuantity)</td></tr>
+                        <tr><th>Available now</th><td class="fw-bold">@Qty(b.AvailableQuantity) plants = @Qty(Model.AvailableTrays) full trays</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            @if (!eligible)
+            {
+                <div class="alert alert-warning">
+                    @if (!b.IsSowingBatch || !b.InMainArea) { <span>Only Ready Stock of a Main Area sowing batch can be sent to a Mother Plant Area.</span> }
+                    else { <span>No complete tray of this batch is available to send.</span> }
+                </div>
+            }
+            else if (!Model.MotherPlantAreas.Any())
+            {
+                <div class="alert alert-warning">There is no active Mother Plant Area to send to.</div>
+            }
+            else
+            {
+                <form method="post">
+                    <input type="hidden" asp-for="SubmissionToken" />
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Destination Mother Plant Area</label>
+                            <select asp-for="DestinationAreaId" class="form-select" id="destArea" required>
+                                <option value="">-- choose --</option>
+                                @foreach (var a in Model.MotherPlantAreas)
+                                {
+                                    <option value="@a.Id">@a.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Destination Polyhouse</label>
+                            <select asp-for="DestinationPolyhouseId" class="form-select" id="destPolyhouse" required>
+                                <option value="">-- choose the Area first --</option>
+                                @foreach (var p in Model.Polyhouses)
+                                {
+                                    <option value="@p.Id" data-area="@p.AreaId">@p.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Trays to send</label>
+                            <input asp-for="Trays" type="number" min="1" max="@Model.AvailableTrays" step="1" class="form-control" id="trays" required />
+                            <div class="form-text">Whole @b.CavityType trays; at most @Qty(Model.AvailableTrays).</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Seedlings</label>
+                            <input type="text" class="form-control" id="plants" readonly />
+                            <div class="form-text">= trays x @Model.Cavity (recalculated on the server).</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Transfer date</label>
+                            <input asp-for="TransferDate" type="date" class="form-control" max="@PlantStockManager.Services.AppClock.Today.ToString("yyyy-MM-dd")" required />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Notes</label>
+                            <input asp-for="Remarks" class="form-control" maxlength="500" />
+                        </div>
+                    </div>
+                    <div class="text-center mt-4">
+                        <a asp-page="/Production/ReadyStock/Index" class="btn btn-secondary me-2">Back</a>
+                        <button type="submit" class="btn btn-success" id="sendBtn">Send to Mother Plant Area</button>
+                    </div>
+                </form>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const cavity = @Model.Cavity;
+            function polyhouses() {
+                const area = $('#destArea').val();
+                $('#destPolyhouse option[data-area]').each(function () {
+                    const show = $(this).data('area') == area;
+                    $(this).prop('hidden', !show).prop('disabled', !show);
+                });
+                const sel = $('#destPolyhouse option:selected');
+                if (sel.data('area') != area) $('#destPolyhouse').val('');
+            }
+            function plants() {
+                const t = parseInt($('#trays').val() || '0', 10);
+                $('#plants').val(t > 0 ? (t * cavity).toLocaleString('en-IN') : '');
+            }
+            $('#destArea').on('change', polyhouses);
+            $('#trays').on('input', plants);
+            polyhouses(); plants();
+            $('form').on('submit', function () { $('#sendBtn').prop('disabled', true); });
+        });
+    </script>
+}

@@ -1,0 +1,171 @@
+@page
+@model PlantStockManager.Pages.Store.RequestDetailsModel
+@using PlantStockManager.Services
+@{
+    var r = Model.Current;
+    ViewData["Title"] = $"Store Request {r.RequestNo}";
+    string When(DateTime? utc) => utc.HasValue ? AppClock.ToIndiaTime(utc.Value).ToString("dd-MM-yyyy hh:mm tt") : "—";
+    string Q(decimal? q) => q.HasValue ? StoreRules.Qty(q.Value) : "—";
+}
+
+<style>
+    .st-panel { border: 1px solid #b7dfc6; background: #f8fcf9; border-radius: .5rem; padding: .75rem 1rem; margin-bottom: 1rem; }
+    .st-panel.warn { border-color: #f1d38a; background: #fffaf0; }
+    .st-qty { max-width: 120px; }
+</style>
+
+<div class="container mt-4 mb-5" style="max-width: 1100px;">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+        <div>
+            <h3 class="mb-1"><span id="requestNo">@r.RequestNo</span> -- @r.Destination</h3>
+            <span class="badge @StoreRules.StatusBadge(r.Status)" id="requestStatus">@r.Status</span>
+            <span class="text-muted small ms-2">@r.Purpose</span>
+        </div>
+        <a asp-page="/Store/Requests" class="btn btn-outline-secondary btn-sm">Requests</a>
+    </div>
+
+    @if (TempData["Success"] != null) { <div class="alert alert-success" id="requestSuccess">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-warning" id="requestError">@TempData["Error"]</div> }
+    @if (!ModelState.IsValid)
+    {
+        <div class="alert alert-danger" id="requestErrors"><ul class="mb-0">@foreach (var err in ModelState.Values.SelectMany(v => v.Errors)) { <li>@err.ErrorMessage</li> }</ul></div>
+    }
+
+    @if (Model.CanReview)
+    {
+        <form method="post" asp-page-handler="Review" asp-route-id="@r.Id" class="st-panel" id="reviewForm">
+            <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
+            <h6>Review (approve the quantity per item; 0 = reject that item)</h6>
+            <table class="table table-sm align-middle mb-2">
+                <thead><tr><th>Item</th><th class="text-end">Requested</th><th class="text-end">In stock</th><th>Approve</th><th>Remark</th></tr></thead>
+                <tbody>
+                    @foreach (var l in r.Lines)
+                    {
+                        <tr><td>@l.ItemCode @l.ItemName <span class="text-muted small">(@l.ItemType)</span><input type="hidden" name="LineIds" value="@l.Id" /></td>
+                            <td class="text-end">@Q(l.RequestedQty) @l.UnitName</td><td class="text-end">@Q(l.ItemAvailable)</td>
+                            <td><input type="number" step="any" min="0" max="@l.RequestedQty" name="Quantities" value="@StoreRules.Qty(l.RequestedQty)" class="form-control form-control-sm st-qty" data-line="@l.Id" /></td>
+                            <td><input type="text" name="LineRemarks" maxlength="500" class="form-control form-control-sm" /></td></tr>
+                    }
+                </tbody>
+            </table>
+            <input type="text" name="Remarks" maxlength="500" class="form-control form-control-sm mb-2" placeholder="Review remark (optional)" />
+            <button type="submit" class="btn btn-success" id="reviewBtn">Save Review</button>
+        </form>
+    }
+
+    @if (Model.CanIssue)
+    {
+        <form method="post" asp-page-handler="Issue" asp-route-id="@r.Id" class="st-panel" id="issueForm">
+            <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
+            <h6>Issue (at most the approved quantity, at most what is in stock)</h6>
+            <table class="table table-sm align-middle mb-2">
+                <thead><tr><th>Item</th><th class="text-end">Approved</th><th class="text-end">In stock</th><th>Issue now</th></tr></thead>
+                <tbody>
+                    @foreach (var l in r.Lines.Where(l => l.ApprovedQty > 0))
+                    {
+                        <tr><td>@l.ItemCode @l.ItemName<input type="hidden" name="LineIds" value="@l.Id" /></td>
+                            <td class="text-end">@Q(l.ApprovedQty) @l.UnitName</td><td class="text-end">@Q(l.ItemAvailable)</td>
+                            <td><input type="number" step="any" min="0" max="@l.ApprovedQty" name="Quantities" value="@StoreRules.Qty(Math.Min(l.ApprovedQty!.Value, l.ItemAvailable))" class="form-control form-control-sm st-qty" data-line="@l.Id" /></td></tr>
+                    }
+                </tbody>
+            </table>
+            <button type="submit" class="btn btn-success" id="issueBtn">Issue Items</button>
+        </form>
+    }
+
+    @if (Model.CanSettle)
+    {
+        foreach (var l in r.Lines.Where(l => l.NeedsSettlement))
+        {
+            <form method="post" asp-page-handler="Settle" asp-route-id="@r.Id" class="st-panel settle-form" data-line="@l.Id">
+                <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
+                <input type="hidden" name="LineId" value="@l.Id" />
+                <h6>Settle @l.ItemName -- @Q(l.IssuedQty) @l.UnitName issued (@l.ItemType)</h6>
+                <div class="row g-2 align-items-end">
+                    @if (l.ItemType == StoreRules.Consumable)
+                    {
+                        <div class="col-4 col-md-2"><label class="form-label small">Consumed / used</label><input type="number" step="any" min="0" name="Consumed" value="0" class="form-control form-control-sm settle-consumed" /></div>
+                    }
+                    <div class="col-4 col-md-2"><label class="form-label small">Kept at the Area</label><input type="number" step="any" min="0" name="Kept" value="0" class="form-control form-control-sm settle-kept" /></div>
+                    <div class="col-4 col-md-2"><label class="form-label small">Returned to store</label><input type="number" step="any" min="0" name="Returned" value="0" class="form-control form-control-sm settle-returned" /></div>
+                    <div class="col-12 col-md-4"><input type="text" name="Remarks" maxlength="500" class="form-control form-control-sm" placeholder="Remark (optional)" /></div>
+                    <div class="col-12 col-md-2"><button type="submit" class="btn btn-sm btn-success settle-btn">Settle</button></div>
+                </div>
+                <div class="small text-muted mt-1">Every issued unit once: @(l.ItemType == StoreRules.Consumable ? "consumed + " : "")kept + returned = @Q(l.IssuedQty). Returned units go back to stock when the Store Keeper confirms them.</div>
+            </form>
+        }
+    }
+
+    @if (Model.CanConfirmReturn)
+    {
+        foreach (var l in r.Lines.Where(l => l.ReturnPending))
+        {
+            <form method="post" asp-page-handler="ConfirmReturn" asp-route-id="@r.Id" class="st-panel warn confirm-form" data-line="@l.Id">
+                <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
+                <input type="hidden" name="LineId" value="@l.Id" />
+                <h6>Confirm return: @Q(l.ReturnDeclaredQty) @l.UnitName @l.ItemName (declared by @l.SettledByName, @When(l.SettledAt))</h6>
+                <div class="row g-2 align-items-end">
+                    <div class="col-6 col-md-2"><select name="ReturnCondition" class="form-select form-select-sm confirm-condition">
+                        @foreach (var c in StoreRules.ReturnConditions) { <option value="@c">@c</option> }</select></div>
+                    <div class="col-12 col-md-6"><input type="text" name="Remarks" maxlength="500" class="form-control form-control-sm" placeholder="Remark (optional)" /></div>
+                    <div class="col-12 col-md-3"><button type="submit" class="btn btn-sm btn-warning confirm-btn">Physically received -- add to stock</button></div>
+                </div>
+            </form>
+        }
+    }
+
+    @if (Model.CanCancel)
+    {
+        <form method="post" asp-page-handler="Cancel" asp-route-id="@r.Id" class="st-panel warn d-flex gap-2 align-items-center" id="cancelForm">
+            <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
+            <input type="text" name="Reason" id="cancelReason" maxlength="500" class="form-control" placeholder="Reason for cancelling (required)" />
+            <button type="submit" class="btn btn-outline-danger text-nowrap" id="cancelBtn">Cancel Request</button>
+        </form>
+    }
+
+    <div class="card shadow-sm mb-3"><div class="card-body">
+        <dl class="row mb-0 small">
+            <dt class="col-sm-2">Requested</dt><dd class="col-sm-4">@r.RequestedByName, @When(r.RequestedAt)</dd>
+            <dt class="col-sm-2">Reviewed</dt><dd class="col-sm-4">@(r.ReviewedAt.HasValue ? $"{r.ReviewedByName}, {When(r.ReviewedAt)}" : "—") @(r.ReviewRemarks == null ? "" : $"-- {r.ReviewRemarks}")</dd>
+            <dt class="col-sm-2">Issued</dt><dd class="col-sm-4">@(r.IssuedAt.HasValue ? $"{r.IssuedByName}, {When(r.IssuedAt)}" : "—")</dd>
+            <dt class="col-sm-2">Closed</dt><dd class="col-sm-4">@When(r.ClosedAt)</dd>
+            @if (r.Status == StoreRules.Cancelled) { <dt class="col-sm-2">Cancelled</dt><dd class="col-sm-10">@r.CancelledByName, @When(r.CancelledAt) -- @r.CancelReason</dd> }
+        </dl>
+    </div></div>
+
+    <h6>Items</h6>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle" id="lineTable">
+            <thead class="table-light"><tr><th>Item</th><th>Type</th><th class="text-end">Requested</th><th class="text-end">Approved</th><th class="text-end">Issued</th>
+                <th class="text-end">Consumed</th><th class="text-end">Kept</th><th class="text-end">Return pending</th><th class="text-end">Returned</th><th>Settlement</th><th>State</th></tr></thead>
+            <tbody>
+                @foreach (var l in r.Lines)
+                {
+                    <tr data-line="@l.Id" data-item="@l.ItemCode">
+                        <td>@l.ItemCode @l.ItemName <span class="text-muted small">@l.UnitName</span></td><td>@l.ItemType</td>
+                        <td class="text-end">@Q(l.RequestedQty)</td><td class="text-end">@Q(l.ApprovedQty)</td><td class="text-end">@Q(l.IssuedQty)</td>
+                        <td class="text-end">@Q(l.ConsumedQty)</td><td class="text-end">@Q(l.KeptQty)</td><td class="text-end">@Q(l.ReturnDeclaredQty)</td><td class="text-end">@Q(l.ReturnedQty)</td>
+                        <td class="small">@(l.SettledAt.HasValue ? $"{l.SettledByName}, {When(l.SettledAt)}" : "—")
+                            @if (l.ReturnConfirmedAt.HasValue) { <div>Return confirmed: @l.ReturnConfirmedByName, @When(l.ReturnConfirmedAt) (@l.ReturnCondition)</div> }</td>
+                        <td>@l.Outcome</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <h6>Stock movements of this request</h6>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle small" id="movementTable">
+            <thead class="table-light"><tr><th>When</th><th>Type</th><th>Item</th><th class="text-end">Qty</th><th class="text-end">Stock before</th><th class="text-end">Stock after</th><th>By</th><th>Remarks</th></tr></thead>
+            <tbody>
+                @foreach (var t in Model.Movements)
+                {
+                    <tr><td>@When(t.CreatedAt)</td><td>@StoreRules.TypeLabel(t.TransactionType)</td><td>@t.ItemCode</td><td class="text-end">@StoreRules.Qty(t.Quantity)</td>
+                        <td class="text-end">@StoreRules.Qty(t.BalanceBefore)</td><td class="text-end">@StoreRules.Qty(t.BalanceAfter)</td><td>@t.CreatedByName</td><td>@t.Remarks</td></tr>
+                }
+                @if (!Model.Movements.Any()) { <tr><td colspan="8" class="text-center text-muted">No stock movement yet.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>

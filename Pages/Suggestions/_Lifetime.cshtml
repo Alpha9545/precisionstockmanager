@@ -1,0 +1,22 @@
+@model PlantStockManager.Models.SuggestionPost
+@using PlantStockManager.Services
+@* Lifetime of a post -- separate from its business Status. A permanent post never shows "Expires in". *@
+@{
+    var nowUtc = DateTime.UtcNow;
+}
+@if (Model.IsDeleted)
+{
+    <span class="badge bg-dark" data-lifetime="Deleted">Deleted</span>
+}
+else if (Model.IsPermanent)
+{
+    <span class="badge bg-warning text-dark" data-lifetime="Permanent">⭐ PERMANENT</span>
+}
+else if (Model.IsExpired)
+{
+    <span class="badge bg-secondary" data-lifetime="Expired">Expired @AppClock.ToIndiaTime(Model.ExpiresAt).ToString("dd-MM-yyyy hh:mm tt")</span>
+}
+else
+{
+    <span class="text-muted small" data-lifetime="Active" title="Expires @AppClock.ToIndiaTime(Model.ExpiresAt).ToString("dd-MM-yyyy hh:mm tt")">⏳ Expires in @SuggestionRules.Remaining(Model.ExpiresAt, nowUtc)</span>
+}

@@ -1,0 +1,200 @@
+@page
+@model PlantStockManager.Pages.Production.MotherPlantTransfers.IndexModel
+@using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Mother Plant Transfers";
+    string Row(int id) => Model.Highlight == id ? "table-warning" : "";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <h3 class="mb-0">@(Model.CanReceive && !Model.CanSend ? "Incoming Ready Stock" : "Mother Plant Transfers")</h3>
+        <div class="d-flex gap-2">
+            @if (Model.CanSend) { <a asp-page="/Production/ReadyStock/Index" class="btn btn-sm btn-outline-success">Send from Ready Stock</a> }
+            @if (await FeatureAccess.CanAccessPageAsync(User, "/Production/Transplanting/Index")) { <a asp-page="/Production/Transplanting/Index" class="btn btn-sm btn-outline-primary">Transplanting</a> }
+        </div>
+    </div>
+    <p class="text-muted small mb-3">
+        Main Area Ready Stock sent to a Mother Plant Area for transplanting. While <strong>in transit</strong> the plants are held at the Main Area batch:
+        they cannot be booked, dispatched or sent again, and they are not stock at either place. Receiving creates a new Ready Stock batch in the
+        Mother Plant polyhouse that keeps its link to the original sowing.
+    </p>
+
+    @if (TempData["Success"] != null) { <div class="alert alert-success" id="msg-success">@TempData["Success"]</div> }
+    @{ var canTransplant = await FeatureAccess.CanAccessPageAsync(User, "/Production/Transplanting/Create"); }
+    @if (canTransplant && TempData["TransplantBatchId"] is int justReceived)
+    {
+        <div class="alert alert-primary d-flex flex-wrap align-items-center justify-content-between gap-2" id="transplant-next">
+            <span><strong>Received.</strong> Next: transplant these plants into cavity trays.</span>
+            <a asp-page="/Production/Transplanting/Create" asp-route-id="@justReceived" class="btn btn-primary" id="transplant-now">Transplant into Trays</a>
+        </div>
+    }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger" id="msg-error">@TempData["Error"]</div> }
+
+    @if (Model.CanReceive)
+    {
+        <h5 class="mt-3">Incoming &mdash; waiting to be received</h5>
+        @if (!Model.Incoming.Any())
+        {
+            <div class="text-muted small mb-3" id="no-incoming">Nothing is in transit to your Mother Plant Areas.</div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered align-middle" id="incoming">
+                    <thead class="table-light">
+                        <tr><th>Transfer</th><th>Variety</th><th>Source Area</th><th>Source Batch</th><th class="text-end">Plants Sent</th><th>Source Cavity</th><th>To (Area / Polyhouse)</th><th style="min-width:320px">Action</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var t in Model.Incoming)
+                        {
+                            <tr class="@Row(t.Id)">
+                                <td>@t.TransferCode<div class="small text-muted">@t.TransferDate.ToString("dd/MM/yyyy")</div></td>
+                                <td>@t.SpeciesName <div class="small text-muted">@t.PlantTypeName</div></td>
+                                <td>@t.SourceAreaName<div class="small text-muted">@t.SourcePolyhouseName</div></td>
+                                <td>@t.BatchNo<div class="small text-muted">@t.SowingCode &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@t.SourceReadyStockId">lineage</a></div></td>
+                                <td class="text-end fw-bold">@Qty(t.Quantity)<div class="small text-muted fw-normal">@Qty(t.Trays) trays</div></td>
+                                <td>@t.CavityType</td>
+                                <td>@t.DestinationAreaName / @t.DestinationPolyhouseName</td>
+                                <td>
+                                    <form method="post" asp-page-handler="Receive" asp-route-id="@t.Id" class="row g-1 mb-1 once">
+                                        <div class="col-5"><input name="receivedQuantity" type="number" min="1" max="@((int)t.Quantity)" step="1" value="@((int)t.Quantity)" class="form-control form-control-sm" aria-label="Plants received" required /></div>
+                                        <div class="col-7"><input name="shortfallReason" maxlength="500" class="form-control form-control-sm" placeholder="Reason if fewer arrived" /></div>
+                                        <div class="col-5"><input name="receivedDate" type="date" value="@PlantStockManager.Services.AppClock.Today.ToString("yyyy-MM-dd")"
+                                               min="@t.TransferDate.ToString("yyyy-MM-dd")" max="@PlantStockManager.Services.AppClock.Today.ToString("yyyy-MM-dd")"
+                                               class="form-control form-control-sm" aria-label="Date received (@t.TransferCode)" required /></div>
+                                        <div class="col-7"><input name="receiptDateReason" maxlength="500" class="form-control form-control-sm"
+                                               placeholder="Reason if received on an earlier date" aria-label="Reason the receipt is recorded late (@t.TransferCode)" /></div>
+                                        <div class="col-12"><button class="btn btn-sm btn-success w-100" type="submit">Receive</button></div>
+                                    </form>
+                                    <form method="post" asp-page-handler="Reject" asp-route-id="@t.Id" class="input-group input-group-sm once">
+                                        <input name="reason" maxlength="500" class="form-control" placeholder="Reason to reject" required />
+                                        <button class="btn btn-outline-danger" type="submit">Reject</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+
+    @if (Model.CanSend)
+    {
+        <h5 class="mt-3">Sent &mdash; still in transit</h5>
+        @if (!Model.Outgoing.Any())
+        {
+            <div class="text-muted small mb-3">No transfer from your Areas is in transit.</div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered align-middle" id="outgoing">
+                    <thead class="table-light">
+                        <tr><th>Transfer</th><th>Variety</th><th>Batch</th><th class="text-end">Plants</th><th>Cavity</th><th>To (Area / Polyhouse)</th><th style="min-width:260px">Cancel</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var t in Model.Outgoing)
+                        {
+                            <tr class="@Row(t.Id)">
+                                <td>@t.TransferCode<div class="small text-muted">@t.TransferDate.ToString("dd/MM/yyyy")</div></td>
+                                <td>@t.SpeciesName</td>
+                                <td>@t.BatchNo<div class="small text-muted">@t.SowingCode</div></td>
+                                <td class="text-end">@Qty(t.Quantity)<div class="small text-muted">@Qty(t.Trays) trays</div></td>
+                                <td>@t.CavityType</td>
+                                <td>@t.DestinationAreaName / @t.DestinationPolyhouseName</td>
+                                <td>
+                                    <form method="post" asp-page-handler="Cancel" asp-route-id="@t.Id" class="input-group input-group-sm once">
+                                        <input name="reason" maxlength="500" class="form-control" placeholder="Reason" required />
+                                        <button class="btn btn-outline-secondary" type="submit">Cancel transfer</button>
+                                    </form>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+
+    <div class="d-flex flex-wrap align-items-end gap-2 mt-4 mb-2">
+        <h5 class="mb-0 me-2">All transfers</h5>
+        <form method="get" class="d-flex gap-2">
+            <select name="Status" class="form-select form-select-sm" onchange="this.form.submit()">
+                <option value="">Every status</option>
+                @foreach (var s in new[] { MotherPlantTransferRules.StatusPending, MotherPlantTransferRules.StatusCompleted, MotherPlantTransferRules.StatusRejected, MotherPlantTransferRules.StatusCancelled })
+                {
+                    <option value="@s" selected="@(Model.Status == s)">@MotherPlantTransferRules.StatusLabel(s)</option>
+                }
+            </select>
+        </form>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle" id="history">
+            <thead class="table-light">
+                <tr><th>Transfer</th><th>Sent on</th><th>Status</th><th>Received on</th><th>Variety</th><th>From</th><th>To</th><th>Batch</th><th class="text-end">Sent</th><th class="text-end">Received</th><th class="text-end">Lost in transit</th><th>By / Note</th><th></th></tr>
+            </thead>
+            <tbody>
+                @foreach (var t in Model.History)
+                {
+                    <tr class="@Row(t.Id)">
+                        <td>@t.TransferCode</td>
+                        @* 2026-10-10: business dates first; the recorded time underneath (India time). *@
+                        <td>@t.TransferDate.ToString("dd/MM/yyyy")<div class="small text-muted">recorded @PlantStockManager.Services.AppClock.ToIndiaTime(t.CreatedDate).ToString("dd/MM/yyyy HH:mm")</div></td>
+                        <td><span class="badge @(t.Status switch { "Completed" => "bg-success", "PendingConfirmation" => "bg-warning text-dark", _ => "bg-secondary" })">@t.StatusLabel</span></td>
+                        <td>
+                            @if (t.Status == "Completed" && t.ReceivedDate is DateTime rd)
+                            {
+                                @rd.ToString("dd/MM/yyyy")
+                                @if (t.ConfirmedDate is DateTime cd) { <div class="small text-muted">recorded @PlantStockManager.Services.AppClock.ToIndiaTime(cd).ToString("dd/MM/yyyy HH:mm")</div> }
+                                @if (!string.IsNullOrWhiteSpace(t.ReceiptDateReason)) { <div class="small text-muted">late entry: @t.ReceiptDateReason</div> }
+                            }
+                            else if (t.Status == "Completed" && t.ConfirmedDate is DateTime legacy)
+                            {
+                                <span class="text-muted">&mdash;</span>
+                                <div class="small text-muted">recorded @PlantStockManager.Services.AppClock.ToIndiaTime(legacy).ToString("dd/MM/yyyy HH:mm") (receipt date not entered)</div>
+                            }
+                            else if (t.Status == "PendingConfirmation") { <span class="text-muted">in transit</span> }
+                            else { <span class="text-muted">&mdash;</span> }
+                        </td>
+                        <td>@t.SpeciesName</td>
+                        <td>@t.SourceAreaName<div class="small text-muted">@t.SourcePolyhouseName</div></td>
+                        <td>@t.DestinationAreaName<div class="small text-muted">@t.DestinationPolyhouseName</div></td>
+                        <td>@t.BatchNo<div class="small text-muted">@t.CavityType</div></td>
+                        <td class="text-end">@Qty(t.Quantity)</td>
+                        <td class="text-end">@Qty(t.ReceivedQuantity)</td>
+                        <td class="text-end">@(t.LossQuantity is > 0 ? Qty(t.LossQuantity) : "-")</td>
+                        <td class="small">
+                            @t.CreatedBy
+                            @if (t.ConfirmedByName != null) { <div>@(t.Status == "Rejected" ? "Rejected" : "Received") by @t.ConfirmedByName</div> }
+                            @if (t.CancelledByName != null) { <div>Cancelled by @t.CancelledByName</div> }
+                            @if (!string.IsNullOrWhiteSpace(t.DiscrepancyReason ?? t.CancelReason)) { <div class="text-muted">@(t.DiscrepancyReason ?? t.CancelReason)</div> }
+                        </td>
+                        <td>
+                            @if (t.ReceivedReadyStockId is int rid)
+                            {
+                                <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@rid">received batch</a>
+                                @if (canTransplant && t.Status == "Completed")
+                                {
+                                    <div><a asp-page="/Production/Transplanting/Create" asp-route-id="@rid" class="btn btn-sm btn-outline-primary mt-1">Transplant into Trays</a></div>
+                                }
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!Model.History.Any()) { <tr><td colspan="13" class="text-muted text-center">No transfers.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // One click per form: a second click while the first is saving is ignored (the server is idempotent anyway).
+        document.querySelectorAll('form.once').forEach(function (f) {
+            f.addEventListener('submit', function () { f.querySelectorAll('button[type=submit]').forEach(function (b) { b.disabled = true; }); });
+        });
+    </script>
+}

@@ -61,7 +61,7 @@
         <ul class="nav-links">
 
             <!-- =================================================
-                 DASHBOARD
+                 HOME (company home page)
                  ================================================= -->
 
             <li nav-page="/index">
@@ -69,11 +69,11 @@
                 <a asp-page="/index">
 
                     <img src="~/images/home.svg"
-                         alt="Dashboard Icon"
+                         alt="Home Icon"
                          class="nav-icon" />
 
                     <span class="link_name">
-                        Dashboard
+                        Home
                     </span>
 
                 </a>
@@ -83,7 +83,7 @@
                     <li>
                         <a class="link_name"
                            asp-page="/index">
-                            Dashboard
+                            Home
                         </a>
                     </li>
 
@@ -93,27 +93,35 @@
 
 
             <!-- =================================================
-                 SEED PRODUCTION
+                 USER SEED STOCK (2026-10-08: renamed from "Seed Production")
                  ================================================= -->
 
             <li nav-section>
                 <div class="icon-link">
                     <a href="#">
                         <img src="~/images/leaf.svg" alt="" class="nav-icon" />
-                        <span class="link_name">Seed Production</span>
+                        <span class="link_name">User Seed Stock</span>
                     </a>
                     <img src="~/images/arrow.svg" alt="Expand" class="arrow" />
                 </div>
                 <ul class="sub-menu">
-                    <li><a class="link_name" href="#">Seed Production</a></li>
+                    <li><a class="link_name" href="#">User Seed Stock</a></li>
                     <li nav-page="/Production/SeedStock/Index"><a asp-page="/Production/SeedStock/Index">Seed Stock</a></li>
+                    <li nav-page="/Production/MaterialStock/Index"><a asp-page="/Production/MaterialStock/Index">Material Stock</a></li>
+                    <li nav-page="/Production/MaterialStock/Add"><a asp-page="/Production/MaterialStock/Add">Add Material</a></li>
+                    <li nav-page="/Production/MaterialStock/TrayTransfers"><a asp-page="/Production/MaterialStock/TrayTransfers">Tray Transfers</a></li>
+                    <li nav-page="/Production/MaterialStock/TrayAdjust"><a asp-page="/Production/MaterialStock/TrayAdjust">Adjust Trays</a></li>
                     <li nav-page="/Production/SeedSowing/Index"><a asp-page="/Production/SeedSowing/Index">Direct Seed Sowing</a></li>
-                    <li nav-page="/Production/TrayStock/Index"><a asp-page="/Production/TrayStock/Index">Tray Stock</a></li>
-                    <li nav-page="/Production/TrayStock/Add"><a asp-page="/Production/TrayStock/Add">Add Tray Stock</a></li>
+                    <li nav-page="/Production/BedSowing/Index"><a asp-page="/Production/BedSowing/Index">Bed Sowing</a></li>
+                    <li nav-page="/Production/BedSowing/Transplant"><a asp-page="/Production/BedSowing/Transplant">Bed Transplanting</a></li>
                     <li nav-page="/Production/CuttingStock/PendingConfirmations"><a asp-page="/Production/CuttingStock/PendingConfirmations">Confirm Cutting Receipt</a></li>
                     <li nav-page="/Production/ReadyConfirmation/Index"><a asp-page="/Production/ReadyConfirmation/Index">Sowing Approvals</a></li>
                     <li nav-page="/Production/ReadyAlerts/Index"><a asp-page="/Production/ReadyAlerts/Index">Ready Alerts</a></li>
                     <li nav-page="/Production/ReadyStock/Index"><a asp-page="/Production/ReadyStock/Index">Ready Seedling Stock</a></li>
+                    @if (PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.HasPermission(User, "ReadyStock.TransferToMotherPlant"))
+                    {
+                        <li nav-page="/Production/MotherPlantTransfers/Index"><a asp-page="/Production/MotherPlantTransfers/Index">Transfers to Mother Plant</a></li>
+                    }
                 </ul>
             </li>
 
@@ -138,6 +146,13 @@
                     <li nav-page="/Production/CuttingStock/MyTransactions"><a asp-page="/Production/CuttingStock/MyTransactions">Cutting Delivery History</a></li>
                     <li nav-page="/Production/CuttingStock/Index"><a asp-page="/Production/CuttingStock/Index">Cutting Stock</a></li>
                     <li nav-page="/Production/SeedSowing/CreateFromCutting"><a asp-page="/Production/SeedSowing/CreateFromCutting">Confirm Cutting Sowing</a></li>
+                    @* One page serves both sides of a transfer; each menu entry shows only to its own side. *@
+                    @if (PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.HasPermission(User, "ReadyStock.ReceiveTransfer"))
+                    {
+                        <li nav-page="/Production/MotherPlantTransfers/Index"><a asp-page="/Production/MotherPlantTransfers/Index">Incoming Ready Stock</a></li>
+                    }
+                    <li nav-page="/Production/Transplanting/Index"><a asp-page="/Production/Transplanting/Index">Transplanting</a></li>
+                    <li nav-page="/Production/Transplanting/History"><a asp-page="/Production/Transplanting/History">Transplanting History</a></li>
                 </ul>
             </li>
 
@@ -256,6 +271,71 @@
             </li>
 
             <!-- =================================================
+                 INVENTORY STORE (tools / consumables at Main Office)
+                 ================================================= -->
+
+            <li nav-section>
+                <div class="icon-link">
+                    <a href="#">
+                        <img src="~/images/find.svg" alt="" class="nav-icon" />
+                        <span class="link_name">Inventory Store</span>
+                    </a>
+                    <img src="~/images/arrow.svg" alt="Expand" class="arrow" />
+                </div>
+                <ul class="sub-menu">
+                    <li><a class="link_name" href="#">Inventory Store</a></li>
+                    <li nav-page="/Store/Index"><a asp-page="/Store/Index">Dashboard</a></li>
+                    <li nav-page="/Store/Items"><a asp-page="/Store/Items">Item Master</a></li>
+                    <li nav-page="/Store/StockEntry"><a asp-page="/Store/StockEntry">Stock Entry</a></li>
+                    <li nav-page="/Store/Requests"><a asp-page="/Store/Requests">Requests</a></li>
+                    <li nav-page="/Store/Issue"><a asp-page="/Store/Issue">Issue</a></li>
+                    <li nav-page="/Store/Returns"><a asp-page="/Store/Returns">Returns</a></li>
+                    <li nav-page="/Store/Transfers"><a asp-page="/Store/Transfers">Transfers</a></li>
+                    <li nav-page="/Store/Reports"><a asp-page="/Store/Reports">Reports</a></li>
+                </ul>
+            </li>
+
+            <!-- =================================================
+                 SUGGESTIONS & PROBLEMS (posts, comments and replies)
+                 ================================================= -->
+
+            <li nav-section>
+                <div class="icon-link">
+                    <a href="#">
+                        <img src="~/images/bulb.svg" alt="" class="nav-icon" />
+                        <span class="link_name">Suggestions &amp; Problems</span>
+                    </a>
+                    <img src="~/images/arrow.svg" alt="Expand" class="arrow" />
+                </div>
+                <ul class="sub-menu">
+                    <li><a class="link_name" href="#">Suggestions &amp; Problems</a></li>
+                    <li nav-page="/Suggestions/Index"><a asp-page="/Suggestions/Index">All Posts</a></li>
+                    <li nav-page="/Suggestions/Create"><a asp-page="/Suggestions/Create">Create Post</a></li>
+                </ul>
+            </li>
+
+            <!-- =================================================
+                 MAINTENANCE (electrical / welding / plumbing tickets)
+                 ================================================= -->
+
+            <li nav-section>
+                <div class="icon-link">
+                    <a href="#">
+                        <img src="~/images/cog.svg" alt="" class="nav-icon" />
+                        <span class="link_name">Maintenance</span>
+                    </a>
+                    <img src="~/images/arrow.svg" alt="Expand" class="arrow" />
+                </div>
+                <ul class="sub-menu">
+                    <li><a class="link_name" href="#">Maintenance</a></li>
+                    <li nav-page="/Maintenance/Raise"><a asp-page="/Maintenance/Raise">Raise Ticket</a></li>
+                    <li nav-page="/Maintenance/MyTickets"><a asp-page="/Maintenance/MyTickets">My Tickets</a></li>
+                    <li nav-page="/Maintenance/Assigned"><a asp-page="/Maintenance/Assigned">Assigned Tickets</a></li>
+                    <li nav-page="/Maintenance/Reports"><a asp-page="/Maintenance/Reports">Maintenance Reports</a></li>
+                </ul>
+            </li>
+
+            <!-- =================================================
                  LABOUR (daily headcount)
                  ================================================= -->
 
@@ -269,8 +349,10 @@
                 </div>
                 <ul class="sub-menu">
                     <li><a class="link_name" href="#">Labour</a></li>
-                    <li nav-page="/Production/Labour/Entry"><a asp-page="/Production/Labour/Entry">Labour Entry</a></li>
-                    <li nav-page="/Production/Labour/Index"><a asp-page="/Production/Labour/Index">Labour Records</a></li>
+                    <li nav-page="/Production/Labour/Attendance"><a asp-page="/Production/Labour/Attendance">Daily Attendance</a></li>
+                    <li nav-page="/Production/Labour/AttendanceHistory"><a asp-page="/Production/Labour/AttendanceHistory">Attendance History</a></li>
+                    <li nav-page="/Production/Labour/Overtime"><a asp-page="/Production/Labour/Overtime">Overtime</a></li>
+                    <li nav-page="/Production/Labour/OvertimeHistory"><a asp-page="/Production/Labour/OvertimeHistory">Overtime History</a></li>
                 </ul>
             </li>
 
@@ -318,6 +400,7 @@
                     <li nav-page="/Data/StockHistory"><a asp-page="/Data/StockHistory">Stock History</a></li>
                     <li nav-page="/Data/WastedStock"><a asp-page="/Data/WastedStock">Wastage</a></li>
                     <li nav-page="/Data/SeedSowingMonthlyReport"><a asp-page="/Data/SeedSowingMonthlyReport">Sowing Monthly Report</a></li>
+                    <li nav-page="/Production/MaterialStock/History"><a asp-page="/Production/MaterialStock/History">Material History</a></li>
                 </ul>
             </li>
 
@@ -341,6 +424,7 @@
                     <li nav-page="/Admin/Seedsource"><a asp-page="/Admin/Seedsource">Seed Sources</a></li>
                     <li nav-page="/Admin/Area"><a asp-page="/Admin/Area">Areas</a></li>
                     <li nav-page="/Admin/Polyhouse"><a asp-page="/Admin/Polyhouse">Polyhouses</a></li>
+                    <li nav-page="/Production/MaterialStock/Settings"><a asp-page="/Production/MaterialStock/Settings">Material Settings</a></li>
                     <li nav-page="/Admin/Users"><a asp-page="/Admin/Users">Users</a></li>
                     <li nav-page="/Admin/Roles"><a asp-page="/Admin/Roles">Roles / Permissions</a></li>
                     <li nav-page="/Admin/UserRoles"><a asp-page="/Admin/UserRoles">User Roles</a></li>

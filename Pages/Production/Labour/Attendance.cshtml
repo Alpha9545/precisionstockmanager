@@ -1,0 +1,279 @@
+@page
+@model PlantStockManager.Pages.Production.Labour.AttendanceModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Daily Labour Attendance";
+    var max = DailyLabourRules.MaxCount;
+    var e9 = Model.Entry9;
+    var e2 = Model.Entry2;
+    string Stamp(PlantStockManager.Models.DailyLabourAttendanceEntry? e)
+    {
+        if (e == null) return "Not recorded yet";
+        var s = $"Recorded by {e.CreatedByName ?? "—"} on {AppClock.ToIndiaTime(e.CreatedDate):dd-MM-yyyy hh:mm tt}";
+        if (e.ModifiedDate.HasValue) s += $" · corrected by {e.ModifiedByName ?? "—"} on {AppClock.ToIndiaTime(e.ModifiedDate.Value):dd-MM-yyyy hh:mm tt}";
+        return s;
+    }
+}
+
+<style>
+    .labour-group { border: 1px solid #dee2e6; border-radius: .5rem; padding: .75rem; height: 100%; }
+    .labour-group h6 { margin-bottom: .25rem; font-weight: 700; }
+    .labour-group.recorded { border-color: #b7dfc6; background: #fbfefc; }
+    .labour-count { font-size: 1.15rem; text-align: center; }
+    .labour-result { background: #f1f8f4; border: 1px solid #b7dfc6; border-radius: .5rem; }
+    .labour-result td, .labour-result th { padding: .3rem .6rem; }
+    .labour-result .value { font-weight: 700; font-size: 1.1rem; text-align: right; }
+</style>
+
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm mx-auto" style="max-width: 720px;">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h4 class="mb-0">@ViewData["Title"]</h4>
+                <small class="text-muted">Headcounts at 9:00 AM and 2:00 PM -- no worker names.</small>
+            </div>
+            <a asp-page="/Production/Labour/AttendanceHistory" class="btn btn-outline-secondary btn-sm">Attendance History</a>
+        </div>
+        <div class="card-body">
+            @if (TempData["Success"] != null)
+            {
+                <div class="alert alert-success" id="attendanceSuccess">@TempData["Success"]</div>
+            }
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger" id="attendanceErrors">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (!Model.Areas.Any())
+            {
+                <div class="alert alert-warning">You are not assigned to any Area. Ask an administrator to assign your Area.</div>
+            }
+
+            @* Step 1: date + location (GET -- loads what is already recorded) *@
+            <form method="get" id="locationForm" class="row g-3 mb-3">
+                <div class="col-12 col-sm-4">
+                    <label class="form-label fw-bold" for="labourDate">Date</label>
+                    <input type="date" name="labourDate" id="labourDate" value="@Model.LabourDate?.ToString("yyyy-MM-dd")" max="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" required />
+                </div>
+                <div class="col-12 col-sm-4">
+                    <label class="form-label fw-bold" for="areaSelect">Area</label>
+                    <select name="areaId" id="areaSelect" class="form-select" required>
+                        <option value="">-- Select Area --</option>
+                        @foreach (var a in Model.Areas)
+                        {
+                            <option value="@a.Id" data-main-office="@(DailyLabourRules.RequiresPolyhouse(a.AreaType) ? "1" : "0")" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12 col-sm-4" id="polyhouseGroup" style="@(Model.SelectedAreaIsMainOffice ? "" : "display:none")">
+                    <label class="form-label fw-bold" for="polyhouseSelect">Polyhouse</label>
+                    <select name="polyhouseId" id="polyhouseSelect" class="form-select" disabled="@(!Model.SelectedAreaIsMainOffice)">
+                        <option value="">@(Model.Polyhouses.Any() ? "-- Select Polyhouse --" : "-- No Polyhouse in this Area --")</option>
+                        @foreach (var p in Model.Polyhouses)
+                        {
+                            <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                        }
+                    </select>
+                </div>
+                <noscript><div class="col-12"><button type="submit" class="btn btn-outline-primary">Load</button></div></noscript>
+            </form>
+
+            @if (Model.LocationReady && Model.ManualRecordExists)
+            {
+                <div class="alert alert-warning" id="manualRecordNotice">@DailyLabourRules.LegacyRecordExistsMessage</div>
+            }
+            else if (Model.LocationReady)
+            {
+                <form method="post" id="attendanceForm" novalidate>
+                    <input type="hidden" name="LabourDate" value="@Model.LabourDate!.Value.ToString("yyyy-MM-dd")" />
+                    <input type="hidden" name="AreaId" value="@Model.SelectedArea!.Id" />
+                    @if (Model.SelectedPolyhouse != null)
+                    {
+                        <input type="hidden" name="PolyhouseId" value="@Model.SelectedPolyhouse.Id" />
+                    }
+
+                    <div class="alert alert-light border py-2 mb-3">
+                        <strong>@Model.LabourDate.Value.ToString("dd-MM-yyyy")</strong> ·
+                        Area: <strong>@Model.SelectedArea.Name</strong>
+                        @if (Model.SelectedPolyhouse != null)
+                        {
+                            <span> · Polyhouse: <strong>@Model.SelectedPolyhouse.Name</strong></span>
+                        }
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-12 col-sm-6">
+                            <div class="labour-group @(e9 != null ? "recorded" : "")" id="group9">
+                                <h6>9:00 AM Attendance</h6>
+                                <div class="small text-muted mb-2" id="stamp9">@Stamp(e9)</div>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <label class="form-label small mb-1" for="male9">Male</label>
+                                        <input type="number" inputmode="numeric" step="1" min="0" max="@max" name="Male9" id="male9" value="@Model.Male9" class="form-control labour-count" placeholder="—" />
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small mb-1" for="female9">Female</label>
+                                        <input type="number" inputmode="numeric" step="1" min="0" max="@max" name="Female9" id="female9" value="@Model.Female9" class="form-control labour-count" placeholder="—" />
+                                    </div>
+                                    <div class="col-12">
+                                        <input type="text" name="Remarks9" id="remarks9" value="@Model.Remarks9" maxlength="@DailyLabourRules.MaxRemarksLength" class="form-control form-control-sm" placeholder="Remark (optional)" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <div class="labour-group @(e2 != null ? "recorded" : "")" id="group2">
+                                <h6>2:00 PM Attendance</h6>
+                                <div class="small text-muted mb-2" id="stamp2">@Stamp(e2)</div>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <label class="form-label small mb-1" for="male2">Male</label>
+                                        <input type="number" inputmode="numeric" step="1" min="0" max="@max" name="Male2" id="male2" value="@Model.Male2" class="form-control labour-count" placeholder="—" />
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label small mb-1" for="female2">Female</label>
+                                        <input type="number" inputmode="numeric" step="1" min="0" max="@max" name="Female2" id="female2" value="@Model.Female2" class="form-control labour-count" placeholder="—" />
+                                    </div>
+                                    <div class="col-12">
+                                        <input type="text" name="Remarks2" id="remarks2" value="@Model.Remarks2" maxlength="@DailyLabourRules.MaxRemarksLength" class="form-control form-control-sm" placeholder="Remark (optional)" />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-text">Leave a time blank if it has not been taken yet (enter 0 if nobody was present). A recorded time can be corrected; every correction is kept in the history below.</div>
+
+                    <div class="labour-result mt-3 p-2" id="calculatedResult">
+                        <div class="fw-bold mb-1">Calculated Result <span class="badge bg-secondary align-middle">Estimated</span></div>
+                        <div id="incompleteNotice" class="alert alert-warning py-1 px-2 mb-2 small d-none">Incomplete -- both the 9:00 AM and the 2:00 PM attendance are needed. This day is not counted in the Full Day / Half Day totals until both are recorded.</div>
+                        <table class="w-100">
+                            <tr><td>Male Full Day</td><td class="value" id="maleFull">—</td><td class="ps-4">Female Full Day</td><td class="value" id="femaleFull">—</td></tr>
+                            <tr><td>Male Half Day</td><td class="value" id="maleHalf">—</td><td class="ps-4">Female Half Day</td><td class="value" id="femaleHalf">—</td></tr>
+                            <tr class="border-top"><td class="fw-bold">Total Full Day</td><td class="value" id="totalFull">—</td><td class="ps-4 fw-bold">Total Half Day</td><td class="value" id="totalHalf">—</td></tr>
+                        </table>
+                        <div class="small text-muted mt-1">@DailyLabourRules.EstimateNote</div>
+                    </div>
+
+                    <div class="d-flex flex-column flex-sm-row justify-content-center gap-2 mt-4">
+                        <button type="submit" class="btn btn-success btn-lg" id="saveAttendanceBtn">Save Attendance</button>
+                    </div>
+                </form>
+
+                @if (Model.Changes.Any())
+                {
+                    <h6 class="mt-4">Attendance history for this day</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-bordered align-middle small" id="changeTable">
+                            <thead class="table-light">
+                                <tr><th>When</th><th>Time</th><th>Action</th><th>Male</th><th>Female</th><th>Remark</th><th>By</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var c in Model.Changes)
+                                {
+                                    <tr>
+                                        <td class="text-nowrap">@AppClock.ToIndiaTime(c.ChangedDate).ToString("dd-MM-yyyy hh:mm tt")</td>
+                                        <td>@DailyLabourRules.AttendanceTimeLabel(c.AttendanceTime)</td>
+                                        <td>@c.Action</td>
+                                        <td>@(c.Action == "Corrected" ? $"{c.OldMaleCount} → {c.NewMaleCount}" : (c.NewMaleCount ?? c.OldMaleCount)?.ToString())</td>
+                                        <td>@(c.Action == "Corrected" ? $"{c.OldFemaleCount} → {c.NewFemaleCount}" : (c.NewFemaleCount ?? c.OldFemaleCount)?.ToString())</td>
+                                        <td>@(c.Action == "Corrected" && c.OldRemarks != c.NewRemarks ? $"{c.OldRemarks ?? "—"} → {c.NewRemarks ?? "—"}" : (c.NewRemarks ?? c.OldRemarks ?? "—"))</td>
+                                        <td>@(c.ChangedByName ?? "—")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            }
+            else if (Model.Areas.Any())
+            {
+                <div class="text-muted small" id="chooseLocationHint">Choose the date and location to enter or correct attendance.</div>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            // Changing the date or location reloads the page with that day's recorded attendance.
+            const form = document.getElementById('locationForm');
+            const date = document.getElementById('labourDate');
+            const area = document.getElementById('areaSelect');
+            const group = document.getElementById('polyhouseGroup');
+            const polyhouse = document.getElementById('polyhouseSelect');
+            function isMainOffice() {
+                const o = area.options[area.selectedIndex];
+                return !!o && o.dataset.mainOffice === '1';
+            }
+            function reload() {
+                if (!date.value || !area.value) return;
+                if (isMainOffice() && !polyhouse.value) return;
+                form.submit();
+            }
+            area.addEventListener('change', function () {
+                if (!isMainOffice()) {
+                    group.style.display = 'none';
+                    polyhouse.disabled = true;
+                    polyhouse.value = '';
+                    reload();
+                    return;
+                }
+                group.style.display = '';
+                polyhouse.disabled = false;
+                polyhouse.innerHTML = '<option value="">Loading...</option>';
+                fetch('@Url.Page("/Production/Labour/Attendance")?handler=Polyhouses&areaId=' + encodeURIComponent(area.value))
+                    .then(function (r) { return r.json(); })
+                    .then(function (list) {
+                        polyhouse.innerHTML = '';
+                        const first = document.createElement('option');
+                        first.value = ''; first.textContent = list.length ? '-- Select Polyhouse --' : '-- No Polyhouse in this Area --';
+                        polyhouse.appendChild(first);
+                        list.forEach(function (p) {
+                            const o = document.createElement('option');
+                            o.value = p.id; o.textContent = p.name;
+                            polyhouse.appendChild(o);
+                        });
+                    })
+                    .catch(function () { polyhouse.innerHTML = '<option value="">-- Could not load Polyhouses --</option>'; });
+            });
+            polyhouse.addEventListener('change', reload);
+            date.addEventListener('change', reload);
+
+            // Live Calculated Result (the server repeats the same rule: DailyLabourRules.Classify).
+            const ids = ['male9', 'female9', 'male2', 'female2'];
+            const inputs = ids.map(function (id) { return document.getElementById(id); });
+            if (!inputs[0]) return;
+            function count(input) {
+                const v = input.value.trim();
+                if (v === '') return null;
+                return /^\d+$/.test(v) && Number(v) <= @max ? Number(v) : NaN;
+            }
+            function set(id, v) { document.getElementById(id).textContent = (v === null || isNaN(v)) ? '—' : v; }
+            function recalc() {
+                const c = inputs.map(count);
+                const complete = c.every(function (v) { return v !== null && !isNaN(v); });
+                const anyEntered = c.some(function (v) { return v !== null; });
+                document.getElementById('incompleteNotice').classList.toggle('d-none', complete || !anyEntered);
+                if (!complete) { ['maleFull', 'maleHalf', 'femaleFull', 'femaleHalf', 'totalFull', 'totalHalf'].forEach(function (id) { set(id, null); }); return; }
+                const mf = Math.min(c[0], c[2]), mh = Math.abs(c[0] - c[2]);
+                const ff = Math.min(c[1], c[3]), fh = Math.abs(c[1] - c[3]);
+                set('maleFull', mf); set('maleHalf', mh); set('femaleFull', ff); set('femaleHalf', fh);
+                set('totalFull', mf + ff); set('totalHalf', mh + fh);
+            }
+            inputs.forEach(function (i) { i.addEventListener('input', recalc); });
+            recalc();
+
+            document.getElementById('attendanceForm').addEventListener('submit', function () {
+                const btn = document.getElementById('saveAttendanceBtn');
+                setTimeout(function () { btn.disabled = true; btn.textContent = 'Saving...'; }, 0);
+            });
+        })();
+    </script>
+}

@@ -1,0 +1,174 @@
+@page
+@model PlantStockManager.Pages.Production.Labour.OvertimeHistoryModel
+@using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Overtime History";
+    var canEnter = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/Overtime");
+    var t = Model.Total;
+    string H(decimal h) => LabourOvertimeRules.FormatHours(h);
+}
+
+<style>
+    .labour-summary .tile { border: 1px solid #dee2e6; border-radius: .5rem; padding: .5rem .75rem; background: #fff; height: 100%; }
+    .labour-summary .tile .label { font-size: .8rem; color: #6c757d; }
+    .labour-summary .tile .value { font-size: 1.35rem; font-weight: 700; }
+    .labour-summary .tile.primary { background: #f1f8f4; border-color: #b7dfc6; }
+    #overtimeTable .work { min-width: 12rem; max-width: 24rem; white-space: pre-wrap; word-break: break-word; }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Overtime History</h3>
+        @if (canEnter)
+        {
+            <a asp-page="/Production/Labour/Overtime" class="btn btn-primary">+ Add Overtime</a>
+        }
+    </div>
+
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-warning" id="overtimeError">@TempData["Error"]</div>
+    }
+
+    <form method="get" class="row g-2 align-items-end mb-3" id="overtimeFilter">
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="dateFilter">Date</label>
+            <input type="date" name="date" id="dateFilter" value="@Model.Date?.ToString("yyyy-MM-dd")" class="form-control" title="One day (overrides From / To)" />
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="fromDate">From Date</label>
+            <input type="date" name="fromDate" id="fromDate" value="@Model.FromDate?.ToString("yyyy-MM-dd")" class="form-control" />
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="toDate">To Date</label>
+            <input type="date" name="toDate" id="toDate" value="@Model.ToDate?.ToString("yyyy-MM-dd")" class="form-control" />
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="areaFilter">Area</label>
+            <select name="areaId" id="areaFilter" class="form-select" onchange="if (this.form.polyhouseId) this.form.polyhouseId.value=''; this.form.submit()">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.AreaOptions)
+                {
+                    <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                }
+            </select>
+        </div>
+        @if (Model.ShowPolyhouseFilter)
+        {
+            <div class="col-6 col-md-2">
+                <label class="form-label" for="polyhouseFilter">Polyhouse</label>
+                <select name="polyhouseId" id="polyhouseFilter" class="form-select" onchange="this.form.submit()">
+                    <option value="">All Polyhouses</option>
+                    @foreach (var p in Model.PolyhouseOptions)
+                    {
+                        <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                    }
+                </select>
+            </div>
+        }
+        <div class="col-6 col-md-auto">
+            <label class="form-label" for="groupBy">Summary by</label>
+            <select name="groupBy" id="groupBy" class="form-select" onchange="this.form.submit()">
+                @foreach (var g in PlantStockManager.Pages.Production.Labour.OvertimeHistoryModel.Groupings)
+                {
+                    <option value="@g" selected="@(Model.GroupBy == g)">@g</option>
+                }
+            </select>
+        </div>
+        <div class="col-6 col-md-auto">
+            <button type="submit" class="btn btn-success w-100">Filter</button>
+        </div>
+        <div class="col-6 col-md-auto">
+            <a asp-page="/Production/Labour/OvertimeHistory" class="btn btn-outline-secondary w-100">Clear</a>
+        </div>
+    </form>
+
+    <div class="labour-summary row g-2 mb-1" id="overtimeTotals">
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Entries</div><div class="value" id="sumEntries">@t.Entries</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Total Duration</div><div class="value" id="sumDuration">@t.Duration</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Male Worker-Hours</div><div class="value" id="sumMaleHours">@H(t.MaleWorkerHours)</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Female Worker-Hours</div><div class="value" id="sumFemaleHours">@H(t.FemaleWorkerHours)</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile primary"><div class="label">Total Worker-Hours</div><div class="value" id="sumTotalHours">@H(t.TotalWorkerHours)</div></div></div>
+        <div class="col-6 col-md-2"><div class="tile"><div class="label">Workers (M / F)</div><div class="value" id="sumWorkers">@t.MaleWorkers / @t.FemaleWorkers</div></div></div>
+    </div>
+    <div class="small text-muted mb-3">@Model.FromDate?.ToString("dd-MM-yyyy") to @Model.ToDate?.ToString("dd-MM-yyyy"). Total duration adds up every entry's period (separate entries are never merged). Worker-hours = workers × duration.</div>
+
+    <h5>Summary by @Model.GroupBy</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-bordered table-sm align-middle" id="summaryTable">
+            <thead class="table-light">
+                <tr><th>@Model.GroupBy</th><th class="text-end">Entries</th><th class="text-end">Total Duration</th><th class="text-end">Male Workers</th><th class="text-end">Female Workers</th><th class="text-end">Male Worker-Hours</th><th class="text-end">Female Worker-Hours</th><th class="text-end">Total Worker-Hours</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var s in Model.Summary)
+                {
+                    <tr>
+                        <td>@s.Key</td>
+                        <td class="text-end">@s.Entries</td>
+                        <td class="text-end">@s.Duration</td>
+                        <td class="text-end">@s.MaleWorkers</td>
+                        <td class="text-end">@s.FemaleWorkers</td>
+                        <td class="text-end">@H(s.MaleWorkerHours)</td>
+                        <td class="text-end">@H(s.FemaleWorkerHours)</td>
+                        <td class="text-end fw-bold">@H(s.TotalWorkerHours)</td>
+                    </tr>
+                }
+                @if (!Model.Summary.Any())
+                {
+                    <tr><td colspan="8" class="text-center text-muted">No overtime for the selected filters.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (Model.MatchingEntries > Model.Entries.Count)
+    {
+        <div class="alert alert-warning py-2">Showing the latest @Model.Entries.Count of @Model.MatchingEntries entries -- narrow the dates to see the rest. The totals above include all @Model.MatchingEntries.</div>
+    }
+
+    <h5>Entries</h5>
+    <div class="table-responsive">
+        <table class="table table-bordered table-striped table-sm align-middle" id="overtimeTable">
+            <thead class="table-light">
+                <tr>
+                    <th>Date</th><th>Area</th><th>Polyhouse</th>
+                    <th class="text-end">Male</th><th class="text-end">Female</th>
+                    <th>Start</th><th>End</th><th class="text-end">Duration</th>
+                    <th class="text-end">Male Worker-Hours</th><th class="text-end">Female Worker-Hours</th><th class="text-end">Total Worker-Hours</th>
+                    <th>Work Description</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var e in Model.Entries)
+                {
+                    <tr data-id="@e.Id">
+                        <td class="text-nowrap">@e.LabourDate.ToString("dd-MM-yyyy")</td>
+                        <td>@e.AreaName</td>
+                        <td>@(e.PolyhouseId.HasValue ? e.PolyhouseName : "—")</td>
+                        <td class="text-end">@e.MaleWorkers</td>
+                        <td class="text-end">@e.FemaleWorkers</td>
+                        <td class="text-nowrap">@e.StartTime.ToString("hh:mm tt")</td>
+                        <td class="text-nowrap">@e.EndTime.ToString("hh:mm tt")</td>
+                        <td class="text-end text-nowrap">@e.Duration</td>
+                        <td class="text-end">@H(e.MaleWorkerHours)</td>
+                        <td class="text-end">@H(e.FemaleWorkerHours)</td>
+                        <td class="text-end fw-bold">@H(e.TotalWorkerHours)</td>
+                        <td class="work">@e.WorkDescription</td>
+                        <td class="text-nowrap">
+                            <a asp-page="/Production/Labour/OvertimeDetails" asp-route-id="@e.Id" class="btn btn-sm btn-outline-secondary">View</a>
+                            @if (canEnter)
+                            {
+                                <a asp-page="/Production/Labour/Overtime" asp-route-id="@e.Id" class="btn btn-sm btn-outline-primary">Edit</a>
+                            }
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Entries.Any())
+                {
+                    <tr><td colspan="13" class="text-center text-muted">No overtime for the selected filters.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

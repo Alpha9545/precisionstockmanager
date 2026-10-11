@@ -1,0 +1,76 @@
+@page
+@model PlantStockManager.Pages.Store.StockEntryModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Store Stock Entry";
+}
+
+<div class="container mt-4 mb-5" style="max-width: 980px;">
+    <h3 class="mb-3">Store Stock Entry</h3>
+    @if (TempData["Success"] != null) { <div class="alert alert-success" id="stockSuccess">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-warning">@TempData["Error"]</div> }
+    @if (!ModelState.IsValid)
+    {
+        <div class="alert alert-danger" id="stockErrors"><ul class="mb-0">@foreach (var err in ModelState.Values.SelectMany(v => v.Errors)) { <li>@err.ErrorMessage</li> }</ul></div>
+    }
+
+    <form method="post" class="card card-body shadow-sm mb-4" id="stockForm">
+        <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
+        <div class="row g-2">
+            <div class="col-12 col-md-5"><label class="form-label small" for="itemSelect">Item</label>
+                <select name="ItemId" id="itemSelect" class="form-select"><option value="">-- Select item --</option>
+                    @foreach (var i in Model.Items) { <option value="@i.Id" selected="@(Model.ItemId == i.Id)">@i.Display (@StoreRules.Qty(i.AvailableQuantity) @i.UnitName)</option> }</select></div>
+            <div class="col-6 col-md-3"><label class="form-label small" for="entryType">Entry</label>
+                <select name="EntryType" id="entryType" class="form-select">
+                    <option value="PURCHASE" selected="@(Model.EntryType == "PURCHASE")">Purchase / stock in</option>
+                    <option value="ADJUSTMENT" selected="@(Model.EntryType == "ADJUSTMENT")">Adjustment (count correction)</option></select></div>
+            <div class="col-6 col-md-2"><label class="form-label small" for="quantity">Quantity</label>
+                <input type="number" step="any" min="0" name="Quantity" id="quantity" value="@Model.Quantity" class="form-control" /></div>
+            <div class="col-6 col-md-2"><label class="form-label small" for="entryDate">Date</label>
+                <input type="date" name="EntryDate" id="entryDate" value="@Model.EntryDate?.ToString("yyyy-MM-dd")" max="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" /></div>
+            <div class="col-6 col-md-3 adj-only form-check mt-4 ps-4"><input type="checkbox" class="form-check-input" name="Decrease" value="true" id="decrease" checked="@Model.Decrease" />
+                <label class="form-check-label" for="decrease">Decrease stock (−)</label></div>
+            <div class="col-6 col-md-3 purchase-only"><label class="form-label small" for="vendorSelect">Supplier (optional)</label>
+                <select name="VendorId" id="vendorSelect" class="form-select"><option value="">—</option>
+                    @foreach (var v in Model.Vendors) { <option value="@v.Id" selected="@(Model.VendorId == v.Id)">@v.Name</option> }</select></div>
+            <div class="col-6 col-md-3"><label class="form-label small" for="reference">Reference (bill / PO no.)</label>
+                <input type="text" name="Reference" id="reference" value="@Model.Reference" maxlength="100" class="form-control" /></div>
+            <div class="col-6 col-md-2 purchase-only"><label class="form-label small" for="unitCost">Unit cost (optional)</label>
+                <input type="number" step="0.01" min="0" name="UnitCost" id="unitCost" value="@Model.UnitCost" class="form-control" /></div>
+            <div class="col-12 col-md-4"><label class="form-label small" for="remarks">Remarks <span class="adj-only">(reason -- required)</span></label>
+                <input type="text" name="Remarks" id="remarks" value="@Model.Remarks" maxlength="500" class="form-control" /></div>
+        </div>
+        <div class="mt-3"><button type="submit" class="btn btn-success" id="saveStockBtn">Record Stock Entry</button></div>
+    </form>
+
+    <h5>Latest purchases and adjustments</h5>
+    <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle" id="recentTable">
+            <thead class="table-light"><tr><th>Date</th><th>Item</th><th>Type</th><th class="text-end">Qty</th><th class="text-end">Before</th><th class="text-end">After</th><th>Supplier / Ref</th><th>Remarks</th><th>By</th></tr></thead>
+            <tbody>
+                @foreach (var t in Model.Recent)
+                {
+                    <tr><td>@t.TransactionDate.ToString("dd-MM-yyyy")</td><td>@t.ItemCode @t.ItemName</td><td>@StoreRules.TypeLabel(t.TransactionType)</td>
+                        <td class="text-end">@StoreRules.Qty(t.Quantity)</td><td class="text-end">@StoreRules.Qty(t.BalanceBefore)</td><td class="text-end">@StoreRules.Qty(t.BalanceAfter)</td>
+                        <td>@t.VendorName @t.Reference</td><td>@t.Remarks</td><td>@t.CreatedByName</td></tr>
+                }
+                @if (!Model.Recent.Any()) { <tr><td colspan="9" class="text-center text-muted">Nothing yet.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const type = document.getElementById('entryType');
+            function sync() {
+                const purchase = type.value === 'PURCHASE';
+                document.querySelectorAll('.purchase-only').forEach(function (e) { e.style.display = purchase ? '' : 'none'; });
+                document.querySelectorAll('.adj-only').forEach(function (e) { e.style.display = purchase ? 'none' : ''; });
+            }
+            type.addEventListener('change', sync);
+            sync();
+        })();
+    </script>
+}

@@ -20,7 +20,6 @@ using DispatchPage = PlantStockManager.Pages.Bookings.SeedlingDispatchModel;
 using FulfilmentPage = PlantStockManager.Pages.Bookings.FulfilmentModel;
 using RegisterPage = PlantStockManager.Pages.Bookings.DispatchRegisterModel;
 using BookPage = PlantStockManager.Pages.Bookings.BookModel;
-using DashboardPage = PlantStockManager.Pages.IndexModel;
 using PottedIndexPage = PlantStockManager.Pages.Production.PottedPlantBooking.IndexModel;
 
 namespace PlantStockManager.Tests
@@ -512,14 +511,14 @@ namespace PlantStockManager.Tests
             var plant = v[0].PlantId;
             var varieties = await env.IdsAsync("SELECT TOP 3 Id FROM dbo.PlantSpecies WHERE PlantTypeId = @P ORDER BY Id", ("@P", plant));
             Skip.If(varieties.Count < 3, "Need 3 varieties of one species.");
-            var crop = await env.ScalarAsync<string>("SELECT Name FROM dbo.PlantTypes WHERE Id = @P", ("@P", plant));
 
+            // The company-wide pending-booking figures moved from the home page ("/", now the
+            // company home page) to the Management Dashboard; the rule is checked there.
             async Task<(int Count, decimal Qty)> PendingAsync()
             {
-                var dashboard = new DashboardPage(env.Get<DatabaseHelper>(), null!, null!, null!, null!, null!, null!);
-                await (Task)typeof(DashboardPage).GetMethod("LoadCropsAsync", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(dashboard, null)!;
-                var row = dashboard.Crops.Single(c => c.Crop == crop);
-                return (row.PendingBookings, row.PendingBookingQuantity);
+                var today = AppClock.Today;
+                var data = await env.Get<ManagementDashboardRepository>().GetOverviewAsync(DashboardPeriod.Resolve(DashboardPeriod.Today, null, null, today), today);
+                return (data.Seedlings.OpenOrders, data.Seedlings.OpenBookedQuantity);
             }
 
             var before = await PendingAsync();

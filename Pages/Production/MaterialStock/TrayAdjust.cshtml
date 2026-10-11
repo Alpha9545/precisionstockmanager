@@ -1,0 +1,137 @@
+@page
+@model PlantStockManager.Pages.Production.MaterialStock.TrayAdjustModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Tray Adjustment";
+}
+
+<div class="container mt-4" style="max-width: 760px;">
+    <div class="card shadow-sm">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h4 class="mb-0">Tray Adjustment</h4>
+            <a asp-page="/Production/MaterialStock/Index" asp-route-Material="@MaterialStockRules.TraysKind" class="btn btn-sm btn-outline-secondary">Back to Material Stock</a>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Correct an empty-tray balance after a physical count. The correction is saved as one new
+                <strong>Adjustment</strong> entry with your reason; earlier entries are never changed.
+                The balance can never go below zero.
+            </p>
+            @if (!ViewData.ModelState.IsValid)
+            {
+                <div asp-validation-summary="All" class="alert alert-danger" role="alert"></div>
+            }
+            @if (!Model.Areas.Any())
+            {
+                <div class="alert alert-warning">You are not assigned to any Area that holds trays. Ask an administrator to assign your Area.</div>
+            }
+            else
+            {
+                <form method="post" id="trayAdjustForm">
+                    <input type="hidden" asp-for="SubmissionToken" />
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold" for="adjArea">Area</label>
+                            <select asp-for="AreaId" id="adjArea" class="form-select" required>
+                                <option value="">-- Select Area --</option>
+                                @foreach (var a in Model.Areas)
+                                {
+                                    <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold" for="adjPolyhouse">Polyhouse</label>
+                            <select asp-for="PolyhouseId" id="adjPolyhouse" class="form-select" required>
+                                <option value="">-- Select Polyhouse --</option>
+                                @foreach (var p in Model.Polyhouses)
+                                {
+                                    <option value="@p.Id" data-area="@p.AreaId" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold" for="adjCavity">Cavity</label>
+                            <select asp-for="TraySize" id="adjCavity" class="form-select" required>
+                                <option value="">-- Select Cavity --</option>
+                                @foreach (var t in Model.TraySizes)
+                                {
+                                    <option value="@t" selected="@(Model.TraySize == t)">@t</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-label fw-bold mb-1">Recorded now</div>
+                            <div class="form-control-plaintext py-1" id="adjBalance" aria-live="polite">Select a Polyhouse and Cavity</div>
+                        </div>
+                        <div class="col-md-6">
+                            <fieldset>
+                                <legend class="form-label fw-bold fs-6 mb-1">Change</legend>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" asp-for="Direction" id="adjRemove" value="Remove" />
+                                    <label class="form-check-label" for="adjRemove">Remove trays (−)</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" asp-for="Direction" id="adjAdd" value="Add" />
+                                    <label class="form-check-label" for="adjAdd">Add trays (+)</label>
+                                </div>
+                            </fieldset>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold" for="adjTrays">Trays</label>
+                            <div class="input-group">
+                                <input type="number" step="1" min="1" asp-for="Trays" id="adjTrays" asp-format="{0:0}" class="form-control" required />
+                                <span class="input-group-text">trays</span>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold" for="adjDate">Date of the count</label>
+                            <input type="date" asp-for="BusinessDate" id="adjDate" asp-format="{0:yyyy-MM-dd}" max="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" required />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-bold" for="adjReason">Reason</label>
+                            <textarea asp-for="Reason" id="adjReason" class="form-control" rows="2" maxlength="@TrayTransferRules.MaxReasonLength" required placeholder="e.g. Physical count on 10/10: 12 trays broken"></textarea>
+                        </div>
+                    </div>
+                    <div class="text-center mt-4">
+                        <a asp-page="/Production/MaterialStock/Index" asp-route-Material="@MaterialStockRules.TraysKind" class="btn btn-secondary me-2">Cancel</a>
+                        <button type="submit" class="btn btn-success" id="adjSaveBtn">Save Adjustment</button>
+                    </div>
+                </form>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const pools = @Json.Serialize(Model.Pools.Select(p => new { area = p.AreaId, polyhouse = p.PolyhouseId, size = p.TraySize, qty = p.PhysicalQuantity }));
+            const area = document.getElementById('adjArea');
+            const ph = document.getElementById('adjPolyhouse');
+            const cavity = document.getElementById('adjCavity');
+            const balance = document.getElementById('adjBalance');
+            if (!area || !ph) return;
+            const all = Array.from(ph.querySelectorAll('option[data-area]')).map(function (o) { return o.cloneNode(true); });
+            function filter() {
+                const keep = ph.value;
+                ph.querySelectorAll('option[data-area]').forEach(function (o) { o.remove(); });
+                all.filter(function (o) { return area.value && o.dataset.area === area.value; })
+                   .forEach(function (o) { const c = o.cloneNode(true); c.selected = c.value === keep; ph.appendChild(c); });
+                show();
+            }
+            function show() {
+                if (!ph.value || !cavity.value) { balance.textContent = 'Select a Polyhouse and Cavity'; return; }
+                const p = pools.find(function (x) { return String(x.polyhouse) === ph.value && x.size === cavity.value; });
+                balance.textContent = (p ? Number(p.qty) : 0) + ' trays';
+            }
+            area.addEventListener('change', filter);
+            ph.addEventListener('change', show);
+            cavity.addEventListener('change', show);
+            filter();
+            document.getElementById('trayAdjustForm').addEventListener('submit', function () {
+                document.getElementById('adjSaveBtn').disabled = true;
+            });
+        })();
+    </script>
+}

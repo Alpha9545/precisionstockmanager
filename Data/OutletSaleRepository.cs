@@ -165,7 +165,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                     }
                     else if (line.StockType == OutletStockType.Tray)
                     {
-                        var (ok, message) = await SellTrayAsync(conn, tx, saleId, outletAreaId, line, userId, code, header.CustomerName);
+                        var (ok, message) = await SellTrayAsync(conn, tx, saleId, outletAreaId, line, userId, code, header.CustomerName, header.SaleDate.Date);
                         if (!ok) { tx.Rollback(); return (false, message, 0); }
                     }
                     else
@@ -231,10 +231,12 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
         }
 
         private async Task<(bool Ok, string? Message)> SellTrayAsync(
-            SqlConnection conn, SqlTransaction tx, int saleId, int outletAreaId, SaleItemInput line, int? userId, string code, string customerName)
+            SqlConnection conn, SqlTransaction tx, int saleId, int outletAreaId, SaleItemInput line, int? userId, string code, string customerName,
+            DateTime saleDate)
         {
             var lockCmd = new SqlCommand(
-                "SELECT SpeciesId, CavityType, AreaId, Quantity, ReservedQuantity, DispatchedQuantity FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                // Reserved + in-transit (to a Mother Plant Area): neither is available.
+                "SELECT SpeciesId, CavityType, AreaId, Quantity, ReservedQuantity + InTransitQuantity, DispatchedQuantity FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                 conn, tx);
             lockCmd.Parameters.AddWithValue("@Id", line.StockId);
             int speciesId; string cavityType; int? areaId; decimal readyQty, reserved, dispatched;
@@ -275,7 +277,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                 conn, tx, line.StockId, seedlings, "OutletSaleItem", itemId, userId, $"Outlet sale {code}");
             if (!resOk) return (false, resMessage);
             var (dispOk, dispMessage) = await _readyStockRepo.RecordDispatchAsync(
-                conn, tx, line.StockId, seedlings, "OutletSaleItem", itemId, userId, $"Outlet sale {code} to {customerName.Trim()}", "Dispatch");
+                conn, tx, line.StockId, seedlings, "OutletSaleItem", itemId, userId, $"Outlet sale {code} to {customerName.Trim()}", "Dispatch",
+                saleDate);   // business date = the sale date (reserved in this same operation)
             if (!dispOk) return (false, dispMessage);
             return (true, null);
         }

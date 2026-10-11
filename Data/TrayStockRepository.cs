@@ -173,6 +173,38 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             return (int)(await insertCmd.ExecuteScalarAsync())!;
         }
 
+        // 2026-10-10: empty trays AVAILABLE to a deduction dated atUtc (a back-dated transplanting,
+        // transfer or adjustment). The deduction lowers the pool's balance from atUtc onward, so it must
+        // fit under the LOWEST balance from that instant on: the balance at atUtc (every row dated at or
+        // before it) and the running balance after every LATER-dated row (receipts, transfers, other
+        // consumption...), in business-date order. Without this, a transplant dated before its trays
+        // arrived left the history negative until the receipt. atUtc null (= now) -> the current balance.
+        // Call under the pool lock (GetOrCreateLockedAsync / RecordTransactionAsync) for a stable answer.
+        public static async Task<decimal> AvailableFromAsync(SqlConnection conn, SqlTransaction tx, int trayStockId, DateTime? atUtc)
+        {
+            if (atUtc is null)
+            {
+                var current = new SqlCommand("SELECT PhysicalQuantity FROM dbo.TrayStock WHERE Id = @Id", conn, tx);
+                current.Parameters.AddWithValue("@Id", trayStockId);
+                return (decimal)(await current.ExecuteScalarAsync())!;
+            }
+            var cmd = new SqlCommand(@"
+DECLARE @B DECIMAL(18, 2) = (SELECT ISNULL(SUM(Quantity), 0) FROM dbo.TrayStockTransactions WHERE TrayStockId = @Id AND TransactionDate <= @At);
+SELECT CASE WHEN m.MinRunning IS NULL OR m.MinRunning > @B THEN @B ELSE m.MinRunning END
+FROM (SELECT MIN(r.Running) AS MinRunning
+      FROM (SELECT @B + SUM(Quantity) OVER (ORDER BY TransactionDate, Id ROWS UNBOUNDED PRECEDING) AS Running
+            FROM dbo.TrayStockTransactions WHERE TrayStockId = @Id AND TransactionDate > @At) r) m;", conn, tx);
+            cmd.Parameters.AddWithValue("@Id", trayStockId);
+            cmd.Parameters.Add("@At", System.Data.SqlDbType.DateTime2).Value = atUtc.Value;
+            return (decimal)(await cmd.ExecuteScalarAsync())!;
+        }
+
+        public static bool IsBackDated(DateTime? transactionDateUtc) => transactionDateUtc.HasValue && transactionDateUtc.Value < DateTime.UtcNow.AddMinutes(-1);
+
+        public static string HistoricalShortageMessage(decimal available, decimal needed, string traySize, string where, DateTime atUtc)
+            => $"Only {QuantityFormat.Qty(Math.Max(available, 0))} empty {traySize} trays were available in {where} from {AppClock.ToIndiaTime(atUtc):dd/MM/yyyy} onward "
+             + $"(counting every later movement); {QuantityFormat.Qty(needed)} needed. Record the trays' arrival first, or use a later date.";
+
         // Records a stock movement against an existing, ACTIVE Tray Stock pool
         // and writes the matching ledger row in the SAME transaction --
         // PhysicalQuantity is never changed any other way. quantityDelta:
@@ -209,6 +241,14 @@ WHERE t.Id = @Id", conn, tx);
             var after = before + quantityDelta;
             if (after < 0)
                 return (false, $"Insufficient tray stock for this Area and Polyhouse ({areaName}, {polyhouseName}, {traySize}). Available: {QuantityFormat.Qty(before)}, Required: {QuantityFormat.Qty(-quantityDelta)}.");
+            // 2026-10-10: a back-dated deduction must also fit the balance ON its business date and at
+            // every later point (AvailableFromAsync) -- the history may never go below zero.
+            if (quantityDelta < 0 && IsBackDated(transactionDateUtc))
+            {
+                var availableThen = await AvailableFromAsync(conn, tx, trayStockId, transactionDateUtc);
+                if (-quantityDelta > availableThen)
+                    return (false, HistoricalShortageMessage(availableThen, -quantityDelta, traySize, $"{areaName}, {polyhouseName}", transactionDateUtc!.Value));
+            }
 
             var updateCmd = new SqlCommand("UPDATE dbo.TrayStock SET PhysicalQuantity = @After, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id", conn, tx);
             updateCmd.Parameters.AddWithValue("@After", after);
@@ -246,7 +286,7 @@ VALUES
         // from a generic Area-level pool.
         public async Task<(bool Success, string? Message)> ConsumeForSowingAsync(
             SqlConnection conn, SqlTransaction tx, int areaId, int? polyhouseId, string traySize, decimal requiredTrays,
-            string referenceType, int referenceId, int? userId, string? remarks)
+            string referenceType, int referenceId, int? userId, string? remarks, DateTime? transactionDateUtc = null)
         {
             if (requiredTrays <= 0)
                 return (true, null);
@@ -254,7 +294,10 @@ VALUES
             if (!locationOk)
                 return (false, locationError);
             var trayStockId = await GetOrCreateLockedAsync(conn, tx, areaId, polyhouseId!.Value, traySize, null);
-            return await RecordTransactionAsync(conn, tx, trayStockId, -requiredTrays, "Sowing", referenceType, referenceId, userId, remarks);
+            // transactionDateUtc (2026-10-12, bed transplanting): the business instant of the
+            // consumption (LedgerDates.Instant); a back-dated one must fit the pool's history
+            // (RecordTransactionAsync). null = now, as every sowing so far.
+            return await RecordTransactionAsync(conn, tx, trayStockId, -requiredTrays, "Sowing", referenceType, referenceId, userId, remarks, transactionDateUtc);
         }
 
         // Sowing Supervisor's own action (Pages/Production/TrayStock/Add).
@@ -315,6 +358,67 @@ WHERE TrayStockId = @TrayStockId AND ReferenceType = @RefType AND ReferenceId = 
                 var balCmd = new SqlCommand("SELECT PhysicalQuantity FROM dbo.TrayStock WHERE Id = @Id", conn, tx);
                 balCmd.Parameters.AddWithValue("@Id", trayStockId);
                 var balance = (decimal)(await balCmd.ExecuteScalarAsync())!;
+                tx.Commit();
+                return (true, null, duplicate, balance);
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { }
+                return (false, ex.Message, false, 0);
+            }
+        }
+
+        // 2026-10-10: correct an empty-tray balance (TrayStock.Adjust) with ONE compensating ledger
+        // row of the existing type 'Adjustment' (ReferenceType 'TrayAdjustment', ReferenceId = the
+        // form's one-time token, Remarks = the mandatory reason). Never edits or deletes an earlier
+        // row; never below zero (re-checked under the pool lock). businessDateIndia: the date the
+        // correction applies to (LedgerDates: TransactionDate = business, CreatedAt = recorded).
+        // A positive correction may open a pool that has no row yet; a negative one needs trays.
+        public async Task<(bool Success, string? Message, bool Duplicate, decimal Balance)> AdjustAsync(
+            int areaId, int polyhouseId, string traySize, decimal delta, DateTime businessDateIndia, int submissionToken,
+            string? reason, int? userId, string? createdBy, Func<int, bool> canAccessArea)
+        {
+            if (!DirectSowingRules.IsValidCavityType(traySize))
+                return (false, $"Cavity must be one of: {string.Join(", ", DirectSowingRules.CavityTypes)}.", false, 0);
+            if (submissionToken <= 0)
+                return (false, "This form has expired. Reload the page and enter the adjustment again.", false, 0);
+            if (!canAccessArea(areaId))
+                return (false, "You are not authorized to adjust Tray Stock for the selected Area.", false, 0);
+            var (dateOk, transactionUtc, dateError) = LedgerDates.Instant(businessDateIndia);
+            if (!dateOk)
+                return (false, dateError, false, 0);
+
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                var (locationOk, locationError) = await ValidateLocationAsync(conn, tx, areaId, polyhouseId);
+                if (!locationOk) { tx.Rollback(); return (false, locationError, false, 0); }
+                var trayStockId = await GetOrCreateLockedAsync(conn, tx, areaId, polyhouseId, traySize, createdBy);
+
+                var dupCmd = new SqlCommand(@"
+SELECT COUNT(*) FROM dbo.TrayStockTransactions
+WHERE TrayStockId = @TrayStockId AND ReferenceType = @RefType AND ReferenceId = @Token", conn, tx);
+                dupCmd.Parameters.AddWithValue("@TrayStockId", trayStockId);
+                dupCmd.Parameters.AddWithValue("@RefType", TrayTransferRules.AdjustReferenceType);
+                dupCmd.Parameters.AddWithValue("@Token", submissionToken);
+                var duplicate = (int)(await dupCmd.ExecuteScalarAsync())! > 0;
+
+                var balCmd = new SqlCommand("SELECT PhysicalQuantity FROM dbo.TrayStock WHERE Id = @Id", conn, tx);
+                balCmd.Parameters.AddWithValue("@Id", trayStockId);
+                var balance = (decimal)(await balCmd.ExecuteScalarAsync())!;
+                if (!duplicate)
+                {
+                    // a back-dated removal is checked against the trays available from its date onward
+                    var limit = delta < 0 && IsBackDated(transactionUtc) ? Math.Min(balance, await AvailableFromAsync(conn, tx, trayStockId, transactionUtc)) : balance;
+                    var (ok, error) = TrayTransferRules.ValidateAdjustment(delta, limit, reason, traySize);
+                    if (!ok) { tx.Rollback(); return (false, error, false, 0); }
+                    var (success, message) = await RecordTransactionAsync(conn, tx, trayStockId, delta, "Adjustment",
+                        TrayTransferRules.AdjustReferenceType, submissionToken, userId, "Adjustment: " + reason!.Trim(), transactionUtc);
+                    if (!success) { tx.Rollback(); return (false, message, false, 0); }
+                    balance += delta;
+                }
                 tx.Commit();
                 return (true, null, duplicate, balance);
             }

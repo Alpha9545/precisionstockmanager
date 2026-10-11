@@ -1,0 +1,91 @@
+@page
+@model PlantStockManager.Pages.Production.Labour.OvertimeDetailsModel
+@using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Overtime Details";
+    var e = Model.Entry;
+    var canEdit = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/Overtime");
+    string T(TimeOnly? t) => t.HasValue ? t.Value.ToString("hh:mm tt") : "—";
+    string Change<TV>(TV oldV, TV newV, Func<TV, string> f) => Equals(oldV, newV) ? f(newV) : $"{f(oldV)} → {f(newV)}";
+}
+
+<style>
+    .labour-result { background: #f1f8f4; border: 1px solid #b7dfc6; border-radius: .5rem; }
+    .labour-result .cell { padding: .4rem .25rem; }
+    .labour-result .value { font-size: 1.35rem; font-weight: 700; line-height: 1.1; }
+</style>
+
+<div class="container mt-4 mb-5">
+    <div class="card shadow-sm mx-auto" style="max-width: 760px;">
+        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h4 class="mb-0">Overtime #@e.Id</h4>
+            <div class="d-flex gap-2">
+                @if (canEdit)
+                {
+                    <a asp-page="/Production/Labour/Overtime" asp-route-id="@e.Id" class="btn btn-outline-primary btn-sm" id="editOvertime">Edit</a>
+                }
+                <a asp-page="/Production/Labour/OvertimeHistory" class="btn btn-outline-secondary btn-sm">Overtime History</a>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (TempData["Success"] != null)
+            {
+                <div class="alert alert-success" id="overtimeSuccess">@TempData["Success"]</div>
+            }
+            @if (TempData["Error"] != null)
+            {
+                <div class="alert alert-warning">@TempData["Error"]</div>
+            }
+
+            <dl class="row mb-3" id="overtimeFields">
+                <dt class="col-5 col-sm-3">Date</dt><dd class="col-7 col-sm-9">@e.LabourDate.ToString("dd-MM-yyyy")</dd>
+                <dt class="col-5 col-sm-3">Area</dt><dd class="col-7 col-sm-9">@e.AreaName</dd>
+                <dt class="col-5 col-sm-3">Polyhouse</dt><dd class="col-7 col-sm-9">@(e.PolyhouseId.HasValue ? e.PolyhouseName : "—")</dd>
+                <dt class="col-5 col-sm-3">Workers</dt><dd class="col-7 col-sm-9">Male @e.MaleWorkers · Female @e.FemaleWorkers</dd>
+                <dt class="col-5 col-sm-3">Time</dt><dd class="col-7 col-sm-9">@T(e.StartTime) – @T(e.EndTime)</dd>
+                <dt class="col-5 col-sm-3">Work</dt><dd class="col-7 col-sm-9" style="white-space: pre-wrap">@e.WorkDescription</dd>
+                <dt class="col-5 col-sm-3">Remark</dt><dd class="col-7 col-sm-9" style="white-space: pre-wrap">@(e.Remarks ?? "—")</dd>
+                <dt class="col-5 col-sm-3">Entered by</dt><dd class="col-7 col-sm-9">@(e.CreatedByName ?? "—") on @AppClock.ToIndiaTime(e.CreatedDate).ToString("dd-MM-yyyy hh:mm tt")</dd>
+                @if (e.ModifiedDate.HasValue)
+                {
+                    <dt class="col-5 col-sm-3">Last corrected</dt><dd class="col-7 col-sm-9">@(e.ModifiedByName ?? "—") on @AppClock.ToIndiaTime(e.ModifiedDate.Value).ToString("dd-MM-yyyy hh:mm tt")</dd>
+                }
+            </dl>
+
+            <div class="labour-result row g-0 text-center py-1" id="overtimeResult">
+                <div class="col-6 col-sm-3 cell"><div class="small text-muted">Duration</div><div class="value" id="duration">@e.Duration</div></div>
+                <div class="col-6 col-sm-3 cell"><div class="small text-muted">Male Worker-Hours</div><div class="value" id="maleHours">@LabourOvertimeRules.FormatHours(e.MaleWorkerHours)</div></div>
+                <div class="col-6 col-sm-3 cell"><div class="small text-muted">Female Worker-Hours</div><div class="value" id="femaleHours">@LabourOvertimeRules.FormatHours(e.FemaleWorkerHours)</div></div>
+                <div class="col-6 col-sm-3 cell"><div class="small text-muted">Total Worker-Hours</div><div class="value" id="totalHours">@LabourOvertimeRules.FormatHours(e.TotalWorkerHours)</div></div>
+            </div>
+
+            <h6 class="mt-4">History</h6>
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered align-middle small" id="changeTable">
+                    <thead class="table-light">
+                        <tr><th>When</th><th>Action</th><th>Male</th><th>Female</th><th>Time</th><th>Work / Remark</th><th>By</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in Model.Changes)
+                        {
+                            var corrected = c.Action == "Corrected";
+                            <tr>
+                                <td class="text-nowrap">@AppClock.ToIndiaTime(c.ChangedDate).ToString("dd-MM-yyyy hh:mm tt")</td>
+                                <td>@c.Action</td>
+                                <td>@(corrected ? Change(c.OldMaleWorkers, c.NewMaleWorkers, v => v?.ToString() ?? "—") : (c.NewMaleWorkers ?? c.OldMaleWorkers)?.ToString())</td>
+                                <td>@(corrected ? Change(c.OldFemaleWorkers, c.NewFemaleWorkers, v => v?.ToString() ?? "—") : (c.NewFemaleWorkers ?? c.OldFemaleWorkers)?.ToString())</td>
+                                <td class="text-nowrap">@(corrected ? Change($"{T(c.OldStartTime)}–{T(c.OldEndTime)}", $"{T(c.NewStartTime)}–{T(c.NewEndTime)}", v => v) : $"{T(c.NewStartTime ?? c.OldStartTime)}–{T(c.NewEndTime ?? c.OldEndTime)}")</td>
+                                <td>
+                                    @(corrected ? Change(c.OldWorkDescription, c.NewWorkDescription, v => v ?? "—") : c.NewWorkDescription ?? c.OldWorkDescription)
+                                    @if (corrected && c.OldRemarks != c.NewRemarks) { <div class="text-muted">Remark: @(c.OldRemarks ?? "—") → @(c.NewRemarks ?? "—")</div> }
+                                </td>
+                                <td>@(c.ChangedByName ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>

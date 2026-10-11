@@ -1,0 +1,143 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.BedSowing.DetailsModel
+@{
+    var b = Model.Bed!;
+    ViewData["Title"] = "Bed " + b.BedSowingCode;
+}
+
+<div class="container mt-4">
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-danger">@TempData["Error"]</div>
+    }
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <h4 class="mb-0">Bed Sowing @b.BedSowingCode</h4>
+            <span class="badge fs-6 @(b.Status switch { "PendingTransplant" => "bg-warning text-dark", "PartiallyTransplanted" => "bg-info text-dark", "Completed" => "bg-success", _ => "bg-secondary" })">@b.StatusLabel</span>
+        </div>
+        <div class="card-body">
+            <div class="row g-3 mb-3 text-center">
+                <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="small text-muted">Original</div><div class="fs-5 fw-bold">@Qty(b.Quantity)</div></div></div>
+                <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="small text-muted">Transplanted</div><div class="fs-5 fw-bold">@Qty(b.TransplantedQuantity)</div></div></div>
+                <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="small text-muted">Lost</div><div class="fs-5 fw-bold">@Qty(b.LostQuantity)</div></div></div>
+                <div class="col-6 col-md-3"><div class="border rounded p-2"><div class="small text-muted">Remaining in bed</div><div class="fs-5 fw-bold">@Qty(b.RemainingQuantity)</div></div></div>
+            </div>
+            <p class="small @(Model.Conserved ? "text-muted" : "text-danger fw-bold")">
+                @Qty(b.Quantity) original = @Qty(b.RemainingQuantity) remaining + @Qty(b.TransplantedQuantity) transplanted + @Qty(b.LostQuantity) lost@(Model.Conserved ? "" : " -- DOES NOT BALANCE")
+            </p>
+            <dl class="row mb-0">
+                <dt class="col-sm-4">Variety</dt><dd class="col-sm-8">@b.SpeciesName (@b.PlantTypeName)</dd>
+                <dt class="col-sm-4">Seed lot</dt><dd class="col-sm-8">@b.SeedLotNo @(b.SeedSourceName != null ? "- " + b.SeedSourceName : "")</dd>
+                <dt class="col-sm-4">Polyhouse</dt><dd class="col-sm-8">@b.PolyhouseName (@b.AreaName)</dd>
+                <dt class="col-sm-4">Sowing Date</dt><dd class="col-sm-8">@b.SowingDate.ToString("dd/MM/yyyy")</dd>
+                <dt class="col-sm-4">Notes</dt><dd class="col-sm-8">@(b.Remarks ?? "-")</dd>
+                <dt class="col-sm-4">Recorded</dt><dd class="col-sm-8">@PlantStockManager.Services.AppClock.ToIndiaTime(b.CreatedDate).ToString("dd/MM/yyyy HH:mm") by @b.CreatedBy</dd>
+                @if (b.CancelledDate.HasValue)
+                {
+                    <dt class="col-sm-4">Cancelled</dt><dd class="col-sm-8">@PlantStockManager.Services.AppClock.ToIndiaTime(b.CancelledDate.Value).ToString("dd/MM/yyyy HH:mm") by @b.CancelledByName: @b.CancelReason</dd>
+                }
+            </dl>
+        </div>
+        <div class="card-footer d-flex flex-wrap justify-content-end gap-2">
+            <a asp-page="/Production/BedSowing/Index" class="btn btn-secondary">Back</a>
+            @if (Model.CanTransplant && b.IsOpen)
+            {
+                <a asp-page="/Production/BedSowing/Transplant" asp-route-bedId="@b.Id" class="btn btn-primary">Transplant / record loss</a>
+            }
+        </div>
+    </div>
+
+    <h5>Transplants and losses</h5>
+    <div class="table-responsive mb-4">
+        <table class="table table-sm table-striped align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>No.</th><th>Type</th><th>Date</th><th class="text-end">Quantity</th><th>Cavity x Trays</th><th>Into</th>
+                    <th>Tray batch / approval</th><th>Recorded</th><th>Status</th>@if (Model.CanReverse) { <th></th> }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var o in Model.Operations)
+                {
+                    <tr class="@(o.IsActive ? "" : "text-muted")">
+                        <td>@o.OperationCode</td>
+                        <td>
+                            @(o.IsTransplant ? "Transplant" : "Bed loss")
+                        </td>
+                        <td>@o.OperationDate.ToString("dd/MM/yyyy")</td>
+                        <td class="text-end">@Qty(o.Quantity)</td>
+                        <td>@(o.IsTransplant ? $"{o.CavityType} x {o.OutputTrays}" : "-")</td>
+                        <td>@(o.IsTransplant ? o.TargetPolyhouseName : (o.Reason ?? "-"))@(o.GrowingMaterialName != null ? $" ({o.GrowingMaterialName})" : "")</td>
+                        <td>
+                            @if (o.SeedSowingId.HasValue)
+                            {
+                                <a asp-page="/Production/SeedSowing/Details" asp-route-id="@o.SeedSowingId">@o.SowingCode</a>
+                                <div class="small text-muted">
+                                    @(o.SowingStatus == "Sown" ? (o.SowingApprovedQuantity + o.SowingWastageQuantity > 0 ? "Partly approved" : "Waiting for approval") : o.SowingStatus)
+                                    @if (o.SowingApprovedQuantity > 0) { <span>&middot; @Qty(o.SowingApprovedQuantity) to Ready Stock</span> }
+                                    @if (o.SowingWastageQuantity > 0) { <span>&middot; @Qty(o.SowingWastageQuantity) wastage</span> }
+                                    @if (o.SowingReadyDate.HasValue) { <span>&middot; Ready Date @o.SowingReadyDate.Value.ToString("dd/MM/yyyy")</span> }
+                                </div>
+                            }
+                            else { <span class="text-muted">-</span> }
+                        </td>
+                        <td>@PlantStockManager.Services.AppClock.ToIndiaTime(o.CreatedDate).ToString("dd/MM/yyyy HH:mm")<div class="small text-muted">@o.CreatedBy</div></td>
+                        <td>
+                            @if (o.IsActive)
+                            {
+                                <span class="badge bg-success">Active</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary">Reversed</span>
+                                <div class="small">@(o.ReversedDate.HasValue ? PlantStockManager.Services.AppClock.ToIndiaTime(o.ReversedDate.Value).ToString("dd/MM/yyyy HH:mm") : "") by @o.ReversedBy: @o.ReversalReason</div>
+                            }
+                        </td>
+                        @if (Model.CanReverse)
+                        {
+                            <td>
+                                @if (o.IsActive && (!o.IsTransplant || (o.SowingStatus == "Sown" && o.SowingApprovedQuantity == 0 && o.SowingWastageQuantity == 0)))
+                                {
+                                    <form method="post" asp-page-handler="Reverse" asp-route-id="@b.Id" class="d-flex gap-1" onsubmit="return confirm('Reverse @o.OperationCode? @(o.IsTransplant ? "The tray batch is cancelled, its trays and growing material are returned and the seedlings go back to the bed." : "The seedlings are counted back in the bed.")');">
+                                        <input type="hidden" name="operationId" value="@o.Id" />
+                                        <input type="text" name="reason" class="form-control form-control-sm" placeholder="Reason" required maxlength="400" aria-label="Reason for reversing @o.OperationCode" />
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">Reverse</button>
+                                    </form>
+                                }
+                                else if (o.IsActive)
+                                {
+                                    <span class="small text-muted">Approved &mdash; cancel the approval first</span>
+                                }
+                            </td>
+                        }
+                    </tr>
+                }
+                @if (!Model.Operations.Any())
+                {
+                    <tr><td colspan="10" class="text-center text-muted">Nothing transplanted or lost yet.</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    @if (Model.CanCancel)
+    {
+        <div class="card border-danger mb-4">
+            <div class="card-body">
+                <form method="post" asp-page-handler="Cancel" asp-route-id="@b.Id" class="row g-2 align-items-end"
+                      onsubmit="return confirm('Cancel bed @b.BedSowingCode? The @Qty(b.Quantity) seeds go back to lot @b.SeedLotNo.');">
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold" for="cancelReason">Cancel this bed sowing (nothing transplanted or lost yet)</label>
+                        <input type="text" id="cancelReason" name="reason" class="form-control" required maxlength="400" placeholder="Reason" />
+                    </div>
+                    <div class="col-md-4"><button type="submit" class="btn btn-outline-danger w-100">Cancel bed &amp; return seed</button></div>
+                </form>
+            </div>
+        </div>
+    }
+</div>

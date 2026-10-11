@@ -1,0 +1,90 @@
+@page
+@model PlantStockManager.Pages.Store.NewRequestModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "New Store Request";
+    var rows = Math.Max(3, Math.Max(Model.LineItemIds.Count, Model.LineQuantities.Count));
+}
+
+<div class="container mt-4 mb-5" style="max-width: 900px;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h3 class="mb-0">New Store Request</h3>
+        <a asp-page="/Store/Requests" class="btn btn-outline-secondary btn-sm">Requests</a>
+    </div>
+    @if (!ModelState.IsValid)
+    {
+        <div class="alert alert-danger" id="requestErrors"><ul class="mb-0">@foreach (var err in ModelState.Values.SelectMany(v => v.Errors)) { <li>@err.ErrorMessage</li> }</ul></div>
+    }
+    @if (!Model.Areas.Any()) { <div class="alert alert-warning">You are not assigned to any Area. Ask an administrator to assign your Area.</div> }
+
+    <form method="post" class="card card-body shadow-sm" id="requestForm">
+        <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
+        <div class="row g-2 mb-3">
+            <div class="col-12 col-md-4"><label class="form-label fw-bold" for="areaSelect">Area</label>
+                <select name="AreaId" id="areaSelect" class="form-select"><option value="">-- Select Area --</option>
+                    @foreach (var a in Model.Areas) { <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option> }</select></div>
+            <div class="col-12 col-md-4"><label class="form-label fw-bold" for="polyhouseSelect">Polyhouse <span class="fw-normal text-muted">(optional)</span></label>
+                <select name="PolyhouseId" id="polyhouseSelect" class="form-select"><option value="">-- Whole Area --</option>
+                    @foreach (var p in Model.Polyhouses) { <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option> }</select></div>
+            <div class="col-12 col-md-4"><label class="form-label fw-bold" for="purpose">Purpose</label>
+                <input type="text" name="Purpose" id="purpose" value="@Model.Purpose" maxlength="500" class="form-control" placeholder="e.g. Polyhouse maintenance" /></div>
+        </div>
+
+        <table class="table table-sm align-middle" id="lineTable">
+            <thead><tr><th>Item</th><th style="width: 160px">Quantity</th><th style="width: 90px">Unit</th><th></th></tr></thead>
+            <tbody>
+                @for (var i = 0; i < rows; i++)
+                {
+                    var itemId = i < Model.LineItemIds.Count ? Model.LineItemIds[i] : null;
+                    var qty = i < Model.LineQuantities.Count ? Model.LineQuantities[i] : null;
+                    <tr class="line-row">
+                        <td><select name="LineItemIds" class="form-select line-item"><option value="">--</option>
+                            @foreach (var it in Model.Items) { <option value="@it.Id" data-unit="@it.UnitName" data-type="@it.ItemType" selected="@(itemId == it.Id)">@it.Display (@it.ItemType)</option> }</select></td>
+                        <td><input type="number" step="any" min="0" name="LineQuantities" value="@qty" class="form-control line-qty" /></td>
+                        <td class="line-unit text-muted small"></td>
+                        <td><button type="button" class="btn btn-sm btn-outline-danger line-remove">×</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-primary btn-sm" id="addLineBtn">+ Add Item</button>
+            <span class="small text-muted align-self-center">One line per item. Returnable items are counted in whole units.</span>
+        </div>
+        <div class="mt-3"><button type="submit" class="btn btn-success" id="sendRequestBtn">Send Request</button></div>
+    </form>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const body = document.querySelector('#lineTable tbody');
+            function unit(row) {
+                const o = row.querySelector('.line-item').selectedOptions[0];
+                row.querySelector('.line-unit').textContent = o && o.value ? o.dataset.unit : '';
+            }
+            function wire(row) {
+                row.querySelector('.line-item').addEventListener('change', function () { unit(row); });
+                row.querySelector('.line-remove').addEventListener('click', function () { if (body.rows.length > 1) row.remove(); });
+                unit(row);
+            }
+            body.querySelectorAll('.line-row').forEach(wire);
+            document.getElementById('addLineBtn').addEventListener('click', function () {
+                if (body.rows.length >= @StoreRules.MaxLinesPerRequest) return;
+                const row = body.rows[0].cloneNode(true);
+                row.querySelector('.line-item').value = '';
+                row.querySelector('.line-qty').value = '';
+                body.appendChild(row);
+                wire(row);
+            });
+            const area = document.getElementById('areaSelect'), polyhouse = document.getElementById('polyhouseSelect');
+            area.addEventListener('change', function () {
+                polyhouse.innerHTML = '<option value="">-- Whole Area --</option>';
+                if (!area.value) return;
+                fetch('@Url.Page("/Store/NewRequest")?handler=Polyhouses&areaId=' + encodeURIComponent(area.value))
+                    .then(function (r) { return r.json(); })
+                    .then(function (list) { list.forEach(function (p) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; polyhouse.appendChild(o); }); });
+            });
+        })();
+    </script>
+}

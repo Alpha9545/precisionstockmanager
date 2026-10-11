@@ -1,0 +1,31 @@
+@model PlantStockManager.Pages.Production.SeedSowing.GrowingMaterialViewModel
+@* Growing Material -- shared by Direct Seed Sowing and Confirm Cutting Sowing.
+   Radio buttons: exactly one material can be chosen. The figures below are a
+   preview; the server recalculates and deducts under lock when the sowing is saved. *@
+<div class="col-12" id="growingMaterialSection">
+    <div class="border rounded p-3 bg-light">
+        <div class="fw-bold">Growing Material</div>
+        <div id="gmChoices" class="d-flex flex-wrap gap-4 my-2" role="radiogroup" aria-label="Growing material">
+            @foreach (var m in Model.Materials)
+            {
+                <div class="form-check">
+                    <input class="form-check-input gm-radio" type="radio" name="@Model.FieldName"
+                           id="gm_@m.Id" value="@m.Id" checked="@(Model.SelectedId == m.Id)" />
+                    <label class="form-check-label" for="gm_@m.Id">@m.Name</label>
+                </div>
+            }
+        </div>
+        <div id="gmHint" class="small text-muted">Select the Polyhouse, tray size and quantity, then choose exactly one material. It is deducted from that Polyhouse's Material Stock.</div>
+        <div id="gmNotApplicable" class="small text-muted d-none">This Polyhouse is not in a Main Office Area &mdash; no growing material is used or deducted for this sowing.</div>
+        <dl class="row small mb-0 mt-2 d-none" id="gmFigures">
+            <dt class="col-6 col-md-3">Material</dt><dd class="col-6 col-md-3" id="gmName"></dd>
+            <dt class="col-6 col-md-3">Available Stock</dt><dd class="col-6 col-md-3" id="gmAvailable"></dd>
+            <dt class="col-6 col-md-3">Tray Quantity</dt><dd class="col-6 col-md-3" id="gmTrays"></dd>
+            <dt class="col-6 col-md-3">Consumption</dt><dd class="col-6 col-md-3" id="gmPerTray"></dd>
+            <dt class="col-6 col-md-3">Required</dt><dd class="col-6 col-md-3 fw-semibold" id="gmRequired"></dd>
+            <dt class="col-6 col-md-3">Remaining After Sowing</dt><dd class="col-6 col-md-3" id="gmRemaining"></dd>
+            <dt class="col-6 col-md-3">Enough</dt><dd class="col-6 col-md-3 fw-bold" id="gmEnough"></dd>
+        </dl>
+        <div class="alert alert-warning small py-2 mt-2 mb-0 d-none" id="gmWarning" role="alert"></div>
+    </div>
+</div>

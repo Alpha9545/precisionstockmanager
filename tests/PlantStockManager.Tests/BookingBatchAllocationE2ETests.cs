@@ -24,8 +24,13 @@ namespace PlantStockManager.Tests
         private const string ConnectionVariable = "PSM_SCRATCH_CONNECTION";
         private const string RequiredPrefix = "PlantsIMS2_Scratch_";
 
-        private const int MainOfficeAreaId = 2;
-        private const int GreenBlessAreaId = 127, GreenBlessP1 = 14, GreenBlessP2 = 15;
+        // 2026-10-08: Direct Seed Sowing is done only in Main Area Polyhouses, so the two
+        // test batches grow in two Main Office Polyhouses; Green Bless is the "other Area".
+        private const int MainOfficeAreaId = 2;              // Main-Office-Areas (the seed lot)
+        private const int GrowAreaId = MainOfficeAreaId;
+        private const int GrowP1 = 4, GrowP2 = 6;            // Facility-4, Facility 1 Main office
+        private const string GrowP1Name = "Facility-4", GrowP2Name = "Facility 1 Main office";
+        private const int OtherAreaId = 127;                 // Green Bless Nursery (Mother Plant Area)
         private const int SupervisorId = 9, Recorder = 21;
         private const int MpA = 114;                         // its variety is the test variety
         private static readonly DateTime SowingDate = new(2026, 10, 1);   // batch "J-01"
@@ -115,10 +120,15 @@ namespace PlantStockManager.Tests
         private static async Task<Fixture> BuildAsync(Env env, int bookingQuantity = 600)
         {
             var trays = env.Get<TrayStockRepository>();
-            foreach (var polyhouse in new[] { GreenBlessP1, GreenBlessP2 })
+            var materials = env.Get<MaterialStockRepository>();
+            var cocopeat = await env.ScalarAsync<int>("SELECT Id FROM dbo.MaterialTypes WHERE Code = 'COCOPEAT'");
+            foreach (var polyhouse in new[] { GrowP1, GrowP2 })
             {
-                var (ok, msg, _, _) = await trays.AddStockAsync(GreenBlessAreaId, polyhouse, Cavity, 100, DateTime.UtcNow, Random.Shared.Next(1, int.MaxValue), SupervisorId, "batch-test", "batch test setup", _ => true);
+                var (ok, msg, _, _) = await trays.AddStockAsync(GrowAreaId, polyhouse, Cavity, 100, DateTime.UtcNow, Random.Shared.Next(1, int.MaxValue), SupervisorId, "batch-test", "batch test setup", _ => true);
                 Assert.True(ok, msg);
+                // A Main Area sowing uses one growing material: make sure there is enough Cocopeat.
+                var (mOk, mMsg, _) = await materials.AdjustAsync(GrowAreaId, polyhouse, cocopeat, 1, 100m, "batch test setup", Guid.NewGuid(), Recorder, _ => true);
+                Assert.True(mOk, mMsg);
             }
 
             async Task<(int SowingId, int ReadyStockId)> SowAndApproveAsync(int polyhouse, decimal quantity, int traysReady)
@@ -126,7 +136,8 @@ namespace PlantStockManager.Tests
                 var sowing = new SeedSowing
                 {
                     SourceSeedStockId = env.SeedStockId, SeedQuantity = quantity, CavityType = Cavity, SowingDate = SowingDate,
-                    AreaId = GreenBlessAreaId, PolyhouseId = polyhouse, SupervisorId = SupervisorId, CreatedBy = "batch-test", CreatedById = Recorder
+                    PolyhouseId = polyhouse, SupervisorId = SupervisorId, CreatedBy = "batch-test", CreatedById = Recorder,
+                    GrowingMaterialTypeId = cocopeat
                 };
                 var (ok, msg, sowingId) = await env.Get<SeedSowingRepository>().InsertAsync(sowing, Recorder, _ => true);
                 Assert.True(ok, msg);
@@ -137,8 +148,8 @@ namespace PlantStockManager.Tests
                 return (sowingId, readyStockId);
             }
 
-            var p1 = await SowAndApproveAsync(GreenBlessP1, 480, 20);
-            var p2 = await SowAndApproveAsync(GreenBlessP2, 240, 10);
+            var p1 = await SowAndApproveAsync(GrowP1, 480, 20);
+            var p2 = await SowAndApproveAsync(GrowP2, 240, 10);
             var bookingId = await env.ScalarAsync<int>(@"
 INSERT INTO dbo.Bookings (SpeciesId, Quantity, CustomerName, Status, PlantId, DeliveryDate, AddedBy)
 VALUES (@S, @Q, N'ZZTEST Batch Customer', N'Pending', @P, @D, N'batch-test');
@@ -159,7 +170,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", bookingQuant
             var env = await OpenAsync();
             var fx = await BuildAsync(env);
 
-            var result = await SearchAsync(env, All(new BatchSearch { Query = "J-01", AreaId = GreenBlessAreaId }));
+            var result = await SearchAsync(env, All(new BatchSearch { Query = "J-01", AreaId = GrowAreaId }));
 
             var p1 = Assert.Single(result.Rows, r => r.ReadyStockId == fx.ReadyStockP1);
             var p2 = Assert.Single(result.Rows, r => r.ReadyStockId == fx.ReadyStockP2);
@@ -168,8 +179,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", bookingQuant
             Assert.NotEqual(p1.BatchCode, p2.BatchCode);          // the full SowingCodes stay unique
             Assert.Equal(fx.SowingP1, p1.SeedSowingId);
             Assert.Equal(fx.SowingP2, p2.SeedSowingId);
-            Assert.Equal("P-1", p1.PolyhouseName);
-            Assert.Equal("P-2", p2.PolyhouseName);
+            Assert.Equal(GrowP1Name, p1.PolyhouseName);
+            Assert.Equal(GrowP2Name, p2.PolyhouseName);
             Assert.Equal(480m, p1.AvailableQuantity);
             Assert.Equal(240m, p2.AvailableQuantity);
             Assert.All(result.Rows, r => Assert.Equal("J-01", r.BatchNo));
@@ -226,12 +237,12 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", bookingQuant
             Assert.Contains(byDate.Rows, r => r.ReadyStockId == fx.ReadyStockP1);
             Assert.All(byDate.Rows, r => Assert.Equal(SowingDate, r.SowingDate.Date));
 
-            var byArea = await SearchAsync(env, All(new BatchSearch { AreaId = GreenBlessAreaId }));
-            Assert.All(byArea.Rows, r => Assert.Equal(GreenBlessAreaId, r.AreaId));
-            var byOtherArea = await SearchAsync(env, All(new BatchSearch { AreaId = MainOfficeAreaId }));
+            var byArea = await SearchAsync(env, All(new BatchSearch { AreaId = GrowAreaId }));
+            Assert.All(byArea.Rows, r => Assert.Equal(GrowAreaId, r.AreaId));
+            var byOtherArea = await SearchAsync(env, All(new BatchSearch { AreaId = OtherAreaId }));
             Assert.DoesNotContain(byOtherArea.Rows, r => r.ReadyStockId == fx.ReadyStockP1);
 
-            var byPolyhouse = await SearchAsync(env, All(new BatchSearch { AreaId = GreenBlessAreaId, PolyhouseId = GreenBlessP2 }));
+            var byPolyhouse = await SearchAsync(env, All(new BatchSearch { AreaId = GrowAreaId, PolyhouseId = GrowP2 }));
             Assert.Contains(byPolyhouse.Rows, r => r.ReadyStockId == fx.ReadyStockP2);
             Assert.DoesNotContain(byPolyhouse.Rows, r => r.ReadyStockId == fx.ReadyStockP1);
 
@@ -242,8 +253,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", bookingQuant
             Assert.All(substitutes.Rows, r => Assert.NotEqual(env.Species, r.SpeciesId));
 
             var (areas, polyhouses) = await env.Get<SeedlingFulfilmentRepository>().GetBatchFilterOptionsAsync(env.PlantType, null);
-            Assert.Contains(areas, a => a.Id == GreenBlessAreaId);
-            Assert.Contains(polyhouses, p => p.Id == GreenBlessP2 && p.AreaId == GreenBlessAreaId);
+            Assert.Contains(areas, a => a.Id == GrowAreaId);
+            Assert.Contains(polyhouses, p => p.Id == GrowP2 && p.AreaId == GrowAreaId);
         }
 
         [SkippableFact]
@@ -252,12 +263,12 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", bookingQuant
             var env = await OpenAsync();
             await BuildAsync(env);
 
-            var all = await SearchAsync(env, new BatchSearch { AreaId = GreenBlessAreaId });
+            var all = await SearchAsync(env, new BatchSearch { AreaId = GrowAreaId });
             Assert.Equal(BatchSearch.DefaultPageSize, all.PageSize);
             Assert.True(all.Total >= 2);
 
-            var page1 = await SearchAsync(env, new BatchSearch { AreaId = GreenBlessAreaId, PageSize = 1, Page = 1 });
-            var page2 = await SearchAsync(env, new BatchSearch { AreaId = GreenBlessAreaId, PageSize = 1, Page = 2 });
+            var page1 = await SearchAsync(env, new BatchSearch { AreaId = GrowAreaId, PageSize = 1, Page = 1 });
+            var page2 = await SearchAsync(env, new BatchSearch { AreaId = GrowAreaId, PageSize = 1, Page = 2 });
             Assert.Single(page1.Rows);
             Assert.Single(page2.Rows);
             Assert.NotEqual(page1.Rows[0].ReadyStockId, page2.Rows[0].ReadyStockId);
@@ -271,12 +282,12 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", bookingQuant
             var env = await OpenAsync();
             var fx = await BuildAsync(env);
 
-            var mainOfficeOnly = await SearchAsync(env, All(new BatchSearch()), new[] { MainOfficeAreaId });
-            Assert.DoesNotContain(mainOfficeOnly.Rows, r => r.AreaId == GreenBlessAreaId);
+            var otherAreaOnly = await SearchAsync(env, All(new BatchSearch()), new[] { OtherAreaId });
+            Assert.DoesNotContain(otherAreaOnly.Rows, r => r.AreaId == GrowAreaId);
             var noAreas = await SearchAsync(env, All(new BatchSearch()), Array.Empty<int>());
             Assert.Empty(noAreas.Rows);
-            var greenBless = await SearchAsync(env, All(new BatchSearch()), new[] { GreenBlessAreaId });
-            Assert.Contains(greenBless.Rows, r => r.ReadyStockId == fx.ReadyStockP1);
+            var growArea = await SearchAsync(env, All(new BatchSearch()), new[] { GrowAreaId });
+            Assert.Contains(growArea.Rows, r => r.ReadyStockId == fx.ReadyStockP1);
         }
 
         // ---- existing allocation rules (unchanged) -------------------------------------------------------
@@ -290,7 +301,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", bookingQuant
 
             var aboveAvailable = await repo.AllocateBatchAsync(fx.BookingId, fx.ReadyStockP2, 250, null, Actor, _ => true);   // P-2 has 240; booking needs 200
             var aboveBooking = await repo.AllocateBatchAsync(fx.BookingId, fx.ReadyStockP1, 300, null, Actor, _ => true);     // P-1 has 480; booking needs 200
-            var unauthorized = await repo.AllocateBatchAsync(fx.BookingId, fx.ReadyStockP1, 50, null, Actor, area => area != GreenBlessAreaId);
+            var unauthorized = await repo.AllocateBatchAsync(fx.BookingId, fx.ReadyStockP1, 50, null, Actor, area => area != GrowAreaId);
 
             Assert.False(aboveAvailable.Success);
             Assert.False(aboveBooking.Success);

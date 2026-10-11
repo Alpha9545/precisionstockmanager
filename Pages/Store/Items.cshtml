@@ -1,0 +1,92 @@
+@page
+@model PlantStockManager.Pages.Store.ItemsModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Store Item Master";
+}
+
+<div class="container-fluid mt-4">
+    <h3 class="mb-3">Store Item Master</h3>
+    @if (TempData["Success"] != null) { <div class="alert alert-success" id="itemSuccess">@TempData["Success"]</div> }
+    @if (!ModelState.IsValid)
+    {
+        <div class="alert alert-danger" id="itemErrors"><ul class="mb-0">@foreach (var err in ModelState.Values.SelectMany(v => v.Errors)) { <li>@err.ErrorMessage</li> }</ul></div>
+    }
+
+    @if (Model.IsManager)
+    {
+        <div class="row g-3 mb-4">
+            <div class="col-12 col-lg-8">
+                <form method="post" asp-page-handler="Save" asp-route-editId="@Model.EditId" class="card card-body shadow-sm" id="itemForm">
+                    <h6>@(Model.Editing == null ? "New item" : $"Edit {Model.Editing.ItemCode}")</h6>
+                    <div class="row g-2">
+                        <div class="col-6 col-md-3"><label class="form-label small" for="itemCode">Item code</label>
+                            <input type="text" name="ItemCode" id="itemCode" value="@Model.ItemCode" class="form-control" maxlength="30" readonly="@(Model.Editing != null)" /></div>
+                        <div class="col-6 col-md-5"><label class="form-label small" for="itemName">Name</label>
+                            <input type="text" name="Name" id="itemName" value="@Model.Name" class="form-control" maxlength="150" /></div>
+                        <div class="col-6 col-md-4"><label class="form-label small" for="categorySelect">Category</label>
+                            <select name="CategoryId" id="categorySelect" class="form-select"><option value="">-- Select --</option>
+                                @foreach (var c in Model.Categories.Where(c => c.IsActive || c.Id == Model.CategoryId)) { <option value="@c.Id" selected="@(Model.CategoryId == c.Id)">@c.Name</option> }</select></div>
+                        <div class="col-6 col-md-3"><label class="form-label small" for="unitSelect">Unit</label>
+                            <select name="UnitId" id="unitSelect" class="form-select" disabled="@(Model.Editing?.HasMovements == true)"><option value="">-- Select --</option>
+                                @foreach (var u in Model.Units) { <option value="@u.Id" selected="@(Model.UnitId == u.Id)">@u.Name</option> }</select>
+                            @if (Model.Editing?.HasMovements == true) { <input type="hidden" name="UnitId" value="@Model.UnitId" /> }</div>
+                        <div class="col-6 col-md-3"><label class="form-label small" for="typeSelect">Type</label>
+                            <select name="ItemType" id="typeSelect" class="form-select" disabled="@(Model.Editing?.HasMovements == true)">
+                                @foreach (var t in StoreRules.ItemTypes) { <option value="@t" selected="@(Model.ItemType == t)">@t</option> }</select>
+                            @if (Model.Editing?.HasMovements == true) { <input type="hidden" name="ItemType" value="@Model.ItemType" /> }</div>
+                        <div class="col-6 col-md-3"><label class="form-label small" for="minimumStock">Minimum stock</label>
+                            <input type="number" step="any" min="0" name="MinimumStock" id="minimumStock" value="@Model.MinimumStock" class="form-control" /></div>
+                        <div class="col-6 col-md-3"><label class="form-label small" for="location">Shelf / location</label>
+                            <input type="text" name="Location" id="location" value="@Model.Location" class="form-control" maxlength="100" /></div>
+                        <div class="col-12 col-md-6"><label class="form-label small" for="description">Description</label>
+                            <input type="text" name="Description" id="description" value="@Model.Description" class="form-control" maxlength="500" /></div>
+                        <div class="col-12 col-md-4"><label class="form-label small" for="remarks">Remarks</label>
+                            <input type="text" name="Remarks" id="remarks" value="@Model.Remarks" class="form-control" maxlength="500" /></div>
+                        <div class="col-12 col-md-2 form-check mt-4 ps-4">
+                            <input type="checkbox" class="form-check-input" name="IsActive" value="true" id="isActive" checked="@Model.IsActive" /><input type="hidden" name="IsActive" value="false" />
+                            <label class="form-check-label" for="isActive">Active</label></div>
+                    </div>
+                    <div class="small text-muted mt-1">Consumable: used up (cable, pipe, ties). Returnable: comes back or stays assigned (tools, machines) -- never "consumed". Stock is added with a Stock Entry.</div>
+                    <div class="mt-2 d-flex gap-2"><button type="submit" class="btn btn-success" id="saveItemBtn">@(Model.Editing == null ? "Create Item" : "Save Item")</button>
+                        @if (Model.Editing != null) { <a asp-page="/Store/Items" class="btn btn-outline-secondary">Cancel</a> }</div>
+                </form>
+            </div>
+            <div class="col-12 col-lg-4">
+                <form method="post" asp-page-handler="Category" class="card card-body shadow-sm" id="categoryForm">
+                    <h6>New category</h6>
+                    <input type="text" name="NewCategory" id="newCategory" class="form-control" maxlength="100" placeholder="e.g. Electrical" />
+                    <button type="submit" class="btn btn-outline-success mt-2" id="addCategoryBtn">Add Category</button>
+                    <div class="small text-muted mt-2">@string.Join(", ", Model.Categories.Select(c => c.Name))</div>
+                </form>
+            </div>
+        </div>
+    }
+
+    <form method="get" class="row g-2 align-items-end mb-2">
+        <div class="col-6 col-md-3"><select name="categoryFilter" class="form-select" onchange="this.form.submit()"><option value="">All categories</option>
+            @foreach (var c in Model.Categories) { <option value="@c.Id" selected="@(Model.CategoryFilter == c.Id)">@c.Name</option> }</select></div>
+        <div class="col-6 col-md-auto form-check ms-2"><input type="checkbox" class="form-check-input" name="showInactive" value="true" id="showInactive" checked="@Model.ShowInactive" onchange="this.form.submit()" />
+            <label class="form-check-label" for="showInactive">Show inactive</label></div>
+    </form>
+    <div class="table-responsive">
+        <table class="table table-bordered table-striped table-sm align-middle" id="itemTable">
+            <thead class="table-light"><tr><th>Code</th><th>Name</th><th>Category</th><th>Type</th><th>Unit</th><th class="text-end">Available</th><th class="text-end">Minimum</th><th>Location</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var i in Model.Items)
+                {
+                    <tr data-code="@i.ItemCode">
+                        <td class="fw-bold">@i.ItemCode</td><td>@i.Name</td><td>@i.CategoryName</td><td>@i.ItemType</td><td>@i.UnitName</td>
+                        <td class="text-end @(i.IsLow ? "text-danger fw-bold" : "")">@StoreRules.Qty(i.AvailableQuantity)</td><td class="text-end">@StoreRules.Qty(i.MinimumStock)</td>
+                        <td>@(i.Location ?? "—")</td><td>@(i.IsActive ? "Active" : "Inactive")@(i.IsLow ? " · Low" : "")</td>
+                        <td class="text-nowrap">
+                            <a asp-page="/Store/Reports" asp-route-report="ItemHistory" asp-route-itemId="@i.Id" class="btn btn-sm btn-outline-secondary">History</a>
+                            @if (Model.IsManager) { <a asp-page="/Store/Items" asp-route-editId="@i.Id" class="btn btn-sm btn-outline-primary">Edit</a> }
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Items.Any()) { <tr><td colspan="10" class="text-center text-muted">No items.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>

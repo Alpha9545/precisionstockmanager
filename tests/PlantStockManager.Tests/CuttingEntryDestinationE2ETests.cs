@@ -387,9 +387,15 @@ namespace PlantStockManager.Tests
 
             // Cutting Tray Sowing: cuttings that are In-Transit cannot be sown either
             var sowings = env.Get<SeedSowingRepository>();
+            // 2026-10-10 fixture fix: a Cutting Tray Sowing names its destination Polyhouse (2026-10-01) and uses
+            // that Polyhouse's empty trays (2026-10-04): Net House (11), a real Polyhouse of Area A, stocked here.
+            const int polyhouseA = 11;
+            var (tOk, tMsg, _, _) = await env.Get<TrayStockRepository>().AddStockAsync(AreaA, polyhouseA, "24 Cavity", 20, DateTime.UtcNow,
+                Random.Shared.Next(1, int.MaxValue), 21, "e2e-test", "cutting destination test trays", _ => true);
+            Assert.True(tOk, tMsg);
             SeedSowing Sowing(decimal q) => new()
             {
-                SourceCuttingStockId = pool, SeedQuantity = q, CavityType = "24 Cavity", SowingDate = DateTime.Today, AreaId = AreaA,
+                SourceCuttingStockId = pool, SeedQuantity = q, CavityType = "24 Cavity", SowingDate = DateTime.Today, AreaId = AreaA, PolyhouseId = polyhouseA,
                 SupervisorId = SupA, CreatedBy = "e2e-test", CreatedById = 21
             };
             var beyondAvailable = (Math.Floor(afterPot.Available / 24) + 1) * 24;              // more than available, less than physical

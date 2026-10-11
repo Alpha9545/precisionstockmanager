@@ -182,9 +182,13 @@ namespace PlantStockManager.Tests
             Assert.False(env.Get<AreaAccessService>().HasFullAreaAccess(login));
 
             var seen = await SeenByAsync(env, GreenBlessUser);
-            Assert.Equal(new[] { GreenBlessPool }, seen.Index);                 // Cutting Stock > Index
-            Assert.Equal(new[] { GreenBlessPool }, seen.SowingPicker);          // Cutting Tray Sowing "Cutting Stock" picker
-            Assert.Equal(new[] { GreenBlessPool }, seen.PotPicker);             // Pot Batch "Cutting Stock" picker (was: + Main Office pools 160/163/165)
+            // 2026-10-10 fixture fix: the copy's own Green Bless pools (9 by now, not just 166), read from the database
+            var own = await env.PoolsOfAsync(false, GreenBlessArea);
+            Assert.Contains(GreenBlessPool, own);
+            Assert.Equal(own, seen.Index);                                      // Cutting Stock > Index: exactly its own Area's pools
+            Assert.Equal(await env.PoolsOfAsync(true, GreenBlessArea), seen.SowingPicker);   // Cutting Tray Sowing "Cutting Stock" picker
+            Assert.Equal(await env.PoolsOfAsync(true, GreenBlessArea), seen.PotPicker);      // Pot Batch "Cutting Stock" picker (was: + Main Office pools 160/163/165)
+            Assert.Empty(seen.Index.Intersect((await env.AllPoolsAsync(false)).Except(own)));   // no pool of any other Area
             Assert.Equal(new[] { GreenBlessArea }, seen.SendAreas);
             Assert.Equal(new[] { GreenBlessArea }, seen.DeliveryAreas);
             var mainOfficePools = await env.PoolsOfAsync(false, MainOfficeArea);
@@ -233,10 +237,13 @@ namespace PlantStockManager.Tests
         public async Task AreaWithoutPools_AndAreaWithEmptyPools_ShowNoMainOfficeStock()
         {
             var env = await OpenAsync();
-            var noPool = await SeenByAsync(env, 111);      // Samarth Ropvatika: no pool at all
-            Assert.Empty(noPool.Index);
-            Assert.Empty(noPool.SowingPicker);
-            Assert.Empty(noPool.PotPicker);
+            // Samarth Ropvatika (123): had no pool when this was written; since 2026-10-02 it has one, empty.
+            // 2026-10-10 fixture fix: exactly its own pools (none usable while empty), never another Area's.
+            var noPool = await SeenByAsync(env, 111);
+            Assert.Equal(await env.PoolsOfAsync(false, 123), noPool.Index);
+            Assert.Equal(await env.PoolsOfAsync(true, 123), noPool.SowingPicker);
+            Assert.Equal(await env.PoolsOfAsync(true, 123), noPool.PotPicker);
+            Assert.Empty(noPool.Index.Intersect((await env.AllPoolsAsync(false)).Except(await env.PoolsOfAsync(false, 123))));
             var swami = await SeenByAsync(env, 113);       // Shree Swami (Area 1): its own pools only -- never the Main Office pools
             Assert.Equal(await env.PoolsOfAsync(false, 1), swami.Index);
             Assert.Equal(await env.PoolsOfAsync(true, 1), swami.SowingPicker);
@@ -341,11 +348,18 @@ namespace PlantStockManager.Tests
             // Green Bless supervisor sows from Green Bless's own pool (166): 240 of the 500,
             // destination = Green Bless itself (a real growing Area) -- still works exactly as before.
             var vasant = await env.LoginAsync(GreenBlessUser);
+            // 2026-10-10 fixture fix: pool 166 is empty in the copy by now, a Cutting Tray Sowing names its destination
+            // Polyhouse (2026-10-01) and uses that Polyhouse's empty trays (2026-10-04). Scratch copy only.
+            await env.ExecAsync("UPDATE dbo.CuttingStock SET PhysicalQuantity = PhysicalQuantity + 500 WHERE Id = @P", ("@P", GreenBlessPool));
+            const int greenBlessP1 = 14;
+            var (tOk, tMsg, _, _) = await env.Get<TrayStockRepository>().AddStockAsync(GreenBlessArea, greenBlessP1, "24 Cavity", 10, DateTime.UtcNow,
+                Random.Shared.Next(1, int.MaxValue), GreenBlessUser, "e2e", "cutting visibility test trays", _ => true);
+            Assert.True(tOk, tMsg);
             var poolBefore = await env.ScalarAsync<decimal>("SELECT PhysicalQuantity FROM dbo.CuttingStock WHERE Id = @P", ("@P", GreenBlessPool));
             var own = new SeedSowing
             {
                 SourceCuttingStockId = GreenBlessPool, SeedQuantity = 240, CavityType = "24 Cavity", SowingDate = DateTime.Today, AreaId = GreenBlessArea,
-                SupervisorId = GreenBlessUser, CreatedBy = "e2e", CreatedById = GreenBlessUser
+                PolyhouseId = greenBlessP1, SupervisorId = GreenBlessUser, CreatedBy = "e2e", CreatedById = GreenBlessUser
             };
             var (ok, message, _) = await sowingRepo.InsertFromCuttingAsync(own, GreenBlessUser, id => access.CanAccessArea(vasant, id),
                 id => CuttingRules.CanUseAsSource(access.CanAccessArea(vasant, id)));
@@ -390,7 +404,7 @@ namespace PlantStockManager.Tests
                 await env.ExecAsync("DELETE FROM dbo.UserRoles WHERE UserId = @U AND AreaId = 2", ("@U", GreenBlessUser));
             }
             var after = await SeenByAsync(env, GreenBlessUser);
-            Assert.Equal(new[] { GreenBlessPool }, after.Index);
+            Assert.Equal(await env.PoolsOfAsync(false, GreenBlessArea), after.Index);   // back to its own Area only
         }
 
         // ---- historical records: made under the old rule, still valid and untouched ----
@@ -411,17 +425,20 @@ namespace PlantStockManager.Tests
                 Assert.NotNull(await env.Get<SeedSowingRepository>().GetByIdAsync(id));
             Assert.Equal(160, (await env.Get<SeedSowingRepository>().GetByIdAsync(936))!.SourceCuttingStockId);
 
-            // an existing Main Office-sourced sowing is still approvable by its assigned Main Office supervisor
-            var maya = await env.LoginAsync(9);
+            // an existing Main Office-sourced sowing is still approvable by its assigned Main Office supervisor.
+            // 2026-10-10 fixture fix: 936 was really approved on 2026-10-01 (Completed), so the still-open
+            // 653 (Main Office pool 160, 145 trays, supervisor 6) is approved and cancelled again instead.
+            var sowingsOpenBefore = await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings WHERE Id IN (653, 936) AND Status = N'Sown'");
+            var supervisor = await env.LoginAsync(6);
             var access = env.Get<AreaAccessService>();
             var (approved, message, confirmationId) = await env.Get<ReadyConfirmationRepository>().ConfirmAsync(
-                936, 44, null, null, null, "e2e", 9, id => CuttingRules.CanUseAsSource(access.CanAccessArea(maya, id)));
+                653, 145, null, null, null, "e2e", 6, id => CuttingRules.CanUseAsSource(access.CanAccessArea(supervisor, id)));
             Assert.True(approved, message);
-            var (cancelled, cancelMessage) = await env.Get<ReadyConfirmationRepository>().CancelAsync(confirmationId, "e2e", 9);
+            var (cancelled, cancelMessage) = await env.Get<ReadyConfirmationRepository>().CancelAsync(confirmationId, "e2e", 6);
             Assert.True(cancelled, cancelMessage);
 
             Assert.Equal(await env.ScalarAsync<string>("SELECT CONCAT((SELECT CHECKSUM_AGG(CHECKSUM(*)) FROM dbo.PotProductionBatches WHERE Id IN (208, 286, 287, 288)), '/', (SELECT COUNT(*) FROM dbo.SeedSowings WHERE Id IN (653, 936) AND Status = N'Sown'))"),
-                         history.Split('/')[0] + "/2");
+                         history.Split('/')[0] + "/" + sowingsOpenBefore);
         }
     }
 }

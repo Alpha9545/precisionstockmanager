@@ -16,11 +16,36 @@ namespace PlantStockManager.Models
         // the same tray rule, Supervisor Approval and Ready Stock.
         public const string SourceSeed = "Seed";
         public const string SourceCutting = "Cutting";
+        // 2026-10-12: a growing tray batch made by transplanting seedlings out of a Bed Sowing
+        // (BedSowingId). Its seed was taken from the lot when the BED was sown; Sowing Date,
+        // Ready Days and Expected Ready Date are the bed's.
+        public const string SourceBedSowing = "BedSowing";
+        // 2026-10-13: a growing tray batch made by transplanting Ready Stock received in a Mother Plant
+        // Area (dbo.ReadyStockTransplants.OutputSeedSowingId). Ready Date = transplant date + Ready Days.
+        public const string SourceTransplant = "Transplant";
         public string SourceType { get; set; } = SourceSeed;
         public bool IsCuttingSource => SourceType == SourceCutting;
+        public bool IsBedSowingSource => SourceType == SourceBedSowing;
+        public bool IsTransplantSource => SourceType == SourceTransplant;
+        // A tray batch made by a transplant (bed or received stock): no supervisor is assigned.
+        public bool IsTransplantedBatch => IsBedSowingSource || IsTransplantSource;
         // Labels for the pages: "Seeds" / "Cuttings", "seed lot" / "Cutting Stock".
-        public string UnitName => IsCuttingSource ? "Cuttings" : "Seeds";
-        public string SourceLabel => IsCuttingSource ? "Cutting Stock" : "Seed lot";
+        public string UnitName => IsCuttingSource ? "Cuttings" : IsTransplantedBatch ? "Seedlings" : "Seeds";
+        public string SourceLabel => IsCuttingSource ? "Cutting Stock" : IsBedSowingSource ? "Bed Sowing" : IsTransplantSource ? "Transplanted Ready Stock" : "Seed lot";
+        // Origin shown on the approval and sowing pages.
+        public string OriginLabel => IsCuttingSource ? "Cutting Sowing" : IsBedSowingSource ? "Bed Sowing" : IsTransplantSource ? "Transplanted Ready Stock" : "Direct Seed Sowing";
+
+        // Bed lineage (null unless SourceType = BedSowing).
+        public int? BedSowingId { get; set; }
+        public string? BedSowingCode { get; set; }
+        public string? BedTransplantCode { get; set; }
+        public DateTime? BedTransplantDate { get; set; }
+        // Transplant lineage of a SourceType 'Transplant' batch (dbo.ReadyStockTransplants).
+        public int? TransplantId { get; set; }
+        public int? TransplantSourceReadyStockId { get; set; }
+        // The transplant code / date of either kind of transplanted batch.
+        public string? TransplantCode => BedTransplantCode;
+        public DateTime? TransplantDate => BedTransplantDate;
 
         public int SourceSeedStockId { get; set; }          // 0 for a cutting sowing
         public int? SourceCuttingStockId { get; set; }      // cutting sowing only
@@ -113,6 +138,19 @@ namespace PlantStockManager.Models
         // Display-only, populated by a join to the source SeedStock row.
         // Not persisted on this table.
         public decimal? SourceAvailableQuantity { get; set; }
+
+        // Material Stock (2026-10-08): the ONE growing material (Cocopeat / Pitmos)
+        // of a sowing in a Main Office Polyhouse, deducted from that Polyhouse in the
+        // sowing's own transaction; null for sowings elsewhere and for older sowings.
+        public int? GrowingMaterialTypeId { get; set; }
+        public string? GrowingMaterialName { get; set; }
+
+        // The entry form's one-time token (UX_SeedSowings_SubmissionToken): a repeated
+        // submit of the same form finds the first sowing instead of creating a second.
+        public Guid? SubmissionToken { get; set; }
+
+        // Set by the repository when this submit was a repeat of an already-saved form.
+        public bool IsDuplicateSubmission { get; set; }
 
         // Phase 25 (Phase K): running total of quantity already moved
         // into Ready Stock via one or more explicit Ready Confirmations

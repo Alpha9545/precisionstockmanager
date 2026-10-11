@@ -57,6 +57,9 @@ namespace PlantStockManager.Authorization
                 // ---- Dashboard ---------------------------------------------
                 ["/Index"] = R("Dashboard.View"),
                 ["/ManagementDashboard/Index"] = R("Admin.ManageAreas"),   // unchanged: Phase L administrator-only decision
+                // Daily Operations Report: System Administrator (full access) ONLY -- no
+                // permission code grants it, so no ordinary role can ever be given it.
+                ["/ManagementDashboard/DailyOperationsReport"] = FullAccessOnlyRule,
 
                 // ---- Administration ----------------------------------------
                 ["/Admin/Users"] = R("Admin.ManageUsers"),
@@ -82,12 +85,31 @@ namespace PlantStockManager.Authorization
                 ["/Production/SeedSowing/Create"] = R("Sowing.Enter"),
                 ["/Production/SeedSowing/Edit"] = R("Sowing.Enter"),
                 ["/Production/SeedSowing/CreateFromCutting"] = R("Sowing.Enter"),        // Phase D: cutting tray sowing
+                // 2026-10-12 Bed Sowing: recorded like a sowing (Sowing.Enter); transplanting bed
+                // seedlings into trays / bed losses / reversals ONLY with BedSowing.Transplant (the
+                // Bed Sowing Transplanter) -- and BedSowingRepository re-checks that the user holds it
+                // for the bed's Area. Viewing: either.
+                ["/Production/BedSowing/Index"] = R("Sowing.View|" + Services.BedSowingRules.TransplantPermission),
+                ["/Production/BedSowing/Details"] = R("Sowing.View|" + Services.BedSowingRules.TransplantPermission),
+                ["/Production/BedSowing/History"] = R("Sowing.View|" + Services.BedSowingRules.TransplantPermission),
+                ["/Production/BedSowing/Create"] = R("Sowing.Enter"),
+                ["/Production/BedSowing/Transplant"] = R(Services.BedSowingRules.TransplantPermission),
                 ["/Production/ReadyAlerts/Index"] = R("ReadyStock.View|Sowing.View"),
                 ["/Production/ReadyConfirmation/Index"] = R("ReadyStock.View"),
                 ["/Production/ReadyConfirmation/History"] = R("ReadyStock.View", "ReadyStock.Confirm"),
                 ["/Production/ReadyConfirmation/Confirm"] = R("ReadyStock.Confirm"),   // Phase B: Supervisor Approval
                 ["/Production/ReadyStock/Index"] = R("ReadyStock.View"),               // Phase B: approved Ready Stock
                 ["/Production/ReadyStock/Move"] = R("InternalTransfer.Enter|MainOffice.Confirm"),   // Phase D: send trays to Main Office/Outlet
+                // 2026-10-09: Main Area Ready Stock -> Mother Plant Area -> transplanting. Every handler
+                // re-checks its own permission and the Area (SeedlingAreaScope); these are the page gates.
+                ["/Production/ReadyStock/TransferToMotherPlant"] = R("ReadyStock.TransferToMotherPlant"),
+                ["/Production/ReadyStock/Lineage"] = R("ReadyStock.View|Transplant.View"),
+                ["/Production/MotherPlantTransfers/Index"] = R("ReadyStock.TransferToMotherPlant|ReadyStock.ReceiveTransfer",
+                                                               "ReadyStock.TransferToMotherPlant|ReadyStock.ReceiveTransfer"),
+                ["/Production/Transplanting/Index"] = R("Transplant.Enter"),
+                ["/Production/Transplanting/Create"] = R("Transplant.Enter"),
+                ["/Production/Transplanting/History"] = R("Transplant.View"),
+                ["/Production/Transplanting/Details"] = R("Transplant.View", "Transplant.Reverse"),
 
                 // ---- Mother plant / cutting --------------------------------
                 ["/Production/MotherPlant/Index"] = R("MotherPlant.View"),
@@ -115,9 +137,29 @@ namespace PlantStockManager.Authorization
                 // Trays" page no longer exists. Viewing is open to the same
                 // roles as before, and every Tray Stock page is limited to the
                 // user's own Areas (AreaAccessService).
-                ["/Production/TrayStock/Index"] = R("MainOffice.View|Sowing.View|Sowing.Enter|TrayStock.Enter"),
-                ["/Production/TrayStock/Add"] = R("TrayStock.Enter"),
-                ["/Production/TrayStock/Transactions"] = R("MainOffice.View|Sowing.View|Sowing.Enter|TrayStock.Enter"),
+                // 2026-10-08: the Tray Stock pages are now shown inside Material Stock;
+                // these three old URLs only redirect there (same rules as before).
+                ["/Production/TrayStock/Index"] = R(MaterialStockAccess.TrayViewOwnAreas),
+                ["/Production/TrayStock/Add"] = R(MaterialStockAccess.TrayAdd),
+                ["/Production/TrayStock/Transactions"] = R(MaterialStockAccess.TrayViewOwnAreas),
+
+                // ---- Material Stock (2026-10-08): Cocopeat / Pitmos per Main Office
+                // Area + Polyhouse, used by sowings there. The Sowing Supervisor holds
+                // View / Add / History; Manage (adjustments, conversion factors, kg per
+                // tray) is held by no role -- full-access users only. Every page is
+                // limited to the user's own Areas (AreaAccessService).
+                // 2026-10-08 consolidation: Material Stock also shows / adds / reports
+                // Tray Stock. Each page opens for EITHER domain's existing permission
+                // and shows (and accepts) only the domain(s) the user holds -- see
+                // MaterialStockAccess; no permission was widened.
+                ["/Production/MaterialStock/Index"] = R(MaterialStockAccess.MaterialView + "|" + MaterialStockAccess.TrayView),
+                ["/Production/MaterialStock/Add"] = R(MaterialStockAccess.MaterialAdd + "|" + MaterialStockAccess.TrayAddAny),
+                ["/Production/MaterialStock/History"] = R(MaterialStockAccess.MaterialHistory + "|" + MaterialStockAccess.TrayView),
+                ["/Production/MaterialStock/Settings"] = R("MaterialStock.Manage"),
+                // 2026-10-10: empty-tray corrections and transfers (2026-10-10_TrayTransfers.sql).
+                // Area rules are checked again on every POST and inside the repositories.
+                ["/Production/MaterialStock/TrayAdjust"] = R(MaterialStockAccess.TrayAdjust),
+                ["/Production/MaterialStock/TrayTransfers"] = R(MaterialStockAccess.TrayTransfersAny),
 
                 // ---- Pot production (Phase D) ------------------------------
                 ["/Production/PotBatch/Index"] = R("PotProduction.View|MotherPlant.View|Kiran.View"),
@@ -179,6 +221,44 @@ namespace PlantStockManager.Authorization
                 ["/Production/LabRequest/Create"] = R("Lab.Enter"),
                 ["/Production/LabRequest/Result"] = R("Lab.Enter"),
                 // Daily Labour Count: headcounts only; Area scope via AreaAccessService.
+                // Since 2026-10-06 entered as 9:00 AM / 2:00 PM attendance; the manual
+                // Full/Half Day pages remain for the older records (correction: full access only, in the page).
+                ["/Production/Labour/Attendance"] = R("Labour.Enter"),
+                ["/Production/Labour/AttendanceHistory"] = R("Labour.View"),
+                // Overtime (2026-10-06): same permissions and Area scope as Daily Attendance.
+                ["/Production/Labour/Overtime"] = R("Labour.Enter"),
+                ["/Production/Labour/OvertimeHistory"] = R("Labour.View"),
+                ["/Production/Labour/OvertimeDetails"] = R("Labour.View"),
+                // ---- Maintenance tickets (2026-10-06) ---------------------------
+                // Who may see a ticket / take each workflow step is decided per ticket by
+                // MaintenanceAuthorization (Area scope, worker trade, assigned worker).
+                ["/Maintenance/Raise"] = R("Maintenance.Raise"),
+                ["/Maintenance/MyTickets"] = R("Maintenance.View|Maintenance.Raise"),
+                ["/Maintenance/Assigned"] = R("Maintenance.Work"),
+                ["/Maintenance/Details"] = R("Maintenance.View|Maintenance.Raise|Maintenance.Work|Maintenance.Manage"),
+                ["/Maintenance/Reports"] = R("Maintenance.View|Maintenance.Manage"),
+                // ---- Inventory Store (2026-10-06) -------------------------------
+                // Area scope and each workflow step are decided by StoreAuthorization
+                // (Store.Manage = the central store: every Area, inside the Store module only).
+                ["/Store/Index"] = R("Store.View|Store.Request|Store.Manage"),
+                ["/Store/Items"] = R("Store.View|Store.Request|Store.Manage", "Store.Manage"),
+                ["/Store/StockEntry"] = R("Store.Manage"),
+                ["/Store/Requests"] = R("Store.View|Store.Request|Store.Manage"),
+                ["/Store/NewRequest"] = R("Store.Request"),
+                ["/Store/RequestDetails"] = R("Store.View|Store.Request|Store.Manage"),
+                ["/Store/Issue"] = R("Store.Manage"),
+                ["/Store/Returns"] = R("Store.View|Store.Request|Store.Manage"),
+                ["/Store/Transfers"] = R("Store.View|Store.Manage", "Store.Manage"),
+                ["/Store/Reports"] = R("Store.View|Store.Manage"),
+                // ---- Suggestions & Problems (2026-10-07) ------------------------
+                // A GLOBAL module: every signed-in user may view, post, comment and reply
+                // (SuggestionAuthorization.GlobalPermissions -- no Area restriction for THIS module
+                // only). Lifetime and every action are decided by SuggestionAuthorization;
+                // Suggestion.Manage (administrator) is still required for permanent / status /
+                // delete / moderation, checked in the page handlers.
+                ["/Suggestions/Index"] = R(AuthenticatedOnly),
+                ["/Suggestions/Create"] = R(AuthenticatedOnly),
+                ["/Suggestions/Details"] = R(AuthenticatedOnly),
                 ["/Production/Labour/Index"] = R("Labour.View"),
                 ["/Production/Labour/Entry"] = R("Labour.Enter"),
 

@@ -35,6 +35,7 @@ namespace PlantStockManager.Tests
 
         // real rows of the copy: Mother Plant 114 (Area 1, species 3144) and its Area 1 users
         private const int MpA = 114, SupA = 115, AreaA = 1;   // SupA = an active Area 1 user who may approve sowings
+        private const int PolyhouseA = 11;                     // Net House, a real Polyhouse of Area 1 (the sowing destination)
         private const int SupB = 101, AreaB = 122;             // an Area 122 user (another Area)
         private const int Recorder = 21;                       // records sowings; NOT the assigned supervisor
         private const int Cavity = 24;
@@ -146,6 +147,18 @@ UPDATE dbo.CuttingStock SET InTransitQuantity = @T WHERE SpeciesId = @S AND Area
             var species = await env.ScalarAsync<int>("SELECT SpeciesId FROM dbo.MotherPlants WHERE Id = @M", ("@M", MpA));
             // test setup on the scratch copy only: this species has no growing days configured in the data
             await env.ExecAsync("UPDATE dbo.PlantSpecies SET ReadyStockDays = 60 WHERE Id = @S AND ReadyStockDays IS NULL", ("@S", species));
+            // 2026-10-10 fixture fix: since 2026-10-01 every Cutting Tray Sowing names its destination
+            // Polyhouse, and since 2026-10-04 it uses empty trays of that Polyhouse (and any approval
+            // overage takes more). Sow into a real Area A Polyhouse with trays in stock -- Area A is a
+            // Mother Plant Area, so no Cocopeat / Pitmos is involved. Tray balances are not asserted here.
+            var trays = await env.ScalarAsync<decimal>("SELECT ISNULL(SUM(PhysicalQuantity), 0) FROM dbo.TrayStock WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = @C",
+                ("@A", AreaA), ("@P", PolyhouseA), ("@C", $"{Cavity} Cavity"));
+            if (trays < 2000)
+            {
+                var (tOk, tMsg, _, _) = await env.Get<TrayStockRepository>().AddStockAsync(AreaA, PolyhouseA, $"{Cavity} Cavity", 5000, DateTime.UtcNow,
+                    Random.Shared.Next(1, int.MaxValue), Recorder, "e2e-test", "cutting overage test trays", _ => true);
+                Assert.True(tOk, tMsg);
+            }
             return new Env { ConnectionString = cs!, Provider = provider, Species = species };
         }
 
@@ -154,7 +167,7 @@ UPDATE dbo.CuttingStock SET InTransitQuantity = @T WHERE SpeciesId = @S AND Area
         {
             var sowing = new SeedSowing
             {
-                SourceCuttingStockId = pool, SeedQuantity = cuttings, CavityType = $"{Cavity} Cavity", SowingDate = DateTime.Today, AreaId = AreaA,
+                SourceCuttingStockId = pool, SeedQuantity = cuttings, CavityType = $"{Cavity} Cavity", SowingDate = DateTime.Today, AreaId = AreaA, PolyhouseId = PolyhouseA,
                 SupervisorId = supervisor, CreatedBy = "e2e-test", CreatedById = recordedBy
             };
             var (ok, message, id) = await env.Get<SeedSowingRepository>().InsertFromCuttingAsync(sowing, recordedBy, _ => true, _ => true);
@@ -492,7 +505,7 @@ UPDATE dbo.CuttingStock SET InTransitQuantity = @T WHERE SpeciesId = @S AND Area
             {
                 var sowing = new SeedSowing
                 {
-                    SourceCuttingStockId = pool, SeedQuantity = 480, CavityType = "24 Cavity", SowingDate = DateTime.Today, AreaId = AreaA,
+                    SourceCuttingStockId = pool, SeedQuantity = 480, CavityType = "24 Cavity", SowingDate = DateTime.Today, AreaId = AreaA, PolyhouseId = PolyhouseA,
                     SupervisorId = SupA, CreatedBy = "e2e-test", CreatedById = Recorder
                 };
                 var (ok, message, _) = await env.Get<SeedSowingRepository>().InsertFromCuttingAsync(sowing, Recorder, _ => true, _ => true);
@@ -547,12 +560,18 @@ UPDATE dbo.CuttingStock SET InTransitQuantity = @T WHERE SpeciesId = @S AND Area
         {
             var env = await OpenAsync();
             var history = await env.HistoryAsync();
+            // 2026-10-10 fixture fix: every cutting sowing that existed before this test (open or closed) is
+            // snapshotted and compared afterwards -- the old check hard-coded sowings 653 and 936 as "open",
+            // but 936 was approved in the real data on 2026-10-01.
+            var lastBefore = await env.ScalarAsync<int>("SELECT ISNULL(MAX(Id), 0) FROM dbo.SeedSowings");
+            const string ExistingSowings = "SELECT CONCAT(COUNT(*), ':', SUM(CASE WHEN Status = N'Sown' THEN 1 ELSE 0 END), ':', CHECKSUM_AGG(CHECKSUM(*))) FROM dbo.SeedSowings WHERE SourceCuttingStockId IS NOT NULL AND Id <= @Last";
+            var existingBefore = await env.ScalarAsync<string>(ExistingSowings, ("@Last", lastBefore));
             var pool = await env.ResetPoolAsync(AreaA, 3000, 0);
             var sowingId = await SowAsync(env, pool, 480);
             Assert.True((await ApproveAsync(env, sowingId, 30)).Success);
-            // 653 and 936 (open cutting sowings recorded before this correction) and every historical approval: unchanged
-            var open = await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings WHERE Id IN (653, 936) AND Status = N'Sown' AND ConfirmedReadyQuantity = 0 AND WastageQuantity = 0");
-            Assert.Equal(2, open);
+            Assert.True(sowingId > lastBefore);
+            // every earlier cutting sowing and every historical approval: unchanged
+            Assert.Equal(existingBefore, await env.ScalarAsync<string>(ExistingSowings, ("@Last", lastBefore)));
             Assert.Equal(await env.ScalarAsync<string>("SELECT CONCAT((SELECT CHECKSUM_AGG(CHECKSUM(*)) FROM dbo.ReadyConfirmations WHERE Id <= 393), '')"),
                          history.Split('/')[0]);
         }

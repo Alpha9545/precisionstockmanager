@@ -118,13 +118,16 @@ WHERE b.Id = @Id", conn, tx);
         {
             public int Id; public int ReadyStockId; public int? BookedSpeciesId; public int ActualSpeciesId;
             public bool IsSubstitution; public string? SubstitutionReason; public decimal Open; public int AreaId;
+            public DateTime? LastReservedUtc;   // latest 'Reservation' ledger row of this allocation (2026-10-10)
         }
 
         private static async Task<Dictionary<int, LockedAllocation>> LockActiveAllocationsAsync(SqlConnection conn, SqlTransaction tx, int bookingId)
         {
             var cmd = new SqlCommand(@"
 SELECT a.Id, a.ReadyStockId, a.BookedSpeciesId, a.ActualSpeciesId, a.IsSubstitution, a.SubstitutionReason,
-       a.Quantity - a.DispatchedQuantity - a.ReleasedQuantity, rs.AreaId
+       a.Quantity - a.DispatchedQuantity - a.ReleasedQuantity, rs.AreaId,
+       (SELECT MAX(t.TransactionDate) FROM dbo.ReadyStockTransactions t
+        WHERE t.ReferenceType = 'BookingBatchAllocation' AND t.ReferenceId = a.Id AND t.TransactionType = 'Reservation')
 FROM dbo.BookingBatchAllocations a WITH (UPDLOCK, HOLDLOCK)
 INNER JOIN dbo.ReadyStock rs ON rs.Id = a.ReadyStockId
 WHERE a.BookingId = @B AND a.Status = 'Active'
@@ -138,7 +141,7 @@ ORDER BY a.Id", conn, tx);
                 {
                     Id = r.GetInt32(0), ReadyStockId = r.GetInt32(1), BookedSpeciesId = r.IsDBNull(2) ? null : r.GetInt32(2),
                     ActualSpeciesId = r.GetInt32(3), IsSubstitution = r.GetBoolean(4), SubstitutionReason = r.IsDBNull(5) ? null : r.GetString(5),
-                    Open = r.GetDecimal(6), AreaId = r.GetInt32(7)
+                    Open = r.GetDecimal(6), AreaId = r.GetInt32(7), LastReservedUtc = r.IsDBNull(8) ? null : r.GetDateTime(8)
                 };
                 result[a.Id] = a;
             }
@@ -268,7 +271,7 @@ WHERE Id = @Id", conn, tx);
 
                 // Lock every batch of the booked variety (key-range lock).
                 var batchCmd = new SqlCommand(@"
-SELECT rs.Id, rs.SpeciesId, rs.SowingDate, rs.FirstConfirmationDate, rs.Quantity, rs.ReservedQuantity, rs.DispatchedQuantity
+SELECT rs.Id, rs.SpeciesId, rs.SowingDate, rs.FirstConfirmationDate, rs.Quantity, rs.ReservedQuantity, rs.DispatchedQuantity, rs.InTransitQuantity
 FROM dbo.ReadyStock rs WITH (UPDLOCK, HOLDLOCK)
 WHERE rs.SpeciesId = @S
 ORDER BY rs.Id", conn, tx);
@@ -278,12 +281,12 @@ ORDER BY rs.Id", conn, tx);
                 {
                     while (await r.ReadAsync())
                     {
-                        var q = r.GetDecimal(4); var res = r.GetDecimal(5); var dis = r.GetDecimal(6);
+                        var q = r.GetDecimal(4); var res = r.GetDecimal(5); var dis = r.GetDecimal(6); var transit = r.GetDecimal(7);
                         batches.Add(new ReadyBatchOption
                         {
                             ReadyStockId = r.GetInt32(0), SpeciesId = r.GetInt32(1), SowingDate = r.GetDateTime(2),
                             FirstConfirmationDate = r.IsDBNull(3) ? null : r.GetDateTime(3),
-                            Quantity = q, ReservedQuantity = res, DispatchedQuantity = dis, AvailableQuantity = q - res - dis
+                            Quantity = q, ReservedQuantity = res, DispatchedQuantity = dis, AvailableQuantity = q - res - dis - transit
                         });
                     }
                 }
@@ -322,7 +325,7 @@ ORDER BY rs.Id", conn, tx);
                     return (false, $"Only {QuantityFormat.Qty(b.Unreserved)} plants of this booking are not yet reserved. Release a reservation first to replace it.");
 
                 var batchCmd = new SqlCommand(@"
-SELECT rs.SpeciesId, ps.PlantTypeId, rs.AreaId, rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity
+SELECT rs.SpeciesId, ps.PlantTypeId, rs.AreaId, rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity
 FROM dbo.ReadyStock rs WITH (UPDLOCK, HOLDLOCK)
 INNER JOIN dbo.PlantSpecies ps ON ps.Id = rs.SpeciesId
 WHERE rs.Id = @R", conn, tx);
@@ -627,6 +630,7 @@ VALUES (@BookingId, 'Booking', @Quantity, GETDATE(), @UpdatedBy, GETDATE());", c
                 if (requested.Count == 0) return (false, "Enter a dispatch quantity for at least one batch.");
                 if (requested.Select(l => l.AllocationId).Distinct().Count() != requested.Count) return (false, "Each batch line can only appear once.");
                 if (dispatchDate == default) return (false, "Dispatch date is required.");
+                if (dispatchDate.Date > AppClock.Today) return (false, "The dispatch date cannot be in the future.");
 
                 var b = await LockBookingAsync(conn, tx, bookingId);
                 if (b == null) return (false, "Booking not found.");
@@ -665,8 +669,11 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                 foreach (var (allocationId, qty) in requested.OrderBy(l => active[l.AllocationId].ReadyStockId))
                 {
                     var line = active[allocationId];
+                    // The movement is dated on the dispatch date (business date); the reservation it
+                    // releases is dated no earlier than when it was made (LedgerDates.ReleaseInstant).
                     var (ok, msg) = await _readyStockRepo.RecordDispatchAsync(conn, tx, line.ReadyStockId, qty,
-                        "SeedlingDispatch", dispatchId, actor.UserId, $"{code} booking {b.Id}");
+                        "SeedlingDispatch", dispatchId, actor.UserId, $"{code} booking {b.Id}", "Dispatch",
+                        dispatchDate.Date, line.LastReservedUtc);
                     if (!ok) return (false, msg);
 
                     var ins = new SqlCommand(@"
@@ -1032,7 +1039,7 @@ ORDER BY d.DispatchDate DESC, d.Id DESC, l.Id", conn);
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
             var cmd = new SqlCommand(@"
-SELECT rs.SpeciesId, ISNULL(SUM(rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity), 0)
+SELECT rs.SpeciesId, ISNULL(SUM(rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity), 0)
 FROM dbo.ReadyStock rs
 WHERE rs.SpeciesId IN (SELECT TRY_CAST(value AS INT) FROM STRING_SPLIT(@Ids, ','))
 GROUP BY rs.SpeciesId", conn);
@@ -1047,8 +1054,8 @@ GROUP BY rs.SpeciesId", conn);
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
             var cmd = new SqlCommand(@"
-SELECT COUNT(*), ISNULL(SUM(Quantity), 0), ISNULL(SUM(Quantity - DispatchedQuantity), 0), ISNULL(SUM(ReservedQuantity), 0),
-       ISNULL(SUM(DispatchedQuantity), 0), ISNULL(SUM(Quantity - ReservedQuantity - DispatchedQuantity), 0)
+SELECT COUNT(*), ISNULL(SUM(Quantity), 0), ISNULL(SUM(Quantity - DispatchedQuantity - InTransitQuantity), 0), ISNULL(SUM(ReservedQuantity), 0),
+       ISNULL(SUM(DispatchedQuantity), 0), ISNULL(SUM(Quantity - ReservedQuantity - DispatchedQuantity - InTransitQuantity), 0)
 FROM dbo.ReadyStock WHERE SpeciesId = @S", conn);
             cmd.Parameters.AddWithValue("@S", speciesId);
             using var r = await cmd.ExecuteReaderAsync();
@@ -1068,27 +1075,27 @@ FROM dbo.ReadyStock WHERE SpeciesId = @S", conn);
             await conn.OpenAsync();
             var cmd = new SqlCommand(@"
 SELECT rs.Id, rs.SpeciesId, ps.Name, ps.PlantTypeId, sw.SowingCode, rs.SowingDate, rs.FirstConfirmationDate, rs.CavityType,
-       rs.AreaId, ar.Name, COALESCE(rph.Name, sph.Name), rs.Quantity, rs.ReservedQuantity, rs.DispatchedQuantity
+       rs.AreaId, ar.Name, COALESCE(rph.Name, sph.Name), rs.Quantity, rs.ReservedQuantity, rs.DispatchedQuantity, rs.InTransitQuantity
 FROM dbo.ReadyStock rs
 INNER JOIN dbo.PlantSpecies ps ON ps.Id = rs.SpeciesId
 INNER JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
 INNER JOIN dbo.Area ar ON ar.Id = rs.AreaId
 LEFT JOIN dbo.Polyhouses rph ON rph.Id = rs.PolyhouseId
 LEFT JOIN dbo.Polyhouses sph ON sph.Id = sw.PolyhouseId
-WHERE ps.PlantTypeId = @P AND rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity > 0
+WHERE ps.PlantTypeId = @P AND rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity > 0
 ORDER BY rs.SowingDate, rs.FirstConfirmationDate, rs.Id", conn);
             cmd.Parameters.AddWithValue("@P", plantTypeId);
             var list = new List<ReadyBatchOption>();
             using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
             {
-                var q = r.GetDecimal(11); var res = r.GetDecimal(12); var dis = r.GetDecimal(13);
+                var q = r.GetDecimal(11); var res = r.GetDecimal(12); var dis = r.GetDecimal(13); var transit = r.GetDecimal(14);
                 list.Add(new ReadyBatchOption
                 {
                     ReadyStockId = r.GetInt32(0), SpeciesId = r.GetInt32(1), SpeciesName = r.GetString(2).Trim(), PlantTypeId = r.GetInt32(3),
                     BatchCode = r.GetString(4), SowingDate = r.GetDateTime(5), FirstConfirmationDate = r.IsDBNull(6) ? null : r.GetDateTime(6),
                     CavityType = r.GetString(7), AreaId = r.GetInt32(8), AreaName = r.GetString(9), PolyhouseName = r.IsDBNull(10) ? null : r.GetString(10),
-                    Quantity = q, ReservedQuantity = res, DispatchedQuantity = dis, AvailableQuantity = q - res - dis
+                    Quantity = q, ReservedQuantity = res, DispatchedQuantity = dis, AvailableQuantity = q - res - dis - transit
                 });
             }
             return list;
@@ -1114,7 +1121,7 @@ INNER JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
 INNER JOIN dbo.Area ar ON ar.Id = rs.AreaId
 LEFT JOIN dbo.Polyhouses rph ON rph.Id = rs.PolyhouseId
 LEFT JOIN dbo.Polyhouses sph ON sph.Id = sw.PolyhouseId
-WHERE ps.PlantTypeId = @P AND rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity > 0
+WHERE ps.PlantTypeId = @P AND rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity > 0
   AND (@Allowed IS NULL OR rs.AreaId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Allowed, ',')))";
 
         public async Task<BatchSearchResult> SearchBatchOptionsAsync(int plantTypeId, int? bookedSpeciesId, BatchSearch filter, IReadOnlyCollection<int>? allowedAreaIds)
@@ -1130,7 +1137,7 @@ WHERE ps.PlantTypeId = @P AND rs.Quantity - rs.ReservedQuantity - rs.DispatchedQ
             var cmd = new SqlCommand(@"
 SELECT rs.Id, rs.SpeciesId, ps.Name, ps.PlantTypeId, sw.SowingCode, sw.SowingDate, rs.FirstConfirmationDate, rs.CavityType,
        rs.AreaId, ar.Name, COALESCE(rph.Name, sph.Name), rs.Quantity, rs.ReservedQuantity, rs.DispatchedQuantity, sw.Id,
-       COUNT(*) OVER () AS TotalRows" + BatchSearchFrom + @"
+       COUNT(*) OVER () AS TotalRows, rs.InTransitQuantity" + BatchSearchFrom + @"
   AND (@Date IS NULL OR CAST(sw.SowingDate AS date) = @Date)
   AND (@AreaId IS NULL OR rs.AreaId = @AreaId)
   AND (@PolyhouseId IS NULL OR COALESCE(rs.PolyhouseId, sw.PolyhouseId) = @PolyhouseId)
@@ -1160,13 +1167,13 @@ OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY", conn);
             using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
             {
-                var q = r.GetDecimal(11); var res = r.GetDecimal(12); var dis = r.GetDecimal(13);
+                var q = r.GetDecimal(11); var res = r.GetDecimal(12); var dis = r.GetDecimal(13); var transit = r.GetDecimal(16);
                 result.Rows.Add(new ReadyBatchOption
                 {
                     ReadyStockId = r.GetInt32(0), SpeciesId = r.GetInt32(1), SpeciesName = r.GetString(2).Trim(), PlantTypeId = r.GetInt32(3),
                     BatchCode = r.GetString(4), SowingDate = r.GetDateTime(5), FirstConfirmationDate = r.IsDBNull(6) ? null : r.GetDateTime(6),
                     CavityType = r.GetString(7), AreaId = r.GetInt32(8), AreaName = r.GetString(9), PolyhouseName = r.IsDBNull(10) ? null : r.GetString(10),
-                    Quantity = q, ReservedQuantity = res, DispatchedQuantity = dis, AvailableQuantity = q - res - dis,
+                    Quantity = q, ReservedQuantity = res, DispatchedQuantity = dis, AvailableQuantity = q - res - dis - transit,
                     SeedSowingId = r.GetInt32(14)
                 });
                 result.Total = r.GetInt32(15);

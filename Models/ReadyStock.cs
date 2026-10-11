@@ -48,17 +48,46 @@ namespace PlantStockManager.Models
         public string? SpeciesName { get; set; }
         public string? PlantTypeName { get; set; }
         public string? AreaName { get; set; }
+        public string? AreaType { get; set; }   // 'MainOffice' = a Main Area, 'MotherPlant', 'Outlet', ...
+        public bool InMainArea => AreaType == "MainOffice";
+        public bool InMotherPlantArea => AreaType == "MotherPlant";
 
         // Phase C: Quantity keeps its Phase B meaning (supervisor-approved Ready
         // quantity). Reservations and dispatches are tracked separately so the
         // approved history of the batch is never overwritten.
         public decimal ReservedQuantity { get; set; }
         public decimal DispatchedQuantity { get; set; }
-        public decimal PhysicalQuantity => Quantity - DispatchedQuantity;
-        public decimal AvailableQuantity => Quantity - ReservedQuantity - DispatchedQuantity;
+        // 2026-10-09: plants sent to a Mother Plant Area and not yet received there --
+        // still part of Quantity, but neither physically here nor available.
+        public decimal InTransitQuantity { get; set; }
+        public decimal PhysicalQuantity => Quantity - DispatchedQuantity - InTransitQuantity;
+        public decimal AvailableQuantity => Quantity - ReservedQuantity - DispatchedQuantity - InTransitQuantity;
 
-        // Tray relationship, inherited from the sowing (CavityType is the
-        // sowing's; FK_ReadyStock_SowingCavity keeps both equal).
+        // 2026-10-09 lineage (Database/Migrations/2026-10-09_ReadyStockTransplanting.sql):
+        //   'Sowing'     the batch of a sowing (one per sowing; every batch before this date)
+        //   'Transfer'   received in a Mother Plant Area from ParentReadyStockId (OriginReferenceId = InternalTransfers.Id)
+        //   'Transplant' output of a transplanting of ParentReadyStockId (OriginReferenceId = ReadyStockTransplants.Id)
+        // SeedSowingId / BatchNo / SowingDate always stay those of the ORIGINAL sowing.
+        public string OriginType { get; set; } = OriginSowing;
+        public int? ParentReadyStockId { get; set; }
+        public int? OriginReferenceId { get; set; }
+        public const string OriginSowing = "Sowing";
+        public const string OriginTransfer = "Transfer";
+        public const string OriginTransplant = "Transplant";
+        public bool IsSowingBatch => OriginType == OriginSowing;
+        public string OriginLabel => OriginType switch
+        {
+            OriginTransfer => "Received from Main Area",
+            OriginTransplant => "Transplanted",
+            _ => "Sowing"
+        };
+        // Physical trays of this batch: CEILING(plants / cavity) -- a received or transplanted
+        // batch may end in a partial tray; a sowing batch is always whole trays.
+        public decimal? PhysicalTrays => CavitySize is > 0 ? Math.Ceiling(PhysicalQuantity / CavitySize.Value) : null;
+
+        // Tray relationship. CavityType is this batch's own cavity: the sowing's for
+        // 'Sowing'/'Transfer' batches (FK_ReadyStock_SowingCavity), the target cavity
+        // for a 'Transplant' output.
         public int? CavitySize => PlantStockManager.Services.DirectSowingRules.CavityCount(CavityType);
         public int? SowingTrays { get; set; }
         // Actual Ready Trays from the tray-based approval (NULL for Ready Stock
@@ -68,6 +97,7 @@ namespace PlantStockManager.Models
         public string Status =>
             Quantity <= 0 ? "Empty"
             : DispatchedQuantity >= Quantity ? "Fully dispatched"
+            : InTransitQuantity > 0 && AvailableQuantity <= 0 ? "In transit"
             : AvailableQuantity <= 0 ? "Fully reserved"
             : ReservedQuantity > 0 || DispatchedQuantity > 0 ? "Partly reserved/dispatched"
             : "Available";

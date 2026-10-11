@@ -8,14 +8,15 @@ using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Production.Labour
 {
-    // Daily Labour Entry (Labour.Enter): one HEADCOUNT record per location and
-    // date -- Main Office Areas per Polyhouse, every other Area Area-wise
-    // (DailyLabourRules); Outlet is not part of Daily Labour. A new entry for a
-    // location/date that already has a
-    // record is never saved twice: the existing record is opened for editing
-    // instead. Editing (?id=) changes only the four counts and the remark; the record's date
-    // and location are its identity. Area access is AreaAccessService's regular
-    // rule, checked on every GET and POST -- posted ids are never trusted.
+    // Manual Daily Labour record (dbo.DailyLabourCounts) -- RETIRED for new
+    // records on 2026-10-06: Daily Labour is now entered as 9:00 AM / 2:00 PM
+    // attendance (Production/Labour/Attendance), so a request to create a new
+    // manual record (GET or POST without ?id=) is sent there and saves nothing.
+    // The older manual records stay readable (Attendance History, Labour Records)
+    // and only a full-access user (System Administrator) can still correct one
+    // (?id=): the four counts and the remark; the record's date and location are
+    // its identity. Area access is AreaAccessService's regular rule, checked on
+    // every GET and POST -- posted ids are never trusted.
     public class EntryModel : PageModel
     {
         private static readonly (string Key, string Label)[] CountFields =
@@ -58,22 +59,22 @@ namespace PlantStockManager.Pages.Production.Labour
 
         public async Task<IActionResult> OnGetAsync(bool loaded = false)
         {
-            if (Id.HasValue)
-            {
-                var load = await LoadExistingAsync(Id.Value);
-                if (load != null)
-                    return load;
-                if (loaded)
-                    ViewData["Info"] = DailyLabourRules.AlreadyExistsMessage;
-                return Page();
-            }
+            if (!Id.HasValue)
+                return RetiredForNewRecords();
 
-            LabourDate = Today;
-            await LoadAreasAsync();
-            if (Areas.Count == 1)
-                AreaId = Areas[0].Id;
-            Polyhouses = await PolyhousesForAsync(AreaId);
+            var load = await LoadExistingAsync(Id.Value);
+            if (load != null)
+                return load;
+            if (loaded)
+                ViewData["Info"] = DailyLabourRules.AlreadyExistsMessage;
             return Page();
+        }
+
+        // New manual records are no longer created: Daily Attendance replaces them.
+        private IActionResult RetiredForNewRecords()
+        {
+            TempData["Success"] = DailyLabourRules.ManualEntryRetiredMessage;
+            return RedirectToPage("/Production/Labour/Attendance");
         }
 
         // Dependent dropdown: the Polyhouses of a Main Office Area the user may
@@ -97,50 +98,7 @@ namespace PlantStockManager.Pages.Production.Labour
 
             if (Id.HasValue)
                 return await SaveEditAsync(Id.Value);
-
-            await LoadAreasAsync();
-            Polyhouses = await PolyhousesForAsync(AreaId);
-
-            var dateError = DailyLabourRules.ValidateDate(LabourDate, Today);
-            if (dateError != null)
-                ModelState.AddModelError(nameof(LabourDate), dateError);
-
-            // Location: re-loaded from the database, never taken from the form.
-            var area = AreaId > 0 ? await _areaRepo.GetAreaById(AreaId.Value) : null;
-            var polyhouse = PolyhouseId > 0 ? await _polyhouseRepo.GetByIdAsync(PolyhouseId.Value) : null;
-            var authorized = area != null && _areaAccess.CanAccessRequiredArea(User, area.Id);
-            var locationError = DailyLabourRules.ValidateLocation(area, authorized, PolyhouseId, polyhouse);
-            if (locationError != null)
-                ModelState.AddModelError(locationError.Value.Field, locationError.Value.Message);
-
-            ValidateCounts();
-            ValidateRemarks();
-            if (!ModelState.IsValid)
-                return Page();
-
-            var entry = BuildCounts();
-            entry.LabourDate = LabourDate!.Value.Date;
-            entry.AreaId = area!.Id;
-            entry.PolyhouseId = DailyLabourRules.RequiresPolyhouse(area.AreaType) ? polyhouse!.Id : null;
-
-            DailyLabourCountRepository.CreateOutcome outcome;
-            int id;
-            try
-            {
-                (outcome, id) = await _labourRepo.CreateAsync(entry, User.GetUserId());
-            }
-            catch (SqlException ex) when (ex.Number is >= 51711 and <= 51714)
-            {
-                ModelState.AddModelError(string.Empty, ex.Message);
-                return Page();
-            }
-
-            if (outcome == DailyLabourCountRepository.CreateOutcome.AlreadyExists)
-                return RedirectToPage(new { id, loaded = true });
-
-            TempData["Success"] = $"Labour saved for {Describe(entry.LabourDate, area.Name, polyhouse?.Name, entry.PolyhouseId)}: "
-                + $"{entry.TotalWorkers} workers, {entry.LabourDays:0.#} labour days.";
-            return RedirectToPage("/Production/Labour/Index");
+            return RetiredForNewRecords();
         }
 
         private async Task<IActionResult> SaveEditAsync(int id)
@@ -167,6 +125,9 @@ namespace PlantStockManager.Pages.Production.Labour
         // never the posted ones). Returns a result when the page must not be shown.
         private async Task<IActionResult?> LoadExistingAsync(int id)
         {
+            // Correcting a retired manual record is an administrator action.
+            if (!User.IsFullAccess())
+                return Forbid();
             Existing = await _labourRepo.GetByIdAsync(id);
             if (Existing == null)
                 return NotFound();

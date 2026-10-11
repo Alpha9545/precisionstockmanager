@@ -1,87 +1,88 @@
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.ManagementDashboard
 {
     // Phase 26 (Phase L): Management Dashboard. A read-only reporting
     // layer over the existing authoritative tables -- see
     // Data/ManagementDashboardRepository.cs for the full per-section
-    // query design and PROJECT_DOCUMENTATION.md Decision 23 for the
+    // query design, docs/MANAGEMENT_DASHBOARD.md for every KPI definition
+    // and PROJECT_DOCUMENTATION.md Decision 23 for the original
     // KPI-to-source mapping. Nothing on this page writes anything.
     //
     // AUTHORIZATION (per the Phase L addendum -- Administrator-only,
     // NOT the normal "Management" role, despite the page's own name):
-    // [Authorize(Policy = "Admin.ManageAreas")] below is the actual,
-    // server-side gate. This mirrors the exact, already-proven Phase 14
-    // precedent (Pages/Admin/Roles.cshtml.cs uses "Admin.ManageRoles",
-    // Pages/Admin/UserRoles.cshtml.cs uses "Admin.ManageUsers") rather
-    // than the standard [Authorize(Roles = "Admin")] attribute, because
-    // Pages/Account/Login.cshtml.cs stamps ASP.NET Core's own
-    // ClaimTypes.Role with the LEGACY dbo.Designation/DesignationName
-    // value, not the new Phase-14 Role system's role name -- an
-    // [Authorize(Roles = "Admin")] check here would silently test the
-    // wrong claim. The new Role system's role name lives only in the
-    // custom "RoleName" claim (AreaAccessService.RoleNameClaimType),
-    // which the Permission-code system deliberately does not check --
-    // "Admin.ManageAreas" is instead satisfied by a "Permission" claim
-    // of that exact value (PermissionAuthorizationPolicyProvider), and
-    // per Database/Phase14_RoleFoundation_AreaExtension.sql section 3c,
-    // dbo.RolePermissions grants EVERY permission code -- including
-    // all three "Admin.*" codes -- to the Admin role alone via an
-    // unconditional cross-join, while every other seeded role (including
-    // Management) only ever receives "*.View"-suffixed codes (section
-    // 3d) or a short explicit list (section 3e), NEVER an "Admin.*"
-    // code. So today, only a user holding the Admin role can satisfy
-    // this policy -- confirmed by re-reading the full grant script
-    // rather than assumed. This required NO new permission code, NO
-    // schema change, and NO modification to the existing role/claim
-    // system, per the addendum's own "do not modify the existing role
-    // system just to add the dashboard" instruction.
+    // the page requires the "Admin.ManageAreas" permission, declared
+    // centrally in Authorization/FeatureAuthorizationConventions.cs and
+    // enforced server-side on every request (not just by hiding the menu).
+    // dbo.RolePermissions grants no "Admin.*" code to any ordinary role, so
+    // in practice only a full-access user (System Administrator) passes --
+    // see ClaimsPrincipalSecurityExtensions.HasPermission. The baseline
+    // "AuthorizeFolder("/ManagementDashboard")" convention in Program.cs
+    // is a second, independent layer.
     //
-    // A baseline "AuthorizeFolder("/ManagementDashboard")" convention
-    // was ALSO added in Program.cs (any authenticated user), exactly
-    // mirroring how "/Admin" itself is both AuthorizeFolder-protected
-    // AND carries its own stricter per-page Policy attributes -- so
-    // this page is covered by two independent layers, and menu
-    // visibility (see _Layout.cshtml) is never the only protection.
-    // Phase A: the server-side rule for this page ("Admin.ManageAreas") is declared
-    // centrally in Authorization/FeatureAuthorizationConventions.cs.
+    // Layout: the company-wide OVERVIEW (current state + the selected
+    // period) on top; the original Phase L production detail sections, with
+    // their own Area / Variety / Pot Size filters, below.
     public class IndexModel : PageModel
     {
         private readonly ManagementDashboardRepository _dashboardRepo;
         private readonly AreaRepository _areaRepo;
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
         private readonly EmptyPotInventoryRepository _emptyPotInventoryRepo;
+        private readonly BookingRepository _bookingRepo;
+        private readonly SeedlingFulfilmentRepository _fulfilmentRepo;
+        private readonly MaintenanceRepository _maintenanceRepo;
+        private readonly DailyLabourAttendanceRepository _labourRepo;
+        private readonly LabourOvertimeRepository _overtimeRepo;
+        private readonly SuggestionRepository _suggestionRepo;
+        private readonly PotBatchRepository _potBatchRepo;
+        private readonly TransplantRepository _transplantRepo;
 
         public IndexModel(
             ManagementDashboardRepository dashboardRepo,
             AreaRepository areaRepo,
             PlantSpeciesRepository plantSpeciesRepo,
-            EmptyPotInventoryRepository emptyPotInventoryRepo)
+            EmptyPotInventoryRepository emptyPotInventoryRepo,
+            BookingRepository bookingRepo,
+            SeedlingFulfilmentRepository fulfilmentRepo,
+            MaintenanceRepository maintenanceRepo,
+            DailyLabourAttendanceRepository labourRepo,
+            LabourOvertimeRepository overtimeRepo,
+            SuggestionRepository suggestionRepo,
+            PotBatchRepository potBatchRepo,
+            TransplantRepository transplantRepo)
         {
             _dashboardRepo = dashboardRepo;
             _areaRepo = areaRepo;
             _plantSpeciesRepo = plantSpeciesRepo;
             _emptyPotInventoryRepo = emptyPotInventoryRepo;
+            _bookingRepo = bookingRepo;
+            _fulfilmentRepo = fulfilmentRepo;
+            _maintenanceRepo = maintenanceRepo;
+            _labourRepo = labourRepo;
+            _overtimeRepo = overtimeRepo;
+            _suggestionRepo = suggestionRepo;
+            _potBatchRepo = potBatchRepo;
+            _transplantRepo = transplantRepo;
         }
 
-        // Filters -- bound from the query string so the header
-        // filter bar's own GET form round-trips naturally, exactly
-        // like Pages/Production/ReadyAlerts/Index.cshtml.cs's
-        // WindowDays. Administrator has full cross-Area access (per
-        // the addendum -- "do NOT apply normal Area restrictions to
-        // the Administrator dashboard"), so these are narrowing
-        // conveniences for the Admin viewing the dashboard, never an
-        // authorization boundary -- there is no other role that can
-        // reach this page at all, so there is nothing to bypass by
-        // tampering with the query string (Step 14 is still satisfied:
-        // every value below is validated against the database inside
-        // ManagementDashboardRepository's own parameterized queries,
-        // never interpolated, and a non-existent/foreign AreaId simply
-        // returns zero rows rather than exposing anything).
+        public const int TopVarieties = 3;
+        public const int ChartVarieties = 10;
+        public const int RecentActivityItems = 12;
+
+        // Period for every PERIOD figure (overview and detail alike): a preset
+        // (today / 7d / 30d / month) or custom From..To. Current-state figures
+        // ignore it. Area / Variety / Pot Size narrow the production detail
+        // section only -- they are conveniences for the Administrator, never an
+        // authorization boundary (every value is a SQL parameter, and an unknown
+        // id simply matches nothing).
+        [BindProperty(SupportsGet = true)]
+        public string? Range { get; set; }
+
         [BindProperty(SupportsGet = true)]
         public DateTime? FromDate { get; set; }
 
@@ -100,29 +101,35 @@ namespace PlantStockManager.Pages.ManagementDashboard
         [BindProperty(SupportsGet = true)]
         public string? PotSize { get; set; }
 
+        public DashboardPeriod Period { get; set; } = new();
+        public ManagementOverview Overview { get; set; } = new();
+        // 2026-10-09: Main Area -> Mother Plant transfers and transplanting, today (India) + current in-transit.
+        public TransplantDaySummary MotherPlantFlow { get; set; } = new();
         public ManagementDashboardViewModel Dashboard { get; set; } = new();
+        public bool DetailFiltered => AreaId.HasValue || SpeciesId.HasValue || PotSize != null;
 
         public async Task OnGetAsync()
         {
+            var today = AppClock.Today;
+            Period = DashboardPeriod.Resolve(Range, FromDate, ToDate, today);
+            Range = Period.Key;
+            FromDate = Period.From;
+            ToDate = Period.To;
+            PotSize = string.IsNullOrWhiteSpace(PotSize) ? null : PotSize;
+
             var filters = new ManagementDashboardFilters
             {
-                FromDate = FromDate,
-                ToDate = ToDate,
+                FromDate = Period.From,
+                ToDate = Period.To,
                 AreaId = AreaId,
                 GrowingPartnerId = GrowingPartnerId,
                 SpeciesId = SpeciesId,
-                PotSize = string.IsNullOrWhiteSpace(PotSize) ? null : PotSize
+                PotSize = PotSize
             };
 
-            // Keep the bound properties normalized to what will actually
-            // be used, so the filter bar's own form redisplays exactly
-            // what was applied.
-            FromDate = filters.FromDate;
-            ToDate = filters.ToDate;
-            PotSize = filters.PotSize;
-
+            // ---- Production detail (Phase L sections, own filters) ----
             var production = await _dashboardRepo.GetProductionSummaryAsync(filters);
-            var readyStock = await _dashboardRepo.GetReadyStockSummaryAsync(filters);
+            var readyStock = await _dashboardRepo.GetReadyStockSummaryAsync(filters, today);
             var outletSales = await _dashboardRepo.GetOutletSalesSummaryAsync(filters);
             // Reuses production.SeedStock (the all-Areas per-Unit Seed
             // Stock balance) instead of a second, identical query -- see
@@ -152,6 +159,73 @@ namespace PlantStockManager.Pages.ManagementDashboard
                 Areas = areas,
                 SpeciesOptions = speciesOptions,
                 PotSizeOptions = emptyPots.Select(e => e.PotSize).Distinct().OrderBy(p => p).ToList()
+            };
+
+            // ---- Company-wide overview ----
+            // The detail results above ARE company-wide when no detail filter is set;
+            // only re-query the three summaries the overview needs when one is.
+            var companyFilters = new ManagementDashboardFilters { FromDate = Period.From, ToDate = Period.To };
+            var companyReady = DetailFiltered ? await _dashboardRepo.GetReadyStockSummaryAsync(companyFilters, today) : readyStock;
+            var companyCutting = DetailFiltered ? await _dashboardRepo.GetCuttingSummaryAsync(companyFilters) : cutting;
+            var companyOutlet = DetailFiltered ? await _dashboardRepo.GetOutletSalesSummaryAsync(companyFilters) : outletSales;
+
+            var data = await _dashboardRepo.GetOverviewAsync(Period, today);
+
+            // Seedling bookings received / dispatched in the period: the SAME
+            // definitions the Daily Report uses (BookingRepository counts unique
+            // orders; the Dispatch Register's lines summed per dispatch).
+            var (ordersReceived, quantityReceived) = await _bookingRepo.GetBookingCountByBookingDateAsync(Period.From, Period.ToExclusive);
+            var dispatchLines = await _fulfilmentRepo.GetDispatchRegisterAsync(Period.From, Period.To, null);
+            var (dispatchCount, dispatchQuantity) = DailyReportCalculations.SummarizeDispatchLines(dispatchLines);
+            data.Seedlings.OrdersReceived = ordersReceived;
+            data.Seedlings.QuantityReceived = quantityReceived;
+            data.Seedlings.Dispatches = dispatchCount;
+            data.Seedlings.DispatchedQuantity = dispatchQuantity;
+
+            var activeTickets = await _maintenanceRepo.SearchAsync(new MaintenanceTicketFilter { ActiveOnly = true }, null);
+            var maintenance = ManagementDashboardCalculations.Maintenance(activeTickets, data.MaintenanceClosedInPeriod, DateTime.UtcNow, today);
+
+            var (labourDays, labourSummary) = await _labourRepo.SearchDaysAsync(new DailyLabourFilter { FromDate = today, ToDate = today }, null);
+            var overtime = await _overtimeRepo.SearchAsync(new LabourOvertimeFilter { FromDate = today, ToDate = today }, null);
+
+            var suggestionCounts = await _suggestionRepo.GetCountsAsync(null);
+            var potBatchesOverdue = (await _potBatchRepo.GetAllAsync(PotBatchRules.InProduction))
+                .Count(b => b.Readiness(today) == PotBatchRules.DueOverdue);
+
+            MotherPlantFlow = await _transplantRepo.GetDaySummaryAsync(today);
+
+            var readyByVariety = ManagementDashboardCalculations.ReadyPhysicalByVariety(data.ReadyStock);
+            Overview = new ManagementOverview
+            {
+                Period = Period,
+                Today = today,
+                ReadyStock = data.ReadyStock,
+                PottedStock = data.PottedStock,
+                ReadyTotals = ManagementDashboardCalculations.Totals(data.ReadyStock),
+                PottedTotals = ManagementDashboardCalculations.Totals(data.PottedStock),
+                TopByReadyStock = ManagementDashboardCalculations.RankTop(readyByVariety, TopVarieties),
+                TopByOpenBooking = ManagementDashboardCalculations.RankTop(data.OpenBookingByVariety, TopVarieties),
+                ReadyStockByVarietyChart = ManagementDashboardCalculations.TopWithOthers(readyByVariety, ChartVarieties),
+                ReadyStockByPlantType = ManagementDashboardCalculations.ByPlantType(data.ReadyStock),
+                OpenBookingByVariety = data.OpenBookingByVariety,
+                Areas = ManagementDashboardCalculations.BuildAreaRows(data.ReadyStock, data.PottedStock),
+                PolyhouseMismatches = ManagementDashboardCalculations.FindPolyhouseMismatches(data.ReadyStock),
+                Seedlings = data.Seedlings,
+                Potted = companyOutlet,
+                Production = data.Production,
+                Maintenance = maintenance,
+                Store = data.Store,
+                Labour = ManagementDashboardCalculations.Labour(today, labourDays, labourSummary, overtime),
+                Suggestions = new SuggestionSnapshot
+                {
+                    ActiveProblems = suggestionCounts.ActiveProblems,
+                    ActiveSuggestions = suggestionCounts.ActiveSuggestions,
+                    Permanent = suggestionCounts.Permanent,
+                    RecentProblems = data.RecentProblems,
+                },
+                Attention = ManagementDashboardCalculations.BuildAttention(today, maintenance, data.Seedlings,
+                    companyReady.OverdueCount, potBatchesOverdue, companyCutting.PendingConfirmationCount, data.Store, suggestionCounts.ActiveProblems),
+                RecentActivity = ManagementDashboardRepository.MergeActivity(data.RecentActivity, RecentActivityItems),
             };
         }
     }

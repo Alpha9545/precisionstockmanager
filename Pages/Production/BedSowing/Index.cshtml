@@ -1,0 +1,90 @@
+@page
+@model PlantStockManager.Pages.Production.BedSowing.IndexModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Bed Sowing";
+    var canCreate = await FeatureAccess.CanAccessPageAsync(User, "/Production/BedSowing/Create");
+    var canTransplant = await FeatureAccess.CanAccessPageAsync(User, "/Production/BedSowing/Transplant");
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <h2 class="mb-0">Bed Sowing</h2>
+        <div class="d-flex flex-wrap gap-2">
+            <a asp-page="/Production/BedSowing/History" class="btn btn-outline-secondary">Transplant &amp; loss history</a>
+            @if (canTransplant)
+            {
+                <a asp-page="/Production/BedSowing/Transplant" class="btn btn-outline-primary">Bed Transplanting</a>
+            }
+            @if (canCreate && Model.SchemaReady)
+            {
+                <a asp-page="/Production/BedSowing/Create" class="btn btn-success">+ New Bed Sowing</a>
+            }
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null)
+    {
+        <div class="alert alert-success">@TempData["Success"]</div>
+    }
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">Bed Sowing is not set up in this database yet (migration 2026-10-12_BedSowing.sql).</div>
+    }
+    else
+    {
+        <div class="alert alert-info small">
+            Seed sown into a bed at the Bed Sowing Polyhouse. No trays and no Ready Stock at this stage. The Bed Sowing
+            Transplanter moves seedlings into cavity trays; each transplant becomes a growing tray batch that goes through
+            Sowing Approvals. Its Ready Date = transplant date + the variety's Ready Days (no Ready Date while seedlings are in the bed).
+            <strong>Original = Remaining + Transplanted + Lost.</strong>
+        </div>
+
+        <ul class="nav nav-tabs mb-2">
+            <li class="nav-item"><a class="nav-link @(Model.Show == "open" ? "active" : "")" asp-route-show="open">Waiting for transplant</a></li>
+            <li class="nav-item"><a class="nav-link @(Model.Show == "all" ? "active" : "")" asp-route-show="all">All</a></li>
+        </ul>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-striped table-hover align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Bed No.</th><th>Variety</th><th>Polyhouse</th><th>Sowing Date</th>
+                        <th class="text-end">Original</th><th class="text-end">Transplanted</th><th class="text-end">Lost</th>
+                        <th class="text-end">Remaining</th><th>Status</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var b in Model.Beds)
+                    {
+                        <tr>
+                            <td>@b.BedSowingCode</td>
+                            <td>@b.SpeciesName <span class="text-muted">(@b.PlantTypeName)</span></td>
+                            <td>@b.PolyhouseName <div class="small text-muted">@b.AreaName</div></td>
+                            <td>@b.SowingDate.ToString("dd/MM/yyyy")</td>
+                            <td class="text-end">@Qty(b.Quantity)</td>
+                            <td class="text-end">@Qty(b.TransplantedQuantity)</td>
+                            <td class="text-end">@Qty(b.LostQuantity)</td>
+                            <td class="text-end fw-semibold">@Qty(b.RemainingQuantity)</td>
+                            <td>
+                                <span class="badge @(b.Status switch { "PendingTransplant" => "bg-warning text-dark", "PartiallyTransplanted" => "bg-info text-dark", "Completed" => "bg-success", _ => "bg-secondary" })">@b.StatusLabel</span>
+                            </td>
+                            <td class="text-nowrap">
+                                <a asp-page="/Production/BedSowing/Details" asp-route-id="@b.Id" class="btn btn-sm btn-outline-secondary">View</a>
+                                @if (canTransplant && b.IsOpen)
+                                {
+                                    <a asp-page="/Production/BedSowing/Transplant" asp-route-bedId="@b.Id" class="btn btn-sm btn-primary">Transplant</a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                    @if (!Model.Beds.Any())
+                    {
+                        <tr><td colspan="10" class="text-center text-muted">@(Model.Show == "open" ? "No bed is waiting for transplanting." : "No bed sowing recorded.")</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

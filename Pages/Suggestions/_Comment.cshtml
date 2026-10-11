@@ -1,0 +1,66 @@
+@model PlantStockManager.Models.SuggestionComment
+@using PlantStockManager.Services
+@{
+    var pm = (PlantStockManager.Pages.Suggestions.DetailsModel)ViewData["Page"]!;
+    var isReply = ViewData["IsReply"] is true;
+    var rootId = ViewData["RootId"] as int? ?? Model.Id;
+    var c = Model;
+}
+@* All text is HTML-encoded by Razor; white-space keeps the author's line breaks. No likes / reactions by design. *@
+<div class="sp-comment @(isReply ? "sp-reply" : "") @(c.IsDeleted ? "deleted" : "")" id="comment-@c.Id" data-comment-id="@c.Id" data-parent-id="@c.ParentCommentId">
+    <div class="small">
+        @if (isReply) { <span class="text-muted">↳</span> }
+        <strong>@(c.AuthorName ?? "—")</strong>
+        <span class="text-muted">· @AppClock.ToIndiaTime(c.CreatedAt).ToString("dd-MM-yyyy hh:mm tt")</span>
+        @if (c.UpdatedAt.HasValue && !c.IsDeleted) { <span class="text-muted fst-italic">(edited)</span> }
+    </div>
+    @if (c.IsDeleted)
+    {
+        <div class="text-muted fst-italic small comment-deleted">This comment was deleted@(pm.IsManager ? $" by {c.DeletedByName}" : "").</div>
+        @if (pm.IsManager)
+        {
+            <div class="sp-text small text-muted text-decoration-line-through comment-text">@c.CommentText</div>
+        }
+    }
+    else
+    {
+        <div class="sp-text comment-text">@c.CommentText</div>
+        <div class="mt-1 sp-actions">
+            @if (pm.CanComment)
+            {
+                <details>
+                    <summary class="reply-toggle">Reply</summary>
+                    <form method="post" asp-page="/Suggestions/Details" asp-page-handler="Comment" asp-route-id="@pm.Post.Id" class="mt-2 reply-form">
+                        <input type="hidden" name="SubmitToken" value="@pm.SubmitToken" />
+                        <input type="hidden" name="ParentCommentId" value="@rootId" />
+                        <textarea name="CommentText" class="form-control form-control-sm mb-1" rows="2" maxlength="@SuggestionRules.MaxCommentLength" required></textarea>
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Reply</button>
+                    </form>
+                </details>
+            }
+            @if (pm.CanEdit(c))
+            {
+                <details>
+                    <summary class="edit-toggle">Edit</summary>
+                    <form method="post" asp-page="/Suggestions/Details" asp-page-handler="EditComment" asp-route-id="@pm.Post.Id" class="mt-2 edit-form">
+                        <input type="hidden" name="SubmitToken" value="@pm.SubmitToken" />
+                        <input type="hidden" name="CommentId" value="@c.Id" />
+                        <textarea name="CommentText" class="form-control form-control-sm mb-1" rows="2" maxlength="@SuggestionRules.MaxCommentLength" required>@c.CommentText</textarea>
+                        <button type="submit" class="btn btn-sm btn-outline-primary">Save</button>
+                    </form>
+                </details>
+            }
+            @if (pm.CanDelete(c))
+            {
+                <details>
+                    <summary class="delete-toggle text-danger">Delete</summary>
+                    <form method="post" asp-page="/Suggestions/Details" asp-page-handler="DeleteComment" asp-route-id="@pm.Post.Id" class="mt-1 delete-form">
+                        <input type="hidden" name="SubmitToken" value="@pm.SubmitToken" />
+                        <input type="hidden" name="CommentId" value="@c.Id" />
+                        <button type="submit" class="btn btn-sm btn-danger">Yes, delete this comment</button>
+                    </form>
+                </details>
+            }
+        </div>
+    }
+</div>

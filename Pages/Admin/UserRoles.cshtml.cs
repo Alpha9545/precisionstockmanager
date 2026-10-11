@@ -28,6 +28,7 @@ namespace PlantStockManager.Pages.Admin
     {
         private readonly UserRoleRepository _userRoleRepo;
         private readonly AdministrativeAccessGuard _guard;
+        private readonly BedSowingRoleGuard _bedSowingGuard;
         private readonly EmployeeRepository _employeeRepo;
         private readonly RoleRepository _roleRepo;
         private readonly AreaRepository _areaRepo;
@@ -37,8 +38,10 @@ namespace PlantStockManager.Pages.Admin
             EmployeeRepository employeeRepo,
             RoleRepository roleRepo,
             AreaRepository areaRepo,
-            AdministrativeAccessGuard guard)
+            AdministrativeAccessGuard guard,
+            BedSowingRoleGuard bedSowingGuard)
         {
+            _bedSowingGuard = bedSowingGuard;
             _guard = guard;
             _userRoleRepo = userRoleRepo;
             _employeeRepo = employeeRepo;
@@ -129,6 +132,10 @@ namespace PlantStockManager.Pages.Admin
 
             if (!_guard.CanManageAdministrators(User) && await _guard.IsAdministrativeRoleAsync(roleId))
                 return "Only a System Administrator can grant or remove an administrative role.";
+
+            // 2026-10-12: the Bed Sowing Transplanter (BedSowing.Transplant) is never given or removed here.
+            if (await _bedSowingGuard.RoleCarriesTransplantAsync(roleId))
+                return PlantStockManager.Services.BedSowingRules.ProtectedRoleMessage;
 
             return null;
         }

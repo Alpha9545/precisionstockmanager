@@ -176,7 +176,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
 
             // No generic "Responsible Person": the assigned Sowing Supervisor
             // (already checked above) is who is accountable for this approval.
-            var (success, message, _) = await _readyConfirmationRepo.ConfirmAsync(
+            var (success, message, confirmationId) = await _readyConfirmationRepo.ConfirmAsync(
                 sowing.Id, ActualReadyTrays, WastageReason, null, Remarks, createdBy, userId, CanUseSourceArea);
 
             if (!success)
@@ -189,7 +189,8 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
 
             var extra = DirectSowingRules.ExtraCuttingsNeeded(sowing.SourceType, ActualReadyTrays, sowing.CavityType, sowing.RemainingReadyQuantity);
             TempData["Success"] = $"Batch {sowing.SowingCode} approved: {QuantityFormat.Qty(ActualReadyTrays)} trays x {sowing.CavityType} = {QuantityFormat.Qty(seedlings)} seedlings added to Ready Stock; wastage {QuantityFormat.Qty(wastage)} ({wastagePct:0.00}%). The sowing is now Completed."
-                + (extra > 0 ? $" {QuantityFormat.Qty(DirectSowingRules.ExtraTrays(extra, sowing.CavityType))} extra trays = {QuantityFormat.Qty(extra)} extra cuttings were taken from Cutting Stock." : "");
+                + (extra > 0 ? $" {QuantityFormat.Qty(DirectSowingRules.ExtraTrays(extra, sowing.CavityType))} extra trays = {QuantityFormat.Qty(extra)} extra cuttings were taken from Cutting Stock."
+                    + await _readyConfirmationRepo.GetExtraMaterialTextAsync(confirmationId) : "");
             return RedirectToPage("/Production/ReadyConfirmation/History", new { id = sowing.Id });
         }
 

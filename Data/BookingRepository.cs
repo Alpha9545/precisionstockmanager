@@ -33,16 +33,21 @@ namespace PlantStockManager.Data
         // no status filter either.
         // Count = unique customer ORDERS (EffectiveOrderId = ISNULL(OrderBookingId, Id)):
         // one order with three varieties is ONE booking. Quantity = all variety lines.
+        // from / toExclusive are India business dates (Asia/Kolkata). BookingDate is written
+        // with GETDATE() -- SQL Server's local time -- so the India-day bounds are turned into
+        // UTC and then into SQL Server local time with SQL Server's own offset. On a server
+        // that runs on India time this is exactly the old "BookingDate >= @From" comparison.
         public async Task<(int Count, decimal Quantity)> GetBookingCountByBookingDateAsync(DateTime from, DateTime toExclusive)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
             using var cmd = new SqlCommand(@"
+DECLARE @ServerOffset INT = " + ManagementDashboardRepository.ServerOffsetSql + @";
 SELECT COUNT(DISTINCT ISNULL(OrderBookingId, Id)), CAST(ISNULL(SUM(Quantity), 0) AS DECIMAL(18,2))
 FROM dbo.Bookings
-WHERE BookingDate >= @From AND BookingDate < @To", conn);
-            cmd.Parameters.AddWithValue("@From", from.Date);
-            cmd.Parameters.AddWithValue("@To", toExclusive.Date);
+WHERE BookingDate >= DATEADD(MINUTE, @ServerOffset, @FromUtc) AND BookingDate < DATEADD(MINUTE, @ServerOffset, @ToUtc)", conn);
+            cmd.Parameters.Add("@FromUtc", System.Data.SqlDbType.DateTime2).Value = PlantStockManager.Services.AppClock.IndiaToUtc(from.Date);
+            cmd.Parameters.Add("@ToUtc", System.Data.SqlDbType.DateTime2).Value = PlantStockManager.Services.AppClock.IndiaToUtc(toExclusive.Date);
             using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
                 return (reader.GetInt32(0), reader.GetDecimal(1));

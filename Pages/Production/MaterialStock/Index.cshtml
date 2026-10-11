@@ -1,0 +1,198 @@
+@page
+@model PlantStockManager.Pages.Production.MaterialStock.IndexModel
+@using PlantStockManager.Authorization
+@using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Material Stock";
+    var canAdd = User.CanAddMaterials() || User.CanAddTrays();
+    var canHistory = await FeatureAccess.CanAccessPageAsync(User, "/Production/MaterialStock/History");
+    var canAdjustTrays = await FeatureAccess.CanAccessPageAsync(User, "/Production/MaterialStock/TrayAdjust");
+    var canTrayTransfers = await FeatureAccess.CanAccessPageAsync(User, "/Production/MaterialStock/TrayTransfers");
+    var trays = MaterialStockRules.TraysKind;
+    var tabs = new List<(string Key, string Label)> { ("", "All") };
+    if (Model.CanSeeMaterials) { tabs.AddRange(Model.Materials.Where(m => m.IsActive).Select(m => (m.Code, m.Name))); }
+    if (Model.CanSeeTrays) { tabs.Add((trays, "Trays")); }
+    if (tabs.Count == 2) { tabs.RemoveAt(0); }   // only one stock visible: no "All"
+    string AddLink(string? kind) => kind switch { null or "" => "", _ => kind };
+}
+
+<style>
+    .ms-kpi { border: 1px solid #dee2e6; border-radius: .5rem; padding: .6rem .8rem; background: #fff; height: 100%; }
+    .ms-kpi .label { font-size: .78rem; color: #6c757d; text-transform: uppercase; letter-spacing: .02em; }
+    .ms-kpi .value { font-size: 1.35rem; font-weight: 700; }
+    .ms-kpi .sub { font-size: .8rem; color: #6c757d; }
+    .ms-trays { display: flex; flex-wrap: wrap; gap: .25rem .9rem; font-variant-numeric: tabular-nums; }
+    .ms-trays b { font-size: 1.05rem; }
+    .ms-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .ms-tabs { flex-wrap: nowrap; overflow-x: auto; }
+    .ms-tabs .nav-link { white-space: nowrap; }
+    .ms-section h5 { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h3 class="mb-0">Material Stock</h3>
+            <div class="text-muted small">Cocopeat and Pitmos (kg, Main Office Polyhouses) and empty trays (count per cavity). Three separate stocks &mdash; a sowing uses trays and one growing material from its own Polyhouse.</div>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            @if (canTrayTransfers) { <a asp-page="/Production/MaterialStock/TrayTransfers" class="btn btn-outline-secondary">Tray Transfers</a> }
+            @if (canAdjustTrays) { <a asp-page="/Production/MaterialStock/TrayAdjust" class="btn btn-outline-secondary">Adjust Trays</a> }
+            @if (canHistory) { <a asp-page="/Production/MaterialStock/History" asp-route-Material="@(Model.Material == "" ? null : Model.Material)" class="btn btn-outline-secondary">Material History</a> }
+            @if (canAdd) { <a asp-page="/Production/MaterialStock/Add" asp-route-type="@(Model.Material == "" ? null : AddLink(Model.Material))" class="btn btn-primary">Add Material</a> }
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+
+    @* ---- summary: kg per material, trays per cavity (never one combined figure) ---- *@
+    <div class="row g-2 g-md-3 mb-3">
+        @foreach (var k in Model.Kpis)
+        {
+            <div class="col-6 col-lg-3">
+                <div class="ms-kpi">
+                    <div class="label">@k.MaterialName</div>
+                    <div class="value">@MaterialStockRules.Kg(k.TotalStock, k.Unit)</div>
+                    <div class="sub">used today: @MaterialStockRules.Kg(k.ConsumedToday, k.Unit)</div>
+                </div>
+            </div>
+        }
+        @if (Model.ShowTrays)
+        {
+            <div class="col-12 col-lg-6">
+                <div class="ms-kpi">
+                    <div class="label">Trays available (by cavity)</div>
+                    <div class="ms-trays mt-1">
+                        @foreach (var t in Model.TraySummary)
+                        {
+                            <span>@t.Cavity: <b>@QuantityFormat.Qty(t.Trays)</b></span>
+                        }
+                    </div>
+                    <div class="sub">Each cavity is its own stock; trays of different cavities are not added together.</div>
+                    @if (Model.TraysInTransit.Transfers > 0)
+                    {
+                        <div class="sub mt-1" id="traysInTransit">
+                            Plus <b>@QuantityFormat.Qty(Model.TraysInTransit.Trays)</b> trays in transit
+                            (@Model.TraysInTransit.Transfers transfer@(Model.TraysInTransit.Transfers == 1 ? "" : "s") not yet received) &mdash; in neither Polyhouse.
+                            @if (canTrayTransfers) { <a asp-page="/Production/MaterialStock/TrayTransfers" asp-route-status="Pending">View</a> }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    @if (tabs.Count > 1)
+    {
+        <ul class="nav nav-pills ms-tabs mb-3" role="tablist" aria-label="Stock type">
+            @foreach (var t in tabs)
+            {
+                <li class="nav-item">
+                    <a class="nav-link @(Model.Material == t.Key ? "active" : "")" aria-current="@(Model.Material == t.Key ? "page" : null)"
+                       asp-all-route-data="@Model.Route(t.Key == "" ? null : t.Key)">@t.Label</a>
+                </li>
+            }
+        </ul>
+    }
+
+    <form method="get" class="row g-2 align-items-end mb-3">
+        <input type="hidden" name="Material" value="@Model.Material" />
+        <div class="col-6 col-md-3">
+            <label class="form-label small mb-0" for="fArea">Area</label>
+            <select name="AreaId" id="fArea" class="form-select form-select-sm" onchange="this.form.PolyhouseId.value=''; this.form.submit()">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.AreaOptions) { <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small mb-0" for="fPolyhouse">Polyhouse</label>
+            <select name="PolyhouseId" id="fPolyhouse" class="form-select form-select-sm">
+                <option value="">All Polyhouses</option>
+                @foreach (var p in Model.PolyhouseOptions) { <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option> }
+            </select>
+        </div>
+        @if (Model.Material == trays)
+        {
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0" for="fCavity">Tray Type</label>
+                <select name="Cavity" id="fCavity" class="form-select form-select-sm">
+                    <option value="">All Cavities</option>
+                    @foreach (var c in Model.Cavities) { <option value="@c" selected="@(Model.Cavity == c)">@c</option> }
+                </select>
+            </div>
+        }
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="fSearch">Search</label>
+            <input type="search" name="Search" id="fSearch" value="@Model.Search" class="form-control form-control-sm" placeholder="Area, Polyhouse@(Model.ShowTrays ? ", cavity" : "")" />
+        </div>
+        <div class="col-12 col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+            <a asp-page="/Production/MaterialStock/Index" asp-route-Material="@(Model.Material == "" ? null : Model.Material)" class="btn btn-sm btn-outline-secondary">Clear</a>
+        </div>
+    </form>
+
+    @if (Model.ShowMaterials)
+    {
+        @foreach (var m in Model.VisibleMaterials)
+        {
+            var rows = Model.MaterialRows.Where(r => r.MaterialTypeId == m.Id).ToList();
+            <section class="ms-section mb-4" aria-label="@m.Name stock">
+                <h5 class="mb-2">@m.Name <span class="badge bg-light text-dark border">@m.Unit.ToLowerInvariant()</span>
+                    <span class="text-muted small fw-normal">Main Office Polyhouses</span></h5>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped align-middle mb-1">
+                        <thead class="table-light"><tr><th>Area</th><th>Polyhouse</th><th class="ms-num">Stock (@m.Unit.ToLowerInvariant())</th><th>Last Change</th></tr></thead>
+                        <tbody>
+                            @foreach (var r in rows)
+                            {
+                                <tr>
+                                    <td>@r.AreaName</td>
+                                    <td>@r.PolyhouseName</td>
+                                    <td class="ms-num fw-semibold">@MaterialStockRules.Kg(r.CurrentQuantity, r.Unit)</td>
+                                    <td class="small text-muted">@(r.UpdatedAt.HasValue ? AppClock.ToIndiaTime(r.UpdatedAt.Value).ToString("dd MMM yyyy, hh:mm tt") : "-")</td>
+                                </tr>
+                            }
+                            @if (!rows.Any()) { <tr><td colspan="4" class="text-center text-muted py-2">No @m.Name stock@(Model.AreaId.HasValue || Model.PolyhouseId.HasValue || !string.IsNullOrWhiteSpace(Model.Search) ? " matches these filters" : " recorded yet").</td></tr> }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        }
+    }
+
+    @if (Model.ShowTrays)
+    {
+        <section class="ms-section mb-4" aria-label="Tray stock">
+            <h5 class="mb-2">Trays <span class="badge bg-light text-dark border">tray count</span>
+                <span class="text-muted small fw-normal">per Area + Polyhouse + cavity</span></h5>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped align-middle mb-1">
+                    <thead class="table-light"><tr><th>Area</th><th>Polyhouse</th><th>Tray Type</th><th class="ms-num">Quantity (trays)</th>@if (canHistory) { <th></th> }</tr></thead>
+                    <tbody>
+                        @foreach (var s in Model.TrayRows)
+                        {
+                            <tr>
+                                <td>@s.AreaName</td>
+                                <td>@s.PolyhouseName</td>
+                                <td>@s.TraySize</td>
+                                <td class="ms-num fw-semibold">@QuantityFormat.Qty(s.PhysicalQuantity)</td>
+                                @if (canHistory)
+                                {
+                                    <td class="text-end"><a asp-page="/Production/MaterialStock/History" asp-route-Material="@trays" asp-route-AreaId="@s.AreaId" asp-route-PolyhouseId="@s.PolyhouseId" asp-route-Cavity="@s.TraySize" class="btn btn-sm btn-outline-secondary">History</a></td>
+                                }
+                            </tr>
+                        }
+                        @if (!Model.TrayRows.Any()) { <tr><td colspan="5" class="text-center text-muted py-2">No tray stock@(Model.AreaId.HasValue || Model.PolyhouseId.HasValue || Model.Cavity != null || !string.IsNullOrWhiteSpace(Model.Search) ? " matches these filters" : " recorded yet for your Areas").</td></tr> }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+
+    @if (Model.ShowMaterials)
+    {
+        <div class="text-muted small">No low-stock threshold is configured for growing material, so no low-stock warning is shown.</div>
+    }
+</div>

@@ -462,3 +462,155 @@ body, html {
         padding: 0.25rem 0.6rem;
     }
 }
+
+/* ============================================================================
+   2026-10-09: phone-friendly data tables (all pages). On screens up to 576px a
+   table marked .table-stack by wwwroot/js/site.js shows each row as a card of
+   "Column: value" lines instead of a wide grid that has to be swiped sideways.
+   site.js marks only tables with a plain one-row header and no merged cells
+   (matrices and grids keep scrolling inside their .table-responsive box) and
+   never tables marked .no-stack or inside .for-desktop-records. Screen only:
+   printing and PDF exports are unchanged; tablets and desktops are unchanged.
+   ============================================================================ */
+@media screen and (max-width: 576px) {
+    table.table-stack,
+    table.table-stack > tbody,
+    table.table-stack > tfoot,
+    table.table-stack > tbody > tr,
+    table.table-stack > tfoot > tr {
+        display: block;
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    /* Visually hidden, NOT display:none: screen readers keep each cell's column header
+       (site.js gives stacked tables explicit ARIA table roles). */
+    table.table-stack {
+        position: relative;
+    }
+
+    table.table-stack > thead {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        margin: -1px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        overflow: hidden !important;
+        clip: rect(0 0 0 0) !important;
+        clip-path: inset(50%) !important;
+        white-space: nowrap !important;
+    }
+
+    table.table-stack > tbody > tr,
+    table.table-stack > tfoot > tr {
+        border: 1px solid #dee2e6;
+        border-radius: .5rem;
+        margin-bottom: .6rem;
+        padding: .35rem .6rem;
+        background-color: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .04);
+    }
+
+    table.table-stack > tfoot > tr {
+        background-color: #f8f9fa;
+        font-weight: 600;
+    }
+
+    table.table-stack > tbody > tr > td,
+    table.table-stack > tbody > tr > th,
+    table.table-stack > tfoot > tr > td,
+    table.table-stack > tfoot > tr > th {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: .75rem;
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        border: 0 !important;
+        border-bottom: 1px solid #f1f1f1 !important;
+        padding: .3rem 0 !important;
+        text-align: right !important;
+        white-space: normal !important;
+        word-break: break-word;
+        background-color: transparent !important;
+        box-shadow: none !important;
+    }
+
+    table.table-stack > tbody > tr > :last-child,
+    table.table-stack > tfoot > tr > :last-child {
+        border-bottom: 0 !important;
+    }
+
+    table.table-stack td[data-label]::before,
+    table.table-stack th[data-label]::before {
+        content: attr(data-label);
+        /* Decorative for assistive technology (the column header is announced already);
+           browsers without the alt-text syntax keep the line above. */
+        content: attr(data-label) / "";
+        flex: 0 0 42%;
+        max-width: 42%;
+        text-align: left;
+        font-weight: 600;
+        color: #6c757d;
+        font-size: .82em;
+    }
+
+    /* Cells without a header (actions, "no records" rows) use the full width;
+       their buttons wrap onto new lines instead of being squeezed. */
+    table.table-stack td:not([data-label]),
+    table.table-stack th:not([data-label]) {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        text-align: left !important;
+    }
+
+    table.table-stack td .btn {
+        white-space: nowrap;
+    }
+
+    table.table-stack td.stack-empty {
+        display: none !important;
+    }
+
+    /* Data-entry cells (inputs / selects): label above, control full width. */
+    table.table-stack td[data-label]:has(input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, textarea) {
+        flex-direction: column;
+        align-items: stretch;
+        text-align: left !important;
+        gap: .2rem;
+    }
+
+    table.table-stack td[data-label]:has(input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, textarea)::before {
+        flex: none;
+        max-width: none;
+    }
+
+    table.table-stack td :is(input:not([type=checkbox]):not([type=radio]), select, textarea) {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: none !important;
+    }
+
+    table.table-stack td > form,
+    table.table-stack td > .btn-group,
+    table.table-stack td > .input-group {
+        flex: 1 1 auto;
+    }
+
+    /* A validation message in a card cell gets its own full-width line. */
+    table.table-stack td > :is(.field-validation-error, .invalid-feedback, .text-danger) {
+        flex-basis: 100%;
+        text-align: left;
+    }
+
+    /* Inside a card the scroll box is not needed. */
+    .table-responsive:has(> table.table-stack) {
+        overflow-x: visible;
+    }
+
+    table.table-stack.table-striped > tbody > tr:nth-of-type(odd) > * {
+        --bs-table-accent-bg: transparent;
+    }
+}

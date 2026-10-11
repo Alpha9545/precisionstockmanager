@@ -1,0 +1,126 @@
+@page
+@model PlantStockManager.Pages.Production.MaterialStock.SettingsModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Material Settings";
+    string Updated(DateTime? at, string? by) => at.HasValue ? $"{AppClock.ToIndiaTime(at.Value):dd MMM yyyy} by {by ?? "-"}" : "initial value";
+}
+
+<div class="container mt-4" style="max-width: 960px;">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Material Settings</h3>
+        <a asp-page="/Production/MaterialStock/Index" class="btn btn-outline-secondary">Material Stock</a>
+    </div>
+    @if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div asp-validation-summary="All" class="alert alert-danger" role="alert"></div>
+    }
+
+    <div class="card mb-4"><div class="card-body">
+        <h5 class="card-title">Conversion factor</h5>
+        <p class="text-muted small">Usable stock = entered quantity &times; factor (Cocopeat expands with water). Approximate values &mdash; change them here when the real values are known.</p>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light"><tr><th>Material</th><th>Unit</th><th style="width: 260px;">Factor</th><th>Last changed</th></tr></thead>
+                <tbody>
+                    @foreach (var m in Model.Materials)
+                    {
+                        <tr>
+                            <td>@m.Name</td><td>@m.Unit.ToLowerInvariant()</td>
+                            <td>
+                                <form method="post" asp-page-handler="Factor" class="d-flex gap-2">
+                                    <input type="hidden" name="materialTypeId" value="@m.Id" />
+                                    <input type="number" name="conversionFactor" step="0.0001" min="0.0001" class="form-control form-control-sm" required
+                                           value="@m.ConversionFactor.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)" aria-label="Conversion factor for @m.Name" />
+                                    <button class="btn btn-sm btn-outline-primary" type="submit">Save</button>
+                                </form>
+                            </td>
+                            <td class="small text-muted">@Updated(m.UpdatedAt, m.UpdatedByName)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div></div>
+
+    <div class="card mb-4"><div class="card-body">
+        <h5 class="card-title">Consumption per tray</h5>
+        <p class="text-muted small">Kg of the selected material used for each tray of a sowing. Approximate values &mdash; change them here.</p>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light"><tr><th>Material</th><th>Tray</th><th style="width: 260px;">Kg per tray</th><th>Last changed</th></tr></thead>
+                <tbody>
+                    @foreach (var r in Model.Rules.Where(r => r.IsActive))
+                    {
+                        <tr>
+                            <td>@r.MaterialName</td><td>@r.CavityType</td>
+                            <td>
+                                <form method="post" asp-page-handler="Rule" class="d-flex gap-2">
+                                    <input type="hidden" name="ruleId" value="@r.Id" />
+                                    <input type="number" name="quantityPerTray" step="0.001" min="0.001" class="form-control form-control-sm" required
+                                           value="@r.QuantityPerTray.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)" aria-label="Kg per tray for @r.MaterialName @r.CavityType" />
+                                    <button class="btn btn-sm btn-outline-primary" type="submit">Save</button>
+                                </form>
+                            </td>
+                            <td class="small text-muted">@Updated(r.UpdatedAt, r.UpdatedByName)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div></div>
+
+    <div class="card mb-4"><div class="card-body">
+        <h5 class="card-title">Stock adjustment</h5>
+        <p class="text-muted small">Correct a balance after a physical count. A reason is required; the adjustment is kept in the history with your name and the time. Stock can never go below zero.</p>
+        <form method="post" asp-page-handler="Adjust" class="row g-2 align-items-end">
+            <input type="hidden" asp-for="SubmissionToken" />
+            <div class="col-md-4">
+                <label class="form-label small mb-0" for="adjPolyhouse">Area / Polyhouse</label>
+                <select id="adjPolyhouse" class="form-select form-select-sm" required>
+                    <option value="">-- Select --</option>
+                    @foreach (var l in Model.Locations)
+                    {
+                        <option value="@l.PolyhouseId" data-area="@l.AreaId" selected="@(Model.AdjustPolyhouseId == l.PolyhouseId)">@l.AreaName / @l.PolyhouseName</option>
+                    }
+                </select>
+                <input type="hidden" asp-for="AdjustAreaId" id="adjArea" />
+                <input type="hidden" asp-for="AdjustPolyhouseId" id="adjPolyhouseId" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0" asp-for="AdjustMaterialTypeId">Material</label>
+                <select asp-for="AdjustMaterialTypeId" class="form-select form-select-sm" required>
+                    @foreach (var m in Model.Materials.Where(m => m.IsActive)) { <option value="@m.Id">@m.Name</option> }
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0" asp-for="AdjustDirection">Change</label>
+                <select asp-for="AdjustDirection" class="form-select form-select-sm" required>
+                    <option value="1">Add (+)</option>
+                    <option value="-1">Remove (-)</option>
+                </select>
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0" asp-for="AdjustQuantity">Kg</label>
+                <input asp-for="AdjustQuantity" type="number" step="0.001" min="0.001" class="form-control form-control-sm" required />
+            </div>
+            <div class="col-12 col-md-10">
+                <label class="form-label small mb-0" asp-for="AdjustReason">Reason</label>
+                <input asp-for="AdjustReason" class="form-control form-control-sm" maxlength="500" required />
+            </div>
+            <div class="col-12 col-md-2"><button type="submit" class="btn btn-sm btn-warning w-100">Record adjustment</button></div>
+        </form>
+    </div></div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            function sync() { const $o = $('#adjPolyhouse option:selected'); $('#adjPolyhouseId').val($o.val() || 0); $('#adjArea').val($o.data('area') || 0); }
+            $('#adjPolyhouse').on('change', sync);
+            sync();
+        });
+    </script>
+}

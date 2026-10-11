@@ -1,0 +1,184 @@
+@page
+@model PlantStockManager.Pages.Production.MaterialStock.HistoryModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Material History";
+    var trays = MaterialStockRules.TraysKind;
+    string Signed(PlantStockManager.Models.MaterialHistoryRow r)
+        => (r.SignedQuantity >= 0 ? "+" : "-") + (r.IsTray ? MaterialStockRules.Trays(Math.Abs(r.SignedQuantity)) : MaterialStockRules.Kg(Math.Abs(r.SignedQuantity), r.Unit));
+    string Balance(PlantStockManager.Models.MaterialHistoryRow r)
+        => r.BalanceAfter is not decimal b ? "-" : r.IsTray ? MaterialStockRules.Trays(b) : MaterialStockRules.Kg(b, r.Unit);
+}
+
+<style>
+    .ms-num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .mh-table td, .mh-table th { vertical-align: middle; }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h3 class="mb-0">Material History</h3>
+            <div class="text-muted small">Every Cocopeat, Pitmos (kg) and Tray (count per cavity) stock movement. Each row keeps its own unit.</div>
+        </div>
+        <a asp-page="/Production/MaterialStock/Index" class="btn btn-outline-secondary">Material Stock</a>
+    </div>
+
+    <form method="get" class="row g-2 align-items-end mb-3">
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="hMaterial">Material Type</label>
+            <select name="Material" id="hMaterial" class="form-select form-select-sm" onchange="if (this.value !== '@trays' && this.form.Cavity) this.form.Cavity.value=''; this.form.submit()">
+                @if (Model.CanSeeMaterials || Model.CanSeeTrays) { <option value="" selected="@(Model.Material == "")">All</option> }
+                @foreach (var m in Model.Materials) { <option value="@m.Code" selected="@(Model.Material == m.Code)">@m.Name</option> }
+                @if (Model.CanSeeTrays) { <option value="@trays" selected="@(Model.Material == trays)">Trays</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="hArea">Area</label>
+            <select name="AreaId" id="hArea" class="form-select form-select-sm" onchange="this.form.PolyhouseId.value=''; this.form.submit()">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.AreaOptions) { <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="hPolyhouse">Polyhouse</label>
+            <select name="PolyhouseId" id="hPolyhouse" class="form-select form-select-sm">
+                <option value="">All Polyhouses</option>
+                @foreach (var p in Model.PolyhouseOptions) { <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option> }
+            </select>
+        </div>
+        @if (Model.Material == trays)
+        {
+            <div class="col-6 col-md-2">
+                <label class="form-label small mb-0" for="hCavity">Tray Type</label>
+                <select name="Cavity" id="hCavity" class="form-select form-select-sm">
+                    <option value="">All Cavities</option>
+                    @foreach (var c in Model.Cavities) { <option value="@c" selected="@(Model.Cavity == c)">@c</option> }
+                </select>
+            </div>
+        }
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="hType">Transaction</label>
+            <select name="Type" id="hType" class="form-select form-select-sm">
+                <option value="">All</option>
+                @foreach (var t in MaterialStockRules.TransactionTypes) { <option value="@t" selected="@(Model.Type == t)">@MaterialStockRules.CategoryLabel(t)</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-1">
+            <label class="form-label small mb-0" for="hFrom">From</label>
+            <input type="date" name="FromDate" id="hFrom" value="@Model.FromDate?.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+        </div>
+        <div class="col-6 col-md-1">
+            <label class="form-label small mb-0" for="hTo">To</label>
+            <input type="date" name="ToDate" id="hTo" value="@Model.ToDate?.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="hSearch">Search</label>
+            <input type="search" name="Search" id="hSearch" value="@Model.Search" class="form-control form-control-sm" placeholder="Sowing, user, remark..." />
+        </div>
+        <div class="col-12 col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+            <a asp-page="/Production/MaterialStock/History" class="btn btn-sm btn-outline-secondary">Clear</a>
+        </div>
+    </form>
+
+    @if (Model.ShowMaterials || Model.ShowTrays)
+    {
+        <h6 class="text-muted text-uppercase small mt-3">Used in sowings, @Model.SummaryFrom.ToString("dd MMM yyyy") &ndash; @Model.SummaryTo.ToString("dd MMM yyyy")</h6>
+        <div class="row g-3 mb-4">
+            @if (Model.ShowMaterials)
+            {
+                <div class="col-12 col-xl-6">
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light"><tr><th>Material</th><th>Area</th><th>Polyhouse</th><th class="ms-num">Sowings</th><th class="ms-num">Trays</th><th class="ms-num">Used (kg)</th></tr></thead>
+                            <tbody>
+                                @foreach (var c in Model.Consumption)
+                                {
+                                    <tr><td>@c.MaterialName</td><td>@c.AreaName</td><td>@c.PolyhouseName</td><td class="ms-num">@c.Sowings</td><td class="ms-num">@c.Trays</td><td class="ms-num fw-semibold">@MaterialStockRules.Kg(c.Consumed)</td></tr>
+                                }
+                                @if (!Model.Consumption.Any()) { <tr><td colspan="6" class="text-muted text-center">No Cocopeat / Pitmos used in sowings in this period.</td></tr> }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+            @if (Model.ShowTrays && Model.TrayHistoryWarnings.Any())
+            {
+                <div class="col-12">
+                    <div class="alert alert-warning mb-0" role="status" id="trayHistoryWarnings">
+                        <strong>Empty-tray history that cannot be relied on:</strong> these entries were dated before the trays
+                        were in the Polyhouse, so the balance by date goes below zero. The entries are shown as recorded and are not changed.
+                        <ul class="mb-0">
+                            @foreach (var w in Model.TrayHistoryWarnings)
+                            {
+                                <li>@w.Where: below zero from @w.FromIndia.ToString("dd/MM/yyyy")@(w.UntilIndia.HasValue ? ", back to zero or more on " + w.UntilIndia.Value.ToString("dd/MM/yyyy") : " (still below zero)"), lowest @PlantStockManager.Services.QuantityFormat.Qty(w.Lowest) trays</li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            }
+            @if (Model.ShowTrays)
+            {
+                <div class="col-12 col-xl-6">
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light"><tr><th>Trays</th><th>Area</th><th>Polyhouse</th><th class="ms-num">Used (trays)</th></tr></thead>
+                            <tbody>
+                                @foreach (var u in Model.TrayUse)
+                                {
+                                    <tr><td>@u.Cavity</td><td>@u.Area</td><td>@u.Polyhouse</td><td class="ms-num fw-semibold">@QuantityFormat.Qty(u.Trays)</td></tr>
+                                }
+                                @if (!Model.TrayUse.Any()) { <tr><td colspan="4" class="text-muted text-center">No trays used in sowings in this period.</td></tr> }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+
+    <h6 class="text-muted text-uppercase small">Transactions (@Model.TotalRows)</h6>
+    <div class="table-responsive">
+        <table class="table table-sm table-striped mh-table">
+            <thead class="table-light">
+                <tr><th>Date (India)</th><th>Transaction</th><th>Material</th><th>Area</th><th>Polyhouse</th><th class="ms-num">Quantity</th><th>Unit</th><th class="ms-num">Balance After</th><th>Details</th><th>Reference</th><th>User</th><th>Remarks</th></tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Rows)
+                {
+                    <tr>
+                        <td class="text-nowrap small">@AppClock.ToIndiaTime(r.AtUtc).ToString("dd MMM yyyy, hh:mm tt")@if (r.IsBackDated) { <div class="text-muted">recorded @AppClock.ToIndiaTime(r.RecordedUtc!.Value).ToString("dd MMM yyyy, hh:mm tt")</div> }</td>
+                        <td><span class="badge @MaterialStockRules.TypeBadge(r.Category)">@r.TypeLabel</span></td>
+                        <td class="text-nowrap">@r.MaterialName@if (r.Cavity != null) { <div class="small text-muted">@r.Cavity</div> }</td>
+                        <td>@r.AreaName</td>
+                        <td>@r.PolyhouseName</td>
+                        <td class="ms-num fw-semibold @(r.SignedQuantity < 0 ? "text-danger" : "text-success")">@Signed(r)</td>
+                        <td>@(r.IsTray ? "trays" : r.Unit)</td>
+                        <td class="ms-num">@Balance(r)</td>
+                        <td class="small">@(r.Detail ?? "-")</td>
+                        <td class="small">
+                            @if (r.SowingId.HasValue) { <a asp-page="/Production/SeedSowing/Details" asp-route-id="@r.SowingId">@r.ReferenceText</a> }
+                            else { @(r.ReferenceText ?? "-") }
+                        </td>
+                        <td class="small">@(r.UserName ?? "-")</td>
+                        <td class="small">@r.Remarks</td>
+                    </tr>
+                }
+                @if (!Model.Rows.Any()) { <tr><td colspan="12" class="text-center text-muted py-3">No material or tray transactions match these filters.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+
+    @if (Model.PageCount > 1)
+    {
+        <nav aria-label="Pages">
+            <ul class="pagination pagination-sm flex-wrap">
+                @for (var i = 1; i <= Model.PageCount; i++)
+                {
+                    <li class="page-item @(i == Model.PageNo ? "active" : "")"><a class="page-link" asp-all-route-data="@Model.Route(i)">@i</a></li>
+                }
+            </ul>
+        </nav>
+    }
+</div>

@@ -28,6 +28,7 @@
             <thead class="table-light">
                 <tr>
                     <th>Batch No.</th>
+                    <th>Origin</th>
                     <th>Variety</th>
                     <th>Area</th>
                     <th>Polyhouse</th>
@@ -62,6 +63,23 @@
                     };
                     <tr>
                         <td>@sw.SowingCode</td>
+                        <td>
+                            @sw.OriginLabel
+                            @if (sw.IsTransplantSource)
+                            {
+                                <div class="small text-muted">
+                                    <a asp-page="/Production/Transplanting/Details" asp-route-id="@sw.TransplantId">@sw.TransplantCode</a>,
+                                    transplanted @(sw.TransplantDate?.ToString("dd/MM/yyyy")): @Qty(sw.QuantitySown) in @sw.NumberOfTrays trays
+                                </div>
+                            }
+                            @if (sw.IsBedSowingSource)
+                            {
+                                <div class="small text-muted">
+                                    <a asp-page="/Production/BedSowing/Details" asp-route-id="@sw.BedSowingId">@sw.BedSowingCode</a>,
+                                    transplanted @(sw.BedTransplantDate?.ToString("dd/MM/yyyy")): @Qty(sw.QuantitySown) in @sw.NumberOfTrays trays
+                                </div>
+                            }
+                        </td>
                         <td>@sw.SpeciesName <span class="text-muted">(@sw.PlantTypeName)</span></td>
                         <td>@sw.AreaName</td>
                         <td>@(sw.PolyhouseName ?? "-")</td>
@@ -72,20 +90,27 @@
                         <td>@Qty(sw.QuantitySown)</td>
                         <td>@Qty(sw.ConfirmedReadyQuantity)</td>
                         <td><strong>@Qty(sw.RemainingReadyQuantity)</strong></td>
-                        <td>@(sw.SupervisorName ?? "-")</td>
+                        <td>@(sw.SupervisorName ?? (sw.IsTransplantedBatch ? "Any approver" : "-"))</td>
                         <td>
                             @{
                                 var (mayApprove, authorityError) = PlantStockManager.Services.DirectSowingRules.CanApprove(
                                     sw.SupervisorId, sw.CreatedById, sw.CreatedBy,
                                     PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.GetUserId(User), User.Identity?.Name, sw.SourceType);
                             }
-                            @if (canApprove && mayApprove)
+                            @{
+                                var (readyOk, _) = PlantStockManager.Services.BedSowingRules.ValidateApprovalReadyDate(sw.SourceType, sw.ExpectedReadyDate, PlantStockManager.Services.AppClock.Today);
+                            }
+                            @if (canApprove && mayApprove && !readyOk)
+                            {
+                                <span class="badge bg-light text-dark border" title="Tray batches from a Bed Sowing or a transplant are approved from their Ready Date">Approve from @sw.ExpectedReadyDate?.ToString("dd/MM/yyyy")</span>
+                            }
+                            else if (canApprove && mayApprove)
                             {
                                 <a asp-page="/Production/ReadyConfirmation/Confirm" asp-route-id="@sw.Id" class="btn btn-sm btn-success">Approve</a>
                             }
                             else if (canApprove)
                             {
-                                <span class="badge bg-secondary" title="@authorityError">@(sw.SupervisorName == null ? "No supervisor assigned" : "Assigned to " + sw.SupervisorName)</span>
+                                <span class="badge bg-secondary" title="@authorityError">@(sw.IsTransplantedBatch ? "You recorded this transplant" : sw.SupervisorName == null ? "No supervisor assigned" : "Assigned to " + sw.SupervisorName)</span>
                             }
                             <a asp-page="/Production/ReadyConfirmation/History" asp-route-id="@sw.Id" class="btn btn-sm btn-outline-secondary">History</a>
                         </td>
@@ -93,7 +118,7 @@
                 }
                 @if (!Model.EligibleSowings.Any())
                 {
-                    <tr><td colspan="13" class="text-center text-muted">No growing batch is waiting for Supervisor Approval.</td></tr>
+                    <tr><td colspan="14" class="text-center text-muted">No growing batch is waiting for Supervisor Approval.</td></tr>
                 }
             </tbody>
         </table>

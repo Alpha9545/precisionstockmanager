@@ -73,6 +73,11 @@ namespace PlantStockManager.Models
             "Adjustment" when ReferenceType == "TrayStockPolyhouseSplit" && Quantity < 0 => "Moved back to Polyhouse stock (2026-10-04)",
             "Adjustment" when ReferenceType == "TrayStockPolyhouseSplit" => "Restored to Polyhouse stock (2026-10-04)",
             "Adjustment" when ReferenceType == "TrayStockReversal" => "Reversed entry (no Polyhouse recorded)",
+            "Adjustment" when ReferenceType == "TrayAdjustment" => "Adjustment (count correction)",
+            "Transplant" => "Used for Transplanting",
+            "TransferOut" => "Sent (transfer)",
+            "TransferIn" => "Received (transfer)",
+            "TransferReturn" => "Returned (transfer rejected / cancelled)",
             _ => TransactionType
         };
     }

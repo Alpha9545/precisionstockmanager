@@ -125,6 +125,13 @@ namespace PlantStockManager.Services
         {
             if (!approverId.HasValue)
                 return (false, "Your user could not be identified.");
+            // 2026-10-13: a tray batch made by a transplant has no assigned supervisor -- any user who
+            // may approve sowings (page permission ReadyStock.Confirm; TR_ReadyConfirmations_AssignedSupervisor)
+            // approves it; a Bed Sowing batch never by the person who recorded the transplant.
+            if (TrayBatchRules.IsTransplantedBatch(sourceType))
+                return sourceType == Models.SeedSowing.SourceBedSowing && IsOwnSowing(createdById, createdBy, approverId, approverName)
+                    ? (false, OwnSowingMessage)
+                    : (true, null);
             var recorderMayApprove = sourceType == Models.SeedSowing.SourceCutting;
             if (!recorderMayApprove && IsOwnSowing(createdById, createdBy, approverId, approverName))
                 return (false, OwnSowingMessage);
@@ -188,6 +195,36 @@ namespace PlantStockManager.Services
             if (polyhouse.HasValue && polyhouseAreaId.HasValue && polyhouseAreaId.Value != areaId)
                 return (false, 0, null, "Selected Polyhouse belongs to a different Area.");
             return (true, areaId, polyhouse, null);
+        }
+
+        // ---- Direct Seed Sowing location (2026-10-08) -----------------------
+        // Direct Seed Sowing is done ONLY in the Main Areas (AreaType MainOffice).
+        // The user picks only the Polyhouse; the Area is NEVER taken from the
+        // browser -- it is the Polyhouse's own dbo.Polyhouses.AreaId, read from
+        // the database. postedAreaId is whatever the request carried (the form
+        // has no Area field, so anything > 0 is a forged value): it is refused
+        // when it disagrees with the Polyhouse's Area and otherwise ignored.
+        // polyhouseFound = the Polyhouse row exists; its Area's type and
+        // active flag come from the same database read.
+        public const string DirectSowingPolyhouseRequiredMessage = "Please select a Polyhouse for this sowing.";
+        public const string DirectSowingPolyhouseNotFoundMessage = "Selected Polyhouse does not exist.";
+        public const string DirectSowingNotMainAreaMessage =
+            "Direct Seed Sowing is done only in Main Area Polyhouses. The selected Polyhouse does not belong to an active Main Area.";
+        public const string DirectSowingAreaMismatchMessage =
+            "The Area is determined by the selected Polyhouse and cannot be chosen. Reload the page and select the Polyhouse again.";
+
+        public static (bool Ok, int AreaId, string? Error) ResolveDirectSowingArea(
+            int? postedAreaId, int? polyhouseId, bool polyhouseFound, int? polyhouseAreaId, string? areaType, bool areaIsActive)
+        {
+            if (polyhouseId is not > 0)
+                return (false, 0, DirectSowingPolyhouseRequiredMessage);
+            if (!polyhouseFound)
+                return (false, 0, DirectSowingPolyhouseNotFoundMessage);
+            if (polyhouseAreaId is not > 0 || !IsMainOfficeSeedLocation(areaType, areaIsActive))
+                return (false, 0, DirectSowingNotMainAreaMessage);
+            if (postedAreaId is > 0 && postedAreaId.Value != polyhouseAreaId.Value)
+                return (false, 0, DirectSowingAreaMismatchMessage);
+            return (true, polyhouseAreaId.Value, null);
         }
 
         // Nobody approves a sowing they recorded themselves (segregation of

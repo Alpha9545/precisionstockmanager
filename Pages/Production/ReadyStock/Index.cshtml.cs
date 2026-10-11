@@ -63,10 +63,10 @@ namespace PlantStockManager.Pages.Production.ReadyStock
         }
 
         private static readonly string[] ExportHeaders =
-            { "Sowing Code", "Species", "Plant Type", "Area", "Polyhouse", "Cavity", "Physical Qty", "Reserved", "Dispatched", "Available Qty" };
+            { "Sowing Code", "Origin", "Species", "Plant Type", "Area", "Polyhouse", "Cavity", "Physical Qty", "Reserved", "Dispatched", "In Transit", "Available Qty" };
 
         private static IReadOnlyList<object?> Row(ReadyStockModel r) => new object?[]
-            { r.SowingCode, r.SpeciesName, r.PlantTypeName, r.AreaName, r.PolyhouseName, r.CavityType, r.PhysicalQuantity, r.ReservedQuantity, r.DispatchedQuantity, r.AvailableQuantity };
+            { r.SowingCode, r.OriginLabel, r.SpeciesName, r.PlantTypeName, r.AreaName, r.PolyhouseName, r.CavityType, r.PhysicalQuantity, r.ReservedQuantity, r.DispatchedQuantity, r.InTransitQuantity, r.AvailableQuantity };
 
         public async Task<IActionResult> OnGetExportExcelAsync()
         {
@@ -80,8 +80,8 @@ namespace PlantStockManager.Pages.Production.ReadyStock
             var list = await LoadFilteredAsync();
             var rows = list.Select(r => (IReadOnlyList<string>)new[]
             {
-                r.SowingCode ?? "", r.SpeciesName ?? "", r.PlantTypeName ?? "", r.AreaName ?? "", r.PolyhouseName ?? "", r.CavityType ?? "",
-                QuantityFormat.Qty(r.PhysicalQuantity), QuantityFormat.Qty(r.ReservedQuantity), QuantityFormat.Qty(r.DispatchedQuantity), QuantityFormat.Qty(r.AvailableQuantity)
+                r.SowingCode ?? "", r.OriginLabel, r.SpeciesName ?? "", r.PlantTypeName ?? "", r.AreaName ?? "", r.PolyhouseName ?? "", r.CavityType ?? "",
+                QuantityFormat.Qty(r.PhysicalQuantity), QuantityFormat.Qty(r.ReservedQuantity), QuantityFormat.Qty(r.DispatchedQuantity), QuantityFormat.Qty(r.InTransitQuantity), QuantityFormat.Qty(r.AvailableQuantity)
             });
             var bytes = ExportHelper.BuildPdf("Ready Stock", ExportHeaders, rows);
             return File(bytes, "application/pdf", $"ReadyStock_{DateTime.Now:yyyyMMdd_HHmm}.pdf");

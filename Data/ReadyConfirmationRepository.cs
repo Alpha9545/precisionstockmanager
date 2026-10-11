@@ -79,6 +79,27 @@ LEFT JOIN dbo.IMSUsers ab ON rc.ApprovedById = ab.Id
 LEFT JOIN dbo.IMSUsers r ON rc.ResponsiblePersonId = r.Id
 LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
 
+        // The growing material an approval took for its extra trays (Main Office
+        // cutting sowings), for the confirmation message; "" when it took none.
+        public async Task<string> GetExtraMaterialTextAsync(int confirmationId)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new SqlCommand(@"
+SELECT m.Name, m.Unit, p.Name, t.StockQuantity, t.Trays, t.QuantityPerTray
+FROM dbo.MaterialTransactions t
+JOIN dbo.MaterialStock s ON s.Id = t.MaterialStockId
+JOIN dbo.MaterialTypes m ON m.Id = s.MaterialTypeId
+JOIN dbo.Polyhouses p ON p.Id = s.PolyhouseId
+WHERE t.ReferenceType = @RT AND t.ReferenceId = @Id AND t.TransactionType = 'CONSUME'", conn);
+            cmd.Parameters.AddWithValue("@RT", MaterialStockRules.ApprovalReference);
+            cmd.Parameters.AddWithValue("@Id", confirmationId);
+            using var r = await cmd.ExecuteReaderAsync();
+            if (!await r.ReadAsync()) return "";
+            var unit = r.GetString(1);
+            return $" {r.GetString(0)} used for the extra trays: {MaterialStockRules.Kg(r.GetDecimal(3), unit)} from {r.GetString(2).Trim()} ({r.GetInt32(4)} trays x {MaterialStockRules.Kg(r.GetDecimal(5), unit)}).";
+        }
+
         public async Task<List<ReadyConfirmation>> GetAllAsync()
         {
             var list = new List<ReadyConfirmation>();
@@ -182,7 +203,7 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                 // 1) Lock the source Sowing.
                 var lockCmd = new SqlCommand(
                     "SELECT SpeciesId, AreaId, PolyhouseId, SowingCode, BatchNo, CavityType, NumberOfTrays, SowingDate, QuantitySown, " +
-                    "ConfirmedReadyQuantity, WastageQuantity, Status, CreatedById, CreatedBy, SupervisorId, SourceType, SourceCuttingStockId " +
+                    "ConfirmedReadyQuantity, WastageQuantity, Status, CreatedById, CreatedBy, SupervisorId, SourceType, SourceCuttingStockId, ExpectedReadyDate " +
                     "FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", seedSowingId);
@@ -193,6 +214,7 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                 decimal quantitySown, confirmedSoFar, wastedSoFar;
                 int? sowingCreatedById, assignedSupervisorId, sowingTrays, sourceCuttingStockId;
                 string? sowingCreatedBy, sowingSourceType;
+                DateTime? expectedReadyDate;
                 using (var reader = await lockCmd.ExecuteReaderAsync())
                 {
                     if (!await reader.ReadAsync())
@@ -218,6 +240,7 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                     assignedSupervisorId = reader.IsDBNull(reader.GetOrdinal("SupervisorId")) ? null : reader.GetInt32(reader.GetOrdinal("SupervisorId"));
                     sowingSourceType = reader.GetString(reader.GetOrdinal("SourceType"));
                     sourceCuttingStockId = reader.IsDBNull(reader.GetOrdinal("SourceCuttingStockId")) ? null : reader.GetInt32(reader.GetOrdinal("SourceCuttingStockId"));
+                    expectedReadyDate = reader.IsDBNull(reader.GetOrdinal("ExpectedReadyDate")) ? null : reader.GetDateTime(reader.GetOrdinal("ExpectedReadyDate"));
                 }
 
                 // 2) Eligibility.
@@ -230,6 +253,16 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                 // assigned to this sowing. A seed sowing's recorder can never
                 // approve it; a cutting tray sowing's recorder can, when they
                 // are its assigned supervisor.
+                // 2026-10-12 / 2026-10-13: a tray batch transplanted from a Bed Sowing or from received Ready
+                // Stock is approved only from its Ready Date (India date), checked here under the row lock;
+                // TR_ReadyConfirmations_BedReadyDate repeats it. Other sowings unchanged.
+                var (readyOk, readyError) = BedSowingRules.ValidateApprovalReadyDate(sowingSourceType, expectedReadyDate, AppClock.Today);
+                if (!readyOk)
+                {
+                    tx.Rollback();
+                    return (false, readyError, 0);
+                }
+
                 var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
                     assignedSupervisorId, sowingCreatedById, sowingCreatedBy, userId, createdBy, sowingSourceType);
                 if (!mayApprove)
@@ -248,6 +281,17 @@ LEFT JOIN dbo.IMSUsers sup ON rc.SupervisorId = sup.Id";
                     return (false, error, 0);
                 }
                 var reasonToStore = wastage > 0 ? wastageReason : null;
+
+                // 3a) A tray batch transplanted from a Bed Sowing holds exactly the seedlings
+                //     counted into its trays at transplanting: approving MORE would create Ready
+                //     Stock no bed ever held (the bed's conservation would break).
+                var (withinOk, withinError) = BedSowingRules.ValidateApprovalWithinTransplanted(
+                    sowingSourceType, readyQuantity, quantitySown - confirmedSoFar - wastedSoFar, cavityType);
+                if (!withinOk)
+                {
+                    tx.Rollback();
+                    return (false, withinError, 0);
+                }
 
                 // 3b) Cutting sowing with MORE ready cuttings than it still expects:
                 //     lock the sowing's own Cutting Stock pool and check the extra
@@ -358,6 +402,19 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                         tx.Rollback();
                         return (false, trayMessage, 0);
                     }
+
+                    // ...and the growing material for those same extra trays: the
+                    // sowing's OWN material from its OWN Area + Polyhouse, at the
+                    // current kg per tray (Main Office sowings only; a sowing with
+                    // no material is a no-op). Not enough -> the whole approval
+                    // rolls back. Tagged to THIS approval, like the trays.
+                    var (materialOk, materialMessage, _) = await MaterialStockRepository.ConsumeForApprovalAsync(
+                        conn, tx, seedSowingId, requiredExtraTrays, newId, sowingCode, userId);
+                    if (!materialOk)
+                    {
+                        tx.Rollback();
+                        return (false, materialMessage, 0);
+                    }
                 }
 
                 // Ready Stock grows by exactly the approved Ready quantity
@@ -423,7 +480,7 @@ WHERE Id = @Id", conn, tx);
             try
             {
                 var lockCmd = new SqlCommand(
-                    "SELECT rc.SeedSowingId, rc.ReadyStockId, rc.ConfirmedQuantity, rc.WastageQuantity, rc.Status, sw.SupervisorId AS SowingSupervisorId, " +
+                    "SELECT rc.SeedSowingId, rc.ReadyStockId, rc.ConfirmedQuantity, rc.WastageQuantity, rc.Status, sw.SupervisorId AS SowingSupervisorId, rc.ApprovedById, " +
                     "sw.SourceType AS SowingSourceType, sw.SourceCuttingStockId AS SowingCuttingStockId " +
                     "FROM dbo.ReadyConfirmations rc WITH (UPDLOCK, HOLDLOCK) INNER JOIN dbo.SeedSowings sw ON sw.Id = rc.SeedSowingId WHERE rc.Id = @Id",
                     conn, tx);
@@ -431,7 +488,7 @@ WHERE Id = @Id", conn, tx);
                 int seedSowingId, readyStockId;
                 decimal confirmedQuantity, wastageQuantity;
                 string status;
-                int? sowingSupervisorId, sowingCuttingStockId;
+                int? sowingSupervisorId, sowingCuttingStockId, approvedById;
                 string sowingSourceType;
                 using (var reader = await lockCmd.ExecuteReaderAsync())
                 {
@@ -447,14 +504,22 @@ WHERE Id = @Id", conn, tx);
                     wastageQuantity = reader.GetDecimal(reader.GetOrdinal("WastageQuantity"));
                     status = reader.GetString(reader.GetOrdinal("Status"));
                     sowingSupervisorId = reader.IsDBNull(reader.GetOrdinal("SowingSupervisorId")) ? null : reader.GetInt32(reader.GetOrdinal("SowingSupervisorId"));
+                    approvedById = reader.IsDBNull(reader.GetOrdinal("ApprovedById")) ? null : reader.GetInt32(reader.GetOrdinal("ApprovedById"));
                     sowingSourceType = reader.GetString(reader.GetOrdinal("SowingSourceType"));
                     sowingCuttingStockId = reader.IsDBNull(reader.GetOrdinal("SowingCuttingStockId")) ? null : reader.GetInt32(reader.GetOrdinal("SowingCuttingStockId"));
                 }
 
-                if (!userId.HasValue || sowingSupervisorId != userId)
+                // 2026-10-13: a tray batch made by a transplant has no assigned supervisor -- the user who
+                // made THIS approval is the one who may cancel it.
+                var mayCancel = userId.HasValue && (TrayBatchRules.IsTransplantedBatch(sowingSourceType) && sowingSupervisorId == null
+                    ? approvedById == userId
+                    : sowingSupervisorId == userId);
+                if (!mayCancel)
                 {
                     tx.Rollback();
-                    return (false, "Only the Sowing Supervisor assigned to this sowing can cancel its approval.");
+                    return (false, TrayBatchRules.IsTransplantedBatch(sowingSourceType) && sowingSupervisorId == null
+                        ? "Only the user who made this approval can cancel it."
+                        : "Only the Sowing Supervisor assigned to this sowing can cancel its approval.");
                 }
                 if (status == "Cancelled")
                 {
@@ -544,6 +609,18 @@ WHERE CuttingStockId = @Pool AND ReferenceType = N'ReadyConfirmation' AND Refere
                 {
                     tx.Rollback();
                     return (false, trayReversalMessage);
+                }
+
+                // Likewise exactly the growing material THIS approval consumed for
+                // its extra trays (the quantity on its ledger row, never
+                // recalculated), back to the same material + Area + Polyhouse.
+                // A no-op when it consumed none.
+                var (materialReversalOk, materialReversalMessage) = await MaterialStockRepository.ReverseForApprovalAsync(
+                    conn, tx, id, userId, "Supervisor Approval cancelled: extra trays' material returned");
+                if (!materialReversalOk)
+                {
+                    tx.Rollback();
+                    return (false, materialReversalMessage);
                 }
 
                 var updateConfirmationCmd = new SqlCommand(

@@ -1,0 +1,36 @@
+@model IEnumerable<PlantStockManager.Models.StoreRequest>
+@using PlantStockManager.Services
+@{
+    var tableId = ViewData["TableId"] as string ?? "requestTable";
+    var empty = ViewData["Empty"] as string ?? "No requests.";
+}
+<div class="table-responsive">
+    <table class="table table-bordered table-striped table-sm align-middle" id="@tableId">
+        <thead class="table-light">
+            <tr><th>Request No</th><th>Destination</th><th>Purpose</th><th>Items</th><th>Requested By</th><th>Requested</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+            @foreach (var r in Model)
+            {
+                <tr data-id="@r.Id">
+                    <td class="text-nowrap fw-bold">@r.RequestNo</td>
+                    <td>@r.Destination</td>
+                    <td>@r.Purpose</td>
+                    <td class="text-end">@r.LineCount</td>
+                    <td>@(r.RequestedByName ?? "—")</td>
+                    <td class="text-nowrap">@AppClock.ToIndiaTime(r.RequestedAt).ToString("dd-MM-yyyy hh:mm tt")</td>
+                    <td class="text-nowrap">
+                        <span class="badge @StoreRules.StatusBadge(r.Status)">@r.Status</span>
+                        @if (r.Status == StoreRules.Issued && r.UnsettledLines > 0) { <span class="badge bg-light text-dark border">@r.UnsettledLines to settle</span> }
+                        @if (r.PendingReturns > 0) { <span class="badge bg-warning text-dark">@r.PendingReturns return(s) to confirm</span> }
+                    </td>
+                    <td><a asp-page="/Store/RequestDetails" asp-route-id="@r.Id" class="btn btn-sm btn-outline-primary">Open</a></td>
+                </tr>
+            }
+            @if (!Model.Any())
+            {
+                <tr><td colspan="8" class="text-center text-muted">@empty</td></tr>
+            }
+        </tbody>
+    </table>
+</div>

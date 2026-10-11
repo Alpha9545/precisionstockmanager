@@ -150,9 +150,12 @@ namespace PlantStockManager.Tests
         {
             Assert.Equal("Labour.View", FeatureAuthorizationConventions.GetRule("/Production/Labour/Index").Read);
             Assert.Equal("Labour.Enter", FeatureAuthorizationConventions.GetRule("/Production/Labour/Entry").Read);
+            // Since 2026-10-06 the menu offers the attendance pages; the manual pages stay reachable
+            // (older records: Attendance History links to them) but are no longer in the menu.
             var layout = ReadSource("Pages", "Shared", "_Layout.cshtml");
-            Assert.Contains("nav-page=\"/Production/Labour/Entry\"", layout);
-            Assert.Contains("nav-page=\"/Production/Labour/Index\"", layout);
+            Assert.Contains("nav-page=\"/Production/Labour/Attendance\"", layout);
+            Assert.Contains("nav-page=\"/Production/Labour/AttendanceHistory\"", layout);
+            Assert.DoesNotContain("nav-page=\"/Production/Labour/Entry\"", layout);
         }
 
         [Fact]

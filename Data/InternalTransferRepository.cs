@@ -167,6 +167,10 @@ ORDER BY t.CreatedDate ASC";
 
         public async Task<(bool Success, string? Message, int Id)> InsertAsync(InternalTransfer entry, int? userId)
         {
+            // Main Area -> Mother Plant transfers hold stock in transit; only their own
+            // repository (MotherPlantTransferRepository) creates and closes them.
+            if (entry.StockType == PlantStockManager.Services.MotherPlantTransferRules.StockType)
+                return (false, PlantStockManager.Services.MotherPlantTransferRules.UseOwnScreenMessage, 0);
             if (entry.Quantity <= 0)
                 return (false, "Quantity must be greater than zero.", 0);
             if (entry.StockType != "Cutting" && (!entry.DestinationAreaId.HasValue || entry.DestinationAreaId <= 0))
@@ -334,10 +338,10 @@ ORDER BY t.CreatedDate ASC";
                     }
 
                     var rsLockCmd = new SqlCommand(
-                        "SELECT AreaId, Quantity, ReservedQuantity, DispatchedQuantity FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
+                        "SELECT AreaId, Quantity, ReservedQuantity, DispatchedQuantity, InTransitQuantity, OriginType FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                         conn, tx);
                     rsLockCmd.Parameters.AddWithValue("@Id", entry.SourceReadyStockId.Value);
-                    int rsAreaId; decimal rsQuantity, rsReserved, rsDispatched;
+                    int rsAreaId; decimal rsQuantity, rsReserved, rsDispatched, rsInTransit; string rsOrigin;
                     using (var rsReader = await rsLockCmd.ExecuteReaderAsync())
                     {
                         if (!await rsReader.ReadAsync())
@@ -350,8 +354,19 @@ ORDER BY t.CreatedDate ASC";
                         rsQuantity = rsReader.GetDecimal(1);
                         rsReserved = rsReader.GetDecimal(2);
                         rsDispatched = rsReader.GetDecimal(3);
+                        rsInTransit = rsReader.GetDecimal(4);
+                        rsOrigin = rsReader.GetString(5);
                     }
                     entry.SourceAreaId = rsAreaId;
+                    // 2026-10-09: a whole-batch move is only for a sowing batch with nothing on its way
+                    // to a Mother Plant Area (a pending transfer would otherwise lose its source).
+                    if (rsInTransit > 0 || rsOrigin != PlantStockManager.Models.ReadyStock.OriginSowing)
+                    {
+                        tx.Rollback();
+                        return (false, rsInTransit > 0
+                            ? "Part of this batch is in transit to a Mother Plant Area; it cannot be moved until that transfer is received, rejected or cancelled."
+                            : "Only a sowing batch can be moved here; received or transplanted batches stay where they are.", 0);
+                    }
 
                     var (rsOk, rsError) = PlantStockManager.Services.ReadyStockTransferRules.ValidateTransfer(
                         entry.Quantity, rsQuantity, rsReserved, rsDispatched, rsAreaId, entry.DestinationAreaId);
@@ -684,6 +699,12 @@ WHERE Id = @Id", conn, tx);
                 var status = reader.GetString(reader.GetOrdinal("Status"));
                 reader.Close();
 
+                if (stockType == PlantStockManager.Services.MotherPlantTransferRules.StockType)
+                {
+                    tx.Rollback();
+                    return (false, PlantStockManager.Services.MotherPlantTransferRules.UseOwnScreenMessage);
+                }
+
                 if (status != "PendingConfirmation")
                 {
                     tx.Rollback();
@@ -761,7 +782,7 @@ SET ResponsiblePersonId = @ResponsiblePersonId,
     Remarks = @Remarks,
     ModifiedDate = SYSUTCDATETIME(),
     ModifiedBy = @ModifiedBy
-WHERE Id = @Id AND Status <> 'Cancelled'";
+WHERE Id = @Id AND Status <> 'Cancelled' AND StockType <> N'MotherPlantTransfer'";   // that type is managed by its own screens
 
                 using var cmd = new SqlCommand(updateSql, conn);
                 cmd.Parameters.AddWithValue("@Id", entry.Id);
@@ -817,6 +838,11 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
                 var status = reader.GetString(reader.GetOrdinal("Status"));
                 reader.Close();
 
+                if (stockType == PlantStockManager.Services.MotherPlantTransferRules.StockType)
+                {
+                    tx.Rollback();
+                    return (false, PlantStockManager.Services.MotherPlantTransferRules.UseOwnScreenMessage);
+                }
                 if (status == "Cancelled")
                 {
                     tx.Rollback();

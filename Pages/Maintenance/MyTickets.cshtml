@@ -1,0 +1,52 @@
+@page
+@model PlantStockManager.Pages.Maintenance.MyTicketsModel
+@using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "My Tickets";
+    var canRaise = await FeatureAccess.CanAccessPageAsync(User, "/Maintenance/Raise");
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h3 class="mb-0">Maintenance Tickets -- My Areas</h3>
+        @if (canRaise) { <a asp-page="/Maintenance/Raise" class="btn btn-primary">+ Raise Ticket</a> }
+    </div>
+    @if (TempData["Error"] != null) { <div class="alert alert-warning">@TempData["Error"]</div> }
+
+    <form method="get" class="row g-2 align-items-end mb-3" id="ticketFilter">
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="statusFilter">Status</label>
+            <select name="status" id="statusFilter" class="form-select">
+                <option value="">Active</option>
+                @foreach (var s in MaintenanceRules.Statuses) { <option value="@s" selected="@(Model.Status == s)">@MaintenanceRules.StatusLabel(s)</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="categoryFilter">Category</label>
+            <select name="categoryId" id="categoryFilter" class="form-select">
+                <option value="">All</option>
+                @foreach (var c in Model.Categories) { <option value="@c.Id" selected="@(Model.CategoryId == c.Id)">@c.Name</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="priorityFilter">Priority</label>
+            <select name="priority" id="priorityFilter" class="form-select">
+                <option value="">All</option>
+                @foreach (var p in MaintenanceRules.Priorities) { <option value="@p" selected="@(Model.Priority == p)">@p</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-auto form-check ms-2">
+            <input type="checkbox" class="form-check-input" name="raisedByMe" value="true" id="raisedByMe" checked="@Model.RaisedByMe" />
+            <label class="form-check-label" for="raisedByMe">Raised by me</label>
+        </div>
+        <div class="col-6 col-md-auto form-check ms-2">
+            <input type="checkbox" class="form-check-input" name="all" value="true" id="allTickets" checked="@Model.All" />
+            <label class="form-check-label" for="allTickets">Include closed / cancelled</label>
+        </div>
+        <div class="col-6 col-md-auto"><button type="submit" class="btn btn-success w-100">Filter</button></div>
+        <div class="col-6 col-md-auto"><a asp-page="/Maintenance/MyTickets" class="btn btn-outline-secondary w-100">Clear</a></div>
+    </form>
+
+    <partial name="_TicketTable" model="Model.Tickets" view-data='new ViewDataDictionary(ViewData) { ["TableId"] = "myTicketsTable", ["Empty"] = "No tickets for the selected filters." }' />
+</div>

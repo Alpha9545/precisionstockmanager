@@ -1,0 +1,83 @@
+@page
+@model PlantStockManager.Pages.Maintenance.ReportsModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Maintenance Reports";
+}
+
+<style>
+    .mt-tiles .tile { border: 1px solid #dee2e6; border-radius: .5rem; padding: .5rem .75rem; background: #fff; height: 100%; }
+    .mt-tiles .tile .label { font-size: .8rem; color: #6c757d; }
+    .mt-tiles .tile .value { font-size: 1.35rem; font-weight: 700; }
+    .mt-tiles .tile.danger { background: #fdf0f0; border-color: #f1b0b7; }
+</style>
+
+<div class="container-fluid mt-4">
+    <h3 class="mb-3">Maintenance Reports</h3>
+
+    <form method="get" class="row g-2 align-items-end mb-3" id="reportFilter">
+        <div class="col-6 col-md-2"><label class="form-label" for="fromDate">Requested from</label>
+            <input type="date" name="fromDate" id="fromDate" value="@Model.FromDate?.ToString("yyyy-MM-dd")" class="form-control" /></div>
+        <div class="col-6 col-md-2"><label class="form-label" for="toDate">to</label>
+            <input type="date" name="toDate" id="toDate" value="@Model.ToDate?.ToString("yyyy-MM-dd")" class="form-control" /></div>
+        <div class="col-6 col-md-1"><label class="form-label" for="categoryFilter">Category</label>
+            <select name="categoryId" id="categoryFilter" class="form-select"><option value="">All</option>
+                @foreach (var c in Model.Categories) { <option value="@c.Id" selected="@(Model.CategoryId == c.Id)">@c.Name</option> }</select></div>
+        <div class="col-6 col-md-2"><label class="form-label" for="workerFilter">Worker</label>
+            <select name="workerId" id="workerFilter" class="form-select"><option value="">All</option>
+                @foreach (var w in Model.Workers) { <option value="@w.Id" selected="@(Model.WorkerId == w.Id)">@w.Name</option> }</select></div>
+        <div class="col-6 col-md-2"><label class="form-label" for="areaFilter">Area</label>
+            <select name="areaId" id="areaFilter" class="form-select" onchange="if (this.form.polyhouseId) this.form.polyhouseId.value=''; this.form.submit()"><option value="">All</option>
+                @foreach (var a in Model.AreaOptions) { <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option> }</select></div>
+        @if (Model.PolyhouseOptions.Any())
+        {
+            <div class="col-6 col-md-1"><label class="form-label" for="polyhouseFilter">Polyhouse</label>
+                <select name="polyhouseId" id="polyhouseFilter" class="form-select"><option value="">All</option>
+                    @foreach (var p in Model.PolyhouseOptions) { <option value="@p.Id" selected="@(Model.PolyhouseId == p.Id)">@p.Name</option> }</select></div>
+        }
+        <div class="col-6 col-md-1"><label class="form-label" for="statusFilter">Status</label>
+            <select name="status" id="statusFilter" class="form-select"><option value="">All</option>
+                @foreach (var s in MaintenanceRules.Statuses) { <option value="@s" selected="@(Model.Status == s)">@MaintenanceRules.StatusLabel(s)</option> }</select></div>
+        <div class="col-6 col-md-1"><label class="form-label" for="priorityFilter">Priority</label>
+            <select name="priority" id="priorityFilter" class="form-select"><option value="">All</option>
+                @foreach (var p in MaintenanceRules.Priorities) { <option value="@p" selected="@(Model.Priority == p)">@p</option> }</select></div>
+        <div class="col-6 col-md-auto"><button type="submit" class="btn btn-success w-100">Filter</button></div>
+        <div class="col-6 col-md-auto"><a asp-page="/Maintenance/Reports" class="btn btn-outline-secondary w-100">Clear</a></div>
+    </form>
+
+    <div class="mt-tiles row g-2 mb-2" id="reportTiles">
+        @foreach (var (label, count) in Model.Counts)
+        {
+            <div class="col-6 col-md-2 col-xl-1"><div class="tile @(label is "Overdue" or "Critical" && count > 0 ? "danger" : "")" data-label="@label"><div class="label">@label</div><div class="value">@count</div></div></div>
+        }
+    </div>
+    <div class="small text-muted mb-3" id="overallTimes">
+        Total work hours @MaintenanceRules.Hours(Model.Overall.WorkTime) · average response (request → arrival) @MaintenanceRules.Format(Model.Overall.AverageResponse)
+        · average on-site @MaintenanceRules.Format(Model.Overall.AverageOnSite) · average resolution (request → closed) @MaintenanceRules.Format(Model.Overall.AverageResolution).
+        Overdue = not accepted in time (Critical 4 h, Urgent 24 h, Normal 72 h) or the expected visit date passed without arrival.
+    </div>
+
+    @foreach (var (title, rows, id) in new[] { ("Worker-wise", Model.ByWorker, "byWorker"), ("Category-wise", Model.ByCategory, "byCategory"), ("Area-wise", Model.ByArea, "byArea"), ("Polyhouse-wise", Model.ByPolyhouse, "byPolyhouse") })
+    {
+        <h5>@title</h5>
+        <div class="table-responsive mb-4">
+            <table class="table table-bordered table-sm align-middle" id="@id">
+                <thead class="table-light"><tr><th></th><th class="text-end">Tickets</th><th class="text-end">Active</th><th class="text-end">Closed</th><th class="text-end">Overdue</th><th class="text-end">Total Work Hours</th><th class="text-end">Avg Response</th><th class="text-end">Avg On-site</th><th class="text-end">Avg Resolution</th></tr></thead>
+                <tbody>
+                    @foreach (var r in rows)
+                    {
+                        <tr>
+                            <td>@r.Key</td><td class="text-end">@r.Tickets</td><td class="text-end">@r.Open</td><td class="text-end">@r.Closed</td><td class="text-end">@r.Overdue</td>
+                            <td class="text-end fw-bold">@MaintenanceRules.Hours(r.WorkTime)</td>
+                            <td class="text-end">@MaintenanceRules.Format(r.AverageResponse)</td><td class="text-end">@MaintenanceRules.Format(r.AverageOnSite)</td><td class="text-end">@MaintenanceRules.Format(r.AverageResolution)</td>
+                        </tr>
+                    }
+                    @if (!rows.Any()) { <tr><td colspan="9" class="text-center text-muted">No tickets.</td></tr> }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <h5>Overdue tickets</h5>
+    <partial name="_TicketTable" model="Model.OverdueTickets" view-data='new ViewDataDictionary(ViewData) { ["TableId"] = "overdueTable", ["Empty"] = "Nothing overdue." }' />
+</div>

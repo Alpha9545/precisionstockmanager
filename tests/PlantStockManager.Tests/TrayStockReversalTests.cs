@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 
 namespace PlantStockManager.Tests
 {
@@ -60,7 +61,20 @@ namespace PlantStockManager.Tests
             public ServiceProvider Provider { get; init; } = null!;
             public int Species { get; init; }
             public int SeedStockId { get; init; }
+            public int Cocopeat { get; init; }
             public T Get<T>() where T : notnull => Provider.GetRequiredService<T>();
+
+            // 2026-10-08: Direct Seed Sowing is done only in Main Area Polyhouses, and a
+            // Main Area sowing uses one growing material -- keep plenty of Cocopeat there
+            // (through the real ledger path) so these Tray Stock tests test trays only.
+            public async Task EnsureCocopeatAsync(int areaId, int polyhouseId)
+            {
+                var balance = await ScalarAsync<decimal>("SELECT ISNULL((SELECT CurrentQuantity FROM dbo.MaterialStock WHERE AreaId = @A AND PolyhouseId = @P AND MaterialTypeId = @M), 0)",
+                    ("@A", areaId), ("@P", polyhouseId), ("@M", Cocopeat));
+                if (balance >= 1000m) return;
+                var (ok, msg, _) = await Get<MaterialStockRepository>().AdjustAsync(areaId, polyhouseId, Cocopeat, 1, 5000m, "tray-test setup", Guid.NewGuid(), Recorder, _ => true);
+                Assert.True(ok, msg);
+            }
 
             public async Task<T> ScalarAsync<T>(string sql, params (string Name, object? Value)[] args)
             {
@@ -171,13 +185,18 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
                     ("@S", species), ("@A", MainOfficeAreaId));
                 seedStockId = await env.ScalarAsync<int>("SELECT TOP 1 Id FROM dbo.SeedStock WHERE SpeciesId = @S AND AreaId = @A", ("@S", species), ("@A", MainOfficeAreaId));
             }
-            return new Env { ConnectionString = cs!, Provider = provider, Species = species, SeedStockId = seedStockId };
+            var cocopeat = await env.ScalarAsync<int>("SELECT Id FROM dbo.MaterialTypes WHERE Code = 'COCOPEAT'");
+            var ready = new Env { ConnectionString = cs!, Provider = provider, Species = species, SeedStockId = seedStockId, Cocopeat = cocopeat };
+            await ready.EnsureCocopeatAsync(MainOfficeAreaId, Facility5);
+            await ready.EnsureCocopeatAsync(MainOfficeAreaId, Facility3);
+            return ready;
         }
 
         private static SeedSowing SeedSowingInto(Env env, int areaId, int? polyhouseId, decimal quantity, string traySize = "24 Cavity") => new()
         {
             SourceSeedStockId = env.SeedStockId, SeedQuantity = quantity, CavityType = traySize, SowingDate = DateTime.Today,
-            AreaId = areaId, PolyhouseId = polyhouseId, SupervisorId = SupervisorId, CreatedBy = "tray-test", CreatedById = Recorder
+            AreaId = areaId, PolyhouseId = polyhouseId, SupervisorId = SupervisorId, CreatedBy = "tray-test", CreatedById = Recorder,
+            GrowingMaterialTypeId = env.Cocopeat
         };
 
         private static SeedSowing CuttingSowingInto(int cuttingPool, int areaId, int polyhouseId, decimal quantity, string traySize = "24 Cavity") => new()
@@ -319,10 +338,10 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
         {
             var env = await OpenAsync();
             await env.ResetSeedPoolAsync(5000);
-            var p2 = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP2, "24 Cavity", 100);
-            var p1 = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP1, "24 Cavity", 50);
+            var p2 = await env.SetPoolAsync(MainOfficeAreaId, Facility5, "24 Cavity", 100);
+            var p1 = await env.SetPoolAsync(MainOfficeAreaId, Facility3, "24 Cavity", 50);
 
-            var sowing = SeedSowingInto(env, GreenBlessAreaId, GreenBlessP2, 950);
+            var sowing = SeedSowingInto(env, MainOfficeAreaId, Facility5, 950);
             var (ok, msg, sowingId) = await env.Get<SeedSowingRepository>().InsertAsync(sowing, Recorder, _ => true);
 
             Assert.True(ok, msg);
@@ -338,12 +357,12 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
         {
             var env = await OpenAsync();
             await env.ResetSeedPoolAsync(5000);
-            var pool = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP2, "24 Cavity", 30);
+            var pool = await env.SetPoolAsync(MainOfficeAreaId, Facility5, "24 Cavity", 30);
             var sowingsBefore = await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings");
             var seedBefore = await env.ScalarAsync<decimal>("SELECT PhysicalQuantity FROM dbo.SeedStock WHERE Id = @Id", ("@Id", env.SeedStockId));
 
             var (ok, msg, sowingId) = await env.Get<SeedSowingRepository>().InsertAsync(
-                SeedSowingInto(env, GreenBlessAreaId, GreenBlessP2, 950), Recorder, _ => true);
+                SeedSowingInto(env, MainOfficeAreaId, Facility5, 950), Recorder, _ => true);
 
             Assert.False(ok);
             Assert.Equal(0, sowingId);
@@ -379,10 +398,10 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
             await env.ResetSeedPoolAsync(5000);
             var sowingsBefore = await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings");
 
-            var (ok, msg, _) = await env.Get<SeedSowingRepository>().InsertAsync(SeedSowingInto(env, GreenBlessAreaId, SamarthP1, 480), Recorder, _ => true);
+            var (ok, msg, _) = await env.Get<SeedSowingRepository>().InsertAsync(SeedSowingInto(env, GreenBlessAreaId, Facility5, 480), Recorder, _ => true);
 
             Assert.False(ok);
-            Assert.Contains("different Area", msg);
+            Assert.Equal(DirectSowingRules.DirectSowingAreaMismatchMessage, msg);   // a posted Area that is not the Polyhouse's own
             Assert.Equal(sowingsBefore, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings"));
         }
 
@@ -424,9 +443,9 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
         {
             var env = await OpenAsync();
             await env.ResetSeedPoolAsync(5000);
-            var p2 = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP2, "24 Cavity", 100);
-            var p1 = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP1, "24 Cavity", 50);
-            var (ok, msg, sowingId) = await env.Get<SeedSowingRepository>().InsertAsync(SeedSowingInto(env, GreenBlessAreaId, GreenBlessP2, 950), Recorder, _ => true);
+            var p2 = await env.SetPoolAsync(MainOfficeAreaId, Facility5, "24 Cavity", 100);
+            var p1 = await env.SetPoolAsync(MainOfficeAreaId, Facility3, "24 Cavity", 50);
+            var (ok, msg, sowingId) = await env.Get<SeedSowingRepository>().InsertAsync(SeedSowingInto(env, MainOfficeAreaId, Facility5, 950), Recorder, _ => true);
             Assert.True(ok, msg);
             Assert.Equal(60m, await env.TrayPhysicalAsync(p2));
 
@@ -538,8 +557,8 @@ ORDER BY sw.Id");
         {
             var env = await OpenAsync();
             await env.ResetSeedPoolAsync(10000);
-            var pool = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP2, "24 Cavity", 100);
-            var (sowOk, sowMsg, sowingId) = await env.Get<SeedSowingRepository>().InsertAsync(SeedSowingInto(env, GreenBlessAreaId, GreenBlessP2, 480), Recorder, _ => true);
+            var pool = await env.SetPoolAsync(MainOfficeAreaId, Facility5, "24 Cavity", 100);
+            var (sowOk, sowMsg, sowingId) = await env.Get<SeedSowingRepository>().InsertAsync(SeedSowingInto(env, MainOfficeAreaId, Facility5, 480), Recorder, _ => true);
             Assert.True(sowOk, sowMsg);
 
             var (ok, message, confirmationId) = await env.Get<ReadyConfirmationRepository>().ConfirmAsync(
@@ -557,12 +576,12 @@ ORDER BY sw.Id");
         {
             var env = await OpenAsync();
             await env.ResetSeedPoolAsync(5000);
-            var pool = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP2, "24 Cavity", 50);
+            var pool = await env.SetPoolAsync(MainOfficeAreaId, Facility5, "24 Cavity", 50);
 
             using var scopeA = env.Provider.CreateScope();
             using var scopeB = env.Provider.CreateScope();
-            var taskA = scopeA.ServiceProvider.GetRequiredService<SeedSowingRepository>().InsertAsync(SeedSowingInto(env, GreenBlessAreaId, GreenBlessP2, 720), Recorder, _ => true);
-            var taskB = scopeB.ServiceProvider.GetRequiredService<SeedSowingRepository>().InsertAsync(SeedSowingInto(env, GreenBlessAreaId, GreenBlessP2, 720), Recorder, _ => true);
+            var taskA = scopeA.ServiceProvider.GetRequiredService<SeedSowingRepository>().InsertAsync(SeedSowingInto(env, MainOfficeAreaId, Facility5, 720), Recorder, _ => true);
+            var taskB = scopeB.ServiceProvider.GetRequiredService<SeedSowingRepository>().InsertAsync(SeedSowingInto(env, MainOfficeAreaId, Facility5, 720), Recorder, _ => true);
             var results = await Task.WhenAll(taskA, taskB);   // 720/24 = 30 trays each
 
             Assert.Equal(1, results.Count(r => r.Success));

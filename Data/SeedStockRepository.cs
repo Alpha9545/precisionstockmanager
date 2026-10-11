@@ -287,6 +287,24 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             }
         }
 
+        // 2026-10-12: seeds AVAILABLE to a deduction dated atUtc: the LOWEST balance of the lot from that
+        // instant onward, in business-date order. Computed BACKWARD from the current balance
+        // (balance at atUtc = PhysicalQuantity - every row dated after it), so a lot whose opening
+        // stock has no ledger row is still judged correctly. Call under the lot lock.
+        public static async Task<decimal> AvailableFromAsync(SqlConnection conn, SqlTransaction tx, int seedStockId, DateTime? atUtc)
+        {
+            var cmd = new SqlCommand(@"
+DECLARE @B DECIMAL(18, 2) = (SELECT PhysicalQuantity FROM dbo.SeedStock WHERE Id = @Id)
+    - (SELECT ISNULL(SUM(Quantity), 0) FROM dbo.SeedStockTransactions WHERE SeedStockId = @Id AND TransactionDate > @At);
+SELECT CASE WHEN m.MinRunning IS NULL OR m.MinRunning > @B THEN @B ELSE m.MinRunning END
+FROM (SELECT MIN(r.Running) AS MinRunning
+      FROM (SELECT @B + SUM(Quantity) OVER (ORDER BY TransactionDate, Id ROWS UNBOUNDED PRECEDING) AS Running
+            FROM dbo.SeedStockTransactions WHERE SeedStockId = @Id AND TransactionDate > @At) r) m;", conn, tx);
+            cmd.Parameters.AddWithValue("@Id", seedStockId);
+            cmd.Parameters.Add("@At", System.Data.SqlDbType.DateTime2).Value = (object?)atUtc ?? DateTime.UtcNow;
+            return (decimal)(await cmd.ExecuteScalarAsync())!;
+        }
+
         // Records a signed stock movement and writes the matching
         // ledger row in the SAME transaction -- PhysicalQuantity is
         // never changed any other way. Enforces PhysicalQuantity >= 0
@@ -310,6 +328,15 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             var after = before + quantityDelta;
             if (after < 0)
                 return (false, $"This movement would take Physical Quantity negative (current {QuantityFormat.Qty(before)}, change {QuantityFormat.Qty(quantityDelta)}).");
+            // 2026-10-12: a BACK-DATED deduction (only Bed Sowing passes one) must also fit the lot's
+            // balance on its business date and at every later point -- the history never goes negative.
+            if (quantityDelta < 0 && TrayStockRepository.IsBackDated(transactionDate))
+            {
+                var availableThen = await AvailableFromAsync(conn, tx, seedStockId, transactionDate);
+                if (-quantityDelta > availableThen)
+                    return (false, $"Only {QuantityFormat.Qty(Math.Max(availableThen, 0))} seeds were in this lot from {AppClock.ToIndiaTime(transactionDate!.Value):dd/MM/yyyy} onward "
+                        + $"(counting every later movement); {QuantityFormat.Qty(-quantityDelta)} needed. Record the seed's arrival first, or use a later date.");
+            }
 
             var updateCmd = new SqlCommand(
                 "UPDATE dbo.SeedStock SET PhysicalQuantity = @After, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id",

@@ -32,6 +32,9 @@ namespace PlantStockManager.Models
         public decimal ReadyStockReadySoonQuantity { get; set; }
 
         // ---- 2B. Ready Stock by Plant Type (Step 8B) -------------------------
+        // 2026-10-10: these figures are now Ready Stock AVAILABLE for booking/dispatch
+        // (Quantity - Reserved - Dispatched - InTransit; docs/STOCK_DEFINITIONS.md), not the
+        // balance described below.
         // The Ready Stock BALANCE (dbo.ReadyStock.Quantity - DispatchedQuantity
         // -- the same figure Pages/Production/ReadyStock/Index.cshtml.cs calls
         // "Physical Qty" and sums as its own page total; NOT Overdue/ReadyToday/

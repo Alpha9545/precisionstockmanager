@@ -132,7 +132,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             DateTime wastageDate, int outletAreaId, int? userId, string? createdBy)
         {
             var lockCmd = new SqlCommand(
-                "SELECT SpeciesId, CavityType, AreaId, Quantity, ReservedQuantity, DispatchedQuantity FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
+                // Reserved + in-transit (to a Mother Plant Area): neither is available.
+                "SELECT SpeciesId, CavityType, AreaId, Quantity, ReservedQuantity + InTransitQuantity, DispatchedQuantity FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
             lockCmd.Parameters.AddWithValue("@Id", stockId);
             int speciesId; string cavityType; int? areaId; decimal readyQty, reserved, dispatched;
             using (var r = await lockCmd.ExecuteReaderAsync())
@@ -177,7 +178,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             if (!resOk) { tx.Rollback(); return (false, resMessage, 0); }
             var (wasteOk, wasteMessage) = await _readyStockRepo.RecordDispatchAsync(
                 conn, tx, stockId, seedlings, "OutletWastage", newId, userId,
-                $"Outlet wastage {code}: {reason}" + (string.IsNullOrWhiteSpace(remarks) ? "" : $" - {remarks}"), "Wastage");
+                $"Outlet wastage {code}: {reason}" + (string.IsNullOrWhiteSpace(remarks) ? "" : $" - {remarks}"), "Wastage",
+                wastageDate.Date);   // business date = the wastage date (reserved in this same operation)
             if (!wasteOk) { tx.Rollback(); return (false, wasteMessage, 0); }
 
             tx.Commit();
