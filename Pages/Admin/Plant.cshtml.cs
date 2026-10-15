@@ -21,6 +21,11 @@ namespace PlantStockManager.Pages.Admin
 
         public List<PlantTypeSpeciesViewModel> PlantTypeSpeciesList { get; set; } = new();
 
+        // 2026-10-15: inactive (retired "DUP-...") varieties are listed only with this filter on.
+        [BindProperty(SupportsGet = true)]
+        public bool ShowInactive { get; set; }
+        public int InactiveCount { get; set; }
+
         // For Plant Type Add/Edit
         [BindProperty]
         public string NewPlantTypeName { get; set; }
@@ -68,9 +73,16 @@ namespace PlantStockManager.Pages.Admin
         {
             var plantTypes = await _plantTypeRepo.GetAllPlantTypes();
             PlantTypeSpeciesList.Clear();
+            InactiveCount = 0;
             foreach (var type in plantTypes)
             {
-                var species = await _plantSpeciesRepo.GetSpeciesByPlantType(type.Id);
+                var all = await _plantSpeciesRepo.GetSpeciesByPlantType(type.Id, includeInactive: true);
+                InactiveCount += all.Count(s => !s.IsActive);
+                var species = ShowInactive ? all : all.Where(s => s.IsActive).ToList();
+                if (ShowInactive)
+                    foreach (var dup in all.Where(s => !s.IsActive && PlantStockManager.Services.PlantSpeciesNameRules.IsMergedDuplicate(s.Name)))
+                        if (await _plantSpeciesRepo.FindMergedIntoAsync(dup.Id) is { } k)
+                            MergedInto[dup.Id] = k.Name;
                 PlantTypeSpeciesList.Add(new PlantTypeSpeciesViewModel
                 {
                     PlantType = type,
@@ -112,7 +124,18 @@ namespace PlantStockManager.Pages.Admin
                     TempData["Error"] = "Ready Stock Days must be greater than zero when provided.";
                     return RedirectToPage();
                 }
-                await _plantSpeciesRepo.AddPlantSpecies(NewSpeciesTypeId, NewSpeciesName, NewSpeciesScientificName, NewSpeciesReadyStockDays, NewSpeciesColor);
+                if (PlantStockManager.Services.PlantSpeciesNameRules.IsMergedDuplicate(NewSpeciesName))
+                {
+                    TempData["Error"] = $"Variety not added: names starting with \"{PlantStockManager.Services.PlantSpeciesNameRules.MergedPrefix}\" are reserved for merged duplicates.";
+                    return RedirectToPage();
+                }
+                var existing = await _plantSpeciesRepo.AddPlantSpecies(NewSpeciesTypeId, NewSpeciesName, NewSpeciesScientificName, NewSpeciesReadyStockDays, NewSpeciesColor);
+                if (existing is { } e)
+                {
+                    TempData["Error"] = $"Variety not added: '{e.Name}' already exists (Id {e.Id}{(e.PlantTypeName == null ? "" : ", " + e.PlantTypeName.Trim())}). "
+                        + "Names are compared ignoring capital letters and extra spaces. Use the existing variety, or enter a different name.";
+                    return RedirectToPage();
+                }
             }
             return RedirectToPage();
         }
@@ -133,7 +156,26 @@ namespace PlantStockManager.Pages.Admin
                 // ReadyStockDays value it read at the moment of sowing
                 // onto the SeedSowings row itself, so no past Sowing's
                 // ExpectedReadyDate/ReadyStockDays is touched by this edit.
-                await _plantSpeciesRepo.UpdatePlantSpecies(EditSpeciesId, EditSpeciesName, EditSpeciesScientificName, EditSpeciesReadyStockDays, EditSpeciesColor);
+                // 2026-10-15: a merged duplicate ("DUP-...") is history only -- it cannot be edited, and no variety may be
+                // renamed to the reserved prefix (that would make it look merged and block reactivation).
+                var current = await _plantSpeciesRepo.GetByIdAsync(EditSpeciesId);
+                if (current != null && PlantStockManager.Services.PlantSpeciesNameRules.IsMergedDuplicate(current.Name))
+                {
+                    TempData["Error"] = "Variety not saved: merged duplicates (\"DUP-...\") are kept unchanged for history.";
+                    return RedirectToPage(new { ShowInactive = true });
+                }
+                if (PlantStockManager.Services.PlantSpeciesNameRules.IsMergedDuplicate(EditSpeciesName))
+                {
+                    TempData["Error"] = $"Variety not saved: names starting with \"{PlantStockManager.Services.PlantSpeciesNameRules.MergedPrefix}\" are reserved for merged duplicates.";
+                    return RedirectToPage();
+                }
+                var clash = await _plantSpeciesRepo.UpdatePlantSpecies(EditSpeciesId, EditSpeciesName, EditSpeciesScientificName, EditSpeciesReadyStockDays, EditSpeciesColor);
+                if (clash is { } c)
+                {
+                    TempData["Error"] = $"Variety not saved: another variety is already named '{c.Name}' (Id {c.Id}{(c.PlantTypeName == null ? "" : ", " + c.PlantTypeName.Trim())}). "
+                        + "Names are compared ignoring capital letters and extra spaces. Choose a different name.";
+                    return RedirectToPage();
+                }
             }
             return RedirectToPage();
         }
@@ -152,17 +194,26 @@ namespace PlantStockManager.Pages.Admin
             return RedirectToPage();
         }
 
-        public async Task<IActionResult> OnPostDeleteSpeciesAsync(int id)
+        // 2026-10-15 (owner rule: no physical deletes): the variety's Delete is replaced by Deactivate (IsActive = 0),
+        // refused with a clear message while active stock / bookings / open batches still use it.
+        public async Task<IActionResult> OnPostDeactivateSpeciesAsync(int id)
         {
-            bool deleted = await _plantSpeciesRepo.DeletePlantSpecies(id);
-
-            if (!deleted)
-            {
-                TempData["Error"] = "Cannot delete. Species is used in Seed Entries.";
-            }
-
-            return RedirectToPage();
+            var (ok, message) = await _plantSpeciesRepo.DeactivatePlantSpecies(id);
+            TempData[ok ? "Success" : "Error"] = message;
+            return RedirectToPage(ok ? new { ShowInactive = true } : null);
         }
+
+        // 2026-10-15: brings a normally DEACTIVATED variety back into every dropdown. Refused for a merged duplicate
+        // ("This variety was merged into ...") and while an active variety has the same name.
+        public async Task<IActionResult> OnPostReactivateSpeciesAsync(int id)
+        {
+            var (ok, message) = await _plantSpeciesRepo.ReactivatePlantSpecies(id);
+            TempData[ok ? "Success" : "Error"] = message;
+            return RedirectToPage(new { ShowInactive = true });
+        }
+
+        // For the Variety master's inactive rows: what each merged duplicate went into (Id -> kept name).
+        public Dictionary<int, string> MergedInto { get; set; } = new();
 
     }
 }

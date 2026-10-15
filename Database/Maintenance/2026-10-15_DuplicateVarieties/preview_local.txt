@@ -1,0 +1,114 @@
+ServerName|DatabaseName|Mode|PlantSpecies_IsActive
+----------|------------|----|---------------------
+LAPTOP-R87BKQGH\MSSQLSERVER02|PlantsIMS2_Test|PREVIEW (@Commit = 0) - read-only|MISSING - run 2026-10-15_PlantSpeciesIsActive.sql before saving
+GroupNo|FinalName|KeepId|KeepCurrentName|PlantTypeName|KeepDays|Duplicates|Action
+-------|---------|------|---------------|-------------|--------|----------|------
+1|Lantana Beach|3914|Latania Beach|SEASONAL VARITIES|25|3926 Lantana Beach [32d]|merge duplicates into keep
+2|Lantana Coconut|3918|Latania Coconut|SEASONAL VARITIES|25|3968 Lantana Coconut [32d]|merge duplicates into keep
+3|Lantana IBIS|3920|Latania IBIS|SEASONAL VARITIES|25|3969 Lantana IBIS [32d]|merge duplicates into keep
+4|Lantana Litchi|3919|Latania Litchi|SEASONAL VARITIES|25|3970 Lantana Litchi [32d]|merge duplicates into keep
+5|Lantana Nandu|3917|Latania Nadu|SEASONAL VARITIES|25|3971 Lantana Nandu [32d]|merge duplicates into keep
+6|Lantana Pitaya|3915|Latania Pattaya|SEASONAL VARITIES|25|3972 Lantana Pitaya [32d]|merge duplicates into keep
+7|Aster chinensis Gala Mix|3832|Callistephus Gala Mix|SEASONAL VARITIES|30|3922 Aster chinensis Gala Mix [30d]|merge duplicates into keep
+8|M.G Hot pack mix|3086|Mg. Hot Pak mix|SEASONAL VARITIES|15|3134 M.G Hot pack mix [15d]|merge duplicates into keep
+9|Aishwarya Yellow|33|Aishwarya Yellow|CHRYSANTHEMUM|20|3144 Aishwarya Yellow [20d]|merge duplicates into keep
+10|Pramila Bronze|26|Pramila Bronze|CHRYSANTHEMUM|20|3142 Pramila Bronze [20d]|merge duplicates into keep
+11|Sharvari Purple|24|Sharvari Purple|CHRYSANTHEMUM|22|3136 Sharvari Purple [22d]|merge duplicates into keep
+12|SH-WR|3115|SH-WR|CHRYSANTHEMUM|20|3118 SH-WR [20d]|merge duplicates into keep
+13|Jayashree Bronze Red|30|Jayashree Bronze red|CHRYSANTHEMUM|20|3141 Jayashree Bronze Red [20d]|merge duplicates into keep
+14|Lantana Red|3913|Latania Red|SEASONAL VARITIES|25|-|rename only
+15|Lantana Transizin|3916|Latania Transizin|SEASONAL VARITIES|25|-|rename only
+GroupNo|DuplicateId|KeepId|TableName|ColumnName|RecordsToMove
+-------|-----------|------|---------|----------|-------------
+1|3926|3914|SeedStock|SpeciesId|1
+2|3968|3918|SeedStock|SpeciesId|1
+3|3969|3920|SeedStock|SpeciesId|1
+4|3970|3919|SeedStock|SpeciesId|1
+5|3971|3917|SeedStock|SpeciesId|1
+6|3972|3915|SeedStock|SpeciesId|1
+7|3922|3832|SeedStock|SpeciesId|1
+9|3144|33|MotherPlants|SpeciesId|2
+10|3142|26|MotherPlants|SpeciesId|1
+11|3136|24|MotherPlants|SpeciesId|3
+Id|Change|OldName_EndMarked|NewName_EndMarked
+--|------|-----------------|-----------------
+3118|retire duplicate|SH-WR||DUP-3118-SH-WR|
+3134|retire duplicate|M.G Hot pack mix||DUP-3134-M.G Hot pack mix|
+3136|retire duplicate|Sharvari Purple||DUP-3136-Sharvari Purple|
+3141|retire duplicate|Jayashree Bronze Red||DUP-3141-Jayashree Bronze Red|
+3142|retire duplicate|Pramila Bronze||DUP-3142-Pramila Bronze|
+3144|retire duplicate|Aishwarya Yellow||DUP-3144-Aishwarya Yellow|
+3922|retire duplicate|Aster chinensis Gala Mix||DUP-3922-Aster chinensis Gala Mix|
+3926|retire duplicate|Lantana Beach||DUP-3926-Lantana Beach|
+3968|retire duplicate|Lantana Coconut||DUP-3968-Lantana Coconut|
+3969|retire duplicate|Lantana IBIS||DUP-3969-Lantana IBIS|
+3970|retire duplicate|Lantana Litchi||DUP-3970-Lantana Litchi|
+3971|retire duplicate|Lantana Nandu||DUP-3971-Lantana Nandu|
+3972|retire duplicate|Lantana Pitaya||DUP-3972-Lantana Pitaya|
+3086|rename (kept)|Mg. Hot Pak mix||M.G Hot pack mix|
+3832|rename (kept)|Callistephus Gala Mix||Aster chinensis Gala Mix|
+3913|rename (kept)|Latania Red||Lantana Red|
+3914|rename (kept)|Latania Beach||Lantana Beach|
+3915|rename (kept)|Latania Pattaya||Lantana Pitaya|
+3916|rename (kept)|Latania Transizin||Lantana Transizin|
+3917|rename (kept)|Latania Nadu||Lantana Nandu|
+3918|rename (kept)|Latania Coconut||Lantana Coconut|
+3919|rename (kept)|Latania Litchi||Lantana Litchi|
+3920|rename (kept)|Latania IBIS||Lantana IBIS|
+24|trim / capitals|Sharvari Purple\r\n||Sharvari Purple|
+26|trim / capitals|Pramila Bronze\r\n||Pramila Bronze|
+30|trim / capitals|Jayashree Bronze red\r\n||Jayashree Bronze Red|
+33|trim / capitals|Aishwarya Yellow\r\n||Aishwarya Yellow|
+1|trim|Ganesha yellow\r\n||Ganesha yellow|
+2|trim|Kalkatta Orange\r\n||Kalkatta Orange|
+3|trim|Kalkatta yellow\r\n||Kalkatta yellow|
+4|trim|Maha Vishnu yellow\r\n||Maha Vishnu yellow|
+5|trim|Amber yellow\r\n||Amber yellow|
+6|trim|Bharani Orange\r\n||Bharani Orange|
+7|trim|Keshar Orange\r\n||Keshar Orange|
+8|trim|Laxmi Orange\r\n||Laxmi Orange|
+9|trim|maha Vishnu Orange\r\n||maha Vishnu Orange|
+10|trim|Mallica Orange\r\n||Mallica Orange|
+11|trim|Pari Orange\r\n||Pari Orange|
+12|trim|Sai Super Orange\r\n||Sai Super Orange|
+13|trim|Surya white\r\n||Surya white|
+14|trim|New Kapari\r\n||New Kapari|
+15|trim|Sai super yellow\r\n||Sai super yellow|
+16|trim|Vishnu yellow\r\n||Vishnu yellow|
+17|trim|Bhagyshree White\r\n||Bhagyshree White|
+18|trim|Bhagyshree Plus\r\n||Bhagyshree Plus|
+19|trim|Bhagyshree Yellow\r\n||Bhagyshree Yellow|
+20|trim|Bhagyshree Red\r\n||Bhagyshree Red|
+21|trim|Bhagyshree Pink\r\n||Bhagyshree Pink|
+22|trim|Pramila Yellow\r\n||Pramila Yellow|
+23|trim|Mansi Bronze\r\n||Mansi Bronze|
+25|trim|Suvrna Yellow\r\n||Suvrna Yellow|
+27|trim|Madhuri Yellow\r\n||Madhuri Yellow|
+28|trim|Aditi Red\r\n||Aditi Red|
+29|trim|Ishwari Yellow\r\n||Ishwari Yellow|
+32|trim|Shanka White\r\n||Shanka White|
+34|trim|Suvidha White\r\n||Suvidha White|
+35|trim|Chandni Pink\r\n||Chandni Pink|
+36|trim|Snehal White\r\n||Snehal White|
+37|trim|Priya White Pink\r\n||Priya White Pink|
+38|trim|Shanka Pink\r\n||Shanka Pink|
+39|trim|Marry Orange\r\n||Marry Orange|
+40|trim|Sona Green\r\n||Sona Green|
+41|trim|Shanka Purple\r\n||Shanka Purple|
+42|trim|Sharvari Red\r\n||Sharvari Red|
+43|trim|Aishwarya Pink\r\n||Aishwarya Pink|
+44|trim|Meghana Orange\r\n||Meghana Orange|
+45|trim|Madhuri White\r\n||Madhuri White|
+46|trim|Sent White \r\n||Sent White|
+47|trim|Sent Yellow\r\n||Sent Yellow|
+3256|trim|Ambara New ||Ambara New|
+Id|Name|OldDays|NewDays
+--|----|-------|-------
+3973|Lantana Tangerine|32|25
+Blocker|Detail
+-------|------
+(none)|No blockers - safe to save
+DuplicatesToRetire|RecordsToMove|KeptRenamed|NamesTrimmed|LantanaDaysChanged|VarietyColumnsChecked|Blockers
+------------------|-------------|-----------|------------|------------------|---------------------|--------
+13|13|10|47|1|33|0
+=== PREVIEW only -- nothing written. Set @Commit = 1 to save. ===

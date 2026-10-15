@@ -16,6 +16,25 @@
                 @TempData["Error"]
             </div>
         }
+        @if (TempData["Success"] != null)
+        {
+            <div class="alert alert-success">
+                @TempData["Success"]
+            </div>
+        }
+
+        @* 2026-10-15: retired duplicates (inactive, "DUP-...") are hidden everywhere; listed here only on request. *@
+        <div class="mb-3">
+            @if (Model.ShowInactive)
+            {
+                <a asp-page="/Admin/Plant" class="btn btn-outline-secondary btn-sm">Hide inactive varieties</a>
+                <span class="text-muted small ms-2">Showing active and inactive varieties.</span>
+            }
+            else
+            {
+                <a asp-page="/Admin/Plant" asp-route-ShowInactive="true" class="btn btn-outline-secondary btn-sm">Show inactive varieties (@Model.InactiveCount)</a>
+            }
+        </div>
 
         <!-- Add New Plant Type -->
         <div class="mb-4">
@@ -115,9 +134,9 @@
                                 <tbody>
                                     @foreach (var species in item.Species)
                                     {
-                                        <tr>
+                                        <tr class="@(species.IsActive ? "" : "table-secondary text-muted")">
                                             @* <td>@species.Id</td> *@
-                                            <td>@species.Name</td>
+                                            <td>@species.Name @if (!species.IsActive) { <span class="badge bg-secondary ms-1">Inactive</span> }</td>
                                             <td>@(species.Color ?? "-")</td>
                                             <td>@species.ScientificName</td>
                                             <td>@(species.ReadyStockDays?.ToString() ?? "-")</td>
@@ -127,6 +146,14 @@
                                                 </button>
                                             </td> *@
                                             <td>
+                                                @{ var merged = PlantStockManager.Services.PlantSpeciesNameRules.IsMergedDuplicate(species.Name); }
+                                                @if (merged)
+                                                {
+                                                    @* 2026-10-15: a merged duplicate is history only -- no edit, no reactivate. *@
+                                                    <span class="small">Merged into <strong>@(Model.MergedInto.TryGetValue(species.Id, out var keptName) ? keptName : "another variety")</strong></span>
+                                                }
+                                                else
+                                                {
                                                 <!-- Edit -->
                                                 @* Values travel in data- attributes (HTML-encoded), never pasted into
                                                    JavaScript -- variety names can contain quotes and line breaks. *@
@@ -137,17 +164,30 @@
                                                     Edit
                                                 </button>
 
-                                                <!-- ✅ Delete -->
+                                                @if (species.IsActive)
+                                                {
+                                                @* 2026-10-15 (owner rule: no physical deletes): Deactivate replaces Delete. *@
                                                 <form method="post"
-                                                      asp-page-handler="DeleteSpecies"
+                                                      asp-page-handler="DeactivateSpecies"
                                                       asp-route-id="@species.Id"
                                                       style="display:inline;">
                                                     <button type="submit"
-                                                            class="btn btn-danger btn-sm"
-                                                            onclick="return confirm('Are you sure you want to delete this species?');">
-                                                        Delete
+                                                            class="btn btn-outline-danger btn-sm"
+                                                            onclick="return confirm('Deactivate this variety? It will no longer appear in any variety dropdown. Old records keep its name.');">
+                                                        Deactivate
                                                     </button>
                                                 </form>
+                                                }
+                                                else
+                                                {
+                                                <form method="post"
+                                                      asp-page-handler="ReactivateSpecies"
+                                                      asp-route-id="@species.Id"
+                                                      style="display:inline;">
+                                                    <button type="submit" class="btn btn-success btn-sm">Reactivate</button>
+                                                </form>
+                                                }
+                                                }
                                             </td>
 
                                         </tr>

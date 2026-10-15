@@ -23,6 +23,10 @@
         // potted stock show it through the variety -- never stored twice.
         public string? Color { get; set; }
 
+        // 2026-10-15 (duplicate-variety cleanup): retired duplicates are IsActive = false and renamed "DUP-...".
+        // Inactive varieties are never offered for new entries; history keeps showing their name.
+        public bool IsActive { get; set; } = true;
+
         // Navigation Property (Not stored in DB, used for reference)
         public PlantType? PlantType { get; set; }
     }
