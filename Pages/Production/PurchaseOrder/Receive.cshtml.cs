@@ -3,18 +3,26 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using PurchaseOrderModel = PlantStockManager.Models.PurchaseOrder;
 
 namespace PlantStockManager.Pages.Production.PurchaseOrder
 {
+    // 2026-10-21: a receipt form sent twice (double click / browser retry / replay) is stopped by
+    // SubmissionTokenGuard -- it used to record the same delivery again (up to the ordered quantity).
     public class ReceiveModel : PageModel
     {
+        public const string TokenScope = "PurchaseOrderReceive";
+
         private readonly PurchaseOrderRepository _purchaseOrderRepo;
+        private readonly SubmissionTokenGuard _tokens;
         private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccessService;
 
-        public ReceiveModel(PurchaseOrderRepository purchaseOrderRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService)
+        public ReceiveModel(PurchaseOrderRepository purchaseOrderRepo, EmployeeRepository employeeRepo, AreaAccessService areaAccessService,
+            SubmissionTokenGuard tokens)
         {
+            _tokens = tokens;
             _areaAccessService = areaAccessService;
             _purchaseOrderRepo = purchaseOrderRepo;
             _employeeRepo = employeeRepo;
@@ -51,6 +59,9 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
         [BindProperty]
         public List<int> ItemIds { get; set; } = new();
 
+        [BindProperty]
+        public string? SubmitToken { get; set; }
+
         public async Task<IActionResult> OnGetAsync(int id)
         {
             Order = await _purchaseOrderRepo.GetByIdAsync(id);
@@ -67,6 +78,7 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
             }
 
             PersonOptions = await _employeeRepo.GetAllActiveUsers();
+            SubmitToken = SubmissionTokenGuard.NewToken();
             return Page();
         }
 
@@ -97,6 +109,12 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
                 return Page();
             }
 
+            if (!_tokens.TryConsume(TokenScope, SubmitToken))
+            {
+                TempData["Error"] = "This receipt form was already submitted. Check the received quantities below before receiving again.";
+                return RedirectToPage("/Production/PurchaseOrder/Details", new { id });
+            }
+
             var createdBy = User.Identity?.Name ?? "System";
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
@@ -107,6 +125,9 @@ namespace PlantStockManager.Pages.Production.PurchaseOrder
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to record receipt.");
+                // The token was used up; issue a fresh one so the corrected form can be sent again.
+                ModelState.Remove(nameof(SubmitToken));
+                SubmitToken = SubmissionTokenGuard.NewToken();
                 Order = order;
                 PersonOptions = await _employeeRepo.GetAllActiveUsers();
                 return Page();

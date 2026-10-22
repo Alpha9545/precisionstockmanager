@@ -1,8 +1,10 @@
 @page
 @model PlantStockManager.Pages.Production.Labour.AttendanceModel
 @using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
     ViewData["Title"] = "Daily Labour Attendance";
+    var canSeeHistory = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/AttendanceHistory");   // a report: System Administrator only
     var max = DailyLabourRules.MaxCount;
     var e9 = Model.Entry9;
     var e2 = Model.Entry2;
@@ -32,7 +34,10 @@
                 <h4 class="mb-0">@ViewData["Title"]</h4>
                 <small class="text-muted">Headcounts at 9:00 AM and 2:00 PM -- no worker names.</small>
             </div>
-            <a asp-page="/Production/Labour/AttendanceHistory" class="btn btn-outline-secondary btn-sm">Attendance History</a>
+            @if (canSeeHistory)
+            {
+                <a asp-page="/Production/Labour/AttendanceHistory" class="btn btn-outline-secondary btn-sm">Attendance History</a>
+            }
         </div>
         <div class="card-body">
             @if (TempData["Success"] != null)

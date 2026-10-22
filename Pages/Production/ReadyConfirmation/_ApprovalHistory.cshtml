@@ -1,0 +1,44 @@
+@model PlantStockManager.Pages.Production.ReadyConfirmation.ApprovalHistoryView
+@using PlantStockManager.Services
+@* 2026-10-20: approval history for both Sowing Approvals pages. Rows come from SowingApprovalQueueRepository.GetApprovalHistoryAsync
+   with the scope SowingApprovalVisibility.History gives for the signed-in user -- display only. *@
+<div class="table-responsive">
+    <table class="table table-sm table-striped align-middle" id="@Model.TableId">
+        <thead class="table-light">
+            <tr>
+                <th>Batch No.</th>
+                @if (Model.ShowWorkflow) { <th>Workflow</th> }
+                <th>Variety</th><th>Source batch</th><th>Area</th><th>Cavity</th>
+                <th class="text-end">Trays</th><th class="text-end">Plants</th><th>Ready Date</th><th>Approved on</th>
+                <th>Approved by</th><th>Approval</th><th>Ready Stock now</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var a in Model.Rows)
+            {
+                <tr data-confirmation="@a.ConfirmationId" data-sowing="@a.SeedSowingId" data-approver="@a.ApproverId">
+                    <td>@a.SowingCode
+                        @if (a.TransplantId.HasValue) { <div class="small"><a asp-page="/Production/Transplanting/Details" asp-route-id="@a.TransplantId">@a.TransplantCode</a></div> }</td>
+                    @if (Model.ShowWorkflow) { <td class="small">@SowingApprovalRules.CategoryLabel(a.Category)</td> }
+                    <td>@a.SpeciesName?.Trim() <span class="small text-muted">(@a.PlantTypeName)</span></td>
+                    <td>@if (a.SourceReadyStockId.HasValue) { <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@a.SourceReadyStockId">@(a.SourceBatchNo ?? "#" + a.SourceReadyStockId)</a> } else { <span class="text-muted">-</span> }</td>
+                    <td>@a.AreaName</td>
+                    <td>@a.CavityType</td>
+                    <td class="text-end">@(a.ActualTrays?.ToString() ?? "-")</td>
+                    <td class="text-end">@Qty(a.ApprovedQuantity)@if (a.WastageQuantity > 0) {<div class="small text-muted">wastage @Qty(a.WastageQuantity)</div>}</td>
+                    <td>@(a.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "-")</td>
+                    <td>@AppClock.ToIndiaTime(a.ApprovedAtUtc).ToString("dd/MM/yyyy HH:mm")
+                        @if (a.ApprovedBeforeReadyDate) { <div class="small text-muted">before its Ready Date</div> }</td>
+                    <td class="fw-semibold" data-col="approver">@(a.ApproverName ?? (a.ApproverId.HasValue ? "User #" + a.ApproverId : "Not recorded"))</td>
+                    <td><span class="badge @(a.Status == "Confirmed" ? "bg-success" : "bg-secondary")">@a.Status</span> <span class="small text-muted">@a.ConfirmationCode</span></td>
+                    <td>@if (a.Status == "Confirmed") { <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@a.ReadyStockId">@(a.ReadyStockBatchNo ?? "#" + a.ReadyStockId)</a> <span class="small text-muted">@a.ReadyStockAreaName</span> } else { <span class="text-muted">-</span> }</td>
+                    <td><a asp-page="/Production/ReadyConfirmation/History" asp-route-id="@a.SeedSowingId" class="btn btn-sm btn-outline-secondary">History</a></td>
+                </tr>
+            }
+            @if (!Model.Rows.Any())
+            {
+                <tr><td colspan="@(Model.ShowWorkflow ? 14 : 13)" class="text-center text-muted">@(Model.AllApprovers ? "No approval has been recorded yet." : "You have not approved any batch here yet.")</td></tr>
+            }
+        </tbody>
+    </table>
+</div>

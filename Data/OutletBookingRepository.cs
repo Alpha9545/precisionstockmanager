@@ -152,7 +152,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 
@@ -314,7 +314,7 @@ WHERE i.Id = @Id", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -386,7 +386,7 @@ WHERE Id = @Id", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 

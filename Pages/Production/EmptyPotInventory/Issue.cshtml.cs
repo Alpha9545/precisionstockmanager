@@ -12,16 +12,22 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
     // Empty Pot Issue: pots move from the Office store to ONE production Area.
     // After this only that Area's production (pot batches in that Area) can
     // use them -- a batch always consumes its own Area's pool
-    // (FK_PotBatches_EmptyPotPool).
+    // (FK_PotBatches_EmptyPotPool). 2026-10-21: a double click / browser retry /
+    // replay of the same form is stopped by SubmissionTokenGuard.
     public class IssueModel : PageModel
     {
+        public const string TokenScope = "EmptyPotIssue";
+
         private readonly EmptyPotInventoryRepository _emptyPotRepo;
         private readonly InternalTransferRepository _transferRepo;
         private readonly AreaRepository _areaRepo;
         private readonly AreaAccessService _areaAccess;
+        private readonly SubmissionTokenGuard _tokens;
 
-        public IssueModel(EmptyPotInventoryRepository emptyPotRepo, InternalTransferRepository transferRepo, AreaRepository areaRepo, AreaAccessService areaAccess)
+        public IssueModel(EmptyPotInventoryRepository emptyPotRepo, InternalTransferRepository transferRepo, AreaRepository areaRepo, AreaAccessService areaAccess,
+            SubmissionTokenGuard tokens)
         {
+            _tokens = tokens;
             _emptyPotRepo = emptyPotRepo;
             _transferRepo = transferRepo;
             _areaRepo = areaRepo;
@@ -32,6 +38,7 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
         [BindProperty] public int DestinationAreaId { get; set; }
         [BindProperty] public decimal Quantity { get; set; }
         [BindProperty] public string? Remarks { get; set; }
+        [BindProperty] public string? SubmitToken { get; set; }
 
         public List<EmptyPotInventoryModel> SourcePools { get; set; } = new();
         public List<Area> ProductionAreas { get; set; } = new();
@@ -39,6 +46,7 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
         public async Task OnGetAsync(int? sourcePoolId)
         {
             await LoadAsync();
+            SubmitToken = SubmissionTokenGuard.NewToken();
             if (sourcePoolId.HasValue && SourcePools.Any(p => p.Id == sourcePoolId))
                 SourcePoolId = sourcePoolId.Value;
         }
@@ -63,6 +71,12 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
                 return Page();
             }
 
+            if (!_tokens.TryConsume(TokenScope, SubmitToken))
+            {
+                TempData["Error"] = "This issue form was already submitted. Check the stock below before issuing again.";
+                return RedirectToPage("/Production/EmptyPotInventory/Index");
+            }
+
             var entry = new InternalTransferModel
             {
                 StockType = "EmptyPot",
@@ -76,6 +90,9 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to issue the pots.");
+                // The token was used up; issue a fresh one so the corrected form can be sent again.
+                ModelState.Remove(nameof(SubmitToken));
+                SubmitToken = SubmissionTokenGuard.NewToken();
                 await LoadAsync();
                 return Page();
             }

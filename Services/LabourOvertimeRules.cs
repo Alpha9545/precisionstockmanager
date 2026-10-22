@@ -15,7 +15,16 @@ namespace PlantStockManager.Services
         public const string EndAfterStartMessage = "End time must be later than start time (overtime cannot continue past midnight -- enter it as two entries).";
         public const string AtLeastOneWorkerMessage = "Enter at least one worker (male or female).";
         public const string DescriptionRequiredMessage = "Work description is required.";
-        public const string AlreadySubmittedMessage = "This overtime form was already submitted. Check Overtime History before adding it again.";
+        public const string AlreadySubmittedMessage = "This overtime form was already submitted. Check My Overtime Entries before adding it again.";
+
+        // 2026-10-20: Overtime History is a System Administrator report; a recorder browses the entries they
+        // recorded themselves (dbo.LabourOvertime.CreatedById) on My Overtime Entries. A non-administrator may
+        // open / correct ONLY such an entry (and still only in their own Areas -- AreaAccessService); the
+        // administrator (full access) may open / correct every entry, as before.
+        public const string MyEntriesPage = "/Production/Labour/MyOvertime";
+
+        public static bool MayAccessEntry(bool fullAccess, int? userId, int? createdById)
+            => fullAccess || (userId.HasValue && createdById.HasValue && createdById.Value == userId.Value);
 
         // Minutes from start to end on the same day; never wraps past midnight
         // (TimeOnly subtraction would), so an end before the start is <= 0.

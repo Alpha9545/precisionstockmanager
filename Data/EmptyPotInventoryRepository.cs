@@ -201,8 +201,11 @@ VALUES
         // master value and the Area must be active and NOT a Main Office Area.
         // Stock moves only through GetOrCreateLockedAsync + RecordTransactionAsync,
         // so the existing app-lock / row-lock / non-negative protections apply.
+        // requiredAreaType (2026-10-14): when given, the Area must also be of that type (Add Empty Pots of the
+        // Mother Plant / Cutting sections: "MotherPlant"), re-checked here inside the stock transaction.
         public async Task<(bool Success, string? Message, int PoolId)> AddAreaStockAsync(
-            int areaId, string? potSize, decimal quantity, DateTime stockDate, string? remarks, int? userId, string? createdBy)
+            int areaId, string? potSize, decimal quantity, DateTime stockDate, string? remarks, int? userId, string? createdBy,
+            string? requiredAreaType = null)
         {
             var (valid, error) = EmptyPotStockRules.ValidateAddStock(potSize, quantity, stockDate, DateTime.Today);
             if (!valid)
@@ -234,6 +237,11 @@ VALUES
                         tx.Rollback();
                         return (false, EmptyPotStockRules.AreaNotAllowedMessage, 0);
                     }
+                    if (requiredAreaType != null && areaType != requiredAreaType)
+                    {
+                        tx.Rollback();
+                        return (false, EmptyPotStockRules.MotherPlantAreaOnlyMessage, 0);
+                    }
                 }
 
                 var poolId = await GetOrCreateLockedAsync(conn, tx, potSize.Trim(), areaId, createdBy);
@@ -252,7 +260,7 @@ VALUES
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 

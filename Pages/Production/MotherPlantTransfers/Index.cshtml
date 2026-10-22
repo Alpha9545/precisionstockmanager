@@ -5,6 +5,8 @@
 @{
     ViewData["Title"] = "Mother Plant Transfers";
     string Row(int id) => Model.Highlight == id ? "table-warning" : "";
+    // 2026-10-14: the destination is the Area; a Polyhouse is shown only for transfers that recorded one.
+    string Destination(PlantStockManager.Models.MotherPlantTransfer t) => t.DestinationAreaName + (t.DestinationPolyhouseName != null ? " / " + t.DestinationPolyhouseName : "");
 }
 
 <div class="container-fluid mt-4">
@@ -16,9 +18,10 @@
         </div>
     </div>
     <p class="text-muted small mb-3">
-        Main Area Ready Stock sent to a Mother Plant Area for transplanting. While <strong>in transit</strong> the plants are held at the Main Area batch:
-        they cannot be booked, dispatched or sent again, and they are not stock at either place. Receiving creates a new Ready Stock batch in the
-        Mother Plant polyhouse that keeps its link to the original sowing.
+        Main Area Ready Stock sent to a Mother Plant Area for <strong>Pot Production</strong> or for <strong>transplanting into a different cavity tray</strong>.
+        While <strong>in transit</strong> the plants are held at the Main Area batch: they cannot be booked, dispatched or sent again, and they are not stock at
+        either place. Receiving creates a new Ready Stock batch in the Mother Plant Area that keeps its link to the original sowing; only stock sent for
+        transplanting is offered Transplant into Trays.
     </p>
 
     @if (TempData["Success"] != null) { <div class="alert alert-success" id="msg-success">@TempData["Success"]</div> }
@@ -28,6 +31,14 @@
         <div class="alert alert-primary d-flex flex-wrap align-items-center justify-content-between gap-2" id="transplant-next">
             <span><strong>Received.</strong> Next: transplant these plants into cavity trays.</span>
             <a asp-page="/Production/Transplanting/Create" asp-route-id="@justReceived" class="btn btn-primary" id="transplant-now">Transplant into Trays</a>
+        </div>
+    }
+    @{ var canPot = await FeatureAccess.CanAccessPageAsync(User, "/Production/PotBatch/CreateFromReadyStock"); }
+    @if (canPot && TempData["PotBatchFromId"] is int justReceivedForPots)
+    {
+        <div class="alert alert-primary d-flex flex-wrap align-items-center justify-content-between gap-2" id="pots-next">
+            <span><strong>Received.</strong> Next: pot these seedlings (Pot Production).</span>
+            <a asp-page="/Production/PotBatch/CreateFromReadyStock" asp-route-readyStockId="@justReceivedForPots" class="btn btn-primary" id="pots-now">Start Pot Production</a>
         </div>
     }
     @if (TempData["Error"] != null) { <div class="alert alert-danger" id="msg-error">@TempData["Error"]</div> }
@@ -44,7 +55,7 @@
             <div class="table-responsive">
                 <table class="table table-sm table-bordered align-middle" id="incoming">
                     <thead class="table-light">
-                        <tr><th>Transfer</th><th>Variety</th><th>Source Area</th><th>Source Batch</th><th class="text-end">Plants Sent</th><th>Source Cavity</th><th>To (Area / Polyhouse)</th><th style="min-width:320px">Action</th></tr>
+                        <tr><th>Transfer</th><th>Variety</th><th>Source Area</th><th>Source Batch</th><th class="text-end">Plants Sent</th><th>Source Cavity</th><th>To</th><th>Purpose</th><th style="min-width:320px">Action</th></tr>
                     </thead>
                     <tbody>
                         @foreach (var t in Model.Incoming)
@@ -56,7 +67,8 @@
                                 <td>@t.BatchNo<div class="small text-muted">@t.SowingCode &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@t.SourceReadyStockId">lineage</a></div></td>
                                 <td class="text-end fw-bold">@Qty(t.Quantity)<div class="small text-muted fw-normal">@Qty(t.Trays) trays</div></td>
                                 <td>@t.CavityType</td>
-                                <td>@t.DestinationAreaName / @t.DestinationPolyhouseName</td>
+                                <td>@Destination(t)</td>
+                                <td>@t.PurposeLabel</td>
                                 <td>
                                     <form method="post" asp-page-handler="Receive" asp-route-id="@t.Id" class="row g-1 mb-1 once">
                                         <div class="col-5"><input name="receivedQuantity" type="number" min="1" max="@((int)t.Quantity)" step="1" value="@((int)t.Quantity)" class="form-control form-control-sm" aria-label="Plants received" required /></div>
@@ -93,7 +105,7 @@
             <div class="table-responsive">
                 <table class="table table-sm table-bordered align-middle" id="outgoing">
                     <thead class="table-light">
-                        <tr><th>Transfer</th><th>Variety</th><th>Batch</th><th class="text-end">Plants</th><th>Cavity</th><th>To (Area / Polyhouse)</th><th style="min-width:260px">Cancel</th></tr>
+                        <tr><th>Transfer</th><th>Variety</th><th>Batch</th><th class="text-end">Plants</th><th>Cavity</th><th>To</th><th>Purpose</th><th style="min-width:260px">Cancel</th></tr>
                     </thead>
                     <tbody>
                         @foreach (var t in Model.Outgoing)
@@ -104,7 +116,8 @@
                                 <td>@t.BatchNo<div class="small text-muted">@t.SowingCode</div></td>
                                 <td class="text-end">@Qty(t.Quantity)<div class="small text-muted">@Qty(t.Trays) trays</div></td>
                                 <td>@t.CavityType</td>
-                                <td>@t.DestinationAreaName / @t.DestinationPolyhouseName</td>
+                                <td>@Destination(t)</td>
+                                <td>@t.PurposeLabel</td>
                                 <td>
                                     <form method="post" asp-page-handler="Cancel" asp-route-id="@t.Id" class="input-group input-group-sm once">
                                         <input name="reason" maxlength="500" class="form-control" placeholder="Reason" required />
@@ -134,7 +147,7 @@
     <div class="table-responsive">
         <table class="table table-sm table-striped align-middle" id="history">
             <thead class="table-light">
-                <tr><th>Transfer</th><th>Sent on</th><th>Status</th><th>Received on</th><th>Variety</th><th>From</th><th>To</th><th>Batch</th><th class="text-end">Sent</th><th class="text-end">Received</th><th class="text-end">Lost in transit</th><th>By / Note</th><th></th></tr>
+                <tr><th>Transfer</th><th>Sent on</th><th>Status</th><th>Received on</th><th>Variety</th><th>From</th><th>To</th><th>Purpose</th><th>Batch</th><th class="text-end">Sent</th><th class="text-end">Received</th><th class="text-end">Lost in transit</th><th>By / Note</th><th></th></tr>
             </thead>
             <tbody>
                 @foreach (var t in Model.History)
@@ -162,6 +175,7 @@
                         <td>@t.SpeciesName</td>
                         <td>@t.SourceAreaName<div class="small text-muted">@t.SourcePolyhouseName</div></td>
                         <td>@t.DestinationAreaName<div class="small text-muted">@t.DestinationPolyhouseName</div></td>
+                        <td>@t.PurposeLabel</td>
                         <td>@t.BatchNo<div class="small text-muted">@t.CavityType</div></td>
                         <td class="text-end">@Qty(t.Quantity)</td>
                         <td class="text-end">@Qty(t.ReceivedQuantity)</td>
@@ -176,7 +190,11 @@
                             @if (t.ReceivedReadyStockId is int rid)
                             {
                                 <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@rid">received batch</a>
-                                @if (canTransplant && t.Status == "Completed")
+                                @if (canPot && t.Status == "Completed" && t.ForPotProduction)
+                                {
+                                    <div><a asp-page="/Production/PotBatch/CreateFromReadyStock" asp-route-readyStockId="@rid" class="btn btn-sm btn-outline-success mt-1">Start Pot Production</a></div>
+                                }
+                                @if (canTransplant && t.Status == "Completed" && t.ForTrayTransplant)
                                 {
                                     <div><a asp-page="/Production/Transplanting/Create" asp-route-id="@rid" class="btn btn-sm btn-outline-primary mt-1">Transplant into Trays</a></div>
                                 }
@@ -184,7 +202,7 @@
                         </td>
                     </tr>
                 }
-                @if (!Model.History.Any()) { <tr><td colspan="13" class="text-muted text-center">No transfers.</td></tr> }
+                @if (!Model.History.Any()) { <tr><td colspan="14" class="text-muted text-center">No transfers.</td></tr> }
             </tbody>
         </table>
     </div>

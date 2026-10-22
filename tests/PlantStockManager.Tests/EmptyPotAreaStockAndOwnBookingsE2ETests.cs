@@ -341,6 +341,7 @@ namespace PlantStockManager.Tests
 
             var issue = await env.PageAsync<IssuePage>(Admin);
             issue.SourcePoolId = OfficePool4Inch; issue.DestinationAreaId = GreenBless; issue.Quantity = 10; issue.Remarks = "E2E issue";
+            issue.SubmitToken = SubmissionTokenGuard.NewToken();   // the form's one-time token (2026-10-21)
             Assert.IsType<RedirectToPageResult>(await issue.OnPostAsync());
             Assert.Equal(office - 10, await env.PoolQtyAsync(OfficePool4Inch));
             Assert.Equal(area + 10, await env.PoolQtyAsync(GreenBlessPool4Inch));

@@ -1,16 +1,26 @@
 @page
 @model PlantStockManager.Pages.Production.EmptyPotInventory.AddStockModel
 @{
-    ViewData["Title"] = "Add Empty Pot Stock";
+    ViewData["Title"] = "Add Empty Pots";
+    var backPage = Model.IsCuttingSection ? "/Production/Cutting/Index" : "/Production/MotherPlant/Index";
+    var backLabel = Model.IsCuttingSection ? "Cutting Production" : "Mother Plants";
 }
 
 <div class="container mt-4">
     <div class="card shadow-sm mx-auto mb-4" style="max-width: 820px;">
         <div class="card-header">
-            <h4 class="mb-0">Add Empty Pot Stock</h4>
-            <small class="text-muted">Empty pots added here go straight into the selected Area's stock. Only that Area's pot production can use them.</small>
+            <h4 class="mb-0">Add Empty Pots <span class="text-muted fs-6">&mdash; @(Model.IsCuttingSection ? "Cutting" : "Mother Plant")</span></h4>
+            <small class="text-muted">Empty pots added here go straight into the selected Mother Plant / Cutting Area's stock (no polyhouse). Only that Area's pot production can use them.</small>
         </div>
         <div class="card-body">
+            @if (TempData["Success"] != null)
+            {
+                <div class="alert alert-success" id="msg-success">@TempData["Success"]</div>
+            }
+            @if (TempData["Error"] != null)
+            {
+                <div class="alert alert-danger">@TempData["Error"]</div>
+            }
             @if (!ModelState.IsValid)
             {
                 <div class="alert alert-danger">
@@ -24,7 +34,7 @@
             }
             @if (!Model.Areas.Any())
             {
-                <div class="alert alert-warning">You are not assigned to any production Area that can hold empty pots. Ask the administrator to assign your Area.</div>
+                <div class="alert alert-warning">You are not assigned to any Mother Plant / Cutting Area. Ask the administrator to assign your Area.</div>
             }
             @if (!Model.PotSizes.Any())
             {
@@ -33,11 +43,15 @@
 
             <form method="post">
                 <input type="hidden" asp-for="SubmitToken" />
+                <input type="hidden" asp-for="Section" />
                 <div class="row g-3">
                     <div class="col-md-6">
                         <label class="form-label fw-bold">Area</label>
                         <select asp-for="AreaId" class="form-select" required>
-                            <option value="">-- Select --</option>
+                            @if (Model.Areas.Count != 1)
+                            {
+                                <option value="">-- Select --</option>
+                            }
                             @foreach (var a in Model.Areas)
                             {
                                 <option value="@a.Id">@a.Name</option>
@@ -68,12 +82,39 @@
                     </div>
                 </div>
                 <div class="text-center mt-4">
-                    <a asp-page="/Production/EmptyPotInventory/Index" class="btn btn-secondary me-2">Empty Pot Stock</a>
+                    <a asp-page="@backPage" class="btn btn-secondary me-2">@backLabel</a>
                     <button type="submit" class="btn btn-success" @(Model.Areas.Any() ? "" : "disabled")>Add Empty Pots</button>
                 </div>
             </form>
         </div>
     </div>
+
+    @if (Model.Areas.Any())
+    {
+        <div class="card shadow-sm mx-auto mb-4" style="max-width: 820px;">
+            <div class="card-header"><strong>Current empty pot stock</strong> <span class="text-muted small">&mdash; your Mother Plant / Cutting Areas</span></div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0" id="balances">
+                    <thead class="table-light"><tr><th>Area</th><th>Pot Size</th><th class="text-end">Empty pots</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var b in Model.Balances)
+                        {
+                            <tr>
+                                <td>@b.AreaName</td>
+                                <td>@b.PotSize</td>
+                                <td class="text-end fw-semibold">@Qty(b.PhysicalQuantity)</td>
+                                <td class="text-end"><a asp-page="/Production/EmptyPotInventory/Details" asp-route-id="@b.Id" class="btn btn-sm btn-outline-secondary">History</a></td>
+                            </tr>
+                        }
+                        @if (!Model.Balances.Any())
+                        {
+                            <tr><td colspan="4" class="text-center text-muted">No empty pots recorded yet in these Areas.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
 </div>
 
 @section Scripts {

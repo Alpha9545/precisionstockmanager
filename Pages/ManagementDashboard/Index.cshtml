@@ -5,6 +5,9 @@
 @inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
     ViewData["Title"] = "Management Dashboard";
+    // 2026-10-20: the labour reports are System Administrator only -- link to them only when this user may open them
+    var canSeeAttendanceHistory = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/AttendanceHistory");
+    var canSeeOvertimeHistory = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/OvertimeHistory");
 }
 
 @functions {
@@ -307,11 +310,22 @@
             </a>
         </div>
         <div class="col-6 col-md-4 col-xl-3">
-            <a class="kpi" asp-page="/Production/Labour/AttendanceHistory" asp-route-FromDate="@o.Today.ToString("yyyy-MM-dd")" asp-route-ToDate="@o.Today.ToString("yyyy-MM-dd")">
-                <div class="label">Today's labour <span class="scope now">TODAY</span></div>
-                <div class="value">@o.Labour.At9</div>
-                <div class="sub">present at 9:00 AM &middot; @o.Labour.FullDay full / @o.Labour.HalfDay half day</div>
-            </a>
+            @if (canSeeAttendanceHistory)
+            {
+                <a class="kpi" asp-page="/Production/Labour/AttendanceHistory" asp-route-FromDate="@o.Today.ToString("yyyy-MM-dd")" asp-route-ToDate="@o.Today.ToString("yyyy-MM-dd")">
+                    <div class="label">Today's labour <span class="scope now">TODAY</span></div>
+                    <div class="value">@o.Labour.At9</div>
+                    <div class="sub">present at 9:00 AM &middot; @o.Labour.FullDay full / @o.Labour.HalfDay half day</div>
+                </a>
+            }
+            else
+            {
+                <div class="kpi">
+                    <div class="label">Today's labour <span class="scope now">TODAY</span></div>
+                    <div class="value">@o.Labour.At9</div>
+                    <div class="sub">present at 9:00 AM &middot; @o.Labour.FullDay full / @o.Labour.HalfDay half day</div>
+                </div>
+            }
         </div>
     </div>
 
@@ -626,8 +640,14 @@
                 </ul>
                 @if (o.Labour.Locations == 0) { <div class="text-muted small mb-2">No attendance recorded yet today.</div> }
                 else if (o.Labour.IncompleteLocations > 0) { <div class="text-muted small mb-2">Full / half day counts only locations with both headcounts (@o.Labour.IncompleteLocations of @o.Labour.Locations still open).</div> }
-                <a asp-page="/Production/Labour/AttendanceHistory" asp-route-FromDate="@o.Today.ToString("yyyy-MM-dd")" asp-route-ToDate="@o.Today.ToString("yyyy-MM-dd")" class="btn btn-sm btn-outline-primary">Attendance &rarr;</a>
-                <a asp-page="/Production/Labour/OvertimeHistory" asp-route-FromDate="@o.Today.ToString("yyyy-MM-dd")" asp-route-ToDate="@o.Today.ToString("yyyy-MM-dd")" class="btn btn-sm btn-outline-secondary">Overtime &rarr;</a>
+                @if (canSeeAttendanceHistory)
+                {
+                    <a asp-page="/Production/Labour/AttendanceHistory" asp-route-FromDate="@o.Today.ToString("yyyy-MM-dd")" asp-route-ToDate="@o.Today.ToString("yyyy-MM-dd")" class="btn btn-sm btn-outline-primary">Attendance &rarr;</a>
+                }
+                @if (canSeeOvertimeHistory)
+                {
+                    <a asp-page="/Production/Labour/OvertimeHistory" asp-route-FromDate="@o.Today.ToString("yyyy-MM-dd")" asp-route-ToDate="@o.Today.ToString("yyyy-MM-dd")" class="btn btn-sm btn-outline-secondary">Overtime &rarr;</a>
+                }
             </div></div>
         </div>
         <div class="col-md-6 col-xl-3">

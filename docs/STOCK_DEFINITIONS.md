@@ -166,15 +166,17 @@ office", Main-Office-Areas). Figures in seeds / seedlings.
   back-dated row.
 * **Bed form (2026-10-13):** sowing date, variety, seed lot, quantity, notes. No Ready Date at the bed
   stage (`BedSowings.ReadyStockDays` / `ExpectedReadyDate` stay NULL; old rows keep theirs).
-* **Transplanting ALL the remaining seedlings (2026-10-11):** N remaining, cavity C -> FullTrays = N / C
-  (integer), Transplanted = FullTrays x C, and the rest (N - Transplanted) is recorded in the SAME transaction
-  as an ordinary bed Loss operation, dated at the transplant date, reason "Untransplanted remainder after
-  complete-tray transplant" (e.g. 500 into 150 Cavity = 3 trays / 450 + 50 waste; 500 = 0 + 450 + 50). The bed
-  closes. Fewer than one tray: no tray batch, all of it is the loss. Transplanting PART of a bed still needs
-  complete trays and leaves the rest in the bed. The auto-loss is reversed separately like any bed loss.
-* **Transplant:** complete trays only (Quantity = trays x cavity). Target: the Bed Sowing Polyhouse's
-  Area (Main Office -- Cocopeat / Pitmos at the existing kg-per-tray rule) or a Polyhouse of an active
-  Mother Plant Area (no growing material, as for every non-Main-Office Polyhouse). Empty trays leave the
+* **One transplant closes the bed (2026-10-14):** the Transplanter enters the **Quantity to Transplant**, a
+  positive multiple of the chosen cavity (at most the remaining N); trays = quantity / cavity, and EVERY other
+  remaining seedling (N - quantity) is recorded in the SAME transaction as an ordinary bed Loss operation,
+  dated at the transplant date, reason "Untransplanted remainder after complete-tray transplant" (e.g. 500
+  remaining, 450 into 150 Cavity = 3 trays + 50 waste; 500 = 0 + 450 + 50). There is no separate "Record bed
+  loss" form any more. **Waste-only closure:** when all remaining seedlings are dead / unusable, the
+  Transplanter ticks the confirmation and gives a reason -- all N are one bed loss with that reason, no tray
+  batch, no trays or material, and the bed closes. The auto-loss is reversed separately like any bed loss.
+* **Transplant:** complete trays only (Quantity = trays x cavity). Target: ONLY the Bed Sowing Polyhouse
+  of the bed's own Main Office Area (Cocopeat / Pitmos at the existing kg-per-tray rule); Mother Plant Areas
+  are no longer a Bed transplant target (owner decision 2026-10-11). Empty trays leave the
   target Polyhouse's Tray Stock dated at the transplant's business date (it must fit the pool's
   history, section 3). The tray batch keeps the bed's Sowing Date (the original date) and stores
   **Ready Date = actual transplant date + the variety's Ready Days** (IST business date), with the Ready
@@ -215,3 +217,20 @@ transplanted (+ any lost); the target is the received batch's own Mother Plant A
 * Without the 2026-10-13 migration the earlier behaviour remains (immediate Ready Stock batch, partial
   last tray allowed); Bed transplanting is refused until it is applied.
 * Sowing reports never count `BedSowing` / `Transplant` tray batches as sowings.
+
+## 6. Mother Plant Areas: Area-level trays, transfer purpose, pots from Ready Stock (2026-10-14 / 2026-10-15)
+
+* **Empty trays and pots per Area** (`2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql`): a Mother Plant
+  (or Cutting) Area holds ONE tray pool per cavity with no Polyhouse (`TR_TrayStock_PoolLocation`), like its
+  empty pots. Mother Plant & Cutting > **Add Empty Trays** / **Add Empty Pots** -- Area only, the user's own
+  authorised Areas. Main Office keeps its Polyhouse pools. Pot Production no longer offers "Add Empty Pot Stock".
+* **Ready Stock transfer to a Mother Plant Area**: to the AREA (no Polyhouse), with a required **purpose**
+  (`InternalTransfers.TransferPurpose`): **Pot Production** or **Transplant into a different cavity tray**.
+  Older transfers keep their Polyhouse and have no purpose. Only "Transplant" stock is offered Transplant into
+  Trays; only "Pot Production" stock is offered Start Pot Production.
+* **Pot Production from Ready Stock** (`2026-10-15_PotProductionFromReadyStock.sql`): received Pot Production
+  seedlings start a pot batch (`PotProductionBatches.SourceReadyStockId`, exactly one source per batch) in the
+  same Area with the Area's empty pots: seedlings leave the Ready Stock batch ('PotProductionOut', dated the
+  production start); daily production uses the empty pots; READY adds pots to Potted Plant Stock; seedlings not
+  potted return to the batch ('ReversalReturn') or are wastage ("Pot production (seedlings not potted)");
+  cancelling before production returns all of them. Cutting -> Pots is unchanged.

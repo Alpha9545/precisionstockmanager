@@ -6,6 +6,8 @@
     ViewData["Title"] = "Overtime Details";
     var e = Model.Entry;
     var canEdit = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/Overtime");
+    var canSeeHistory = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/OvertimeHistory");   // a report: System Administrator only
+    var canSeeMine = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/MyOvertime");
     string T(TimeOnly? t) => t.HasValue ? t.Value.ToString("hh:mm tt") : "—";
     string Change<TV>(TV oldV, TV newV, Func<TV, string> f) => Equals(oldV, newV) ? f(newV) : $"{f(oldV)} → {f(newV)}";
 }
@@ -25,7 +27,14 @@
                 {
                     <a asp-page="/Production/Labour/Overtime" asp-route-id="@e.Id" class="btn btn-outline-primary btn-sm" id="editOvertime">Edit</a>
                 }
-                <a asp-page="/Production/Labour/OvertimeHistory" class="btn btn-outline-secondary btn-sm">Overtime History</a>
+                @if (canSeeMine)
+                {
+                    <a asp-page="/Production/Labour/MyOvertime" class="btn btn-outline-secondary btn-sm">My Overtime Entries</a>
+                }
+                @if (canSeeHistory)
+                {
+                    <a asp-page="/Production/Labour/OvertimeHistory" class="btn btn-outline-secondary btn-sm">Overtime History</a>
+                }
             </div>
         </div>
         <div class="card-body">

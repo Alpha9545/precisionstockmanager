@@ -10,16 +10,22 @@ namespace PlantStockManager.Pages.Production.PotBatch
     // One pot batch: daily production entries (running total shown), the
     // READY confirmation (any authorized user assigned to the batch Area --
     // PotBatchRules.CanConfirmReady), cancel before any production, and the
-    // expected ready date.
+    // expected ready date. 2026-10-21: a production-entry form sent twice (double click /
+    // browser retry / replay) is stopped by SubmissionTokenGuard -- it used to record the pots
+    // (and take the empty pots) again, up to the allocation.
     public class DetailsModel : PageModel
     {
+        public const string EntryTokenScope = "PotBatchEntry";
+
         private readonly PotBatchRepository _batchRepo;
         private readonly AreaAccessService _areaAccess;
+        private readonly SubmissionTokenGuard _tokens;
 
-        public DetailsModel(PotBatchRepository batchRepo, AreaAccessService areaAccess)
+        public DetailsModel(PotBatchRepository batchRepo, AreaAccessService areaAccess, SubmissionTokenGuard tokens)
         {
             _batchRepo = batchRepo;
             _areaAccess = areaAccess;
+            _tokens = tokens;
         }
 
         public PotProductionBatch Batch { get; set; } = new();
@@ -35,6 +41,7 @@ namespace PlantStockManager.Pages.Production.PotBatch
         [BindProperty] public DateTime EntryDate { get; set; } = DateTime.Today;
         [BindProperty] public decimal EntryQuantity { get; set; }
         [BindProperty] public string? EntryRemarks { get; set; }
+        [BindProperty] public string? SubmitToken { get; set; }
 
         [BindProperty] public decimal ReadyQuantity { get; set; }
         [BindProperty] public string? WastageReason { get; set; }
@@ -43,12 +50,23 @@ namespace PlantStockManager.Pages.Production.PotBatch
 
         [BindProperty] public DateTime NewExpectedReadyDate { get; set; }
 
-        public async Task<IActionResult> OnGetAsync(int id) => await LoadAsync(id) ? Page() : Denied();
+        public async Task<IActionResult> OnGetAsync(int id)
+        {
+            if (!await LoadAsync(id))
+                return Denied();
+            SubmitToken = SubmissionTokenGuard.NewToken();
+            return Page();
+        }
 
         public async Task<IActionResult> OnPostEntryAsync(int id)
         {
             if (!await LoadAsync(id))
                 return Denied();
+            if (!_tokens.TryConsume(EntryTokenScope, SubmitToken))
+            {
+                TempData["Error"] = "This production entry was already submitted. Check the entries below before recording it again.";
+                return RedirectToPage(new { id });
+            }
             var (ok, message) = await _batchRepo.AddEntryAsync(id, EntryDate, EntryQuantity, EntryRemarks, User.GetUserId(), User.Identity?.Name);
             TempData[ok ? "Success" : "Error"] = ok ? $"{QuantityFormat.Qty(EntryQuantity)} pots recorded for {EntryDate:dd/MM/yyyy}." : message;
             return RedirectToPage(new { id });
@@ -78,7 +96,11 @@ namespace PlantStockManager.Pages.Production.PotBatch
                 return Denied();
             var me = User.GetUserId();
             var (ok, message) = me.HasValue ? await _batchRepo.CancelAsync(id, me.Value, User.Identity?.Name) : (false, "Your user could not be identified.");
-            TempData[ok ? "Success" : "Error"] = ok ? $"Batch {Batch.BatchCode} cancelled; {QuantityFormat.Qty(Batch.CuttingAllocated)} cuttings returned to Cutting Stock." : message;
+            TempData[ok ? "Success" : "Error"] = ok
+                ? (Batch.IsFromReadyStock
+                    ? $"Batch {Batch.BatchCode} cancelled; {QuantityFormat.Qty(Batch.CuttingAllocated)} seedlings returned to Ready Stock batch {Batch.SourceReadyStockBatchNo}."
+                    : $"Batch {Batch.BatchCode} cancelled; {QuantityFormat.Qty(Batch.CuttingAllocated)} cuttings returned to Cutting Stock.")
+                : message;
             return RedirectToPage(new { id });
         }
 

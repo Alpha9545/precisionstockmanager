@@ -112,7 +112,8 @@ namespace PlantStockManager.Pages.Production.Labour
             if (!_tokens.TryConsume(TokenScope, SubmitToken))
             {
                 TempData["Error"] = LabourOvertimeRules.AlreadySubmittedMessage;
-                return RedirectToPage("/Production/Labour/OvertimeHistory");
+                // to the recorder's own entries: Overtime History is an administrator-only report since 2026-10-20
+                return RedirectToPage(LabourOvertimeRules.MyEntriesPage);
             }
 
             int id;
@@ -166,6 +167,9 @@ namespace PlantStockManager.Pages.Production.Labour
             if (Existing == null)
                 return NotFound();
             if (!_areaAccess.CanAccessRequiredArea(User, Existing.AreaId) || !DailyLabourRules.IsLabourArea(Existing.AreaType))
+                return Forbid();
+            // 2026-10-20: a non-administrator corrects only an entry they recorded (checked on GET and on every POST)
+            if (!LabourOvertimeRules.MayAccessEntry(User.IsFullAccess(), User.GetUserId(), Existing.CreatedById))
                 return Forbid();
             LabourDate = Existing.LabourDate;
             AreaId = Existing.AreaId;

@@ -82,6 +82,8 @@ namespace PlantStockManager.Models
         public DateTime? ToDate { get; set; }
         public int? AreaId { get; set; }
         public int? PolyhouseId { get; set; }
+        // 2026-10-20 (My Overtime Entries): only entries recorded by this user -- always the signed-in user's id, never a posted value
+        public int? CreatedById { get; set; }
     }
 
     // One audit row of dbo.LabourOvertimeHistory (written by a trigger).

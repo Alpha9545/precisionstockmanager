@@ -8,9 +8,59 @@
     <div class="card shadow-sm mx-auto" style="max-width: 900px;">
         <div class="card-header">
             <h4 class="mb-0">Start Pot Production Batch</h4>
-            <small class="text-muted">Choose the cuttings and the empty pots issued to your Area. One cutting makes one pot. The cuttings leave Cutting Stock now; each day's production uses the Area's empty pots.</small>
+            <small class="text-muted">Choose the source of the plants first. One plant makes one pot; each day's production uses the Area's own empty pots.</small>
         </div>
         <div class="card-body">
+            @if (TempData["Error"] != null)
+            {
+                <div class="alert alert-danger" id="msg-error">@TempData["Error"]</div>
+            }
+            <div class="mb-3" id="source-select" role="group" aria-label="Source">
+                <span class="fw-bold me-2">Source:</span>
+                <a asp-page="/Production/PotBatch/Create" asp-route-source="@CreateModel.SourceCutting" id="source-cutting"
+                   class="btn btn-sm @(Model.IsSeedlingSource ? "btn-outline-success" : "btn-success")">Cutting</a>
+                <a asp-page="/Production/PotBatch/Create" asp-route-source="@CreateModel.SourceMainOfficeSeedlings" id="source-seedlings"
+                   class="btn btn-sm @(Model.IsSeedlingSource ? "btn-success" : "btn-outline-success")">Main Office Seedlings / Ready Stock</a>
+            </div>
+            @if (Model.IsSeedlingSource)
+            {
+                <p class="small text-muted">Seedlings received from Main Office Ready Stock for <strong>Pot Production</strong> in your Mother Plant Areas.
+                    Stock received for transplanting into trays is not listed, and seedlings for pots are never transplanted into trays.</p>
+                @if (!Model.SeedlingsReady)
+                {
+                    <div class="alert alert-warning" id="seedlings-migration">@PlantStockManager.Data.PotBatchSchema.MigrationMessage</div>
+                }
+                else if (!Model.SeedlingSources.Any())
+                {
+                    <div class="alert alert-info" id="no-seedlings">No seedlings received for Pot Production are available in your Mother Plant Areas.</div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped align-middle" id="seedling-sources">
+                            <thead class="table-light"><tr><th>Area</th><th>Variety</th><th>Batch</th><th>From (Main Office)</th><th>Sown</th><th>In Area since</th><th class="text-end">Available</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var x in Model.SeedlingSources)
+                                {
+                                    <tr>
+                                        <td>@x.AreaName</td>
+                                        <td>@x.SpeciesName <span class="small text-muted">(@x.PlantTypeName)</span></td>
+                                        <td>@x.BatchNo <div class="small text-muted">@x.CavityType &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@x.ReadyStockId">lineage</a></div></td>
+                                        <td>@x.TransferCode <div class="small text-muted">@x.SourceAreaName &middot; batch @(x.SourceBatchNo ?? "-") &middot; sent @x.TransferDate.ToString("dd/MM/yyyy")</div></td>
+                                        <td>@x.SowingDate.ToString("dd/MM/yyyy")</td>
+                                        <td>@PlantStockManager.Services.AppClock.ToIndiaTime(x.InAreaSinceUtc).ToString("dd/MM/yyyy")</td>
+                                        <td class="text-end fw-semibold">@Qty(x.Available)</td>
+                                        <td><a asp-page="/Production/PotBatch/CreateFromReadyStock" asp-route-readyStockId="@x.ReadyStockId" class="btn btn-sm btn-success">Pot these seedlings</a></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                <div class="text-center mt-3"><a asp-page="/Production/PotBatch/Index" class="btn btn-secondary">Back</a></div>
+            }
+            else
+            {
             @if (!ModelState.IsValid)
             {
                 <div class="alert alert-danger">
@@ -22,7 +72,8 @@
                     </ul>
                 </div>
             }
-            <form method="post">
+            <form method="post" id="cutting-form">
+                <input type="hidden" asp-for="SubmissionToken" />
                 <div class="row g-3">
                     <div class="col-md-8">
                         <label class="form-label fw-bold">Cutting Stock</label>
@@ -84,9 +135,10 @@
                 </div>
                 <div class="text-center mt-4">
                     <a asp-page="/Production/PotBatch/Index" class="btn btn-secondary me-2">Back</a>
-                    <button type="submit" class="btn btn-success">Start Batch</button>
+                    <button type="submit" class="btn btn-success" id="startBtn">Start Batch</button>
                 </div>
             </form>
+            }
         </div>
     </div>
 </div>
@@ -127,7 +179,9 @@
             $('#stock').on('change', checkAlloc);
             $('#allocated').on('input', checkAlloc);
             $('#pool').on('change', function () { loadReadyConfirmers(); loadPolyhouses(); checkAlloc(); });
-            loadReadyConfirmers(); loadPolyhouses(); checkAlloc();
+            if ($('#cutting-form').length) { loadReadyConfirmers(); loadPolyhouses(); checkAlloc(); }
+            // one submit per form (the server also ignores a repeated form token)
+            $('#cutting-form').on('submit', function () { if (this.checkValidity()) $('#startBtn').prop('disabled', true); });
         });
     </script>
 }

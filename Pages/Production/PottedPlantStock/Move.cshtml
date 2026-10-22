@@ -35,7 +35,9 @@
             </table>
             </div>
 
-            <form method="post">
+            <form method="post" id="move-form">
+                <input type="hidden" asp-for="SubmissionToken" />
+                <input type="hidden" asp-for="From" />
                 <div class="mb-3">
                     <label class="form-label fw-bold">Send to</label>
                     <div class="d-flex gap-3 flex-wrap">

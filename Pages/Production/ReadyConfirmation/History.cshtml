@@ -9,15 +9,16 @@
     var isAssignedSupervisor = Model.SeedSowing.SupervisorId.HasValue && Model.SeedSowing.SupervisorId == me;
     // 2026-10-13: a tray batch made by a transplant has no assigned supervisor -- any approver may approve
     // (a Bed Sowing batch not its recorder); an approval is cancelled by the user who made it.
+    // 2026-10-16: a Bed Sowing batch only by the designated Bed Sowing approver (Model.BedApprover).
     var transplanted = Model.SeedSowing.IsTransplantedBatch && !Model.SeedSowing.SupervisorId.HasValue;
     var mayApproveHere = isAssignedSupervisor || (transplanted && PlantStockManager.Services.DirectSowingRules.CanApprove(
-        null, Model.SeedSowing.CreatedById, Model.SeedSowing.CreatedBy, me, User.Identity?.Name, Model.SeedSowing.SourceType).Ok);
+        null, Model.SeedSowing.CreatedById, Model.SeedSowing.CreatedBy, me, User.Identity?.Name, Model.SeedSowing.SourceType, Model.BedApprover).Ok);
 }
 
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="mb-0">Approval History &mdash; Batch @Model.SeedSowing.SowingCode</h2>
-        <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-outline-secondary">Back to Supervisor Approval</a>
+        <a asp-page="/Production/ReadyConfirmation/Index" asp-all-route-data="Model.ListState.Route" class="btn btn-outline-secondary" id="backToApprovals">Back to Supervisor Approval</a>
     </div>
 
     @if (TempData["Success"] != null)
@@ -42,7 +43,7 @@
         @if (canApprove && mayApproveHere && Model.SeedSowing.RemainingReadyQuantity > 0 && Model.SeedSowing.Status == "Sown")
         {
             <div class="mt-2">
-                <a asp-page="/Production/ReadyConfirmation/Confirm" asp-route-id="@Model.SeedSowing.Id" class="btn btn-sm btn-success">Approve batch</a>
+                <a asp-page="/Production/ReadyConfirmation/Confirm" asp-all-route-data="Model.ListState.RouteForBatch(Model.SeedSowing.Id)" class="btn btn-sm btn-success">Approve batch</a>
             </div>
         }
     </div>
@@ -96,6 +97,10 @@
                             {
                                 <form method="post" asp-page-handler="Cancel" asp-route-confirmationId="@rc.Id" asp-route-seedSowingId="@Model.SeedSowing.Id"
                                       onsubmit="return confirm('Cancel this approval? Its Ready quantity is removed from Ready Stock and the batch is re-opened for approval.');">
+                                    @foreach (var kv in Model.ListState.Route)
+                                    {
+                                        <input type="hidden" name="@kv.Key" value="@kv.Value" />
+                                    }
                                     <button type="submit" class="btn btn-sm btn-outline-danger">Cancel</button>
                                 </form>
                             }

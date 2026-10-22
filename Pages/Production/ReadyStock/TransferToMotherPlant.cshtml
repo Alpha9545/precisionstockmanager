@@ -10,7 +10,7 @@
     <div class="card shadow-sm mx-auto" style="max-width: 820px;">
         <div class="card-header">
             <h4 class="mb-0">Transfer Ready Stock to a Mother Plant Area</h4>
-            <small class="text-muted">For transplanting into larger trays. The trays are <strong>in transit</strong> until the Mother Plant Supervisor receives them:
+            <small class="text-muted">For Pot Production, or for transplanting into a different cavity tray. The trays are <strong>in transit</strong> until the Mother Plant Supervisor receives them:
                 they cannot be booked, dispatched or sent again meanwhile, and they do not count as stock at either place.</small>
         </div>
         <div class="card-body">
@@ -66,16 +66,33 @@
                                 }
                             </select>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold">Destination Polyhouse</label>
-                            <select asp-for="DestinationPolyhouseId" class="form-select" id="destPolyhouse" required>
-                                <option value="">-- choose the Area first --</option>
-                                @foreach (var p in Model.Polyhouses)
+                        @if (Model.AreaOnly)
+                        {
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold d-block">Purpose</label>
+                                @foreach (var purpose in Model.Purposes)
                                 {
-                                    <option value="@p.Id" data-area="@p.AreaId">@p.Name</option>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="radio" asp-for="Purpose" value="@purpose" id="purpose-@purpose" required />
+                                        <label class="form-check-label" for="purpose-@purpose">@PlantStockManager.Services.MotherPlantTransferRules.PurposeLabel(purpose)</label>
+                                    </div>
                                 }
-                            </select>
-                        </div>
+                                <div class="form-text">Pot Production: kept as Ready Stock in the Mother Plant Area. Transplant: received, then Transplant into Trays (a tray batch in Sowing Approvals).</div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold">Destination Polyhouse</label>
+                                <select asp-for="DestinationPolyhouseId" class="form-select" id="destPolyhouse" required>
+                                    <option value="">-- choose the Area first --</option>
+                                    @foreach (var p in Model.Polyhouses)
+                                    {
+                                        <option value="@p.Id" data-area="@p.AreaId">@p.Name</option>
+                                    }
+                                </select>
+                            </div>
+                        }
                         <div class="col-md-4">
                             <label class="form-label fw-bold">Trays to send</label>
                             <input asp-for="Trays" type="number" min="1" max="@Model.AvailableTrays" step="1" class="form-control" id="trays" required />
@@ -110,6 +127,7 @@
         $(function () {
             const cavity = @Model.Cavity;
             function polyhouses() {
+                if (!$('#destPolyhouse').length) return;   // 2026-10-14: the Area only, no Polyhouse
                 const area = $('#destArea').val();
                 $('#destPolyhouse option[data-area]').each(function () {
                     const show = $(this).data('area') == area;

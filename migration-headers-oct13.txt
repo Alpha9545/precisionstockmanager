@@ -1,0 +1,1200 @@
+==================== 2026-10-09_ReadyStockTransplanting.sql   (10/09/2026 17:06:47)
+-- ============================================================================
+-- 2026-10-09_ReadyStockTransplanting.sql
+--
+-- WHY: Main Area Ready Stock gets a second path besides customer dispatch:
+--   Main Area Ready Stock -> transfer (in transit) -> received in a Mother Plant
+--   Area/Polyhouse -> transplanted into larger cavity trays -> new Ready Stock there.
+-- No second stock system: received and transplanted stock are NEW dbo.ReadyStock
+-- batches (bookable / dispatchable like any other) that point back to the batch
+-- they came from, so every plant stays traceable to its original sowing.
+--
+-- dbo.ReadyStock (existing rows: OriginType 'Sowing', nothing else changes for them)
+--   OriginType          'Sowing' (one per sowing, as before) | 'Transfer' (received in a
+--                       Mother Plant Area) | 'Transplant' (output of a transplanting)
+--   ParentReadyStockId  the batch this one came from (NULL for 'Sowing')
+--   OriginReferenceId   InternalTransfers.Id ('Transfer') / ReadyStockTransplants.Id ('Transplant');
+--                       UX_ReadyStock_Origin: ONE batch per transfer / transplant (repeated
+--                       "receive" or "save" can never create a second one)
+--   InTransitQuantity   plants sent to a Mother Plant Area and not yet received: still part of
+--                       Quantity, but neither physically here nor available
+--   PhysicalQuantity    = Quantity - Dispatched - InTransit   (computed, redefined)
+--   AvailableQuantity   = Quantity - Reserved - Dispatched - InTransit (computed, redefined)
+--   CK_ReadyStock_ReservedDispatched  Reserved + Dispatched + InTransit <= Quantity
+--   UQ_ReadyStock_SeedSowing -> UX_ReadyStock_SowingBatch: one SOWING batch per sowing
+--                       (derived batches share the sowing reference for traceability)
+--   FK_ReadyStock_SowingCavity: the cavity must still equal the sowing's -- except for a
+--                       transplant output, which is in its new target cavity
+--   TR_ReadyStock_WholeTrays: whole trays only for SOWING batches (Main Area); received and
+--                       transplanted batches keep exact plant counts (a partial last tray is
+--                       allowed -- business decision 2026-10-09)
+-- dbo.ReadyStockTransactions: new ledger types
+--   TransferHold / TransferHoldRelease  InTransit +/- (do NOT change Quantity, like Reservation)
+--   TransferOut (-) / TransferLoss (-)  at the source when a transfer is received
+--   TransferIn (+)                       the received batch
+--   TransplantOut (-) / TransplantLoss (-) / TransplantIn (+)   a transplanting
+--   ReversalReturn (+)                   source credited back when a transplanting is reversed
+--                                        (ReversalRemoval, existing, takes the output back out)
+-- dbo.InternalTransfers: StockType 'MotherPlantTransfer' (PendingConfirmation ->
+--   Completed | Rejected | Cancelled); + DestinationPolyhouseId, TransferDate, SubmissionToken,
+--   CancelledById / CancelledDate / CancelReason
+-- dbo.ReadyStockTransplants: one row per transplanting (Completed | Reversed)
+-- dbo.TrayStockTransactions: type 'Transplant' (empty target trays used by a transplanting)
+-- Permissions: ReadyStock.TransferToMotherPlant (Sowing Supervisor, Office Coordinator),
+--   ReadyStock.ReceiveTransfer, Transplant.Enter, Transplant.View (Mother Plant Supervisor),
+--   Transplant.Reverse (no role -- full-access users only),
+--   TrayStock.EnterMotherPlant (Office Coordinator, Booking Executive): add EMPTY trays to the
+--   Tray Stock of any active Mother Plant Area polyhouse (Add Material > Trays) -- nothing else.
+--   Owner decision 2026-10-09: these roles (and the Administrator) stock Mother Plant trays;
+--   their users are assigned to the Main Office only, so the ordinary TrayStock.Enter (own Areas)
+--   could not reach a Mother Plant polyhouse.
+-- NOT CHANGED: growing material (cocopeat / pitmos). Owner decision 2026-10-09: transplanting
+---- risky lines / variables / state checks:
+  L61: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L63: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L79: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L119: EXEC (N'ALTER TABLE dbo.ReadyStock DROP COLUMN AvailableQuantity;');
+  L120: EXEC (N'ALTER TABLE dbo.ReadyStock DROP COLUMN PhysicalQuantity;');
+  L129: EXEC (N'ALTER TABLE dbo.ReadyStock DROP CONSTRAINT CK_ReadyStock_ReservedDispatched;');
+  L136: EXEC (N'ALTER TABLE dbo.ReadyStock DROP CONSTRAINT CK_ReadyStock_WholeQuantities;');
+  L144: EXEC (N'ALTER TABLE dbo.ReadyStock DROP CONSTRAINT UQ_ReadyStock_SeedSowing;');
+  L157: EXEC (N'ALTER TABLE dbo.ReadyStock DROP CONSTRAINT FK_ReadyStock_SowingCavity;');
+  L193: EXEC (N'ALTER TABLE dbo.ReadyStockTransactions DROP CONSTRAINT CK_ReadyStockTx_Type;');
+  L202: EXEC (N'ALTER TABLE dbo.TrayStockTransactions DROP CONSTRAINT CK_TrayStockTx_Type;');
+  L227: EXEC (N'ALTER TABLE dbo.InternalTransfers DROP CONSTRAINT CK_InternalTransfers_StockType;');
+  L230: EXEC (N'ALTER TABLE dbo.InternalTransfers DROP CONSTRAINT CK_InternalTransfers_SourceMatchesStockType;');
+  L366: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-10_TrayTransfers.sql   (10/09/2026 22:11:53)
+-- ============================================================================
+-- 2026-10-10_TrayTransfers.sql
+--
+-- WHY: empty trays could only be ADDED or used. This adds the two controlled corrections
+-- the audit asked for, on the EXISTING Tray Stock pools and ledger (no second tray system):
+--   * Tray adjustment  -- a compensating dbo.TrayStockTransactions row of the existing type
+--                         'Adjustment' (ReferenceType 'TrayAdjustment', mandatory reason); no
+--                         schema change, only the permission below.
+--   * Tray transfer    -- dbo.TrayTransfers (one row per transfer):
+--                         Pending   source pool -q   'TransferOut'  (the trays have left; in transit)
+--                         Received  destination +q   'TransferIn'
+--                         Rejected / Cancelled  source +q 'TransferReturn'
+--                         A pending transfer is in neither pool's balance, so nothing is counted twice.
+-- dbo.TrayStockTransactions: types TransferOut, TransferIn, TransferReturn added.
+-- Permissions (owner decisions 2026-10-10):
+--   TrayStock.Adjust          Sowing Supervisor (own Areas; full-access users everywhere)
+--   TrayStock.Transfer        Sowing Supervisor, Office Coordinator (send / cancel from Areas they may stock)
+--   TrayStock.ReceiveTransfer Mother Plant Supervisor (receive / reject into own Areas)
+-- No existing row, balance or grant changes. Requires 2026-10-09_ReadyStockTransplanting.sql.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the server named with
+-- -v TARGET_SERVER=<@@SERVERNAME>. One transaction. Idempotent (re-run = no-op).
+-- Undo: 2026-10-10_TrayTransfers_Rollback.sql (refuses while any tray transfer exists).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52001, '2026-10-10_TrayTransfers.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52002, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52003, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION TrayTransfers2026_10_10;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+
+    IF OBJECT_ID('dbo.ReadyStockTransplants', 'U') IS NULL
+        THROW 52004, 'Run 2026-10-09_ReadyStockTransplanting.sql first.', 1;
+---- risky lines / variables / state checks:
+  L23: -- Undo: 2026-10-10_TrayTransfers_Rollback.sql (refuses while any tray transfer exists).
+  L29: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L31: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L47: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L68: EXEC (N'ALTER TABLE dbo.TrayStockTransactions DROP CONSTRAINT CK_TrayStockTx_Type;');
+  L175: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-11_ReadyStockReceiptDate.sql   (10/09/2026 23:19:18)
+-- ============================================================================
+-- 2026-10-11_ReadyStockReceiptDate.sql
+--
+-- WHY: a Ready Stock transfer into a Mother Plant Area was always dated when the receipt was
+-- RECORDED. Owner decision 2026-10-11: the receiver enters the BUSINESS date the plants arrived
+-- (default today in India; never in the future; never before the transfer was sent; an earlier
+-- date needs a reason). The recorded time stays in ConfirmedDate (audit).
+-- dbo.InternalTransfers:
+--   ReceivedDate       DATE NULL           business receipt date (Mother Plant transfers received from now on)
+--   ReceiptDateReason  NVARCHAR(500) NULL  why an earlier date was recorded late
+--   CK_InternalTransfers_ReceivedDate      only on a Completed transfer, never before TransferDate
+-- Existing rows are NOT changed: no receipt date is invented for historical receipts (they stay
+-- NULL and keep their recorded-time ledger dates -- docs/STOCK_DEFINITIONS.md).
+-- Requires 2026-10-09_ReadyStockTransplanting.sql (Mother Plant transfers on InternalTransfers).
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the server named with
+-- -v TARGET_SERVER=<@@SERVERNAME>. One transaction. Idempotent (re-run = no-op).
+-- Undo: 2026-10-11_ReadyStockReceiptDate_Rollback.sql (refuses once a receipt date is stored).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52121, '2026-10-11_ReadyStockReceiptDate.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52122, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52123, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION ReceiptDate1011;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF COL_LENGTH('dbo.InternalTransfers', 'SourceReadyStockId') IS NULL OR COL_LENGTH('dbo.InternalTransfers', 'TransferDate') IS NULL
+        THROW 52124, 'Run 2026-10-09_ReadyStockTransplanting.sql first.', 1;
+
+    PRINT '=== Before: rows that must not change ===';
+    SELECT COUNT(*) AS Transfers, SUM(CASE WHEN StockType = N'MotherPlantTransfer' THEN 1 ELSE 0 END) AS MotherPlantTransfers,
+           CHECKSUM_AGG(CHECKSUM(Id, Status, Quantity, ConfirmedQuantity, ConfirmedDate, TransferDate)) AS Fingerprint
+    FROM dbo.InternalTransfers;
+
+---- risky lines / variables / state checks:
+  L18: -- Undo: 2026-10-11_ReadyStockReceiptDate_Rollback.sql (refuses once a receipt date is stored).
+  L24: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L26: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L42: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L87: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-11_RolePermissionAlignment.sql   (10/10/2026 12:27:54)
+-- ============================================================================
+-- 2026-10-11_RolePermissionAlignment.sql
+--
+-- WHY (owner decision 2026-10-10): the Dispatch Executive role enters dispatch transactions.
+--   Booking Executive: Dispatch.Enter is REMOVED. Dispatch.View is REMOVED too, because the booking
+--   workflow does not need it: every booking page already shows dispatch status with Booking.View
+--   (Booking Details: ordered / reserved / dispatched / remaining per line; Booking Fulfilment;
+--   Dispatch Register; Potted Plant Booking pages). Dispatch.View only added the potted-plant Dispatch
+--   list / details and a read-only view of Seedling Dispatch, whose every action needs Dispatch.Enter.
+--   Both grants were made through the Roles admin page between 2026-10-01 and 2026-10-04 -- no script
+--   ever granted them (PhaseA_RoleBasedAccess.sql seeds Dashboard.View, Booking.View, Booking.Enter,
+--   ReadyStock.View; 2026-10-09 adds TrayStock.EnterMotherPlant).
+-- This script CHANGES EXISTING PERMISSION DATA: run it on PlantsIMS2_Test (or production) only with
+-- the owner's explicit approval. Every grant it removes is first written to dbo.RolePermissionChangeLog
+-- (created here if missing) -- nothing disappears silently, and the rollback restores exactly it.
+-- No other role, grant, stock row or ledger row changes.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the server named with
+-- -v TARGET_SERVER=<@@SERVERNAME>. One transaction. Idempotent (re-run = no-op).
+-- Undo: 2026-10-11_RolePermissionAlignment_Rollback.sql.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52101, '2026-10-11_RolePermissionAlignment.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52102, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52103, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION RolePermAlign1011;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+
+    IF NOT EXISTS (SELECT 1 FROM dbo.Roles x WHERE COALESCE(NULLIF(LTRIM(RTRIM(x.Name)), N''), x.RoleName) = N'Booking Executive')
+        THROW 52106, 'Role Booking Executive is missing.', 1;
+    DECLARE @BookingExecutive INT = (SELECT TOP 1 Id FROM dbo.Roles WHERE COALESCE(NULLIF(LTRIM(RTRIM(Name)), N''), RoleName) = N'Booking Executive');
+
+    PRINT '=== Before: Booking Executive ===';
+---- risky lines / variables / state checks:
+  L26: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L28: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L44: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L77: DELETE rp
+  L96: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-11_TrayAccessByLocation.sql   (10/10/2026 12:29:01)
+-- ============================================================================
+-- 2026-10-11_TrayAccessByLocation.sql
+--
+-- WHY (owner decisions 2026-10-10): tray visibility and tray receiving follow the LOCATION.
+--   TrayStock.ViewMotherPlant          -> Mother Plant Supervisor: READ-ONLY empty-tray balances and tray
+--                                         history of the supervisor's OWN Mother Plant Areas
+--                                         (Authorization/TrayAreaScope.cs). No add / adjust / transfer /
+--                                         cocopeat / pitmos / administration.
+--   TrayStock.ReceiveTransferMainArea  -> Sowing Supervisor: receive / reject tray transfers into MAIN
+--                                         OFFICE Areas it is assigned to -- the Main Area tray role (it
+--                                         already adds and adjusts trays there). Mother Plant Areas keep
+--                                         TrayStock.ReceiveTransfer (Mother Plant Supervisor, 2026-10-10).
+--                                         Which permission applies is decided by the destination Area's
+--                                         type (Services/TrayTransferRules.ReceivePermissionFor); no
+--                                         receiver gets cross-Area access.
+-- ADDITIVE ONLY: no grant is removed, no stock or ledger row changes. Every grant added is logged in
+-- dbo.RolePermissionChangeLog (created here if missing). Requires 2026-10-10_TrayTransfers.sql.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the server named with
+-- -v TARGET_SERVER=<@@SERVERNAME>. One transaction. Idempotent (re-run = no-op).
+-- Undo: 2026-10-11_TrayAccessByLocation_Rollback.sql (refuses while a tray transfer to a Main Office
+-- Area is still pending).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52141, '2026-10-11_TrayAccessByLocation.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52142, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52143, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION TrayAccess1011;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF OBJECT_ID('dbo.TrayTransfers', 'U') IS NULL
+        THROW 52144, 'Run 2026-10-10_TrayTransfers.sql first.', 1;
+    DECLARE @Missing NVARCHAR(100);
+    DECLARE @Roles TABLE (Name NVARCHAR(100));
+---- risky lines / variables / state checks:
+  L21: -- Undo: 2026-10-11_TrayAccessByLocation_Rollback.sql (refuses while a tray transfer to a Main Office
+  L28: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L30: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L46: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L133: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-12_BedSowing.sql   (10/10/2026 20:50:02)
+-- ============================================================================
+-- 2026-10-12_BedSowing.sql
+--
+-- WHY (owner decisions 2026-10-10): Bed Sowing at the Main Office "Facility 1" polyhouse.
+--   1. Seed is sown into a BED (no cavity, no trays) -- deducted from a Main Office seed lot.
+--   2. The bed waits for transplanting ("Pending transplant").
+--   3. ONLY the Bed Sowing Transplanter (Maya Shinde) moves bed seedlings into cavity trays,
+--      in part or in full. Each transplant takes empty trays (Tray Stock) and the growing
+--      material (Cocopeat / Pitmos, existing kg-per-tray rule) and creates ONE growing tray batch
+--      (dbo.SeedSowings, SourceType 'BedSowing') that goes through the EXISTING Sowing Approval
+--      -> Ready Stock -> booking / dispatch. No Ready Stock is created before that approval.
+--   4. Ready Date = ORIGINAL bed sowing date + the variety's Ready Days (dbo.PlantSpecies.
+--      ReadyStockDays), snapshotted on the bed and on every tray batch made from it.
+--   Conservation per bed: Quantity = Remaining + Transplanted + Lost.
+--
+-- WHAT:
+--   dbo.BedSowingLocations   -- the Polyhouse(s) where bed sowing / bed transplanting is allowed.
+--                               Seeded with ONE polyhouse, chosen by Id AND verified by name AND by
+--                               its Area being an active MainOffice Area (never by name alone).
+--   dbo.BedSowings           -- one row per bed sowing (code BS-YYYY-NNNNN).
+--   dbo.BedSowingOperations  -- immutable transplant / loss rows (code BT-YYYY-NNNNN); a mistake
+--                               is REVERSED (Status Reversed + who/when/why), never edited or deleted.
+--   dbo.SeedSowings.BedSowingId + SourceType 'BedSowing' (CK_SeedSowings_Source widened).
+--   Permission BedSowing.Transplant, role "Bed Sowing Transplanter", assigned to ONE user for the
+--   polyhouse's Area -- the user chosen by Id AND verified by Username (no Id in C# code).
+--   Logged in dbo.RolePermissionChangeLog.
+--   2026-10-12 review additions:
+--     * dbo.MaterialTransactions.TransactionDate (business date; NULL = recorded time, every existing row).
+--     * TR_BedSowingOperations_Transplanter: a transplant or bed loss is recorded ONLY by an active user
+--       holding BedSowing.Transplant for the bed's Area (Maya Shinde). No exception path: a System
+--       Administrator cannot record one either. Administrators manage and reverse (audited).
+--     * dbo.BedSowingAuditLog (append-only): administrator reversals, and every change of the
+--       Transplanter role / permission (with the database login).
+--     * TR_UserRoles_BedTransplanter: at most ONE user holds BedSowing.Transplant.
+--     * TR_RolePermissions_BedTransplant: the permission only on the Bed Sowing Transplanter role.
+--     * TR_ReadyConfirmations_BedReadyDate: a bed tray batch is never approved before its Ready Date.
+-- No existing stock, ledger, sowing or approval row is changed.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the server named with
+-- -v TARGET_SERVER=<@@SERVERNAME>. One transaction. Idempotent (re-run = no-op).
+-- Undo: 2026-10-12_BedSowing_Rollback.sql (refuses once any bed sowing exists).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME>
+--         BED_POLYHOUSE_ID=<Polyhouses.Id> BED_TRANSPLANTER_USER_ID=<IMSUsers.Id> -i <this file>
+--       (local PlantsIMS2_Test: BED_POLYHOUSE_ID=6 BED_TRANSPLANTER_USER_ID=9). The Ids are CHECKED against
+--       the expected names below (sqlcmd cannot pass values with spaces reliably, so the names are
+--       constants of this script); a mismatch changes nothing.
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52161, '2026-10-12_BedSowing.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+---- risky lines / variables / state checks:
+  L31: --       Administrator cannot record one either. Administrators manage and reverse (audited).
+  L41: -- Undo: 2026-10-12_BedSowing_Rollback.sql (refuses once any bed sowing exists).
+  L51: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L53: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L69: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L79: DECLARE @PolyhouseId INT = $(BED_POLYHOUSE_ID);
+  L93: DECLARE @UserId INT = $(BED_TRANSPLANTER_USER_ID);
+  L301: EXEC (N'ALTER TABLE dbo.SeedSowings DROP CONSTRAINT CK_SeedSowings_Source;');
+  L505: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-13_TraysToSowingApprovals.sql   (10/11/2026 15:51:07)
+-- ============================================================================
+-- 2026-10-13_TraysToSowingApprovals.sql
+--
+-- WHY (owner requirements 2026-10-11): transplanting into cavity trays -- from a Bed Sowing (Maya
+-- Shinde) or from Ready Stock received in a Mother Plant Area (its Mother Plant Supervisor) -- makes
+-- a GROWING TRAY BATCH that goes through the existing Sowing Approvals; its Ready Date starts at the
+-- TRANSPLANT date:  Ready Date = actual transplant date + the variety's configured Ready Days.
+--   1. dbo.BedSowings: no Ready Date at bed stage -- ReadyStockDays / ExpectedReadyDate become
+--      NULLable (existing rows keep their values; nothing is rewritten). CK_BedSowings_ReadyDate
+--      allows both NULL, or the old consistent pair.
+--   2. dbo.SeedSowings: SourceType 'Transplant' (a tray batch made from received Ready Stock;
+--      no seed lot / cutting pool -- CK_SeedSowings_Source widened).
+--   3. dbo.ReadyStockTransplants.OutputSeedSowingId: the tray batch a transplant made (instead of an
+--      immediate Ready Stock batch). One output kind per row; old rows unchanged.
+--   4. No supervisor is chosen for these batches (BedSowing / Transplant): they are approved by any
+--      active user who may approve sowings (ReadyStock.Confirm, or System Administrator) -- for a
+--      BedSowing batch never by the person who recorded the transplant (the seed-sowing rule).
+--      TR_SeedSowings_SupervisorRole and TR_ReadyConfirmations_AssignedSupervisor are replaced
+--      accordingly; Seed and Cutting sowings keep EXACTLY their existing rules.
+--   5. Ready Date gate: TR_ReadyConfirmations_BedReadyDate also refuses approving a 'Transplant' tray
+--      batch before its Ready Date (52208), as for a 'BedSowing' batch (52178, unchanged). Re-created
+--      (DROP + CREATE) and set to fire FIRST again.
+-- No stock, ledger, sowing or approval row is changed.
+--
+-- Requires 2026-10-12_BedSowing.sql. SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_*
+-- copy AND to -v TARGET_SERVER=<@@SERVERNAME>. One transaction. Idempotent (re-run = no-op). The two
+-- three triggers are replaced only if they are byte-for-byte the expected 2026-10-12 versions (SHA-256).
+-- Undo: 2026-10-13_TraysToSowingApprovals_Rollback.sql (refuses once the new shapes are used).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52201, '2026-10-13_TraysToSowingApprovals.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52202, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52203, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION TrayApprovals1013;
+
+---- risky lines / variables / state checks:
+  L20: --   5. Ready Date gate: TR_ReadyConfirmations_BedReadyDate also refuses approving a 'Transplant' tray
+  L22: --      (DROP + CREATE) and set to fire FIRST again.
+  L28: -- Undo: 2026-10-13_TraysToSowingApprovals_Rollback.sql (refuses once the new shapes are used).
+  L34: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L36: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L52: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L84: ALTER TABLE dbo.BedSowings DROP CONSTRAINT CK_BedSowings_ReadyDate;
+  L93: ALTER TABLE dbo.SeedSowings DROP CONSTRAINT CK_SeedSowings_Source;
+  L105: ALTER TABLE dbo.ReadyStockTransplants DROP CONSTRAINT CK_RsTransplants_Status;
+  L220: DROP TRIGGER dbo.TR_ReadyConfirmations_BedReadyDate;
+  L257: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql   (10/11/2026 17:36:07)
+-- ============================================================================
+-- 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql
+--
+-- WHY (owner requirements 2026-10-14):
+--   * Ready Stock sent to a Mother Plant Area goes to the AREA -- no Polyhouse is chosen to send,
+--     receive or transplant it -- and every transfer records its PURPOSE: 'PotProduction' (kept as
+--     Ready Stock in the Mother Plant Area, never transplanted into trays) or 'TrayTransplant'
+--     (received, then Transplant into Trays -> a tray batch in the existing Sowing Approvals).
+--   * Empty trays in a Mother Plant Area are held per AREA + cavity (Add Empty Trays in the Mother
+--     Plant / Cutting sections, Area only). Every user of Mother Plant Area trays -- Ready Stock
+--     transplanting, Cutting Tray Sowing, a Bed Sowing transplant into a Mother Plant Area, tray
+--     transfers and adjustments -- uses that one Area pool (Data/TrayStockRepository.cs resolves it).
+--     Main Office (and every other Area type) keeps its Polyhouse pools, unchanged.
+--
+-- WHAT:
+--   1. dbo.InternalTransfers.TransferPurpose NVARCHAR(30) NULL + CK_InternalTransfers_TransferPurpose
+--      ('PotProduction' | 'TrayTransplant'). Existing rows keep NULL (= not recorded; history unchanged).
+--      TR_InternalTransfers_MotherPlantPurpose: a NEW Mother Plant transfer must carry a purpose, and a
+--      purpose is never changed afterwards.
+--   2. CK_InternalTransfers_MotherPlantTransfer: the same rule WITHOUT "DestinationPolyhouseId IS NOT NULL"
+--      (existing rows keep their Polyhouse; new ones may have none). Verified against the exact current
+--      definition first (schema-drift guard).
+--   3. dbo.ReadyStockTransplants.PolyhouseId becomes NULLable (a transplant into the Area's trays; old rows
+--      keep their Polyhouse). FK_RsTransplants_Polyhouse is unchanged.
+--   4. dbo.TrayStock: CK_TrayStock_ActivePoolHasPolyhouse is replaced by TR_TrayStock_PoolLocation -- an
+--      ACTIVE pool without a Polyhouse only in a MotherPlant Area, and no ACTIVE Polyhouse pool in a
+--      MotherPlant Area. Before that, every active Polyhouse pool of a MotherPlant Area is MERGED into its
+--      Area pool (the retired Area pool of that cavity is re-activated, or a new one created): one
+--      'Adjustment' ledger row out of the Polyhouse pool and one into the Area pool (ReferenceType
+--      'AreaPoolMerge', ReferenceId = the other pool, dated now), then the empty Polyhouse pool is retired.
+--      No ledger row is updated or deleted; trays are only moved, never created or lost.
+--
+-- NOT changed: no transfer, Ready Stock, sowing or approval row; no permission; Main Office pools.
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-14_MotherPlantAreaTraysAndTransferPurpose_Rollback.sql
+-- (refuses once the new shapes are used).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52301, '2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52302, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52303, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+---- risky lines / variables / state checks:
+  L36: -- (refuses once the new shapes are used).
+  L42: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L44: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L60: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L121: ALTER TABLE dbo.InternalTransfers DROP CONSTRAINT CK_InternalTransfers_MotherPlantTransfer;
+  L143: ALTER TABLE dbo.TrayStock DROP CONSTRAINT CK_TrayStock_ActivePoolHasPolyhouse;
+  L169: UPDATE dbo.TrayStock SET IsActive = 1, ModifiedDate = SYSUTCDATETIME(), ModifiedBy = N'2026-10-14 migration' WHERE Id = @Pool AND IsActive = 0;
+  L180: UPDATE dbo.TrayStock SET PhysicalQuantity = PhysicalQuantity + @Qty, ModifiedDate = SYSUTCDATETIME(), ModifiedBy = N'2026-10-14 migration' WHERE Id = @Pool;
+  L182: UPDATE dbo.TrayStock SET PhysicalQuantity = 0, IsActive = 0, ModifiedDate = SYSUTCDATETIME(), ModifiedBy = N'2026-10-14 migration' WHERE Id = @Src;
+  L230: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-15_PotProductionFromReadyStock.sql   (10/11/2026 19:14:46)
+-- ============================================================================
+-- 2026-10-15_PotProductionFromReadyStock.sql
+--
+-- WHY (owner decision 2026-10-11): Ready Stock sent to a Mother Plant Area for the purpose "Pot Production"
+-- (2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql) is potted there: the received seedlings start a pot
+-- production batch exactly like Cutting -> Pots (pots from the Area's own empty-pot stock, daily production
+-- entries, READY confirmation into Potted Plant Stock), only the SOURCE is the received Ready Stock batch.
+-- The existing Cutting -> Pots production is unchanged.
+--
+-- WHAT:
+--   1. dbo.PotProductionBatches.SourceReadyStockId INT NULL + FK_PotBatches_ReadyStock (-> dbo.ReadyStock);
+--      SourceCuttingStockId becomes NULLable; CK_PotBatches_OneSource: exactly ONE source per batch.
+--      Existing batches (all from cuttings) keep their SourceCuttingStockId; nothing is rewritten.
+--   2. CK_ReadyStockTx_Type gains 'PotProductionOut' (seedlings allocated to a pot batch leave the Ready Stock
+--      batch; unused / cancelled ones come back as the existing 'ReversalReturn').
+--   3. TR_PotBatches_Update: the batch's source never changes (either source; NULL-safe) -- otherwise the
+--      exact 2026 trigger, re-created. Replaced only if it is byte-for-byte the expected version (SHA-256).
+--   4. TR_PotBatches_ReadyStockSource (new): a Ready Stock source is of the same variety, in the same Area,
+--      and that Area is a Mother Plant Area.
+--
+-- NOT changed: no batch, ledger, stock, transfer or permission row.
+-- Requires 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql (the transfer purpose).
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-15_PotProductionFromReadyStock_Rollback.sql
+-- (refuses once a pot batch from Ready Stock exists).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52351, '2026-10-15_PotProductionFromReadyStock.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52352, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52353, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION PotsFromReadyStock1015;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF COL_LENGTH('dbo.InternalTransfers', 'TransferPurpose') IS NULL
+---- risky lines / variables / state checks:
+  L25: -- (refuses once a pot batch from Ready Stock exists).
+  L31: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L33: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L49: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L57: THROW 52355, 'TR_PotBatches_Update is not the expected version -- schema drift, nothing changed.', 1;
+  L80: ALTER TABLE dbo.ReadyStockTransactions DROP CONSTRAINT CK_ReadyStockTx_Type;
+  L85: DROP TRIGGER dbo.TR_PotBatches_Update;
+  L139: THROW 52357, 'TR_PotBatches_Update was not written as expected.', 1;
+  L177: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-16_BedSowingApprover.sql   (10/12/2026 10:05:50)
+-- ============================================================================
+-- 2026-10-16_BedSowingApprover.sql
+--
+-- WHY (owner requirement 2026-10-12, "Bed Sowing tray batches must be approved by Maya Shinde"):
+--   Until now a tray batch transplanted from a Bed Sowing (SeedSowings.SourceType 'BedSowing') could be
+--   approved in Sowing Approvals by ANY active user who may approve sowings (ReadyStock.Confirm or the
+--   System Administrator role) -- but never by the user who recorded the transplant. Only Maya Shinde
+--   records bed transplants (TR_BedSowingOperations_Transplanter), so she could never approve them.
+--   Now ONE designated person approves them, and that person may approve a batch she transplanted herself
+--   (a deliberate maker-checker exception for Bed Sowing batches ONLY -- every other batch type keeps its rule).
+--
+-- WHAT:
+--   1. dbo.BedSowingApprover -- at most ONE row (Id = 1): the IMSUsers.Id of the Bed Sowing approver.
+--      Seeded with -v BED_APPROVER_USER_ID=<IMSUsers.Id>, CHECKED here: that user must be active, have
+--      Username 'Maya' and Name 'Maya Shinde', and be the ONLY active user named 'Maya Shinde'. A mismatch
+--      changes nothing (the person is never chosen by a display name alone, and never by an Id alone).
+--      TR_BedSowingApprover_Audit: every insert / change / delete of the row is written to dbo.BedSowingAuditLog.
+--   2. TR_ReadyConfirmations_AssignedSupervisor (replaced only if it is byte-for-byte the 2026-10-13 version):
+--        BedSowing  -> ONLY the active designated approver; the recorder exclusion is lifted for this type only.
+--                      No approver row (or an inactive approver) -> no Bed Sowing batch can be approved.
+--        Transplant, Cutting, Seed -> exactly as before.
+--   3. TR_ReadyConfirmations_BedApprovalAudit (new): every approval of a Bed Sowing batch is written to
+--      dbo.BedSowingAuditLog (who, which batch, and whether the approver also recorded the transplant).
+--   TR_ReadyConfirmations_BedReadyDate (no approval before the Ready Date) is NOT changed and still fires first.
+--
+-- NOT changed: no sowing, approval, stock or ledger row; no role, permission or user assignment.
+-- Requires: 2026-10-12_BedSowing.sql and 2026-10-13_TraysToSowingApprovals.sql.
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-16_BedSowingApprover_Rollback.sql.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> BED_APPROVER_USER_ID=<IMSUsers.Id> -i <this file>
+--       (local PlantsIMS2_Test: BED_APPROVER_USER_ID=9)
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52401, '2026-10-16_BedSowingApprover.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52402, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52403, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+---- risky lines / variables / state checks:
+  L17: --      TR_BedSowingApprover_Audit: every insert / change / delete of the row is written to dbo.BedSowingAuditLog.
+  L36: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L38: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L54: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L62: DECLARE @UserId INT = TRY_CAST(N'$(BED_APPROVER_USER_ID)' AS INT);
+  L203: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-16_MotherPlantTransplantWaste.sql   (10/12/2026 10:07:14)
+-- ============================================================================
+-- 2026-10-16_MotherPlantTransplantWaste.sql
+--
+-- WHY (owner requirements 2026-10-12): Transplant into Trays in a Mother Plant Area works like Main Office
+-- bed transplanting -- the user enters the seedlings to PROCESS, the complete trays of the chosen cavity are
+-- transplanted and the untransplanted remainder is recorded as WASTE (with a reason) in the same save;
+-- fewer seedlings than one tray may be closed as waste only (explicitly confirmed, with a reason). And a batch
+-- received for POT PRODUCTION is never transplanted into trays -- now refused by the database too.
+--
+-- WHAT (dbo.ReadyStockTransplants):
+--   1. WasteReason NVARCHAR(500) NULL -- why the remainder / the discarded seedlings were wasted.
+--      Existing rows keep NULL (their losses were recorded before a reason was asked for).
+--   2. TrayStockId becomes NULLable -- a waste-only closure takes no trays. FK_RsTransplants_TrayStock unchanged.
+--   3. CK_RsTransplants_Quantities: TransplantedQuantity may be 0 when LostQuantity > 0 (waste-only); every other
+--      rule unchanged (whole numbers, Selected = Transplanted + Lost). Replaced only if it is exactly the
+--      2026-10-09 definition (schema-drift guard).
+--   4. CK_RsTransplants_Status: a waste-only row (no output) may be Reversed too; otherwise unchanged (guarded).
+--   5. CK_RsTransplants_WasteOnly (new): a row either transplants (Transplanted > 0, a tray pool) or is waste-only
+--      (Transplanted = 0, 0 trays, no tray pool, no output batch). Every existing row satisfies it (checked first).
+--   6. TR_RsTransplants_NewRow (new, AFTER INSERT): a new row with waste has a reason; the transplanted
+--      seedlings fill complete trays exactly (Transplanted = OutputTrays x cavity); and the source batch has no
+--      Pot Production transfer anywhere in its lineage (the batch itself or any parent).
+--
+-- NOT changed: no transplant, Ready Stock, tray, sowing or ledger row; no permission.
+-- Requires: 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql (and so 2026-10-09 and 2026-10-13).
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-16_MotherPlantTransplantWaste_Rollback.sql
+-- (refuses once a waste reason or a waste-only row has been recorded).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52431, '2026-10-16_MotherPlantTransplantWaste.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52432, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52433, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION MpTransplantWaste1016;
+
+---- risky lines / variables / state checks:
+  L28: -- (refuses once a waste reason or a waste-only row has been recorded).
+  L34: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L36: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L52: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L92: ALTER TABLE dbo.ReadyStockTransplants DROP CONSTRAINT CK_RsTransplants_Quantities;
+  L97: ALTER TABLE dbo.ReadyStockTransplants DROP CONSTRAINT CK_RsTransplants_Status;
+  L155: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-16_PotProductionSubmissionToken.sql   (10/12/2026 10:08:24)
+-- ============================================================================
+-- 2026-10-16_PotProductionSubmissionToken.sql
+--
+-- WHY (owner requirement 2026-10-12, Pot Production from Cutting or Main Office seedlings): a double click,
+-- refresh or retry of "Start pot batch" must never start a second batch and take the source plants twice.
+--
+-- WHAT: dbo.PotProductionBatches.SubmissionToken UNIQUEIDENTIFIER NULL (the form's one-time token) +
+--       UX_PotBatches_SubmissionToken (unique where NOT NULL). Existing batches keep NULL.
+--       The application looks the token up under the source lock and returns the first batch; the unique
+--       index is the database backstop for two simultaneous submits.
+--
+-- NOT changed: no batch, ledger or stock row; no trigger, constraint or permission.
+-- Requires: 2026-10-15_PotProductionFromReadyStock.sql.
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-16_PotProductionSubmissionToken_Rollback.sql.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52461, '2026-10-16_PotProductionSubmissionToken.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52462, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52463, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION PotToken1016;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF COL_LENGTH('dbo.PotProductionBatches', 'SourceReadyStockId') IS NULL OR OBJECT_ID('dbo.TR_PotBatches_ReadyStockSource', 'TR') IS NULL
+        THROW 52464, 'Run 2026-10-15_PotProductionFromReadyStock.sql first.', 1;
+
+    IF COL_LENGTH('dbo.PotProductionBatches', 'SubmissionToken') IS NULL
+    BEGIN
+        IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_PotBatches_SubmissionToken')
+            THROW 52465, 'UX_PotBatches_SubmissionToken exists without its column -- inspect the database, nothing changed.', 1;
+        ALTER TABLE dbo.PotProductionBatches ADD SubmissionToken UNIQUEIDENTIFIER NULL;
+        EXEC (N'CREATE UNIQUE INDEX UX_PotBatches_SubmissionToken ON dbo.PotProductionBatches (SubmissionToken) WHERE SubmissionToken IS NOT NULL;');
+        PRINT '=== PotProductionBatches.SubmissionToken + UX_PotBatches_SubmissionToken ===';
+    END
+---- risky lines / variables / state checks:
+  L21: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L23: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L39: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L62: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-16_MotherPlantSupervisorTrayEnter.sql   (10/12/2026 11:10:22)
+-- ============================================================================
+-- 2026-10-16_MotherPlantSupervisorTrayEnter.sql
+--
+-- WHY (owner approval 2026-10-12): the Mother Plant Supervisor adds empty trays to his OWN Mother Plant Area(s)
+--   (Production > Mother Plant / Cutting > Add Empty Trays). Until now only TrayStock.EnterMotherPlant (Office
+--   Coordinator, Booking Executive), TrayStock.Enter holders of a Mother Plant Area and administrators could.
+--
+-- WHAT: grants the EXISTING permission TrayStock.Enter to the role "Mother Plant Supervisor" (one dbo.RolePermissions
+--   row), logged in dbo.RolePermissionChangeLog. No code rule changes: TrayStock.Enter already means "trays for an
+--   active, non-Outlet Area the user is ASSIGNED to" (Authorization/TrayAreaScope.cs), checked on every page, on every
+--   POST and again inside TrayStockRepository.AddStockAsync's transaction.
+--
+-- AREA SCOPE GUARD: refuses (nothing changed) when any user holding the Mother Plant Supervisor role also has a
+--   role assignment to an Area that is NOT an active Mother Plant Area, or to no Area -- for such a user the grant
+--   would reach beyond his own Mother Plant Areas. Re-check before re-running after role changes.
+--
+-- NOT changed: no other role, permission, user, Area or stock row.
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-16_MotherPlantSupervisorTrayEnter_Rollback.sql.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52481, '2026-10-16_MotherPlantSupervisorTrayEnter.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52482, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52483, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION MpsTrayEnter1016;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF OBJECT_ID('dbo.RolePermissionChangeLog', 'U') IS NULL
+        THROW 52484, 'dbo.RolePermissionChangeLog is missing -- run 2026-10-11_TrayAccessByLocation.sql first.', 1;
+    IF (SELECT COUNT(*) FROM dbo.Roles WHERE Name = N'Mother Plant Supervisor') <> 1
+        THROW 52485, 'Exactly one role named Mother Plant Supervisor is expected -- nothing changed.', 1;
+    IF (SELECT COUNT(*) FROM dbo.Permissions WHERE Code = N'TrayStock.Enter') <> 1
+        THROW 52486, 'Exactly one permission TrayStock.Enter is expected -- nothing changed.', 1;
+
+    DECLARE @Role INT = (SELECT Id FROM dbo.Roles WHERE Name = N'Mother Plant Supervisor');
+    DECLARE @Perm INT = (SELECT Id FROM dbo.Permissions WHERE Code = N'TrayStock.Enter');
+
+    PRINT '=== Holders of the role and every Area they are assigned to (any role) ===';
+    SELECT u.Id, u.Name, r.Name AS Role, a.Name AS Area, a.AreaType, a.IsActive
+---- risky lines / variables / state checks:
+  L13: -- AREA SCOPE GUARD: refuses (nothing changed) when any user holding the Mother Plant Supervisor role also has a
+  L25: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L27: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L38: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L52: WHERE ur.UserId IN (SELECT UserId FROM dbo.UserRoles WHERE RoleId = @Role)
+  L56: WHERE ur.UserId IN (SELECT UserId FROM dbo.UserRoles WHERE RoleId = @Role)
+  L81: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-17_BedSowingApprovalAnyDate.sql   (10/12/2026 15:00:48)
+-- ============================================================================
+-- 2026-10-17_BedSowingApprovalAnyDate.sql
+--
+-- WHY (owner requirement 2026-10-12): a tray batch transplanted from a Bed Sowing may be approved on ANY business date
+--   -- before, on or after its calculated Ready Date. The Ready Date stays recorded exactly as it is (nothing is
+--   rewritten); it no longer blocks the approval of a Bed Sowing batch.
+--
+-- WHAT: TR_ReadyConfirmations_BedReadyDate is re-created WITHOUT its Bed Sowing branch (THROW 52178). Its other branch is
+--   kept byte-for-byte: a tray batch transplanted from received Ready Stock (SourceType 'Transplant') is still never
+--   approved before its Ready Date (52208). The trigger fires FIRST again (sp_settriggerorder), as before.
+--   Replaced only if it is byte-for-byte the 2026-10-13 version (SHA-256 -- schema-drift guard).
+--
+-- NOT changed: who approves a Bed Sowing batch (only the designated approver, 2026-10-16_BedSowingApprover.sql), the
+--   Bed Sowing maker-checker exception, Direct Seed / Cutting / Transplant rules, any sowing, approval or stock row.
+-- Requires: 2026-10-13_TraysToSowingApprovals.sql and 2026-10-16_BedSowingApprover.sql.
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-17_BedSowingApprovalAnyDate_Rollback.sql.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52501, '2026-10-17_BedSowingApprovalAnyDate.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52502, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52503, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION BedAnyDate1017;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF OBJECT_ID('dbo.BedSowingApprover', 'U') IS NULL
+        THROW 52504, 'Run 2026-10-16_BedSowingApprover.sql first (the designated Bed Sowing approver).', 1;
+    IF OBJECT_ID('dbo.TR_ReadyConfirmations_BedReadyDate', 'TR') IS NULL
+        THROW 52505, 'TR_ReadyConfirmations_BedReadyDate is missing -- run 2026-10-13_TraysToSowingApprovals.sql first.', 1;
+
+    IF OBJECT_DEFINITION(OBJECT_ID('dbo.TR_ReadyConfirmations_BedReadyDate')) NOT LIKE N'%52178%'
+        PRINT '=== Already applied -- no-op ===';
+    ELSE
+    BEGIN
+        IF CONVERT(VARCHAR(64), HASHBYTES('SHA2_256', OBJECT_DEFINITION(OBJECT_ID('dbo.TR_ReadyConfirmations_BedReadyDate'))), 2)
+           <> 'E867F5775B1BEB1F050E2569E92C5E4413A06C131C650F3F5A282B65426C2045'
+            THROW 52506, 'TR_ReadyConfirmations_BedReadyDate is not the expected 2026-10-13 version -- schema drift, nothing changed.', 1;
+
+        PRINT '=== Bed Sowing batches waiting for approval (their Ready Dates stay as recorded) ===';
+---- risky lines / variables / state checks:
+  L23: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L25: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L36: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L53: DROP TRIGGER dbo.TR_ReadyConfirmations_BedReadyDate;
+  L85: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-17_TransplantApprovalAreaScope.sql   (10/12/2026 15:02:33)
+-- ============================================================================
+-- 2026-10-17_TransplantApprovalAreaScope.sql
+--
+-- WHY (owner requirement 2026-10-12, Mother Plant Area transplanting -> Area Ready Stock): a tray batch transplanted in a
+--   Mother Plant Area (SeedSowings.SourceType 'Transplant') becomes that Area's Ready Stock when the AREA SUPERVISOR
+--   approves it in Sowing Approvals. Until now ANY active user holding ReadyStock.Confirm (in any Area) could approve it.
+--
+-- WHAT: TR_ReadyConfirmations_AssignedSupervisor (replaced only if it is byte-for-byte the 2026-10-16 version, SHA-256):
+--   Transplant -> the approver is active AND (holds ReadyStock.Confirm through a role assigned to the batch's own Area,
+--                 or holds the System Administrator role). Seed, Cutting and Bed Sowing rules are unchanged.
+--   The Ready Date rule of a Transplant batch (TR_ReadyConfirmations_BedReadyDate) is unchanged.
+--
+-- NOT changed: no sowing, approval, stock, role or permission row.
+-- Requires: 2026-10-16_BedSowingApprover.sql.
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-17_TransplantApprovalAreaScope_Rollback.sql.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52521, '2026-10-17_TransplantApprovalAreaScope.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52522, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52523, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION TransplantScope1017;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF OBJECT_ID('dbo.BedSowingApprover', 'U') IS NULL
+        THROW 52524, 'Run 2026-10-16_BedSowingApprover.sql first.', 1;
+
+    IF OBJECT_DEFINITION(OBJECT_ID('dbo.TR_ReadyConfirmations_AssignedSupervisor')) LIKE N'%TransplantApproverInBatchArea%'
+        PRINT '=== Already applied -- no-op ===';
+    ELSE
+    BEGIN
+        IF CONVERT(VARCHAR(64), HASHBYTES('SHA2_256', OBJECT_DEFINITION(OBJECT_ID('dbo.TR_ReadyConfirmations_AssignedSupervisor'))), 2)
+           <> '0C58DC69469C32ED9E67F557EA0BCB9690E9F4C09741CC080E02D4017AA6149D'
+            THROW 52525, 'TR_ReadyConfirmations_AssignedSupervisor is not the expected 2026-10-16 version -- schema drift, nothing changed.', 1;
+
+        PRINT '=== Transplant tray batches waiting for approval, with their Area Supervisors (who may approve after this change) ===';
+        SELECT sw.Id, sw.SowingCode, a.Name AS Area,
+               (SELECT STRING_AGG(x.Name, N', ') FROM (SELECT DISTINCT u.Name FROM dbo.UserRoles ur
+                    JOIN dbo.IMSUsers u ON u.Id = ur.UserId AND ISNULL(u.IsActive, 0) = 1
+---- risky lines / variables / state checks:
+  L22: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L24: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L35: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L131: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-17_PottedDirectSaleSubmissionToken.sql   (10/12/2026 15:08:54)
+-- ============================================================================
+-- 2026-10-17_PottedDirectSaleSubmissionToken.sql
+--
+-- WHY (owner requirement 2026-10-12, issuing an Area's Ready Stock): a repeated / replayed submit of "Sell to customer"
+--   (Potted Plant Stock > Move, DispatchRepository.DirectSaleAsync) must never sell -- and deduct -- the pots twice.
+--   (Transfers to an Outlet / Main Office already have dbo.InternalTransfers.SubmissionToken + its unique index.)
+--
+-- WHAT: dbo.Dispatches.SubmissionToken UNIQUEIDENTIFIER NULL (the sale form's one-time token) + UX_Dispatches_SubmissionToken
+--   (unique where NOT NULL). Existing dispatches keep NULL. The application looks the token up under the stock row lock and
+--   returns the first sale; the index is the database backstop for simultaneous submits.
+--
+-- NOT changed: no booking, dispatch, stock or ledger row; no trigger, constraint or permission.
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-17_PottedDirectSaleSubmissionToken_Rollback.sql.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52541, '2026-10-17_PottedDirectSaleSubmissionToken.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52542, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52543, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION PottedSaleToken1017;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF OBJECT_ID('dbo.Dispatches', 'U') IS NULL
+        THROW 52544, 'dbo.Dispatches is missing -- nothing changed.', 1;
+    IF COL_LENGTH('dbo.Dispatches', 'SubmissionToken') IS NULL
+    BEGIN
+        IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Dispatches_SubmissionToken')
+            THROW 52545, 'UX_Dispatches_SubmissionToken exists without its column -- inspect the database, nothing changed.', 1;
+        ALTER TABLE dbo.Dispatches ADD SubmissionToken UNIQUEIDENTIFIER NULL;
+        EXEC (N'CREATE UNIQUE INDEX UX_Dispatches_SubmissionToken ON dbo.Dispatches (SubmissionToken) WHERE SubmissionToken IS NOT NULL;');
+        PRINT '=== Dispatches.SubmissionToken + UX_Dispatches_SubmissionToken ===';
+    END
+    ELSE PRINT '=== Already applied -- no-op ===';
+    EXEC (N'SELECT COUNT(*) AS Dispatches, COUNT(SubmissionToken) AS WithToken FROM dbo.Dispatches;');   -- deferred: the column is new
+---- risky lines / variables / state checks:
+  L20: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L22: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L38: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L59: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-18_SeedlingDirectSaleSubmissionToken.sql   (10/12/2026 15:43:47)
+-- ============================================================================
+-- 2026-10-18_SeedlingDirectSaleSubmissionToken.sql
+--
+-- WHY (owner decision 2026-10-12, direct tray sales): ready trays of a Mother Plant Area are sold straight to a customer
+--   (Mother Plant & Cutting > Ready Stock > Sell to customer, SeedlingFulfilmentRepository.DirectTraySaleAsync) -- a booking,
+--   its batch allocation and its Seedling Dispatch recorded together. A repeated / replayed submit must never sell -- and
+--   deduct -- the plants twice.
+--
+-- WHAT: dbo.SeedlingDispatches.SubmissionToken UNIQUEIDENTIFIER NULL (the sale form's one-time token) +
+--   UX_SeedlingDispatches_SubmissionToken (unique where NOT NULL). Existing dispatches keep NULL. The application looks the
+--   token up under the Ready Stock batch lock and returns the first sale; the index is the backstop for simultaneous submits.
+--   The direct tray sale stays switched off on a database without this column.
+--
+-- NOT changed: no booking, allocation, dispatch, stock or ledger row; no trigger, constraint or permission.
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-18_SeedlingDirectSaleSubmissionToken_Rollback.sql.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52561, '2026-10-18_SeedlingDirectSaleSubmissionToken.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52562, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52563, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION SeedlingSaleToken1018;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF OBJECT_ID('dbo.SeedlingDispatches', 'U') IS NULL
+        THROW 52564, 'dbo.SeedlingDispatches is missing -- nothing changed.', 1;
+    IF COL_LENGTH('dbo.SeedlingDispatches', 'SubmissionToken') IS NULL
+    BEGIN
+        IF EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_SeedlingDispatches_SubmissionToken')
+            THROW 52565, 'UX_SeedlingDispatches_SubmissionToken exists without its column -- inspect the database, nothing changed.', 1;
+        ALTER TABLE dbo.SeedlingDispatches ADD SubmissionToken UNIQUEIDENTIFIER NULL;
+        EXEC (N'CREATE UNIQUE INDEX UX_SeedlingDispatches_SubmissionToken ON dbo.SeedlingDispatches (SubmissionToken) WHERE SubmissionToken IS NOT NULL;');
+        PRINT '=== SeedlingDispatches.SubmissionToken + UX_SeedlingDispatches_SubmissionToken ===';
+    END
+---- risky lines / variables / state checks:
+  L22: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L24: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L40: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L61: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-19_Cavity70.sql   (10/12/2026 17:32:39)
+-- ============================================================================
+-- 2026-10-19_Cavity70.sql
+--
+-- WHY (owner requirement 2026-10-12, "Add 70-cavity tray option"): a 70-cavity tray (one full tray = 70 plants) joins
+--   the closed cavity list 9 / 24 / 42 / 102 / 150. The application list is DirectSowingRules.CavityTypes; the database
+--   repeats that closed list (and the cavity -> plants-per-tray mapping) in 10 CHECK constraints and 3 triggers, which
+--   would refuse every 70-cavity row. Without this migration the application never offers 70 Cavity
+--   (WorkflowCorrectionsSchema.Cavity70ProbeSql) and refuses to stock 70-cavity trays.
+--
+-- WHAT (one transaction; nothing else changes -- the five existing cavities keep exactly their rules):
+--   CHECK constraints dropped and re-added WITH CHECK, each with '70 Cavity' / 70 added:
+--     SeedSowings          CK_SeedSowings_CavityType, CK_SeedSowings_TrayCount, CK_SeedSowings_SeedQuantity
+--     TrayStock            CK_TrayStock_TraySize          TrayTransfers  CK_TrayTransfers_Size
+--     ReadyStock           CK_ReadyStock_TransplantCavity
+--     ReadyStockTransplants CK_RsTransplants_Cavity, CK_RsTransplants_Trays
+--     BedSowingOperations  CK_BedSowingOperations_Shape   MaterialConsumptionRules CK_MaterialConsumptionRules_Cavity
+--   Triggers (replaced only if byte-for-byte the expected current version, SHA-256), WHEN N'70 Cavity' THEN 70 added:
+--     TR_ReadyStock_WholeTrays, TR_ReadyConfirmations_TrayQuantity, TR_RsTransplants_NewRow
+--   Reference data: dbo.MaterialConsumptionRules gets one ACTIVE '70 Cavity' row per material type that already has
+--     cavity rules (Cocopeat, Pitmos) at 1.5 kg / tray -- the value every existing cavity uses (2026-10-08_MaterialStock.sql
+--     seeded 1.5 for all). Change it in Material Stock > Settings if 70-cavity trays take a different amount.
+--
+-- NOT changed: no sowing, tray, stock, approval, booking, role or permission row; Outlet*_StockType constraints do not
+--   list cavities and are untouched.
+-- Requires: 2026-10-08_MaterialStock.sql, 2026-10-09_ReadyStockTransplanting.sql, 2026-10-10_TrayTransfers.sql,
+--   2026-10-12_BedSowing.sql, 2026-10-16_MotherPlantTransplantWaste.sql (the trigger versions this replaces).
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-19_Cavity70_Rollback.sql (refused once 70-cavity data exists).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52581, '2026-10-19_Cavity70.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52582, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52583, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION Cavity70_1019;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF OBJECT_ID('dbo.MaterialConsumptionRules', 'U') IS NULL OR OBJECT_ID('dbo.ReadyStockTransplants', 'U') IS NULL
+       OR OBJECT_ID('dbo.TrayTransfers', 'U') IS NULL OR OBJECT_ID('dbo.BedSowingOperations', 'U') IS NULL
+       OR COL_LENGTH('dbo.ReadyStockTransplants', 'WasteReason') IS NULL
+---- risky lines / variables / state checks:
+  L8: --   (WorkflowCorrectionsSchema.Cavity70ProbeSql) and refuses to stock 70-cavity trays.
+  L34: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L36: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L47: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L69: ALTER TABLE dbo.SeedSowings DROP CONSTRAINT CK_SeedSowings_CavityType;
+  L73: ALTER TABLE dbo.SeedSowings DROP CONSTRAINT CK_SeedSowings_TrayCount;
+  L77: ALTER TABLE dbo.SeedSowings DROP CONSTRAINT CK_SeedSowings_SeedQuantity;
+  L81: ALTER TABLE dbo.TrayStock DROP CONSTRAINT CK_TrayStock_TraySize;
+  L85: ALTER TABLE dbo.TrayTransfers DROP CONSTRAINT CK_TrayTransfers_Size;
+  L89: ALTER TABLE dbo.MaterialConsumptionRules DROP CONSTRAINT CK_MaterialConsumptionRules_Cavity;
+  L93: ALTER TABLE dbo.ReadyStock DROP CONSTRAINT CK_ReadyStock_TransplantCavity;
+  L97: ALTER TABLE dbo.ReadyStockTransplants DROP CONSTRAINT CK_RsTransplants_Cavity;
+  L101: ALTER TABLE dbo.ReadyStockTransplants DROP CONSTRAINT CK_RsTransplants_Trays;
+  L105: ALTER TABLE dbo.BedSowingOperations DROP CONSTRAINT CK_BedSowingOperations_Shape;
+  L204: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-20_TransplantApprovalAnyDate.sql   (10/12/2026 21:20:06)
+-- ============================================================================
+-- 2026-10-20_TransplantApprovalAnyDate.sql
+--
+-- WHY (owner requirement 2026-10-12, "Mother Plant Area supervisors can approve on any date"): a tray batch transplanted
+--   in a Mother Plant Area (SeedSowings.SourceType 'Transplant') may be approved by an Area Supervisor of its own Area
+--   before, on or after its Ready Date. Until now TR_ReadyConfirmations_BedReadyDate refused it before the Ready Date
+--   (52208), and the application repeated that rule.
+--
+-- WHAT: TR_ReadyConfirmations_BedReadyDate (replaced only if it is byte-for-byte the current version, SHA-256):
+--   Transplant -> no date check any more; a batch WITHOUT a Ready Date is still refused (52208, eligibility).
+--   Bed Sowing  -> unchanged (any date since 2026-10-17_BedSowingApprovalAnyDate.sql); Seed / Cutting -> unchanged (no rule).
+--   Who may approve is unchanged: TR_ReadyConfirmations_AssignedSupervisor (Area Supervisor of the batch's Area or a System
+--   Administrator; Bed Sowing only the designated approver). The Ready Date itself (SeedSowings.ExpectedReadyDate) is
+--   neither changed nor recalculated.
+--
+-- NOT changed: no table, column, sowing, approval, stock, role or permission row.
+-- Requires: 2026-10-17_BedSowingApprovalAnyDate.sql (the trigger version this replaces) and
+--   2026-10-17_TransplantApprovalAreaScope.sql (the Area Supervisor rule this relies on).
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-20_TransplantApprovalAnyDate_Rollback.sql.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52611, '2026-10-20_TransplantApprovalAnyDate.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52612, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52613, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION TransplantAnyDate1020;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF OBJECT_DEFINITION(OBJECT_ID('dbo.TR_ReadyConfirmations_AssignedSupervisor')) NOT LIKE N'%TransplantApproverInBatchArea%'
+        THROW 52614, 'Run 2026-10-17_TransplantApprovalAreaScope.sql first (a Transplant batch is approved only by its Area Supervisor).', 1;
+
+    IF OBJECT_DEFINITION(OBJECT_ID('dbo.TR_ReadyConfirmations_BedReadyDate')) LIKE N'%TransplantApprovalAnyDate%'
+        PRINT '=== Already applied -- no-op ===';
+    ELSE
+    BEGIN
+        IF CONVERT(VARCHAR(64), HASHBYTES('SHA2_256', OBJECT_DEFINITION(OBJECT_ID('dbo.TR_ReadyConfirmations_BedReadyDate'))), 2)
+           <> '0DBAF1E4FFF23864C5C31E851D47BEA53F30D97DC5080795E867620E233501F4'
+            THROW 52615, 'TR_ReadyConfirmations_BedReadyDate is not the expected 2026-10-17 version -- schema drift, nothing changed.', 1;
+
+---- risky lines / variables / state checks:
+  L26: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L28: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L39: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L86: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-21_MotherPlantDirectSowing.sql   (10/13/2026 09:36:21)
+-- ============================================================================
+-- 2026-10-21_MotherPlantDirectSowing.sql
+--
+-- WHY (owner requirement 2026-10-13, "Direct Sowing for Mother Plant Areas, with Area Supervisor approval"):
+--   Mother Plant & Cutting > Direct Sowing records a Direct (seed) Sowing INTO a Mother Plant Area: seed from a Main Office
+--   lot (as Seed Production Direct Sowing), empty trays from the Area's own tray pool, no Polyhouse, and the batch waits in
+--   Sowing Approvals until an Area Supervisor of THAT Area (or a System Administrator) approves it -- the user who recorded
+--   it may approve it, like a Mother Plant transplant batch. The existing database rules refuse exactly that:
+--     TR_SeedSowings_SupervisorRole            a seed sowing must be assigned to an active Sowing Supervisor (50203) --
+--                                              Mother Plant Areas are run by Mother Plant Supervisors;
+--     TR_ReadyConfirmations_AssignedSupervisor a seed sowing is approved only by its assigned supervisor, never by its
+--                                              recorder (50111).
+--   The batch must also be told apart from a Seed Production Direct Sowing for good (not by the Area's current type).
+--
+-- WHAT (one transaction; nothing else is touched):
+--   dbo.SeedSowings.IsMotherPlantDirectSowing BIT NOT NULL DEFAULT 0 (DF_SeedSowings_IsMotherPlantDirectSowing) -- every
+--     existing row stays 0, so every existing sowing keeps exactly its current rules.
+--   CK_SeedSowings_MotherPlantDirectSowing: when 1 -> SourceType 'Seed', no supervisor, no Polyhouse, no growing material,
+--     recorder known.
+--   TR_SeedSowings_MotherPlantDirectSowing (new): when 1 -> an active Mother Plant Area; flag and Area fixed afterwards;
+--     a seed sowing in a Mother Plant Area is always flagged.
+--   TR_SeedSowings_SupervisorRole (replaced only if byte-for-byte the current version, SHA-256): the Sowing Supervisor rule
+--     skips flagged rows. Every other line unchanged.
+--   TR_ReadyConfirmations_AssignedSupervisor (same guard): a flagged batch is approved only by an Area Supervisor of its
+--     own Area (ReadyStock.Confirm through a role assigned to that Area) or a System Administrator (52711); the
+--     assigned-supervisor rule skips flagged rows. Bed Sowing / Cutting / Transplant / Seed Production rules unchanged.
+--
+-- NOT changed: no existing row, stock, ledger, role, permission, Ready Date rule (TR_ReadyConfirmations_BedReadyDate) or
+--   tray / material rule. Ready Date of the new batches = Sowing Date + the variety's growing days (Direct Sowing rule).
+-- Requires: 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql (Mother Plant Area tray pools) and
+--   2026-10-17_TransplantApprovalAreaScope.sql (the trigger version replaced here).
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- Idempotent (re-run = no-op). Undo: 2026-10-21_MotherPlantDirectSowing_Rollback.sql (refused once such a sowing exists).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- Probe used by the application (Data/WorkflowCorrectionsSchema.MotherPlantDirectSowingProbeSql):
+--   COL_LENGTH('dbo.SeedSowings', 'IsMotherPlantDirectSowing') IS NOT NULL AND OBJECT_ID('dbo.TR_SeedSowings_MotherPlantDirectSowing', 'TR') IS NOT NULL AND OBJECT_DEFINITION(OBJECT_ID('dbo.TR_ReadyConfirmations_AssignedSupervisor')) LIKE N'%MotherPlantDirectSowing%' AND OBJECT_DEFINITION(OBJECT_ID('dbo.TR_SeedSowings_SupervisorRole')) LIKE N'%MotherPlantDirectSowing%'
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52701, '2026-10-21_MotherPlantDirectSowing.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52702, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52703, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+---- risky lines / variables / state checks:
+  L41: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L43: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L54: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L116: DROP TRIGGER dbo.TR_SeedSowings_SupervisorRole;
+  L189: DROP TRIGGER dbo.TR_ReadyConfirmations_AssignedSupervisor;
+  L294: IF N'$(MODE)' = N'COMMIT'
+

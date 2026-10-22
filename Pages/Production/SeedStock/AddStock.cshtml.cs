@@ -11,16 +11,21 @@ namespace PlantStockManager.Pages.Production.SeedStock
     // from a supplier) directly against an existing pool. Mirrors
     // EmptyPotInventory/AddStock's Area check on both verbs -- fetch
     // the actual record first, check its REAL AreaId, never trust a
-    // posted id alone.
+    // posted id alone. 2026-10-21: a double click / browser retry / replay of the
+    // same form is stopped by SubmissionTokenGuard (it used to add the receipt again).
     public class AddStockModel : PageModel
     {
+        public const string TokenScope = "SeedStockAddStock";
+
         private readonly SeedStockRepository _seedStockRepo;
         private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
+        private readonly SubmissionTokenGuard _tokens;
 
-        public AddStockModel(SeedStockRepository seedStockRepo, SeedlingAreaScope areaAccessService)
+        public AddStockModel(SeedStockRepository seedStockRepo, SeedlingAreaScope areaAccessService, SubmissionTokenGuard tokens)
         {
             _seedStockRepo = seedStockRepo;
             _areaAccessService = areaAccessService;
+            _tokens = tokens;
         }
 
         public SeedStockModel? SeedStock { get; set; }
@@ -30,6 +35,9 @@ namespace PlantStockManager.Pages.Production.SeedStock
 
         [BindProperty]
         public string? Remarks { get; set; }
+
+        [BindProperty]
+        public string? SubmitToken { get; set; }
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -43,6 +51,7 @@ namespace PlantStockManager.Pages.Production.SeedStock
                 return RedirectToPage("/Production/SeedStock/Index");
             }
 
+            SubmitToken = SubmissionTokenGuard.NewToken();
             return Page();
         }
 
@@ -62,9 +71,17 @@ namespace PlantStockManager.Pages.Production.SeedStock
                 ModelState.AddModelError(nameof(Quantity), "Quantity to add must be greater than zero.");
             else if (!PlantStockManager.Services.DirectSowingRules.IsWholeNumber(Quantity))
                 ModelState.AddModelError(nameof(Quantity), "Quantity to add must be a whole number.");
+            else if (Quantity > SeedStockEditRules.MaxQuantity)
+                ModelState.AddModelError(nameof(Quantity), SeedStockEditRules.MaxQuantityMessage);
 
             if (!ModelState.IsValid)
                 return Page();
+
+            if (!_tokens.TryConsume(TokenScope, SubmitToken))
+            {
+                TempData["Error"] = "This form was already submitted. Check the lot's current stock below before adding again.";
+                return RedirectToPage("/Production/SeedStock/Details", new { id });
+            }
 
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
@@ -73,6 +90,9 @@ namespace PlantStockManager.Pages.Production.SeedStock
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to add stock.");
+                // The token was used up; issue a fresh one so the corrected form can be sent again.
+                ModelState.Remove(nameof(SubmitToken));
+                SubmitToken = SubmissionTokenGuard.NewToken();
                 return Page();
             }
 

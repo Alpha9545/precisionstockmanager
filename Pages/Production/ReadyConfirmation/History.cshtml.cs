@@ -33,6 +33,14 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
 
         public SeedSowingModel SeedSowing { get; set; } = new();
         public List<ReadyConfirmationModel> Confirmations { get; set; } = new();
+        // 2026-10-16: who approves Bed Sowing tray batches (display only).
+        public Services.DirectSowingRules.BedApprover BedApprover { get; private set; } = Services.DirectSowingRules.BedApprover.NotConfigured;
+
+        // 2026-10-22: the Sowing Approvals list state to go Back to (ApprovalListState) -- navigation only, never read by Cancel.
+        [BindProperty(SupportsGet = true, Name = "category")] public string? ListCategory { get; set; }
+        [BindProperty(SupportsGet = true, Name = "variety")] public int? ListVariety { get; set; }
+        [BindProperty(SupportsGet = true, Name = "sowingDate")] public DateTime? ListSowingDate { get; set; }
+        public ApprovalListState ListState => ApprovalListState.From(ListCategory, ListVariety, ListSowingDate);
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -50,6 +58,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
 
             SeedSowing = sowing;
             Confirmations = await _readyConfirmationRepo.GetBySeedSowingIdAsync(id);
+            BedApprover = await _readyConfirmationRepo.GetBedApproverAsync();
             return Page();
         }
 
@@ -85,7 +94,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
                 TempData["Success"] = "Supervisor Approval cancelled: Ready Stock reversed and the sowing batch re-opened for approval.";
             }
 
-            return RedirectToPage("/Production/ReadyConfirmation/History", new { id = seedSowingId });
+            return RedirectToPage("/Production/ReadyConfirmation/History", ListState.RouteWith("id", seedSowingId));
         }
     }
 }

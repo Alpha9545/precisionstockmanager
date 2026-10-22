@@ -64,7 +64,14 @@ namespace PlantStockManager.Data
         // approval's wastage on a tray batch transplanted from a bed is labelled as such.
         public const string BedLossProductionType = "Bed sowing (bed loss)";
 
-        public static string SourcesSql(bool indiaDays, bool bedReady = false) => $@"
+        // potsFromReadyStock (2026-10-15_PotProductionFromReadyStock.sql applied): seedlings of a pot batch made from
+        // received Ready Stock that were not potted are labelled as seedlings, not cuttings. Off: the SQL is unchanged.
+        // transplantWaste (2026-10-16_MotherPlantTransplantWaste.sql applied): seedlings wasted while transplanting received
+        // Ready Stock into trays in a Mother Plant Area (the untransplanted remainder, or a waste-only closure) are a loss
+        // source too -- dated on the TRANSPLANT business date, with the recorded reason. Off: the SQL is unchanged.
+        public const string TransplantWasteProductionType = "Mother Plant transplanting (waste)";
+
+        public static string SourcesSql(bool indiaDays, bool bedReady = false, bool potsFromReadyStock = false, bool transplantWaste = false) => $@"
     SELECT {Day("rc.ConfirmationDate", indiaDays)} AS WDate,
            CASE sw.SourceType WHEN N'Cutting' THEN N'Cutting tray' {(bedReady ? "WHEN N'BedSowing' THEN N'Bed transplant tray' WHEN N'Transplant' THEN N'Transplanted tray' " : "")}ELSE N'Seed tray' END AS ProductionType,
            CASE sw.SourceType WHEN N'Cutting' THEN N'Cutting' ELSE N'Seed' END AS Material,
@@ -107,7 +114,7 @@ namespace PlantStockManager.Data
     WHERE b.Status IN ('Ready', 'Lost') AND pe.Potted > b.ReadyQuantity
 
     UNION ALL
-    SELECT {Day("b.ReadyDate", indiaDays)}, N'Pot production (cuttings not potted)', N'Cutting',
+    SELECT {Day("b.ReadyDate", indiaDays)}, {(potsFromReadyStock ? "CASE WHEN b.SourceReadyStockId IS NULL THEN N'Pot production (cuttings not potted)' ELSE N'Pot production (seedlings not potted)' END" : "N'Pot production (cuttings not potted)'")}, {(potsFromReadyStock ? "CASE WHEN b.SourceReadyStockId IS NULL THEN N'Cutting' ELSE N'Seedling' END" : "N'Cutting'")},
            RTRIM(ps.Name), pt.Name, ps.Color, NULL, b.PotSize,
            b.AreaId, a.Name, b.CuttingAllocated - pe.Potted, b.CuttingAllocated,
            N'Not potted', b.BatchCode, u.Name, b.ReadyRemarks
@@ -185,16 +192,31 @@ namespace PlantStockManager.Data
     INNER JOIN dbo.PlantTypes pt ON pt.Id = ps.PlantTypeId
     INNER JOIN dbo.Area a ON a.Id = b.AreaId
     LEFT JOIN dbo.IMSUsers u ON u.Id = o.CreatedById
-    WHERE o.OperationType = N'Loss' AND o.Status = N'Active'" : "");
+    WHERE o.OperationType = N'Loss' AND o.Status = N'Active'" : "") + (transplantWaste ? $@"
+
+    UNION ALL
+    SELECT {Day("CAST(tp.TransplantDate AS datetime2)", indiaDays)}, N'{TransplantWasteProductionType}', N'Seedling',
+           RTRIM(ps.Name), pt.Name, ps.Color, tp.TargetCavityType, NULL,
+           tp.AreaId, a.Name, tp.LostQuantity, tp.SelectedQuantity,
+           ISNULL(tp.WasteReason, N'Lost / damaged while transplanting'), tp.TransplantCode, u.Name, tp.Notes
+    FROM dbo.ReadyStockTransplants tp
+    INNER JOIN dbo.ReadyStock rs ON rs.Id = tp.SourceReadyStockId
+    INNER JOIN dbo.PlantSpecies ps ON ps.Id = rs.SpeciesId
+    INNER JOIN dbo.PlantTypes pt ON pt.Id = ps.PlantTypeId
+    INNER JOIN dbo.Area a ON a.Id = tp.AreaId
+    LEFT JOIN dbo.IMSUsers u ON u.Id = tp.CreatedById
+    WHERE tp.Status = N'Completed' AND tp.LostQuantity > 0" : "");
 
         // The Wasted Stock report's own query: byte-for-byte unchanged without the Bed Sowing tables
         // (DailyOperationsReportRulesTests pins it); with them, the same query plus the bed losses.
+        // the SQL before any of the later migrations (DailyOperationsReportRulesTests pins it); one SQL text per other
+        // combination of applied migrations, built once
         private static readonly string Sql = BuildSql(bedReady: false);
-        private static readonly string SqlWithBedLosses = BuildSql(bedReady: true);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<(bool, bool, bool), string> SqlByShape = new();
 
-        private static string BuildSql(bool bedReady) => @"
+        private static string BuildSql(bool bedReady, bool potsFromReadyStock = false, bool transplantWaste = false) => @"
 SELECT * FROM (
-" + SourcesSql(indiaDays: false, bedReady).TrimStart('\r', '\n') + @"
+" + SourcesSql(indiaDays: false, bedReady, potsFromReadyStock, transplantWaste).TrimStart('\r', '\n') + @"
 ) w
 WHERE w.WDate BETWEEN @From AND @To
   AND (@Search IS NULL OR w.Variety LIKE @Like OR ISNULL(w.PlantType, '') LIKE @Like OR ISNULL(w.Reference, '') LIKE @Like)
@@ -206,7 +228,10 @@ ORDER BY w.WDate DESC";
             var list = new List<WastageRow>();
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(await BedSowingSchema.ReadyAsync(conn) ? SqlWithBedLosses : Sql, conn);
+            var bed = await BedSowingSchema.ReadyAsync(conn);
+            var pots = await PotBatchSchema.ReadyStockSourceAsync(conn);
+            var waste = await WorkflowCorrectionsSchema.TransplantWasteAsync(conn);
+            using var cmd = new SqlCommand(!bed && !pots && !waste ? Sql : SqlByShape.GetOrAdd((bed, pots, waste), k => BuildSql(k.Item1, k.Item2, k.Item3)), conn);
             var term = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
             cmd.Parameters.AddWithValue("@From", from.Date);
             cmd.Parameters.AddWithValue("@To", to.Date);

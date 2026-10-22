@@ -80,11 +80,15 @@ EXEC sp_set_session_context N'MaterialTestCleanup', 0;", ("@A", areaId), ("@P", 
                 => ScalarAsync<decimal>("SELECT ISNULL((SELECT CurrentQuantity FROM dbo.MaterialStock WHERE AreaId = @A AND PolyhouseId = @P AND MaterialTypeId = @M), 0)",
                     ("@A", areaId), ("@P", polyhouseId), ("@M", material));
 
+            // 2026-10-14: a Mother Plant Area's trays sit in its ONE active Area pool once 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql
+            // is applied (inactive before it); every other Area keeps the Polyhouse pool.
+            private const string TrayPool = "(t.PolyhouseId = @P OR (t.PolyhouseId IS NULL AND t.IsActive = 1 AND EXISTS (SELECT 1 FROM dbo.Area a WHERE a.Id = t.AreaId AND a.AreaType = N'MotherPlant')))";
+
             public async Task SetTraysAsync(int areaId, int polyhouseId, decimal trays)
             {
                 await ExecAsync(@"
-UPDATE dbo.TrayStock SET PhysicalQuantity = 0 WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = @T;
-DELETE tr FROM dbo.TrayStockTransactions tr JOIN dbo.TrayStock t ON t.Id = tr.TrayStockId WHERE t.AreaId = @A AND t.PolyhouseId = @P AND t.TraySize = @T",
+UPDATE t SET PhysicalQuantity = 0 FROM dbo.TrayStock t WHERE t.AreaId = @A AND " + TrayPool + @" AND t.TraySize = @T;
+DELETE tr FROM dbo.TrayStockTransactions tr JOIN dbo.TrayStock t ON t.Id = tr.TrayStockId WHERE t.AreaId = @A AND " + TrayPool + @" AND t.TraySize = @T",
                     ("@A", areaId), ("@P", polyhouseId), ("@T", Cavity));
                 var (ok, msg, _, _) = await Get<TrayStockRepository>().AddStockAsync(areaId, polyhouseId, Cavity, trays, DateTime.UtcNow,
                     Random.Shared.Next(1, int.MaxValue), Recorder, "mat-cut-test", "test setup", _ => true);
@@ -92,7 +96,7 @@ DELETE tr FROM dbo.TrayStockTransactions tr JOIN dbo.TrayStock t ON t.Id = tr.Tr
             }
 
             public Task<decimal> TraysAsync(int areaId, int polyhouseId)
-                => ScalarAsync<decimal>("SELECT ISNULL((SELECT PhysicalQuantity FROM dbo.TrayStock WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = @T), 0)",
+                => ScalarAsync<decimal>("SELECT ISNULL(SUM(t.PhysicalQuantity), 0) FROM dbo.TrayStock t WHERE t.AreaId = @A AND " + TrayPool + " AND t.TraySize = @T",
                     ("@A", areaId), ("@P", polyhouseId), ("@T", Cavity));
 
             // (re)creates the variety's Cutting Stock pool in an Area with a clean ledger -- scratch only

@@ -16,7 +16,7 @@ namespace PlantStockManager.Tests
     // active Sowing Supervisor of that Area other than the transplanter. Every test sows its OWN
     // test variety and seed lot, so the figures it checks are its own.
     [Collection("ScratchDb")]
-    public class BedSowingE2ETests
+    public partial class BedSowingE2ETests
     {
         private const string ConnectionVariable = "PSM_SCRATCH_CONNECTION";
         private const string RequiredPrefix = "PlantsIMS2_Scratch_";
@@ -37,6 +37,11 @@ namespace PlantStockManager.Tests
             public string ConnectionString = "";
             public ServiceProvider Provider = null!;
             public int AreaId, PolyhouseId, OtherMainPolyhouseId, Transplanter, Supervisor, Cocopeat;
+            // Who approves a bed tray batch: before 2026-10-16_BedSowingApprover.sql any approver but never the recorder
+            // (Approver = Supervisor, NotApprover = Transplanter); after it only the designated approver -- Maya, who is also
+            // the Transplanter (Approver = Transplanter, NotApprover = Supervisor).
+            public int Approver, NotApprover;
+            public string NotApproverMessage = DirectSowingRules.OwnSowingMessage;
             public T Get<T>() where T : notnull => Provider.GetRequiredService<T>();
             public BedSowingRepository Beds => Get<BedSowingRepository>();
             public BedSowingRepository.Actor Maya => new(Transplanter, "bed-test-transplanter", false);
@@ -109,7 +114,10 @@ WHERE COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) = N'Sowing Supervi
                   WHERE x.UserId = u.Id AND p.Code = N'BedSowing.Transplant')
 ORDER BY u.Id", ("@A", env.AreaId), ("@T", env.Transplanter));
             env.Cocopeat = await env.ScalarAsync<int>("SELECT Id FROM dbo.MaterialTypes WHERE Code = 'COCOPEAT'");
-            Skip.If(env.PolyhouseId == 0 || env.Transplanter == 0 || env.Supervisor == 0,
+            var bedApprover = await env.Get<ReadyConfirmationRepository>().GetBedApproverAsync();
+            (env.Approver, env.NotApprover) = bedApprover.RuleActive ? (bedApprover.UserId ?? 0, env.Supervisor) : (env.Supervisor, env.Transplanter);
+            if (bedApprover.RuleActive) env.NotApproverMessage = DirectSowingRules.NotBedApproverMessage(bedApprover.Name);
+            Skip.If(env.PolyhouseId == 0 || env.Transplanter == 0 || env.Supervisor == 0 || env.Approver == 0,
                 "The scratch copy has no Bed Sowing location, transplanter or second Sowing Supervisor.");
             return env;
         }
@@ -274,12 +282,14 @@ VALUES (@S, @A, @B, N'Seeds', @Q, N'bed-test'); SELECT CAST(SCOPE_IDENTITY() AS 
             var (ok, msg, opId, sowingId, dup) = await env.Beds.TransplantAsync(Move(env, bed, 240, daysAgo: 2), env.Maya);
             Assert.True(ok, msg);
             Assert.False(dup);
-            Assert.Equal($"240 seedlings were transplanted into 10 24 Cavity trays. Ready Date {AppClock.Today.AddDays(-2 + ReadyDays):dd-MM-yyyy} (transplant date + {ReadyDays} days).", msg);
+            Assert.Equal($"240 seedlings were transplanted into 10 24 Cavity trays, and the remaining 760 seedlings were recorded as waste. Ready Date {AppClock.Today.AddDays(-2 + ReadyDays):dd-MM-yyyy} (transplant date + {ReadyDays} days).", msg);
 
+            // 2026-10-14: the entered quantity goes into trays, the rest of the bed is recorded as waste, the bed closes.
             var b = await BedAsync(env, bed.Id);
             Assert.Equal(240, b.TransplantedQuantity);
-            Assert.Equal(760, b.RemainingQuantity);
-            Assert.Equal(BedSowing.StatusPartial, b.Status);
+            Assert.Equal(760, b.LostQuantity);
+            Assert.Equal(0, b.RemainingQuantity);
+            Assert.Equal(BedSowing.StatusCompleted, b.Status);
             AssertConserved(b);
 
             var sw = (await env.Get<SeedSowingRepository>().GetByIdAsync(sowingId))!;
@@ -373,11 +383,9 @@ VALUES (@C, @B, N'Loss', CAST(SYSDATETIME() AS date), 10, N'direct insert', N'be
                 Assert.Contains("Only the Bed Sowing Transplanter", ex.Message);
             }
 
-            // Maya herself records it normally.
+            // Maya herself records it normally: the transplant and the automatic remainder loss are both hers.
             var (mOk, mMsg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 240), env.Maya);
             Assert.True(mOk, mMsg);
-            var (lOk, lMsg, _, _) = await env.Beds.RecordLossAsync(bed.Id, 24, AppClock.Today, "damping off", null, Guid.NewGuid(), env.Maya);
-            Assert.True(lOk, lMsg);
             Assert.Equal(2, (await env.Beds.GetOperationsAsync(bed.Id)).Count);
             Assert.All(await env.Beds.GetOperationsAsync(bed.Id), o => Assert.Equal(env.Transplanter, o.CreatedById));
         }
@@ -424,20 +432,22 @@ VALUES (@C, @B, N'Loss', CAST(SYSDATETIME() AS date), 10, N'direct insert', N'be
         {
             var env = await OpenAsync();
             var v = await NewVarietyAsync(env);
-            var bed = await SowAsync(env, v, qty: 24 * 2000, daysAgo: 12);
-            // Use every 24 Cavity tray there is, then add a few TODAY only: a transplant dated
-            // 2 days ago cannot use trays that arrived today.
+            var drain = await SowAsync(env, v, qty: 24 * 2000, daysAgo: 12);
+            // Use every 24 Cavity tray there is (that bed closes), then add a few TODAY only: a transplant
+            // dated 2 days ago from a second bed cannot use trays that arrived today.
             var available = await env.TraysAsync();
             if (available > 0)
             {
-                var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 24 * available, daysAgo: 0), env.Maya);
-                if (!ok && 24 * available > bed.Quantity) Skip.If(true, "Too many trays in the scratch copy for this test.");
+                var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, drain, 24 * available, daysAgo: 0), env.Maya);
+                if (!ok && 24 * available > drain.Quantity) Skip.If(true, "Too many trays in the scratch copy for this test.");
                 Assert.True(ok, msg);
             }
+            var bed = await SowAsync(env, v, qty: 240, daysAgo: 12);
             await StockTraysAsync(env, 5, daysAgo: 0);
             var (bOk, bMsg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 24 * 5, daysAgo: 2), env.Maya);
             Assert.False(bOk);
             Assert.Contains("onward", bMsg);
+            Assert.Equal(240, (await BedAsync(env, bed.Id)).RemainingQuantity);       // nothing moved, no loss either
             var (tOk, tMsg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 24 * 5, daysAgo: 0), env.Maya);
             Assert.True(tOk, tMsg);
         }
@@ -460,6 +470,8 @@ VALUES (@C, @B, N'Loss', CAST(SYSDATETIME() AS date), 10, N'direct insert', N'be
             Assert.Equal(first.OperationId, second.OperationId);
             Assert.Equal(first.SeedSowingId, second.SeedSowingId);
             Assert.Equal(240, (await BedAsync(env, bed.Id)).TransplantedQuantity);
+            Assert.Equal(240, (await BedAsync(env, bed.Id)).LostQuantity);            // one remainder loss, not two
+            Assert.Equal(2, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.BedSowingOperations WHERE BedSowingId = @B", ("@B", bed.Id)));
             Assert.Equal(trays - 10, await env.TraysAsync());
         }
 
@@ -472,16 +484,19 @@ VALUES (@C, @B, N'Loss', CAST(SYSDATETIME() AS date), 10, N'direct insert', N'be
             var bed = await SowAsync(env, v, qty: 480);
             var trays = await env.TraysAsync();
 
-            // 6 parallel transplants of 120 (5 trays each) against 480: exactly 4 can succeed.
+            // 6 parallel transplants of 120 (5 trays each) against 480: every save closes the bed (the rest is
+            // recorded as waste), so exactly ONE can succeed -- never a second batch, loss or tray deduction.
             var results = await Task.WhenAll(Enumerable.Range(0, 6).Select(_ => env.Beds.TransplantAsync(Move(env, bed, 120), env.Maya)));
-            Assert.Equal(4, results.Count(r => r.Success));
+            Assert.Equal(1, results.Count(r => r.Success));
             var b = await BedAsync(env, bed.Id);
-            Assert.Equal(480, b.TransplantedQuantity);
+            Assert.Equal(120, b.TransplantedQuantity);
+            Assert.Equal(360, b.LostQuantity);
             Assert.Equal(0, b.RemainingQuantity);
             Assert.Equal(BedSowing.StatusCompleted, b.Status);
             AssertConserved(b);
-            Assert.Equal(4, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings WHERE BedSowingId = @B AND Status <> 'Cancelled'", ("@B", bed.Id)));
-            Assert.Equal(trays - 20, await env.TraysAsync());
+            Assert.Equal(1, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings WHERE BedSowingId = @B AND Status <> 'Cancelled'", ("@B", bed.Id)));
+            Assert.Equal(2, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.BedSowingOperations WHERE BedSowingId = @B", ("@B", bed.Id)));
+            Assert.Equal(trays - 5, await env.TraysAsync());
             Assert.False((await env.Beds.TransplantAsync(Move(env, bed, 24), env.Maya)).Success);   // nothing left
         }
 
@@ -497,13 +512,18 @@ VALUES (@C, @B, N'Loss', CAST(SYSDATETIME() AS date), 10, N'direct insert', N'be
             var (ok, msg, _, sowingId, _) = await env.Beds.TransplantAsync(Move(env, bed, 240, daysAgo: ReadyDays + 1), env.Maya);   // ready since yesterday
             Assert.True(ok, msg);
             var approvals = env.Get<ReadyConfirmationRepository>();
+            // Who approves: before 2026-10-16_BedSowingApprover.sql any approver but never the recorder; after it ONLY the
+            // designated Bed Sowing approver (Maya Shinde) -- who is also the transplanter (the Bed Sowing exception).
+            var bedApprover = await approvals.GetBedApproverAsync();
+            var approver = bedApprover.RuleActive ? bedApprover.UserId!.Value : env.Supervisor;
+            var notApprover = bedApprover.RuleActive ? env.Supervisor : env.Transplanter;
 
-            Assert.False((await approvals.ConfirmAsync(sowingId, 10, null, null, null, "bed-test", env.Transplanter, Any)).Success);   // the recorder
-            var (overOk, overMsg, _) = await approvals.ConfirmAsync(sowingId, 11, null, null, null, "bed-test", env.Supervisor, Any);
+            Assert.False((await approvals.ConfirmAsync(sowingId, 10, null, null, null, "bed-test", notApprover, Any)).Success);
+            var (overOk, overMsg, _) = await approvals.ConfirmAsync(sowingId, 11, null, null, null, "bed-test", approver, Any);
             Assert.False(overOk);                                                                                                      // more than transplanted
             Assert.Contains("made by a transplant", overMsg);
 
-            var (aOk, aMsg, _) = await approvals.ConfirmAsync(sowingId, 8, "Damaged plants", null, null, "bed-test", env.Supervisor, Any);
+            var (aOk, aMsg, _) = await approvals.ConfirmAsync(sowingId, 8, "Damaged plants", null, null, "bed-test", approver, Any);
             Assert.True(aOk, aMsg);
             var rows = await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ReadyStock WHERE SeedSowingId = @S", ("@S", sowingId));
             Assert.Equal(1, rows);
@@ -549,9 +569,13 @@ WHERE r.SeedSowingId = @S AND t.TransactionType = N'Confirmed'", ("@S", sowingId
             var (rOk, rMsg) = await env.Beds.ReverseOperationAsync(opId, "entered on the wrong bed", env.Maya);
             Assert.True(rOk, rMsg);
 
+            // The transplanted seedlings are back in the bed; the remainder loss recorded with it stays (it is
+            // reversed on its own if it was wrong), so the bed is open again with 240.
             var b = await BedAsync(env, bed.Id);
             Assert.Equal(0, b.TransplantedQuantity);
-            Assert.Equal(BedSowing.StatusPending, b.Status);
+            Assert.Equal(240, b.LostQuantity);
+            Assert.Equal(240, b.RemainingQuantity);
+            Assert.Equal(BedSowing.StatusPartial, b.Status);
             AssertConserved(b);
             Assert.Equal("Cancelled", await env.ScalarAsync<string>("SELECT Status FROM dbo.SeedSowings WHERE Id = @S", ("@S", sowingId)));
             Assert.Equal(trays, await env.TraysAsync());
@@ -570,12 +594,9 @@ WHERE r.SeedSowingId = @S AND t.TransactionType = N'Confirmed'", ("@S", sowingId
             var bed = await SowAsync(env, v, qty: 500);
 
             Assert.False((await env.Beds.RecordLossAsync(bed.Id, 20, AppClock.Today, "", null, Guid.NewGuid(), env.Maya)).Success);  // reason
-            var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 480), env.Maya);
+            var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 480, daysAgo: 0), env.Maya);
             Assert.True(ok, msg);
-            var token = Guid.NewGuid();
-            var (lOk, lMsg, lossId, _) = await env.Beds.RecordLossAsync(bed.Id, 20, AppClock.Today, "damping off", null, token, env.Maya);
-            Assert.True(lOk, lMsg);
-            Assert.True((await env.Beds.RecordLossAsync(bed.Id, 20, AppClock.Today, "damping off", null, token, env.Maya)).Duplicate);
+            var lossId = await env.ScalarAsync<int>("SELECT Id FROM dbo.BedSowingOperations WHERE BedSowingId = @B AND OperationType = N'Loss'", ("@B", bed.Id));
 
             var b = await BedAsync(env, bed.Id);
             Assert.Equal(BedSowing.StatusCompleted, b.Status);
@@ -584,12 +605,29 @@ WHERE r.SeedSowingId = @S AND t.TransactionType = N'Confirmed'", ("@S", sowingId
             AssertConserved(b);
             Assert.Contains((await env.Get<WastageRepository>().GetAsync(AppClock.Today, AppClock.Today, env.AreaId, b.BedSowingCode)),
                 w => w.ProductionType == WastageRepository.BedLossProductionType && w.Quantity == 20);
+            Assert.False((await env.Beds.RecordLossAsync(bed.Id, 20, AppClock.Today, "damping off", null, Guid.NewGuid(), env.Maya)).Success);   // closed
 
             Assert.False((await env.Beds.CancelAsync(bed.Id, "test", env.Maya, Any)).Success);               // not untouched
             Assert.True((await env.Beds.ReverseOperationAsync(lossId, "counted twice", env.Maya)).Success);
             b = await BedAsync(env, bed.Id);
             Assert.Equal(BedSowing.StatusPartial, b.Status);
             Assert.Equal(20, b.RemainingQuantity);
+            AssertConserved(b);
+
+            // 20 left -- fewer than one 24 Cavity tray: refused without the explicit confirmation, closed with it.
+            var noConfirm = Move(env, bed, 0, daysAgo: 0);
+            Assert.False((await env.Beds.TransplantAsync(noConfirm, env.Maya)).Success);
+            Assert.Equal(20, (await BedAsync(env, bed.Id)).RemainingQuantity);
+            var close = Move(env, bed, 0, daysAgo: 0);
+            close.CloseAsWaste = true;
+            Assert.False((await env.Beds.TransplantAsync(close, env.Maya)).Success);                          // a reason is required
+            Assert.Equal(20, (await BedAsync(env, bed.Id)).RemainingQuantity);
+            close.WasteReason = "damping off";
+            var (cOk, cMsg, _, cSowing, _) = await env.Beds.TransplantAsync(close, env.Maya);
+            Assert.True(cOk, cMsg);
+            Assert.Equal(0, cSowing);
+            b = await BedAsync(env, bed.Id);
+            Assert.Equal((BedSowing.StatusCompleted, 0m, 480m, 20m), (b.Status, b.RemainingQuantity, b.TransplantedQuantity, b.LostQuantity));
             AssertConserved(b);
 
             // An untouched bed can be cancelled: the seed goes back to the lot.
@@ -622,46 +660,53 @@ WHERE r.SeedSowingId = @S AND t.TransactionType = N'Confirmed'", ("@S", sowingId
             Assert.Equal(240, (await BedAsync(env, bed.Id)).TransplantedQuantity);
         }
 
-        // ===== into a Mother Plant Area ==================================================================
+        // ===== Bed Sowing location only (owner decision 2026-10-11) ======================================
 
+        // A Mother Plant Area is no longer a Bed transplant target: only the Bed Sowing Polyhouse of the bed's own
+        // Main Office Area. The tray batch is approved by any approver, never the Transplanter, and the approval is
+        // cancelled only by whoever made it.
         [SkippableFact]
-        public async Task Transplant_IntoAMotherPlantAreaPolyhouse_NoMaterial_ApprovedByAnApproverButNeverTheTransplanter()
+        public async Task Transplant_OnlyIntoTheBedSowingLocation_MotherPlantAreaRefused_ApprovedByAnApproverButNeverTheTransplanter()
         {
             var env = await OpenAsync();
-            var (mpArea, mpPolyhouse) = (await env.ScalarAsync<int>(@"SELECT TOP 1 a.Id FROM dbo.Area a JOIN dbo.Polyhouses p ON p.AreaId = a.Id
-WHERE a.AreaType = N'MotherPlant' AND a.IsActive = 1 ORDER BY a.Id"), 0);
-            mpPolyhouse = await env.ScalarAsync<int>("SELECT TOP 1 Id FROM dbo.Polyhouses WHERE AreaId = @A ORDER BY Id", ("@A", mpArea));
-            Skip.If(mpArea == 0, "No active Mother Plant Area with a Polyhouse in this copy.");
-            var (tOk, tMsg, _, _) = await env.Get<TrayStockRepository>().AddStockAsync(mpArea, mpPolyhouse, Cavity, 20, DateTime.UtcNow.AddDays(-ReadyDays - 10),
-                Random.Shared.Next(1, int.MaxValue), env.Supervisor, "bed-test", "bed test MP trays", Any);
-            Assert.True(tOk, tMsg);
-            var traysBefore = await env.ScalarAsync<decimal>("SELECT PhysicalQuantity FROM dbo.TrayStock WHERE PolyhouseId = @P AND TraySize = @C AND IsActive = 1", ("@P", mpPolyhouse), ("@C", Cavity));
+            var mpPolyhouse = await env.ScalarAsync<int>(@"SELECT TOP 1 p.Id FROM dbo.Area a JOIN dbo.Polyhouses p ON p.AreaId = a.Id
+WHERE a.AreaType = N'MotherPlant' AND a.IsActive = 1 ORDER BY a.Id, p.Id");
+            Skip.If(mpPolyhouse == 0, "No active Mother Plant Area with a Polyhouse in this copy.");
+            await StockTraysAsync(env, 20, daysAgo: ReadyDays + 10);
             var v = await NewVarietyAsync(env);
             var bed = await SowAsync(env, v, qty: 480, daysAgo: ReadyDays + 5);
 
-            var req = Move(env, bed, 240, daysAgo: ReadyDays);
-            req.TargetPolyhouseId = mpPolyhouse;
-            req.GrowingMaterialTypeId = null;          // material stock exists only in Main Office Polyhouses (existing rule)
-            var (ok, msg, _, sowingId, _) = await env.Beds.TransplantAsync(req, env.Maya);
+            // the targets offered: only Bed Sowing Polyhouses of the bed's own Main Office Area
+            var targets = await env.Beds.GetTransplantTargetsAsync(env.AreaId);
+            Assert.NotEmpty(targets);
+            Assert.All(targets, t => Assert.Equal((env.AreaId, "MainOffice"), (t.AreaId, t.AreaType)));
+            Assert.DoesNotContain(targets, t => t.PolyhouseId == mpPolyhouse);
+
+            // a forged Mother Plant Polyhouse target: refused, nothing recorded
+            var forged = Move(env, bed, 240, daysAgo: ReadyDays);
+            forged.TargetPolyhouseId = mpPolyhouse;
+            forged.GrowingMaterialTypeId = null;
+            var (fOk, fMsg, _, _, _) = await env.Beds.TransplantAsync(forged, env.Maya);
+            Assert.False(fOk);
+            Assert.Equal("Transplant into the Bed Sowing Polyhouse of this bed's Area.", fMsg);
+            var b0 = await BedAsync(env, bed.Id);
+            Assert.Equal((480m, 0m, 0m), (b0.RemainingQuantity, b0.TransplantedQuantity, b0.LostQuantity));
+            Assert.Equal(0, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings WHERE BedSowingId = @B", ("@B", bed.Id)));
+
+            // into the Bed Sowing location: approved by an approver, never the Transplanter
+            var (ok, msg, _, sowingId, _) = await env.Beds.TransplantAsync(Move(env, bed, 240, daysAgo: ReadyDays), env.Maya);
             Assert.True(ok, msg);
             var sw = (await env.Get<SeedSowingRepository>().GetByIdAsync(sowingId))!;
-            Assert.Equal(mpArea, sw.AreaId);
-            Assert.Equal(mpPolyhouse, sw.PolyhouseId);
-            Assert.Null(sw.GrowingMaterialTypeId);
-            Assert.Equal(AppClock.Today, sw.ExpectedReadyDate);
-            Assert.Equal(traysBefore - 10, await env.ScalarAsync<decimal>("SELECT PhysicalQuantity FROM dbo.TrayStock WHERE PolyhouseId = @P AND TraySize = @C AND IsActive = 1", ("@P", mpPolyhouse), ("@C", Cavity)));
-
-            // Never the person who recorded the transplant; any other approver may approve.
+            Assert.Equal((env.AreaId, (int?)env.PolyhouseId, AppClock.Today), (sw.AreaId, sw.PolyhouseId, sw.ExpectedReadyDate!.Value));
             var approvals = env.Get<ReadyConfirmationRepository>();
-            var (selfOk, selfMsg, _) = await approvals.ConfirmAsync(sowingId, 10, null, null, null, "bed-test", env.Transplanter, Any);
+            var (selfOk, selfMsg, _) = await approvals.ConfirmAsync(sowingId, 10, null, null, null, "bed-test", env.NotApprover, Any);
             Assert.False(selfOk);
-            Assert.Equal(DirectSowingRules.OwnSowingMessage, selfMsg);
-            var (aOk, aMsg, approvalId) = await approvals.ConfirmAsync(sowingId, 10, null, null, null, "bed-test", env.Supervisor, Any);
+            Assert.Equal(env.NotApproverMessage, selfMsg);
+            var (aOk, aMsg, approvalId) = await approvals.ConfirmAsync(sowingId, 10, null, null, null, "bed-test", env.Approver, Any);
             Assert.True(aOk, aMsg);
             Assert.Equal(240, await env.ScalarAsync<decimal>("SELECT Quantity FROM dbo.ReadyStock WHERE SeedSowingId = @S", ("@S", sowingId)));
-            // The approval is cancelled only by whoever made it.
-            Assert.False((await approvals.CancelAsync(approvalId, "bed-test", env.Transplanter)).Success);
-            Assert.True((await approvals.CancelAsync(approvalId, "bed-test", env.Supervisor)).Success);
+            Assert.False((await approvals.CancelAsync(approvalId, "bed-test", env.NotApprover)).Success);
+            Assert.True((await approvals.CancelAsync(approvalId, "bed-test", env.Approver)).Success);
         }
 
         // ===== Ready Date gate ===========================================================================
@@ -677,7 +722,11 @@ WHERE a.AreaType = N'MotherPlant' AND a.IsActive = 1 ORDER BY a.Id"), 0);
             var (ok, msg, _, sowingId, _) = await env.Beds.TransplantAsync(Move(env, early, 240, daysAgo: 0), env.Maya);
             Assert.True(ok, msg);
 
-            var (cOk, cMsg, _) = await env.Get<ReadyConfirmationRepository>().ConfirmAsync(sowingId, 10, null, null, null, "bed-test", env.Supervisor, Any);
+            // 2026-10-17_BedSowingApprovalAnyDate.sql: a Bed Sowing batch is then approved on ANY date by its approver --
+            // this test covers the earlier rule only (AreaReadyStock1017E2ETests covers the new one).
+            Skip.If((await env.Get<ReadyConfirmationRepository>().GetApprovalSettingsAsync()).BedAnyDate,
+                "2026-10-17_BedSowingApprovalAnyDate.sql is applied: Bed Sowing batches are approved on any date (AreaReadyStock1017E2ETests).");
+            var (cOk, cMsg, _) = await env.Get<ReadyConfirmationRepository>().ConfirmAsync(sowingId, 10, null, null, null, "bed-test", env.Approver, Any);
             Assert.False(cOk);
             Assert.Equal(string.Format(BedSowingRules.NotReadyYetMessageFormat, AppClock.Today.AddDays(ReadyDays)), cMsg);
             // The approval list / Confirm page use the same rule on the stored batch: "Approve from <Ready Date>".
@@ -702,10 +751,10 @@ VALUES (@C, @S, @R, 10, 240, 0, @U, SYSUTCDATETIME(), 'Confirmed', @U, SYSUTCDAT
             var dueBatch = (await env.Get<SeedSowingRepository>().GetByIdAsync(dueSowing))!;
             Assert.Equal(AppClock.Today, dueBatch.ExpectedReadyDate);
             Assert.True(BedSowingRules.ValidateApprovalReadyDate(dueBatch.SourceType, dueBatch.ExpectedReadyDate, AppClock.Today).Ok);   // UI: "Approve"
-            var (aOk, aMsg, _) = await env.Get<ReadyConfirmationRepository>().ConfirmAsync(dueSowing, 10, null, null, null, "bed-test", env.Supervisor, Any);
+            var (aOk, aMsg, _) = await env.Get<ReadyConfirmationRepository>().ConfirmAsync(dueSowing, 10, null, null, null, "bed-test", env.Approver, Any);
             Assert.True(aOk, aMsg);
             // linked to its bed, one Ready Stock batch only
-            Assert.False((await env.Get<ReadyConfirmationRepository>().ConfirmAsync(dueSowing, 1, null, null, null, "bed-test", env.Supervisor, Any)).Success);
+            Assert.False((await env.Get<ReadyConfirmationRepository>().ConfirmAsync(dueSowing, 1, null, null, null, "bed-test", env.Approver, Any)).Success);
             Assert.Equal(1, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ReadyStock WHERE SeedSowingId = @S", ("@S", dueSowing)));
             Assert.Equal((int?)due.Id, (await env.Get<SeedSowingRepository>().GetByIdAsync(dueSowing))!.BedSowingId);
         }
@@ -879,31 +928,35 @@ JOIN dbo.RolePermissions rp ON rp.RoleId = ur.RoleId WHERE rp.PermissionId = @P"
             var v = await NewVarietyAsync(env);
             await StockTraysAsync(env, 20);
             var open = await SowAsync(env, v, qty: 480);
+            var part = await SowAsync(env, v, qty: 480);
             var closed = await SowAsync(env, v, qty: 240);
-            var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, open, 240), env.Maya);
+            var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, part, 240), env.Maya);
             Assert.True(ok, msg);
             Assert.True((await env.Beds.TransplantAsync(Move(env, closed, 240), env.Maya)).Success);
-            Assert.True((await env.Beds.RecordLossAsync(open.Id, 24, AppClock.Today, "test loss", null, Guid.NewGuid(), env.Maya)).Success);
 
             var all = await env.Beds.ListAsync(null);
             Assert.Contains(all, b => b.Id == open.Id);
+            Assert.Contains(all, b => b.Id == part.Id && b.Status == BedSowing.StatusCompleted);
             Assert.Contains(all, b => b.Id == closed.Id && b.Status == BedSowing.StatusCompleted);
             var waiting = await env.Beds.ListAsync(new[] { env.AreaId }, openOnly: true);
-            Assert.Contains(waiting, b => b.Id == open.Id && b.RemainingQuantity == 216 && b.PolyhouseName != null && b.SpeciesName.StartsWith("ZZTEST Bed"));
-            Assert.DoesNotContain(waiting, b => b.Id == closed.Id);
+            Assert.Contains(waiting, b => b.Id == open.Id && b.RemainingQuantity == 480 && b.PolyhouseName != null && b.SpeciesName.StartsWith("ZZTEST Bed"));
+            Assert.DoesNotContain(waiting, b => b.Id == part.Id || b.Id == closed.Id);
             Assert.Empty(await env.Beds.ListAsync(Array.Empty<int>()));                         // no Area -> nothing
 
-            var ops = await env.Beds.GetOperationsAsync(open.Id);
+            var ops = await env.Beds.GetOperationsAsync(part.Id);
             Assert.Equal(2, ops.Count);
             var t = Assert.Single(ops, o => o.IsTransplant);
             Assert.Equal(10, t.OutputTrays);
             Assert.NotNull(t.SowingCode);
             Assert.Equal("Sown", t.SowingStatus);
             Assert.Equal("Cocopeat", t.GrowingMaterialName, ignoreCase: true);
-            Assert.Equal("test loss", Assert.Single(ops, o => !o.IsTransplant).Reason);
+            var loss = Assert.Single(ops, o => !o.IsTransplant);
+            Assert.Equal((BedSowingRules.RemainderLossReason, 240m, t.OperationDate), (loss.Reason, loss.Quantity, loss.OperationDate));
+            Assert.Single(await env.Beds.GetOperationsAsync(closed.Id));                     // 240 of 240: no waste, no loss row
 
             var history = await env.Beds.GetHistoryAsync(new[] { env.AreaId }, AppClock.Today.AddDays(-30), AppClock.Today);
-            Assert.Contains(history, o => o.BedSowingId == open.Id && o.IsTransplant);
+            Assert.Contains(history, o => o.BedSowingId == part.Id && o.IsTransplant);
+            Assert.Contains(history, o => o.BedSowingId == part.Id && !o.IsTransplant);
             Assert.Contains(history, o => o.BedSowingId == closed.Id);
             Assert.Empty(await env.Beds.GetHistoryAsync(new[] { env.AreaId }, AppClock.Today.AddDays(1), AppClock.Today.AddDays(2)));
 
@@ -944,8 +997,8 @@ JOIN dbo.RolePermissions rp ON rp.RoleId = ur.RoleId WHERE rp.PermissionId = @P"
                 "SELECT ISNULL(SUM(QuantitySown), 0) FROM dbo.SeedSowings WHERE CAST(SowingDate AS date) = @D AND Status <> 'Cancelled' AND SourceType <> N'BedSowing'", ("@D", day));
             Assert.Equal(bedsThatDay + directThatDay, data.Sowing.Where(f => f.Date == day).Sum(f => f.Quantity));
         }
-        // ===== transplanting ALL the remaining seedlings: complete trays + the remainder as waste (2026-10-11) =====
-        // N remaining, cavity C: FullTrays = N / C (integer), Transplanted = FullTrays x C, Waste = N - Transplanted,
+        // ===== the entered Quantity to Transplant + the remainder as waste (2026-10-11, 2026-10-14) =====
+        // N remaining, cavity C, entered T (a multiple of C, at most N): TrayCount = T / C, Waste = N - T,
         // recorded as one system-generated bed loss in the same transaction; the bed closes.
 
         // A fresh Bed Sowing Polyhouse (own tray / material pools) with `trays` empty trays of `cavity`, and a
@@ -993,8 +1046,9 @@ FROM dbo.BedSowingOperations WHERE BedSowingId = @B ORDER BY Id", conn);
         }
 
         [SkippableTheory]
-        [InlineData(500, "150 Cavity", 3, 450, 50)]
-        [InlineData(450, "150 Cavity", 3, 450, 0)]
+        [InlineData(500, "150 Cavity", 3, 450, 50)]     // owner example 1
+        [InlineData(500, "150 Cavity", 2, 300, 200)]    // owner example 2
+        [InlineData(450, "150 Cavity", 3, 450, 0)]      // owner example 3
         [InlineData(500, "102 Cavity", 4, 408, 92)]
         public async Task TransplantAll_CompleteTrays_RemainderRecordedAsWaste_BedClosed(int remaining, string cavity, int trays, int transplanted, int waste)
         {
@@ -1003,7 +1057,7 @@ FROM dbo.BedSowingOperations WHERE BedSowingId = @B ORDER BY Id", conn);
             try
             {
                 var trays0 = await PoolTraysAsync(env, p, cavity);
-                var req = Move(env, bed, remaining, daysAgo: 2, cavity: cavity);
+                var req = Move(env, bed, transplanted, daysAgo: 2, cavity: cavity);
                 var (ok, msg, opId, sowingId, dup) = await env.Beds.TransplantAsync(req, env.Maya);
                 Assert.True(ok, msg);
                 Assert.False(dup);
@@ -1050,10 +1104,22 @@ FROM dbo.BedSowingOperations WHERE BedSowingId = @B ORDER BY Id", conn);
                 var trays0 = await PoolTraysAsync(env, p, "150 Cavity");
                 var cocopeat0 = await PoolCocopeatAsync(env, p);
                 var batches0 = await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings");
-                var req = Move(env, bed, 100, daysAgo: 1, cavity: "150 Cavity");
+                // Without the explicit confirmation nothing is closed -- not with 0, not with the whole 100.
+                foreach (var q in new decimal[] { 0, 100 })
+                {
+                    var (nOk, nMsg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, q, daysAgo: 1, cavity: "150 Cavity"), env.Maya);
+                    Assert.False(nOk);
+                    Assert.False(string.IsNullOrWhiteSpace(nMsg));
+                }
+                Assert.Empty(await OpsAsync(env, bed.Id));
+                Assert.Equal(100m, (await BedAsync(env, bed.Id)).RemainingQuantity);
+
+                var req = Move(env, bed, 0, daysAgo: 1, cavity: "150 Cavity");
+                req.CloseAsWaste = true;
+                req.WasteReason = "seedlings dried out";
                 var (ok, msg, opId, sowingId, _) = await env.Beds.TransplantAsync(req, env.Maya);
                 Assert.True(ok, msg);
-                Assert.Equal("Not enough seedlings for one 150 Cavity tray: no tray batch was created, and 100 seedlings were recorded as waste.", msg);
+                Assert.Equal("No tray batch was created: all 100 remaining seedlings were recorded as waste and the bed was closed.", msg);
                 Assert.Equal(0, sowingId);
                 Assert.Equal(batches0, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings"));
                 Assert.Equal(trays0, await PoolTraysAsync(env, p, "150 Cavity"));
@@ -1062,7 +1128,7 @@ FROM dbo.BedSowingOperations WHERE BedSowingId = @B ORDER BY Id", conn);
                 Assert.Equal((0m, 0m, 100m, BedSowing.StatusCompleted), (b.RemainingQuantity, b.TransplantedQuantity, b.LostQuantity, b.Status));
                 AssertConserved(b);
                 var l = Assert.Single(await OpsAsync(env, bed.Id));
-                Assert.Equal(("Loss", 100m, BedSowingRules.RemainderLossReason, AppClock.Today.AddDays(-1), req.SubmissionToken), (l.Type, l.Qty, l.Reason, l.Date, l.Token));
+                Assert.Equal(("Loss", 100m, "seedlings dried out", AppClock.Today.AddDays(-1), req.SubmissionToken), (l.Type, l.Qty, l.Reason, l.Date, l.Token));
 
                 // the same form again: recognised, nothing recorded twice
                 var (ok2, _, opId2, _, dup2) = await env.Beds.TransplantAsync(req, env.Maya);
@@ -1090,7 +1156,7 @@ FROM dbo.BedSowingOperations WHERE BedSowingId = @B ORDER BY Id", conn);
                 {
                     var trays0 = await PoolTraysAsync(env, p, "150 Cavity");
                     var cocopeat0 = await PoolCocopeatAsync(env, p);
-                    var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 500, cavity: "150 Cavity"), env.Maya);
+                    var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 450, cavity: "150 Cavity"), env.Maya);
                     Assert.False(ok);
                     Assert.Contains("Ready Days are not configured", msg);
                     var b = await BedAsync(env, bed.Id);
@@ -1112,7 +1178,7 @@ FROM dbo.BedSowingOperations WHERE BedSowingId = @B ORDER BY Id", conn);
             var (p, _, bed) = await RemainderSetupAsync(env, 500, "150 Cavity", 2);
             try
             {
-                var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 500, cavity: "150 Cavity"), env.Maya);
+                var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 450, cavity: "150 Cavity"), env.Maya);
                 Assert.False(ok);
                 Assert.Contains("tray", msg, StringComparison.OrdinalIgnoreCase);
                 Assert.Empty(await OpsAsync(env, bed.Id));
@@ -1125,7 +1191,7 @@ FROM dbo.BedSowingOperations WHERE BedSowingId = @B ORDER BY Id", conn);
             var (p2, _, bed2) = await RemainderSetupAsync(env, 500, "150 Cavity", 5, cocopeatKg: 0.5m);
             try
             {
-                var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed2, 500, cavity: "150 Cavity"), env.Maya);
+                var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed2, 450, cavity: "150 Cavity"), env.Maya);
                 Assert.False(ok);
                 Assert.Contains("Cocopeat", msg, StringComparison.OrdinalIgnoreCase);
                 Assert.Empty(await OpsAsync(env, bed2.Id));
@@ -1149,7 +1215,7 @@ BEGIN IF EXISTS (SELECT 1 FROM inserted i JOIN dbo.TrayStock s ON s.Id = i.TrayS
             try
             {
                 var batches0 = await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings");
-                var req = Move(env, bed, 500, cavity: "150 Cavity");
+                var req = Move(env, bed, 450, cavity: "150 Cavity");
                 var (ok, _, _, _, _) = await env.Beds.TransplantAsync(req, env.Maya);
                 Assert.False(ok);
                 Assert.Empty(await OpsAsync(env, bed.Id));
@@ -1179,7 +1245,7 @@ BEGIN IF EXISTS (SELECT 1 FROM inserted i JOIN dbo.TrayStock s ON s.Id = i.TrayS
             var (p, _, bed) = await RemainderSetupAsync(env, 500, "150 Cavity", 6);
             try
             {
-                var req = Move(env, bed, 500, cavity: "150 Cavity");
+                var req = Move(env, bed, 450, cavity: "150 Cavity");
                 var results = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => env.Beds.TransplantAsync(req, env.Maya)));
                 Assert.All(results, r => Assert.True(r.Success, r.Message));
                 Assert.Single(results.Select(r => r.OperationId).Distinct());
@@ -1205,7 +1271,7 @@ BEGIN IF EXISTS (SELECT 1 FROM inserted i JOIN dbo.TrayStock s ON s.Id = i.TrayS
 WHERE u.IsActive = 1 AND COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) = N'System Administrator' AND u.Id <> @T ORDER BY u.Id", ("@T", env.Transplanter));
                 foreach (var actor in new[] { env.NotTransplanter, new BedSowingRepository.Actor(admin, "bed-test-admin", true) })
                 {
-                    var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 500, cavity: "150 Cavity"), actor);
+                    var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 450, cavity: "150 Cavity"), actor);
                     Assert.False(ok);
                     Assert.Equal(BedSowingRules.NotTransplanterMessage, msg);
                 }
@@ -1228,7 +1294,7 @@ WHERE u.IsActive = 1 AND COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName)
                 var before = await WastageOn(day);
                 var beforeToday = await WastageOn(AppClock.Today);
 
-                var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 500, daysAgo: 3, cavity: "150 Cavity"), env.Maya);
+                var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(Move(env, bed, 450, daysAgo: 3, cavity: "150 Cavity"), env.Maya);
                 Assert.True(ok, msg);
 
                 // Wastage report: the bed loss on the transplant date (not today)
@@ -1250,6 +1316,207 @@ WHERE u.IsActive = 1 AND COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName)
                 Assert.True(await MinHistoryMaterialAsync(env, p) >= 0);
             }
             finally { await RetireBedPolyhouseAsync(env, p); }
+        }
+
+        // ===== waste-only closure: ALL remaining seedlings dead / unusable, ANY quantity (owner decision 2, 2026-10-14) =====
+        // Confirmed by the Bed Sowing Transplanter with a reason; one bed loss of the whole remaining quantity on the business
+        // date; no tray batch, trays or material; the bed closes; atomic and recorded once.
+
+        private static BedTransplantRequest WasteOnly(Env env, BedSowing bed, string? reason, int daysAgo = 2, Guid? token = null)
+        {
+            var req = Move(env, bed, 0, daysAgo: daysAgo, token: token, cavity: "150 Cavity");
+            req.CloseAsWaste = true;
+            req.WasteReason = reason;
+            req.TargetPolyhouseId = 0;              // none needed
+            req.CavityType = null;
+            req.GrowingMaterialTypeId = null;
+            return req;
+        }
+
+        [SkippableFact]
+        public async Task WasteOnly_AboveOneTray_WholeBedRecordedAsWaste_NoTraysNoMaterialNoBatch_BedClosed()
+        {
+            var env = await OpenAsync();
+            var (p, _, bed) = await RemainderSetupAsync(env, 500, "150 Cavity", 5);   // 3 complete trays would have been possible
+            try
+            {
+                var trays0 = await PoolTraysAsync(env, p, "150 Cavity");
+                var cocopeat0 = await PoolCocopeatAsync(env, p);
+                var batches0 = await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings");
+                var req = WasteOnly(env, bed, "  root rot -- whole bed dead  ");
+                var (ok, msg, opId, sowingId, dup) = await env.Beds.TransplantAsync(req, env.Maya);
+                Assert.True(ok, msg);
+                Assert.False(dup);
+                Assert.Equal("No tray batch was created: all 500 remaining seedlings were recorded as waste and the bed was closed.", msg);
+                Assert.Equal(0, sowingId);
+
+                var b = await BedAsync(env, bed.Id);
+                Assert.Equal((0m, 0m, 500m, BedSowing.StatusCompleted), (b.RemainingQuantity, b.TransplantedQuantity, b.LostQuantity, b.Status));
+                AssertConserved(b);
+                var l = Assert.Single(await OpsAsync(env, bed.Id));
+                Assert.Equal(("Loss", 500m, "root rot -- whole bed dead", AppClock.Today.AddDays(-2), (Guid?)req.SubmissionToken, (int?)null, "Active"),
+                    (l.Type, l.Qty, l.Reason, l.Date, l.Token, l.SowingId, l.Status));
+                Assert.Equal(opId, await env.ScalarAsync<int>("SELECT Id FROM dbo.BedSowingOperations WHERE BedSowingId = @B", ("@B", bed.Id)));
+                Assert.Equal(env.Transplanter, await env.ScalarAsync<int>("SELECT CreatedById FROM dbo.BedSowingOperations WHERE Id = @O", ("@O", opId)));
+
+                // nothing else moved: no tray batch, no trays, no growing material
+                Assert.Equal(batches0, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings"));
+                Assert.Equal(0, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.SeedSowings WHERE BedSowingId = @B", ("@B", bed.Id)));
+                Assert.Equal(trays0, await PoolTraysAsync(env, p, "150 Cavity"));
+                Assert.Equal(cocopeat0, await PoolCocopeatAsync(env, p));
+
+                // the bed is closed: nothing more can be transplanted or closed
+                Assert.False((await env.Beds.TransplantAsync(WasteOnly(env, bed, "again"), env.Maya)).Success);
+                Assert.False((await env.Beds.TransplantAsync(Move(env, bed, 150, cavity: "150 Cavity"), env.Maya)).Success);
+
+                // the existing reversal still works on it (audited history kept): the seedlings come back, the row stays
+                Assert.True((await env.Beds.ReverseOperationAsync(opId, "closed by mistake", env.Maya)).Success);
+                Assert.Equal(500m, (await BedAsync(env, bed.Id)).RemainingQuantity);
+                Assert.Equal("Reversed", Assert.Single(await OpsAsync(env, bed.Id)).Status);
+            }
+            finally { await RetireBedPolyhouseAsync(env, p); }
+        }
+
+        [SkippableFact]
+        public async Task WasteOnly_MissingReason_OrMissingConfirmation_IsRefused_NothingChanges()
+        {
+            var env = await OpenAsync();
+            var (p, _, bed) = await RemainderSetupAsync(env, 500, "150 Cavity", 5);
+            try
+            {
+                var trays0 = await PoolTraysAsync(env, p, "150 Cavity");
+                foreach (var reason in new[] { null, "", "   " })
+                {
+                    var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(WasteOnly(env, bed, reason), env.Maya);
+                    Assert.False(ok);
+                    Assert.Contains("reason", msg);
+                }
+                // a reason without the confirmation: an ordinary transplant of 0 -- refused
+                var noConfirm = WasteOnly(env, bed, "dead");
+                noConfirm.CloseAsWaste = false;
+                noConfirm.CavityType = "150 Cavity";
+                noConfirm.TargetPolyhouseId = p;
+                Assert.False((await env.Beds.TransplantAsync(noConfirm, env.Maya)).Success);
+                // the confirmation together with a quantity: refused
+                var withQty = WasteOnly(env, bed, "dead");
+                withQty.Quantity = 150;
+                Assert.False((await env.Beds.TransplantAsync(withQty, env.Maya)).Success);
+                // future business date: refused
+                Assert.False((await env.Beds.TransplantAsync(WasteOnly(env, bed, "dead", daysAgo: -1), env.Maya)).Success);
+
+                Assert.Empty(await OpsAsync(env, bed.Id));
+                var b = await BedAsync(env, bed.Id);
+                Assert.Equal((500m, 0m, BedSowing.StatusPending), (b.RemainingQuantity, b.LostQuantity, b.Status));
+                Assert.Equal(trays0, await PoolTraysAsync(env, p, "150 Cavity"));
+            }
+            finally { await RetireBedPolyhouseAsync(env, p); }
+        }
+
+        [SkippableFact]
+        public async Task WasteOnly_OnlyTheTransplanter_NeverAnotherUserOrAnAdministrator()
+        {
+            var env = await OpenAsync();
+            var (p, _, bed) = await RemainderSetupAsync(env, 500, "150 Cavity", 5);
+            try
+            {
+                var admin = await env.ScalarAsync<int>(@"SELECT TOP 1 u.Id FROM dbo.IMSUsers u JOIN dbo.UserRoles ur ON ur.UserId = u.Id JOIN dbo.Roles r ON r.Id = ur.RoleId
+WHERE u.IsActive = 1 AND COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) = N'System Administrator' AND u.Id <> @T ORDER BY u.Id", ("@T", env.Transplanter));
+                foreach (var actor in new[] { env.NotTransplanter, new BedSowingRepository.Actor(admin, "bed-test-admin", true), new BedSowingRepository.Actor(null, "anonymous", true) })
+                {
+                    var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(WasteOnly(env, bed, "dead"), actor);
+                    Assert.False(ok);
+                    Assert.False(string.IsNullOrWhiteSpace(msg));
+                }
+                Assert.Empty(await OpsAsync(env, bed.Id));
+                Assert.Equal(500m, (await BedAsync(env, bed.Id)).RemainingQuantity);
+            }
+            finally { await RetireBedPolyhouseAsync(env, p); }
+        }
+
+        [SkippableFact]
+        public async Task WasteOnly_SameFormTwiceAndConcurrently_OneLossOnly()
+        {
+            var env = await OpenAsync();
+            var (p, _, bed) = await RemainderSetupAsync(env, 500, "150 Cavity", 5);
+            try
+            {
+                var req = WasteOnly(env, bed, "frost damage");
+                var results = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => env.Beds.TransplantAsync(req, env.Maya)));
+                Assert.All(results, r => Assert.True(r.Success, r.Message));
+                Assert.Single(results, r => !r.Duplicate);
+                Assert.Single(results.Select(r => r.OperationId).Distinct());
+                var again = await env.Beds.TransplantAsync(req, env.Maya);
+                Assert.True(again.Duplicate);
+                var l = Assert.Single(await OpsAsync(env, bed.Id));
+                Assert.Equal(500m, l.Qty);
+                var b = await BedAsync(env, bed.Id);
+                Assert.Equal((0m, 500m), (b.RemainingQuantity, b.LostQuantity));
+                AssertConserved(b);
+            }
+            finally { await RetireBedPolyhouseAsync(env, p); }
+        }
+
+        [SkippableFact]
+        public async Task WasteOnly_InHistoryWastageAndDailyOperations_OnTheBusinessDate()
+        {
+            var env = await OpenAsync();
+            var (p, _, bed) = await RemainderSetupAsync(env, 500, "150 Cavity", 5);
+            try
+            {
+                var day = AppClock.Today.AddDays(-4);
+                var reports = env.Get<DailyOperationsReportRepository>();
+                async Task<decimal> WastageOn(DateTime d) => (await reports.GetAsync(d, d)).Wastage.Where(f => f.Date == d).Sum(f => f.Quantity);
+                var before = await WastageOn(day);
+                var beforeToday = await WastageOn(AppClock.Today);
+
+                var (ok, msg, _, _, _) = await env.Beds.TransplantAsync(WasteOnly(env, bed, "fungal infection", daysAgo: 4), env.Maya);
+                Assert.True(ok, msg);
+
+                var w = Assert.Single(await env.Get<WastageRepository>().GetAsync(day, day, env.AreaId, bed.BedSowingCode),
+                    x => x.ProductionType == WastageRepository.BedLossProductionType);
+                Assert.Equal(500m, w.Quantity);
+                Assert.DoesNotContain(await env.Get<WastageRepository>().GetAsync(AppClock.Today, AppClock.Today, env.AreaId, bed.BedSowingCode),
+                    x => x.ProductionType == WastageRepository.BedLossProductionType);
+                Assert.Equal(before + 500, await WastageOn(day));
+                Assert.Equal(beforeToday, await WastageOn(AppClock.Today));
+
+                var history = await env.Beds.GetHistoryAsync(new[] { env.AreaId }, day, day);
+                var h = Assert.Single(history, o => o.BedSowingId == bed.Id);
+                Assert.Equal(("fungal infection", 500m, day), (h.Reason, h.Quantity, h.OperationDate));
+                Assert.False(h.IsTransplant);
+            }
+            finally { await RetireBedPolyhouseAsync(env, p); }
+        }
+
+        // A database failure inside the operation (a temporary trigger on the bed's totals) rolls back the loss row too.
+        [SkippableFact]
+        public async Task WasteOnly_DatabaseFailureMidway_NothingRecorded_ThenTheSameFormSucceeds()
+        {
+            var env = await OpenAsync();
+            var (p, _, bed) = await RemainderSetupAsync(env, 500, "150 Cavity", 5);
+            await env.ExecAsync($@"CREATE OR ALTER TRIGGER dbo.TR_E2E_FailWasteOnly ON dbo.BedSowings AFTER UPDATE AS
+BEGIN IF EXISTS (SELECT 1 FROM inserted WHERE Id = {bed.Id} AND LostQuantity > 0) THROW 50998, 'E2E: simulated failure', 1; END");
+            try
+            {
+                var req = WasteOnly(env, bed, "dead");
+                var (ok, _, _, _, _) = await env.Beds.TransplantAsync(req, env.Maya);
+                Assert.False(ok);
+                Assert.Empty(await OpsAsync(env, bed.Id));
+                var b = await BedAsync(env, bed.Id);
+                Assert.Equal((500m, 0m, BedSowing.StatusPending), (b.RemainingQuantity, b.LostQuantity, b.Status));
+
+                await env.ExecAsync("DROP TRIGGER IF EXISTS dbo.TR_E2E_FailWasteOnly");
+                var (ok2, msg2, _, _, dup2) = await env.Beds.TransplantAsync(req, env.Maya);
+                Assert.True(ok2, msg2);
+                Assert.False(dup2);
+                Assert.Single(await OpsAsync(env, bed.Id));
+                Assert.Equal(0m, (await BedAsync(env, bed.Id)).RemainingQuantity);
+            }
+            finally
+            {
+                await env.ExecAsync("DROP TRIGGER IF EXISTS dbo.TR_E2E_FailWasteOnly");
+                await RetireBedPolyhouseAsync(env, p);
+            }
         }
     }
 }

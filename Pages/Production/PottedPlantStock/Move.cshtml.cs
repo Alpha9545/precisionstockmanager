@@ -58,13 +58,34 @@ namespace PlantStockManager.Pages.Production.PottedPlantStock
         [BindProperty] public string? CustomerName { get; set; }
         [BindProperty] public string? CustomerContact { get; set; }
         [BindProperty] public string? Remarks { get; set; }
+        // 2026-10-17: the form's one-time token -- a repeated submit sells / sends nothing twice.
+        [BindProperty] public Guid SubmissionToken { get; set; }
+        // 2026-10-17: opened from Mother Plant & Cutting > Ready Stock -- return there.
+        [BindProperty(SupportsGet = true)] public string? From { get; set; }
+        private IActionResult Done() => From == "mp" ? RedirectToPage("/Production/MotherPlant/ReadyStock") : RedirectToPage("/Production/PottedPlantStock/Index");
 
-        public async Task<IActionResult> OnGetAsync(int id) => await LoadAsync(id) ? Page() : Denied();
+        public async Task<IActionResult> OnGetAsync(int id)
+        {
+            if (!await LoadAsync(id)) return Denied();
+            SubmissionToken = Guid.NewGuid();
+            return Page();
+        }
+
+        // 2026-10-21 security review: a post without the form's token (missing / empty / not a GUID -- all bind as
+        // Guid.Empty) used to be processed WITHOUT replay protection. It is now refused before anything is sold or sent.
+        public const string MissingTokenMessage = "This form is out of date -- nothing was sold or sent. Check the stock and submit the form again.";
 
         public async Task<IActionResult> OnPostAsync(int id)
         {
             if (!await LoadAsync(id))
                 return Denied();
+            if (SubmissionToken == Guid.Empty)
+            {
+                ModelState.AddModelError(string.Empty, MissingTokenMessage);
+                ModelState.Remove(nameof(SubmissionToken));
+                SubmissionToken = Guid.NewGuid();
+                return Page();
+            }
             var userId = User.GetUserId();
             var createdBy = User.Identity?.Name ?? "System";
 
@@ -81,14 +102,17 @@ namespace PlantStockManager.Pages.Production.PottedPlantStock
                     ModelState.AddModelError(string.Empty, "Customer name is required.");
                 if (!ModelState.IsValid)
                     return Page();
-                var (ok, message, code) = await _dispatchRepo.DirectSaleAsync(id, Quantity, CustomerName!, CustomerContact, Remarks, userId, createdBy);
+                var (ok, message, code) = await _dispatchRepo.DirectSaleAsync(id, Quantity, CustomerName!, CustomerContact, Remarks, userId, createdBy,
+                    SubmissionToken);
                 if (!ok)
                 {
                     ModelState.AddModelError(string.Empty, message ?? "Failed to record the sale.");
                     return Page();
                 }
-                TempData["Success"] = $"Sold {QuantityFormat.Qty(Quantity)} x {Stock.SpeciesName?.Trim()} ({Stock.PotSize}) to {CustomerName} - dispatch {code}.";
-                return RedirectToPage("/Production/PottedPlantStock/Index");
+                TempData["Success"] = message == DispatchRepository.AlreadySoldMessage
+                    ? $"{message} Dispatch {code}."
+                    : $"Sold {QuantityFormat.Qty(Quantity)} x {Stock.SpeciesName?.Trim()} ({Stock.PotSize}) to {CustomerName} - dispatch {code}.";
+                return Done();
             }
 
             if (!CanTransfer)
@@ -111,9 +135,15 @@ namespace PlantStockManager.Pages.Production.PottedPlantStock
                 DestinationAreaId = DestinationAreaId,
                 Quantity = Quantity,
                 Remarks = Remarks,
-                CreatedBy = createdBy
+                CreatedBy = createdBy,
+                SubmissionToken = SubmissionToken
             };
             var (success, msg, _) = await _transferRepo.InsertAsync(entry, userId);
+            if (success && msg == InternalTransferRepository.AlreadySentMessage)
+            {
+                TempData["Success"] = msg;
+                return Done();
+            }
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, msg ?? "Failed to send the plants.");
@@ -121,7 +151,7 @@ namespace PlantStockManager.Pages.Production.PottedPlantStock
             }
             var destName = allowed.First(a => a.Id == DestinationAreaId).Name;
             TempData["Success"] = $"Sent {QuantityFormat.Qty(Quantity)} x {Stock.SpeciesName?.Trim()} ({Stock.PotSize}) to {destName} ({entry.TransferCode}).";
-            return RedirectToPage("/Production/PottedPlantStock/Index");
+            return Done();
         }
 
         private async Task<bool> LoadAsync(int id)

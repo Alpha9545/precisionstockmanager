@@ -12,23 +12,29 @@ namespace PlantStockManager.Pages.Production.OutletSale
     // A single customer buying any mix of potted-plant and ready-tray items
     // from one Outlet at once. One header + several items, all-or-nothing:
     // the first item that cannot be fulfilled fails the whole sale
-    // (OutletSaleRepository), whichever stock type it is.
+    // (OutletSaleRepository), whichever stock type it is. 2026-10-21: a double
+    // click / browser retry / replay of the same form is stopped by
+    // SubmissionTokenGuard (it used to sell -- and deduct the stock -- again).
     public class CreateModel : PageModel
     {
+        public const string TokenScope = "OutletSale";
+
         private readonly OutletSaleRepository _saleRepo;
         private readonly PottedPlantStockRepository _pottedRepo;
         private readonly ReadyStockRepository _readyRepo;
         private readonly AreaRepository _areaRepo;
         private readonly AreaAccessService _areaAccess;
+        private readonly SubmissionTokenGuard _tokens;
 
         public CreateModel(OutletSaleRepository saleRepo, PottedPlantStockRepository pottedRepo, ReadyStockRepository readyRepo,
-            AreaRepository areaRepo, AreaAccessService areaAccess)
+            AreaRepository areaRepo, AreaAccessService areaAccess, SubmissionTokenGuard tokens)
         {
             _saleRepo = saleRepo;
             _pottedRepo = pottedRepo;
             _readyRepo = readyRepo;
             _areaRepo = areaRepo;
             _areaAccess = areaAccess;
+            _tokens = tokens;
         }
 
         public class ItemLine
@@ -44,6 +50,7 @@ namespace PlantStockManager.Pages.Production.OutletSale
         [BindProperty] public DateTime SaleDate { get; set; } = DateTime.Today;
         [BindProperty] public string? Remarks { get; set; }
         [BindProperty] public List<ItemLine> Items { get; set; } = new();
+        [BindProperty] public string? SubmitToken { get; set; }
 
         public List<Area> Outlets { get; set; } = new();
         public List<PottedPlantStockModel> PottedOptions { get; set; } = new();
@@ -52,6 +59,7 @@ namespace PlantStockManager.Pages.Production.OutletSale
         public async Task OnGetAsync(int? outletAreaId)
         {
             await LoadAsync();
+            SubmitToken = SubmissionTokenGuard.NewToken();
             OutletAreaId = outletAreaId ?? (Outlets.Count == 1 ? Outlets[0].Id : 0);
             if (OutletAreaId > 0)
                 await LoadStockAsync(OutletAreaId);
@@ -89,6 +97,12 @@ namespace PlantStockManager.Pages.Production.OutletSale
                 return Page();
             }
 
+            if (!_tokens.TryConsume(TokenScope, SubmitToken))
+            {
+                TempData["Error"] = "This sale form was already submitted. Check the sales below before selling again.";
+                return RedirectToPage("/Production/OutletSale/Index");
+            }
+
             var header = new PlantStockManager.Models.OutletSale
             {
                 CustomerName = CustomerName ?? "",
@@ -102,6 +116,9 @@ namespace PlantStockManager.Pages.Production.OutletSale
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to complete the sale.");
+                // The token was used up; issue a fresh one so the corrected form can be sent again.
+                ModelState.Remove(nameof(SubmitToken));
+                SubmitToken = SubmissionTokenGuard.NewToken();
                 await LoadAsync();
                 if (OutletAreaId > 0) await LoadStockAsync(OutletAreaId);
                 return Page();

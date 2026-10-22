@@ -21,6 +21,31 @@ namespace PlantStockManager.Services
         public const string ReferenceType = "InternalTransfer";
         public const string UseOwnScreenMessage = "This is a Main Area to Mother Plant transfer: send, receive, reject or cancel it from Ready Stock > Mother Plant Transfers.";
 
+        // 2026-10-14: why the plants are sent (InternalTransfers.TransferPurpose, 2026-10-14 migration).
+        //   PotProduction   kept as Ready Stock in the Mother Plant Area for Pot Production -- never offered
+        //                   for, and refused by, Transplant into Trays.
+        //   TrayTransplant  received, then Transplant into Trays (a different cavity) -> a tray batch in the
+        //                   existing Sowing Approvals.
+        // Older transfers have none recorded (null): their received batches keep today's behaviour.
+        public const string PurposePotProduction = "PotProduction";
+        public const string PurposeTrayTransplant = "TrayTransplant";
+        public static readonly IReadOnlyList<string> Purposes = new[] { PurposePotProduction, PurposeTrayTransplant };
+
+        public static string PurposeLabel(string? purpose) => purpose switch
+        {
+            PurposePotProduction => "Pot Production",
+            PurposeTrayTransplant => "Transplant into a different cavity tray",
+            _ => "Not recorded"
+        };
+
+        public const string PotProductionNotTransplantedMessage =
+            "This batch was sent to the Mother Plant Area for Pot Production. It is not transplanted into trays -- only stock sent for \"Transplant into a different cavity tray\" is.";
+
+        // Transplant into Trays of a batch received through a transfer of this purpose (null = not a received
+        // batch, or an older transfer without a recorded purpose -- unchanged).
+        public static (bool Ok, string? Error) ValidateTransplantPurpose(string? receivedTransferPurpose)
+            => receivedTransferPurpose == PurposePotProduction ? (false, PotProductionNotTransplantedMessage) : (true, null);
+
         public const string StatusPending = "PendingConfirmation";
         public const string StatusCompleted = "Completed";
         public const string StatusRejected = "Rejected";
@@ -39,8 +64,12 @@ namespace PlantStockManager.Services
         public record Destination(int? AreaId, string? AreaType, bool AreaActive, int? PolyhouseId, int? PolyhouseAreaId);
 
         // Everything about a NEW transfer. quantity = plants.
+        // areaOnly (2026-10-14 migration applied): the destination is the Mother Plant AREA -- no Polyhouse is
+        // chosen (one named anyway must belong to it) -- and the purpose is required. Without the migration:
+        // the earlier rule (destination Polyhouse required, no purpose).
         public static (bool Ok, decimal Trays, string? Error) ValidateCreate(
-            SourceBatch source, Destination destination, decimal quantity, DateTime transferDate, DateTime todayIndia, DateTime sowingDate)
+            SourceBatch source, Destination destination, decimal quantity, DateTime transferDate, DateTime todayIndia, DateTime sowingDate,
+            bool areaOnly = false, string? purpose = null)
         {
             if (source.OriginType != "Sowing" || !DirectSowingRules.IsMainOfficeSeedLocation(source.AreaType, source.AreaActive))
                 return (false, 0, "Only Ready Stock of a Main Area sowing batch can be sent to a Mother Plant Area.");
@@ -59,9 +88,11 @@ namespace PlantStockManager.Services
                 return (false, 0, "The destination must be an active Mother Plant Area.");
             if (destination.AreaId == source.AreaId)
                 return (false, 0, "The destination must be a different Area.");
-            if (destination.PolyhouseId is null)
+            if (areaOnly && !Purposes.Contains(purpose))
+                return (false, 0, "Choose the purpose of the transfer: Pot Production, or Transplant into a different cavity tray.");
+            if (destination.PolyhouseId is null && !areaOnly)
                 return (false, 0, "Choose the destination Polyhouse.");
-            if (destination.PolyhouseAreaId != destination.AreaId)
+            if (destination.PolyhouseId is not null && destination.PolyhouseAreaId != destination.AreaId)
                 return (false, 0, "The Polyhouse does not belong to the destination Mother Plant Area.");
             if (transferDate.Date > todayIndia.Date)
                 return (false, 0, "The transfer date cannot be in the future.");

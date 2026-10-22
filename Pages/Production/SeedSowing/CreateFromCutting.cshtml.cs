@@ -32,12 +32,14 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         private readonly InternalTransferRepository _internalTransferRepo;
         private readonly AreaAccessService _areaAccess;
         private readonly MaterialStockRepository _materialRepo;
+        private readonly TrayStockRepository _trayStockRepo;
 
         public CreateFromCuttingModel(SeedSowingRepository seedSowingRepo, CuttingStockRepository cuttingStockRepo,
             UserRoleRepository userRoleRepo, PolyhouseRepository polyhouseRepo, InternalTransferRepository internalTransferRepo,
-            AreaAccessService areaAccess, MaterialStockRepository materialRepo)
+            AreaAccessService areaAccess, MaterialStockRepository materialRepo, TrayStockRepository trayStockRepo)
         {
             _materialRepo = materialRepo;
+            _trayStockRepo = trayStockRepo;
             _seedSowingRepo = seedSowingRepo;
             _cuttingStockRepo = cuttingStockRepo;
             _userRoleRepo = userRoleRepo;
@@ -182,6 +184,16 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             if (destination == null)
                 return new JsonResult(new { applicable = false, trays = 0, materials = Array.Empty<object>() });
             return new JsonResult(await GrowingMaterialForm.PreviewAsync(_materialRepo, destination.AreaId!.Value, destination.Id, cavityType, quantity));
+        }
+
+        // Empty trays of the cavity at every destination this user may sow into (the form's own list; a Mother Plant
+        // Area's Polyhouses share its one Area pool row), the chosen one's balance, and the physical trays needed (CEILING).
+        public async Task<JsonResult> OnGetTrayAvailabilityAsync(string? cavityType, int? polyhouseId, decimal quantity)
+        {
+            var eligible = (await LoadDestinationsAsync()).Select(p => new TrayLocation(p.AreaId!.Value, p.Id)).ToList();
+            var selected = eligible.FirstOrDefault(l => l.PolyhouseId == polyhouseId);
+            return new JsonResult(await TrayAvailabilityForm.BuildAsync(_trayStockRepo, cavityType, eligible, selected,
+                DirectSowingRules.PhysicalTraysRequired(quantity, cavityType)));
         }
 
         // Live preview -- the same function the save uses.

@@ -84,11 +84,15 @@ EXEC sp_set_session_context N'MaterialTestCleanup', 0;", ("@A", areaId), ("@P", 
                 => ScalarAsync<decimal>("SELECT ISNULL((SELECT CurrentQuantity FROM dbo.MaterialStock WHERE AreaId = @A AND PolyhouseId = @P AND MaterialTypeId = @M), 0)",
                     ("@A", areaId), ("@P", polyhouseId), ("@M", material));
 
+            // 2026-10-14: a Mother Plant Area's trays sit in its ONE active Area pool once 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql
+            // is applied (inactive before it); every other Area keeps the Polyhouse pool.
+            private const string TrayPool = "(t.PolyhouseId = @P OR (t.PolyhouseId IS NULL AND t.IsActive = 1 AND EXISTS (SELECT 1 FROM dbo.Area a WHERE a.Id = t.AreaId AND a.AreaType = N'MotherPlant')))";
+
             public async Task SetTraysAsync(int areaId, int polyhouseId, string cavity, decimal trays)
             {
                 await ExecAsync(@"
-UPDATE dbo.TrayStock SET PhysicalQuantity = 0 WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = @T;
-DELETE tr FROM dbo.TrayStockTransactions tr JOIN dbo.TrayStock t ON t.Id = tr.TrayStockId WHERE t.AreaId = @A AND t.PolyhouseId = @P AND t.TraySize = @T",
+UPDATE t SET PhysicalQuantity = 0 FROM dbo.TrayStock t WHERE t.AreaId = @A AND " + TrayPool + @" AND t.TraySize = @T;
+DELETE tr FROM dbo.TrayStockTransactions tr JOIN dbo.TrayStock t ON t.Id = tr.TrayStockId WHERE t.AreaId = @A AND " + TrayPool + @" AND t.TraySize = @T",
                     ("@A", areaId), ("@P", polyhouseId), ("@T", cavity));
                 var (ok, msg, _, _) = await Get<TrayStockRepository>().AddStockAsync(areaId, polyhouseId, cavity, trays, DateTime.UtcNow,
                     Random.Shared.Next(1, int.MaxValue), Supervisor, "mat-test", "test setup", _ => true);
@@ -96,7 +100,7 @@ DELETE tr FROM dbo.TrayStockTransactions tr JOIN dbo.TrayStock t ON t.Id = tr.Tr
             }
 
             public Task<decimal> TraysAsync(int areaId, int polyhouseId, string cavity)
-                => ScalarAsync<decimal>("SELECT ISNULL((SELECT PhysicalQuantity FROM dbo.TrayStock WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = @T), 0)",
+                => ScalarAsync<decimal>("SELECT ISNULL(SUM(t.PhysicalQuantity), 0) FROM dbo.TrayStock t WHERE t.AreaId = @A AND " + TrayPool + " AND t.TraySize = @T",
                     ("@A", areaId), ("@P", polyhouseId), ("@T", cavity));
 
             public Task SetSeedAsync(decimal physical)
@@ -183,9 +187,13 @@ UPDATE dbo.MaterialConsumptionRules SET QuantityPerTray = 1.5, IsActive = 1;");
             Assert.Equal("Pitmos", types.Single(t => t.Code == "PITMOS").Name);
 
             var rules = (await env.Repo.GetRulesAsync()).Where(r => r.IsActive).ToList();
-            foreach (var cavity in DirectSowingRules.CavityTypes)
+            // 2026-10-19: "70 Cavity" has its rules only once 2026-10-19_Cavity70.sql is applied (and is never offered before)
+            var cavity70 = await env.ScalarAsync<int>(WorkflowCorrectionsSchema.Cavity70ProbeSql) == 1;
+            foreach (var cavity in DirectSowingRules.CavityTypes.Where(c => cavity70 || c != DirectSowingRules.Cavity70))
                 foreach (var material in new[] { "Cocopeat", "Pitmos" })
                     Assert.Equal(1.5m, rules.Single(r => r.CavityType == cavity && r.MaterialName == material).QuantityPerTray);
+            if (!cavity70)
+                Assert.DoesNotContain(rules, r => r.CavityType == DirectSowingRules.Cavity70);
         }
 
         // ---- Add Material ------------------------------------------------------------------------

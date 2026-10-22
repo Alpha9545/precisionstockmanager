@@ -12,23 +12,29 @@ namespace PlantStockManager.Pages.Production.OutletWastage
 {
     // The Outlet's own record of losing some of its potted-plant or
     // ready-tray stock -- a DIFFERENT concept from nursery production
-    // wastage; no automatic percentage is ever applied.
+    // wastage; no automatic percentage is ever applied. 2026-10-21: a double
+    // click / browser retry / replay of the same form is stopped by
+    // SubmissionTokenGuard (it used to write the stock off again).
     public class CreateModel : PageModel
     {
+        public const string TokenScope = "OutletWastage";
+
         private readonly OutletWastageRepository _wastageRepo;
         private readonly PottedPlantStockRepository _pottedRepo;
         private readonly ReadyStockRepository _readyRepo;
         private readonly AreaRepository _areaRepo;
         private readonly AreaAccessService _areaAccess;
+        private readonly SubmissionTokenGuard _tokens;
 
         public CreateModel(OutletWastageRepository wastageRepo, PottedPlantStockRepository pottedRepo, ReadyStockRepository readyRepo,
-            AreaRepository areaRepo, AreaAccessService areaAccess)
+            AreaRepository areaRepo, AreaAccessService areaAccess, SubmissionTokenGuard tokens)
         {
             _wastageRepo = wastageRepo;
             _pottedRepo = pottedRepo;
             _readyRepo = readyRepo;
             _areaRepo = areaRepo;
             _areaAccess = areaAccess;
+            _tokens = tokens;
         }
 
         [BindProperty] public int OutletAreaId { get; set; }
@@ -38,6 +44,7 @@ namespace PlantStockManager.Pages.Production.OutletWastage
         [BindProperty] public string? Reason { get; set; }
         [BindProperty] public DateTime WastageDate { get; set; } = DateTime.Today;
         [BindProperty] public string? Remarks { get; set; }
+        [BindProperty] public string? SubmitToken { get; set; }
 
         public List<Area> Outlets { get; set; } = new();
         public List<PottedPlantStockModel> PottedOptions { get; set; } = new();
@@ -48,6 +55,7 @@ namespace PlantStockManager.Pages.Production.OutletWastage
         public async Task OnGetAsync()
         {
             await LoadAsync();
+            SubmitToken = SubmissionTokenGuard.NewToken();
             if (Outlets.Count == 1)
             {
                 OutletAreaId = Outlets[0].Id;
@@ -83,11 +91,20 @@ namespace PlantStockManager.Pages.Production.OutletWastage
                 return Page();
             }
 
+            if (!_tokens.TryConsume(TokenScope, SubmitToken))
+            {
+                TempData["Error"] = "This wastage form was already submitted. Check the recent wastage below before recording it again.";
+                return RedirectToPage();
+            }
+
             var (success, message, id) = await _wastageRepo.InsertAsync(
                 StockType, StockId, Quantity, Reason ?? "", Remarks, WastageDate, OutletAreaId, User.GetUserId(), User.Identity?.Name ?? "System");
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to record the wastage.");
+                // The token was used up; issue a fresh one so the corrected form can be sent again.
+                ModelState.Remove(nameof(SubmitToken));
+                SubmitToken = SubmissionTokenGuard.NewToken();
                 await LoadAsync();
                 if (OutletAreaId > 0) await LoadStockAsync(OutletAreaId);
                 return Page();

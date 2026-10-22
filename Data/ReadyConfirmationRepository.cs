@@ -57,6 +57,76 @@ namespace PlantStockManager.Data
             _trayStockRepo = trayStockRepo;
         }
 
+        // 2026-10-16 (2026-10-16_BedSowingApprover.sql): the designated approver of Bed Sowing tray batches -- ACTIVE
+        // users only (an inactive approver approves nothing). Without the migration: the earlier rule (NotConfigured).
+        public static async Task<DirectSowingRules.BedApprover> BedApproverAsync(SqlConnection conn, SqlTransaction? tx)
+        {
+            if (!await WorkflowCorrectionsSchema.BedApproverAsync(conn, tx))
+                return DirectSowingRules.BedApprover.NotConfigured;
+            using var cmd = new SqlCommand(@"
+SELECT ba.UserId, u.Name FROM dbo.BedSowingApprover ba
+JOIN dbo.IMSUsers u ON u.Id = ba.UserId AND ISNULL(u.IsActive, 0) = 1
+WHERE ba.Id = 1", conn, tx);
+            using var r = await cmd.ExecuteReaderAsync();
+            return await r.ReadAsync()
+                ? new DirectSowingRules.BedApprover(true, r.GetInt32(0), r.IsDBNull(1) ? null : r.GetString(1))
+                : new DirectSowingRules.BedApprover(true, null, null);
+        }
+
+        // 2026-10-17: the approval rules of tray batches made by a transplant, for the approval pages (display only -- the
+        // approval transaction re-applies them under lock and the database repeats them).
+        //   BedAnyDate          2026-10-17_BedSowingApprovalAnyDate.sql: a Bed Sowing batch is approved on any date
+        //   TransplantAreaScope 2026-10-17_TransplantApprovalAreaScope.sql: a Transplant batch only by its Area Supervisor
+        //   TransplantAnyDate   2026-10-20_TransplantApprovalAnyDate.sql: a Transplant batch is approved on any date
+        public sealed record ApprovalSettings(DirectSowingRules.BedApprover Bed, bool BedAnyDate, bool TransplantAreaScope, bool TransplantAnyDate = false)
+        {
+            public static readonly ApprovalSettings Earlier = new(DirectSowingRules.BedApprover.NotConfigured, false, false);
+        }
+
+        public async Task<ApprovalSettings> GetApprovalSettingsAsync()
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return new ApprovalSettings(await BedApproverAsync(conn, null), await WorkflowCorrectionsSchema.BedAnyDateAsync(conn),
+                await WorkflowCorrectionsSchema.TransplantAreaScopeAsync(conn), await WorkflowCorrectionsSchema.TransplantAnyDateAsync(conn));
+        }
+
+        public const string NotAreaSupervisorMessageFormat = SowingApprovalRules.NotAreaSupervisorMessageFormat;
+
+        // 2026-10-17 (TransplantAreaScope): may this user approve a Transplant tray batch of this Area? Active, and either
+        // holding ReadyStock.Confirm through a role assigned to THIS Area, or holding the System Administrator role -- the
+        // same rule as TR_ReadyConfirmations_AssignedSupervisor. Read inside the caller's transaction.
+        public static async Task<bool> IsAreaApproverAsync(SqlConnection conn, SqlTransaction? tx, int userId, int areaId)
+        {
+            using var cmd = new SqlCommand(@"
+SELECT CASE WHEN EXISTS (
+    SELECT 1 FROM dbo.IMSUsers u
+    JOIN dbo.UserRoles ur ON ur.UserId = u.Id
+    JOIN dbo.Roles r ON r.Id = ur.RoleId
+    WHERE u.Id = @U AND ISNULL(u.IsActive, 0) = 1
+      AND (COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) = N'System Administrator'
+           OR (ur.AreaId = @A AND EXISTS (SELECT 1 FROM dbo.RolePermissions rp JOIN dbo.Permissions p ON p.Id = rp.PermissionId
+                                          WHERE rp.RoleId = ur.RoleId AND p.Code = N'ReadyStock.Confirm'))))
+THEN 1 ELSE 0 END", conn, tx);
+            cmd.Parameters.AddWithValue("@U", userId);
+            cmd.Parameters.AddWithValue("@A", areaId);
+            return (int)(await cmd.ExecuteScalarAsync())! == 1;
+        }
+
+        public async Task<bool> IsAreaApproverAsync(int userId, int areaId)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return await IsAreaApproverAsync(conn, null, userId, areaId);
+        }
+
+        public async Task<DirectSowingRules.BedApprover> GetBedApproverAsync()
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return await BedApproverAsync(conn, null);
+        }
+
         private const string BaseSelect = @"
 SELECT
     rc.Id, rc.ConfirmationCode, rc.SeedSowingId, sw.SowingCode, rc.ReadyStockId,
@@ -201,9 +271,11 @@ WHERE t.ReferenceType = @RT AND t.ReferenceId = @Id AND t.TransactionType = 'CON
             try
             {
                 // 1) Lock the source Sowing.
+                // 2026-10-21: with 2026-10-21_MotherPlantDirectSowing.sql also whether it is a Mother Plant Area Direct Sowing.
                 var lockCmd = new SqlCommand(
                     "SELECT SpeciesId, AreaId, PolyhouseId, SowingCode, BatchNo, CavityType, NumberOfTrays, SowingDate, QuantitySown, " +
-                    "ConfirmedReadyQuantity, WastageQuantity, Status, CreatedById, CreatedBy, SupervisorId, SourceType, SourceCuttingStockId, ExpectedReadyDate " +
+                    "ConfirmedReadyQuantity, WastageQuantity, Status, CreatedById, CreatedBy, SupervisorId, SourceType, SourceCuttingStockId, ExpectedReadyDate, " +
+                    (await WorkflowCorrectionsSchema.MotherPlantDirectSowingAsync(conn, tx) ? "IsMotherPlantDirectSowing " : "CAST(0 AS BIT) AS IsMotherPlantDirectSowing ") +
                     "FROM dbo.SeedSowings WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", seedSowingId);
@@ -215,6 +287,7 @@ WHERE t.ReferenceType = @RT AND t.ReferenceId = @Id AND t.TransactionType = 'CON
                 int? sowingCreatedById, assignedSupervisorId, sowingTrays, sourceCuttingStockId;
                 string? sowingCreatedBy, sowingSourceType;
                 DateTime? expectedReadyDate;
+                bool motherPlantDirect;
                 using (var reader = await lockCmd.ExecuteReaderAsync())
                 {
                     if (!await reader.ReadAsync())
@@ -241,6 +314,7 @@ WHERE t.ReferenceType = @RT AND t.ReferenceId = @Id AND t.TransactionType = 'CON
                     sowingSourceType = reader.GetString(reader.GetOrdinal("SourceType"));
                     sourceCuttingStockId = reader.IsDBNull(reader.GetOrdinal("SourceCuttingStockId")) ? null : reader.GetInt32(reader.GetOrdinal("SourceCuttingStockId"));
                     expectedReadyDate = reader.IsDBNull(reader.GetOrdinal("ExpectedReadyDate")) ? null : reader.GetDateTime(reader.GetOrdinal("ExpectedReadyDate"));
+                    motherPlantDirect = reader.GetBoolean(reader.GetOrdinal("IsMotherPlantDirectSowing"));
                 }
 
                 // 2) Eligibility.
@@ -256,19 +330,40 @@ WHERE t.ReferenceType = @RT AND t.ReferenceId = @Id AND t.TransactionType = 'CON
                 // 2026-10-12 / 2026-10-13: a tray batch transplanted from a Bed Sowing or from received Ready
                 // Stock is approved only from its Ready Date (India date), checked here under the row lock;
                 // TR_ReadyConfirmations_BedReadyDate repeats it. Other sowings unchanged.
-                var (readyOk, readyError) = BedSowingRules.ValidateApprovalReadyDate(sowingSourceType, expectedReadyDate, AppClock.Today);
+                // 2026-10-17: a Bed Sowing batch on any date once 2026-10-17_BedSowingApprovalAnyDate.sql is applied.
+                // 2026-10-20: a Transplant (Mother Plant Area) batch on any date once 2026-10-20_TransplantApprovalAnyDate.sql is
+                // applied -- Area Supervisor authority (below), eligibility and the row lock are unchanged.
+                var (readyOk, readyError) = BedSowingRules.ValidateApprovalReadyDate(sowingSourceType, expectedReadyDate, AppClock.Today,
+                    sowingSourceType == SeedSowing.SourceBedSowing && await WorkflowCorrectionsSchema.BedAnyDateAsync(conn, tx),
+                    sowingSourceType == SeedSowing.SourceTransplant && await WorkflowCorrectionsSchema.TransplantAnyDateAsync(conn, tx));
                 if (!readyOk)
                 {
                     tx.Rollback();
                     return (false, readyError, 0);
                 }
 
+                // 2026-10-21: a Mother Plant Area Direct Sowing -- only an Area Supervisor of ITS Area or a System Administrator
+                // (the signed-in user's id, read here under the sowing's lock; TR_ReadyConfirmations_AssignedSupervisor repeats it).
                 var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
-                    assignedSupervisorId, sowingCreatedById, sowingCreatedBy, userId, createdBy, sowingSourceType);
+                    assignedSupervisorId, sowingCreatedById, sowingCreatedBy, userId, createdBy, sowingSourceType,
+                    sowingSourceType == SeedSowing.SourceBedSowing ? await BedApproverAsync(conn, tx) : null,
+                    motherPlantDirect,
+                    motherPlantDirect && userId.HasValue && await IsAreaApproverAsync(conn, tx, userId.Value, areaId),
+                    motherPlantDirect ? await new SqlCommand("SELECT Name FROM dbo.Area WHERE Id = " + areaId, conn, tx).ExecuteScalarAsync() as string : null);
                 if (!mayApprove)
                 {
                     tx.Rollback();
                     return (false, authorityError, 0);
+                }
+                // 2026-10-17 (2026-10-17_TransplantApprovalAreaScope.sql): a tray batch transplanted in a Mother Plant Area becomes
+                // that Area's Ready Stock only when ITS Area Supervisor (or a System Administrator) approves it -- never a user of
+                // another Area, whatever the page scope. TR_ReadyConfirmations_AssignedSupervisor repeats it.
+                if (sowingSourceType == SeedSowing.SourceTransplant && await WorkflowCorrectionsSchema.TransplantAreaScopeAsync(conn, tx)
+                    && !await IsAreaApproverAsync(conn, tx, userId!.Value, areaId))
+                {
+                    var areaName = await new SqlCommand("SELECT Name FROM dbo.Area WHERE Id = " + areaId, conn, tx).ExecuteScalarAsync() as string;
+                    tx.Rollback();
+                    return (false, string.Format(NotAreaSupervisorMessageFormat, areaName ?? "this Area"), 0);
                 }
 
                 // 3) Tray arithmetic (under the lock), always with the SOWING's
@@ -459,7 +554,7 @@ WHERE Id = @Id", conn, tx);
                 // A database backstop (trigger) may already have rolled the
                 // transaction back on the server.
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 
@@ -481,7 +576,8 @@ WHERE Id = @Id", conn, tx);
             {
                 var lockCmd = new SqlCommand(
                     "SELECT rc.SeedSowingId, rc.ReadyStockId, rc.ConfirmedQuantity, rc.WastageQuantity, rc.Status, sw.SupervisorId AS SowingSupervisorId, rc.ApprovedById, " +
-                    "sw.SourceType AS SowingSourceType, sw.SourceCuttingStockId AS SowingCuttingStockId " +
+                    "sw.SourceType AS SowingSourceType, sw.SourceCuttingStockId AS SowingCuttingStockId, " +
+                    (await WorkflowCorrectionsSchema.MotherPlantDirectSowingAsync(conn, tx) ? "sw.IsMotherPlantDirectSowing " : "CAST(0 AS BIT) AS IsMotherPlantDirectSowing ") +
                     "FROM dbo.ReadyConfirmations rc WITH (UPDLOCK, HOLDLOCK) INNER JOIN dbo.SeedSowings sw ON sw.Id = rc.SeedSowingId WHERE rc.Id = @Id",
                     conn, tx);
                 lockCmd.Parameters.AddWithValue("@Id", id);
@@ -490,6 +586,7 @@ WHERE Id = @Id", conn, tx);
                 string status;
                 int? sowingSupervisorId, sowingCuttingStockId, approvedById;
                 string sowingSourceType;
+                bool motherPlantDirect;
                 using (var reader = await lockCmd.ExecuteReaderAsync())
                 {
                     if (!await reader.ReadAsync())
@@ -507,17 +604,19 @@ WHERE Id = @Id", conn, tx);
                     approvedById = reader.IsDBNull(reader.GetOrdinal("ApprovedById")) ? null : reader.GetInt32(reader.GetOrdinal("ApprovedById"));
                     sowingSourceType = reader.GetString(reader.GetOrdinal("SowingSourceType"));
                     sowingCuttingStockId = reader.IsDBNull(reader.GetOrdinal("SowingCuttingStockId")) ? null : reader.GetInt32(reader.GetOrdinal("SowingCuttingStockId"));
+                    motherPlantDirect = reader.GetBoolean(reader.GetOrdinal("IsMotherPlantDirectSowing"));
                 }
 
                 // 2026-10-13: a tray batch made by a transplant has no assigned supervisor -- the user who
-                // made THIS approval is the one who may cancel it.
-                var mayCancel = userId.HasValue && (TrayBatchRules.IsTransplantedBatch(sowingSourceType) && sowingSupervisorId == null
+                // made THIS approval is the one who may cancel it. 2026-10-21: the same for a Mother Plant Area Direct Sowing.
+                var approverCancels = (TrayBatchRules.IsTransplantedBatch(sowingSourceType) || motherPlantDirect) && sowingSupervisorId == null;
+                var mayCancel = userId.HasValue && (approverCancels
                     ? approvedById == userId
                     : sowingSupervisorId == userId);
                 if (!mayCancel)
                 {
                     tx.Rollback();
-                    return (false, TrayBatchRules.IsTransplantedBatch(sowingSourceType) && sowingSupervisorId == null
+                    return (false, approverCancels
                         ? "Only the user who made this approval can cancel it."
                         : "Only the Sowing Supervisor assigned to this sowing can cancel its approval.");
                 }
@@ -647,7 +746,7 @@ WHERE Id = @Id", conn, tx);
             catch (Exception ex)
             {
                 tx.Rollback();
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 

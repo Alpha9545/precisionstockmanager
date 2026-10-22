@@ -241,7 +241,7 @@ namespace PlantStockManager.Tests
                 var token = SubmissionTokenGuard.NewToken();
                 SavedId((await AddAsync(env, SowingSup, D1, MainOffice, Facility5, 4, 2, "17:30", "20:00", token: token)).Result);
                 var (r, page) = await AddAsync(env, SowingSup, D1, MainOffice, Facility5, 4, 2, "17:30", "20:00", token: token);   // double click / retry
-                Assert.Equal("/Production/Labour/OvertimeHistory", Assert.IsType<RedirectToPageResult>(r).PageName);
+                Assert.Equal(LabourOvertimeRules.MyEntriesPage, Assert.IsType<RedirectToPageResult>(r).PageName);   // 2026-10-20: the recorder's own list (the history is an administrator report)
                 Assert.Equal(LabourOvertimeRules.AlreadySubmittedMessage, page.TempData["Error"]);
                 Assert.Equal(1, await env.RowsAsync(D1));
 
@@ -476,6 +476,113 @@ namespace PlantStockManager.Tests
                 Assert.All(sowing.Entries, e => Assert.Equal(MainOffice, e.AreaId));
                 var mp = await HistoryAsync(env, MpSup, D1, D3);
                 Assert.Equal((1, 12m), (mp.Total.Entries, mp.Total.TotalWorkerHours));
+            }
+            finally { await env.CleanupAsync(); }
+        }
+
+        // ---- 2026-10-20: My Overtime Entries -- a recorder's own entries; Details / Edit only for the recorder (or the administrator)
+
+        private static async Task<PlantStockManager.Pages.Production.Labour.MyOvertimeModel> MineAsync(Env env, int userId, DateTime? from = null, DateTime? to = null)
+        {
+            var page = env.Page<PlantStockManager.Pages.Production.Labour.MyOvertimeModel>(await env.LoginAsync(userId), "GET");
+            page.FromDate = from ?? new DateTime(2001, 1, 1);
+            page.ToDate = to ?? new DateTime(2001, 12, 31);
+            await page.OnGetAsync();
+            return page;
+        }
+
+        [SkippableFact]
+        public async Task MyOvertime_ListsOnlyTheSignedInRecordersOwnEntries()
+        {
+            var env = await OpenAsync();
+            try
+            {
+                var mine1 = SavedId((await AddAsync(env, SowingSup, D1, MainOffice, Facility5, 4, 2, "17:30", "20:00")).Result);
+                var mine2 = SavedId((await AddAsync(env, SowingSup, D3, MainOffice, Facility3, 1, 0, "18:00", "19:00")).Result);
+                var adminsEntry = SavedId((await AddAsync(env, Admin, D1, MainOffice, Facility5, 2, 2, "17:00", "18:00")).Result);          // same Area, another person
+                var colleagues = await env.Repo.CreateAsync(D2, MainOffice, Facility5, new LabourOvertimeInput(3, 0, T("18:00"), T("20:00"), "colleague", null), BookingExec);
+                var mpEntry = SavedId((await AddAsync(env, MpSup, D2, GreenBless, null, 1, 1, "17:30", "19:00")).Result);
+
+                var sup = await MineAsync(env, SowingSup);
+                Assert.Equal(new[] { mine2, mine1 }, sup.Entries.Select(e => e.Id));          // own only, newest first
+                Assert.All(sup.Entries, e => Assert.Equal(SowingSup, e.CreatedById));
+                Assert.Equal(new[] { mpEntry }, (await MineAsync(env, MpSup)).Entries.Select(e => e.Id));
+                Assert.Equal(new[] { adminsEntry }, (await MineAsync(env, Admin)).Entries.Select(e => e.Id));   // the administrator's own list is own entries too
+
+                // the date range narrows; nothing else from the request is used
+                Assert.Equal(new[] { mine1 }, (await MineAsync(env, SowingSup, D1, D2)).Entries.Select(e => e.Id));
+                Assert.Empty((await MineAsync(env, SowingSup, new DateTime(2001, 6, 1), new DateTime(2001, 6, 30))).Entries);
+                Assert.Equal(new[] { mine2, mine1 }, (await MineAsync(env, SowingSup, new DateTime(2001, 12, 31), new DateTime(2001, 1, 1))).Entries.Select(e => e.Id));   // swapped dates
+
+                // the full report still shows every entry of the Area -- for the administrator
+                var history = await HistoryAsync(env, Admin, D1, D3, MainOffice);
+                Assert.Superset(new HashSet<int> { mine1, mine2, adminsEntry, colleagues }, history.Entries.Select(e => e.Id).ToHashSet());
+            }
+            finally { await env.CleanupAsync(); }
+        }
+
+        [SkippableFact]
+        public async Task AnotherPersonsEntry_InTheSameArea_CannotBeOpenedOrChanged_ByAForgedRequest()
+        {
+            var env = await OpenAsync();
+            try
+            {
+                var colleagues = await env.Repo.CreateAsync(D1, MainOffice, Facility5, new LabourOvertimeInput(3, 0, T("18:00"), T("20:00"), "colleague", null), BookingExec);
+                var adminsEntry = SavedId((await AddAsync(env, Admin, D1, MainOffice, Facility5, 2, 2, "17:00", "18:00")).Result);
+                foreach (var other in new[] { colleagues, adminsEntry })
+                {
+                    var details = env.Page<DetailsPage>(await env.LoginAsync(SowingSup), "GET");
+                    details.Id = other;
+                    Assert.IsType<ForbidResult>(await details.OnGetAsync());
+                    var get = env.Page<OvertimePage>(await env.LoginAsync(SowingSup), "GET");
+                    get.Id = other;
+                    Assert.IsType<ForbidResult>(await get.OnGetAsync());
+                    var before = (await env.Repo.GetByIdAsync(other))!;
+                    var (r, _) = await EditAsync(env, SowingSup, other, 99, 0, "17:30", "20:00", "hijack");
+                    Assert.IsType<ForbidResult>(r);
+                    var after = (await env.Repo.GetByIdAsync(other))!;
+                    Assert.Equal((before.MaleWorkers, before.WorkDescription, before.ModifiedDate), (after.MaleWorkers, after.WorkDescription, after.ModifiedDate));
+                    Assert.Equal(1, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.LabourOvertimeHistory WHERE OvertimeId = @I", ("@I", other)));   // only "Created"
+                }
+
+                // the administrator keeps opening and correcting every entry, as before
+                var adminDetails = env.Page<DetailsPage>(await env.LoginAsync(Admin), "GET");
+                adminDetails.Id = colleagues;
+                Assert.IsType<PageResult>(await adminDetails.OnGetAsync());
+                var (ar, _) = await EditAsync(env, Admin, colleagues, 4, 0, "18:00", "20:00", "colleague (checked)");
+                Assert.Equal(colleagues, SavedId(ar));
+                Assert.Equal(4, (await env.Repo.GetByIdAsync(colleagues))!.MaleWorkers);
+            }
+            finally { await env.CleanupAsync(); }
+        }
+
+        [SkippableFact]
+        public async Task OwnEntry_OpensAndCorrects_UnderTheExistingRules()
+        {
+            var env = await OpenAsync();
+            try
+            {
+                var (saved, _) = await AddAsync(env, SowingSup, D1, MainOffice, Facility5, 4, 2, "17:30", "20:00");
+                var id = SavedId(saved);   // after saving, the recorder lands on the entry, which they may open
+                var details = env.Page<DetailsPage>(await env.LoginAsync(SowingSup), "GET");
+                details.Id = id;
+                Assert.IsType<PageResult>(await details.OnGetAsync());
+
+                // invalid values are refused exactly as before; nothing changes
+                var (bad, badPage) = await EditAsync(env, SowingSup, id, 4, 2, "20:00", "17:30", "x");
+                Assert.IsType<PageResult>(bad);
+                Assert.Contains(LabourOvertimeRules.EndAfterStartMessage, Errors(badPage));
+                (bad, badPage) = await EditAsync(env, SowingSup, id, 0, 0, "17:30", "20:00", "x");
+                Assert.Contains(LabourOvertimeRules.AtLeastOneWorkerMessage, Errors(badPage));
+                Assert.Equal(4, (await env.Repo.GetByIdAsync(id))!.MaleWorkers);
+
+                // a valid correction is saved and audited; the date and location stay the entry's own
+                var (ok, _) = await EditAsync(env, SowingSup, id, 5, 2, "17:30", "20:30", "Polyhouse cleaning and maintenance", before: p => { p.LabourDate = D3; p.AreaId = GreenBless; });
+                Assert.Equal(id, SavedId(ok));
+                var e = (await env.Repo.GetByIdAsync(id))!;
+                Assert.Equal((5, T("20:30"), D1, MainOffice), (e.MaleWorkers, e.EndTime, e.LabourDate, e.AreaId));
+                Assert.Equal(2, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.LabourOvertimeHistory WHERE OvertimeId = @I", ("@I", id)));
+                Assert.Equal(new[] { id }, (await MineAsync(env, SowingSup)).Entries.Select(x => x.Id));
             }
             finally { await env.CleanupAsync(); }
         }

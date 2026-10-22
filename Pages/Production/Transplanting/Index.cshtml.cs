@@ -37,8 +37,10 @@ namespace PlantStockManager.Pages.Production.Transplanting
 
         public async Task OnGetAsync()
         {
+            // 2026-10-14: stock received for Pot Production is not offered for Transplant into Trays.
+            var potProduction = await _transferRepo.PotProductionBatchIdsAsync();
             AllEligible = (await _readyStockRepo.GetAllAsync())
-                .Where(r => r.InMotherPlantArea && r.AvailableQuantity > 0 && _areaAccess.CanAccessArea(User, r.AreaId))
+                .Where(r => r.InMotherPlantArea && r.AvailableQuantity > 0 && _areaAccess.CanAccessArea(User, r.AreaId) && !potProduction.Contains(r.Id))
                 .OrderBy(r => r.AreaName).ThenBy(r => r.PolyhouseName).ThenBy(r => r.SpeciesName).ThenBy(r => r.Id)
                 .ToList();
             Cavity = DirectSowingRules.IsValidCavityType(Cavity) ? Cavity : null;

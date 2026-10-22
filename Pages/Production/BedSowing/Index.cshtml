@@ -5,6 +5,7 @@
     ViewData["Title"] = "Bed Sowing";
     var canCreate = await FeatureAccess.CanAccessPageAsync(User, "/Production/BedSowing/Create");
     var canTransplant = await FeatureAccess.CanAccessPageAsync(User, "/Production/BedSowing/Transplant");
+    var canEdit = await FeatureAccess.CanAccessPageAsync(User, "/Production/BedSowing/Edit");
 }
 
 <div class="container-fluid mt-4">
@@ -72,6 +73,11 @@
                             </td>
                             <td class="text-nowrap">
                                 <a asp-page="/Production/BedSowing/Details" asp-route-id="@b.Id" class="btn btn-sm btn-outline-secondary">View</a>
+                                @* 2026-10-22: untouched beds only (the Edit page re-checks, incl. reversed operations) *@
+                                @if (canEdit && b.Status == PlantStockManager.Models.BedSowing.StatusPending && b.TransplantedQuantity + b.LostQuantity == 0 && b.ReadyStockDays == null)
+                                {
+                                    <a asp-page="/Production/BedSowing/Edit" asp-route-id="@b.Id" class="btn btn-sm btn-outline-primary">Edit</a>
+                                }
                                 @if (canTransplant && b.IsOpen)
                                 {
                                     <a asp-page="/Production/BedSowing/Transplant" asp-route-bedId="@b.Id" class="btn btn-sm btn-primary">Transplant</a>

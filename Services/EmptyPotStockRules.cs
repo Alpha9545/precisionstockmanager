@@ -41,5 +41,20 @@ namespace PlantStockManager.Services
                 .Where(a => hasFullAreaAccess || assignedAreaIds.Contains(a.Id))
                 .OrderBy(a => a.Name)
                 .ToList();
+
+        // 2026-10-14: Add Empty Pots lives in the Mother Plant and Cutting sections (no longer in Pot Production)
+        // and stocks only a Mother Plant / Cutting Area -- an active Area of type MotherPlant (cutting is done
+        // in those Areas; there is no separate Cutting Area type) the user is assigned to. Never a polyhouse.
+        public const string MotherPlantAreaType = "MotherPlant";
+        public const string MotherPlantAreaOnlyMessage =
+            "Choose one of your own active Mother Plant / Cutting Areas. Empty pots are added here only to a Mother Plant or Cutting Area.";
+
+        public static List<Area> SelectableMotherPlantAreas(IEnumerable<Area> allAreas, bool hasFullAreaAccess, IReadOnlyCollection<int> assignedAreaIds)
+            => SelectableAreas(allAreas, hasFullAreaAccess, assignedAreaIds).Where(a => a.AreaType == MotherPlantAreaType).ToList();
+
+        // Section of the menu the page was opened from (back link and heading only; the rules are the same).
+        public const string SectionMotherPlant = "MotherPlant";
+        public const string SectionCutting = "Cutting";
+        public static string NormalizeSection(string? section) => section == SectionCutting ? SectionCutting : SectionMotherPlant;
     }
 }

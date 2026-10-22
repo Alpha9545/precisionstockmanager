@@ -12,8 +12,13 @@ namespace PlantStockManager.Services
 
         // Closed cavity list -- identical to CK_SeedSowings_CavityType
         // (Database/Phase23_SeedSowing.sql). Stored as the display string.
+        // 2026-10-19: "70 Cavity" added (Database/Migrations/2026-10-19_Cavity70.sql widens every cavity
+        // CHECK constraint / trigger). Until that migration is applied the database still refuses it, so the
+        // selection lists offer it only when WorkflowCorrectionsSchema.Cavity70Async says so, and Tray Stock
+        // writes refuse it with a clear message (no 70-cavity tray can be stocked, so none can be sown into).
+        public const string Cavity70 = "70 Cavity";
         public static readonly IReadOnlyList<string> CavityTypes =
-            new[] { "9 Cavity", "24 Cavity", "42 Cavity", "102 Cavity", "150 Cavity" };
+            new[] { "9 Cavity", "24 Cavity", "42 Cavity", Cavity70, "102 Cavity", "150 Cavity" };
 
         // Closed wastage-reason list -- identical to
         // CK_ReadyConfirmations_WastageReason (Database/PhaseB_DirectSowing.sql).
@@ -119,12 +124,37 @@ namespace PlantStockManager.Services
         // assigned-supervisor check below still applies to them.
         // Applied by ReadyConfirmationRepository.ConfirmAsync under the sowing's
         // row lock, and by the pages for their messages.
+        // 2026-10-16 (2026-10-16_BedSowingApprover.sql): who approves a Bed Sowing tray batch. RuleActive = the
+        // migration is applied; UserId = the ACTIVE designated approver (dbo.BedSowingApprover), null when none.
+        public sealed record BedApprover(bool RuleActive, int? UserId, string? Name)
+        {
+            public static readonly BedApprover NotConfigured = new(false, null, null);
+        }
+
+        public const string NoBedApproverMessage =
+            "No active Bed Sowing approver is designated, so this tray batch from a Bed Sowing cannot be approved. Ask the administrator.";
+        public static string NotBedApproverMessage(string? approverName)
+            => $"Only {approverName ?? "the designated Bed Sowing approver"} (the designated Bed Sowing approver) can approve a tray batch from a Bed Sowing.";
+
         public static (bool Ok, string? Error) CanApprove(
             int? assignedSupervisorId, int? createdById, string? createdBy, int? approverId, string? approverName,
-            string? sourceType = null)
+            string? sourceType = null, BedApprover? bedApprover = null,
+            bool motherPlantDirect = false, bool isAreaApprover = false, string? areaName = null)
         {
             if (!approverId.HasValue)
                 return (false, "Your user could not be identified.");
+            // 2026-10-21: a Mother Plant Area Direct Sowing has no assigned supervisor and its recorder may approve it: ONLY an
+            // Area Supervisor of its Area or a System Administrator (isAreaApprover = ReadyConfirmationRepository.
+            // IsAreaApproverAsync for this user and the batch's Area -- refused unless the caller checked it).
+            if (motherPlantDirect)
+                return isAreaApprover ? (true, null) : (false, NotMotherPlantDirectApproverMessage(areaName));
+            // 2026-10-16: a Bed Sowing tray batch -- ONLY the designated approver (Maya Shinde), who may approve a batch
+            // she transplanted herself (the maker-checker exception is for this source type only). Not every approver,
+            // not every administrator. TR_ReadyConfirmations_AssignedSupervisor repeats it in the database.
+            if (sourceType == Models.SeedSowing.SourceBedSowing && bedApprover is { RuleActive: true })
+                return !bedApprover.UserId.HasValue ? (false, NoBedApproverMessage)
+                     : bedApprover.UserId.Value == approverId.Value ? (true, null)
+                     : (false, NotBedApproverMessage(bedApprover.Name));
             // 2026-10-13: a tray batch made by a transplant has no assigned supervisor -- any user who
             // may approve sowings (page permission ReadyStock.Confirm; TR_ReadyConfirmations_AssignedSupervisor)
             // approves it; a Bed Sowing batch never by the person who recorded the transplant.
@@ -226,6 +256,46 @@ namespace PlantStockManager.Services
                 return (false, 0, DirectSowingAreaMismatchMessage);
             return (true, polyhouseAreaId.Value, null);
         }
+
+        // ---- Mother Plant & Cutting > Direct Sowing (2026-10-21) -------------------------------------------------------
+        // A Direct (seed) Sowing INTO a Mother Plant Area. The user chooses the Area (from the active Mother Plant Areas they
+        // may access); it is re-read from the database here: it must exist, be active and be a Mother Plant Area. There is
+        // NO Polyhouse (the Area holds its empty trays in one pool per cavity), so a posted Polyhouse is a forged form.
+        public const string MotherPlantDirectAreaRequiredMessage = "Please select the Mother Plant Area for this sowing.";
+        public const string MotherPlantDirectAreaNotFoundMessage = "The selected Area does not exist.";
+        public const string MotherPlantDirectNotMotherPlantAreaMessage =
+            "Direct Sowing under Mother Plant & Cutting is done only in an active Mother Plant Area. The selected Area is not one.";
+        public const string MotherPlantDirectNoPolyhouseMessage =
+            "A Direct Sowing in a Mother Plant Area uses the Area's own empty trays -- no Polyhouse is chosen. Reload the page and enter the sowing again.";
+        public const string MotherPlantDirectNoSupervisorMessage =
+            "The approver of a Mother Plant Area Direct Sowing is not chosen on the form: an Area Supervisor of the Area approves it. Reload the page and enter the sowing again.";
+        public const string MotherPlantDirectNoMaterialMessage =
+            "Growing material is stocked only at Main Office Polyhouses -- a sowing in a Mother Plant Area uses none.";
+        public const string MotherPlantDirectNotAuthorizedMessage = "You are not authorized to sow in the selected Mother Plant Area.";
+
+        public static (bool Ok, string? Error) ResolveMotherPlantDirectSowingArea(
+            int? areaId, int? postedPolyhouseId, bool areaFound, string? areaType, bool areaIsActive)
+        {
+            if (areaId is not > 0)
+                return (false, MotherPlantDirectAreaRequiredMessage);
+            if (postedPolyhouseId is > 0)
+                return (false, MotherPlantDirectNoPolyhouseMessage);
+            if (!areaFound)
+                return (false, MotherPlantDirectAreaNotFoundMessage);
+            if (!areaIsActive || !string.Equals(areaType, MotherPlantAreaType, StringComparison.Ordinal))
+                return (false, MotherPlantDirectNotMotherPlantAreaMessage);
+            return (true, null);
+        }
+
+        public const string MotherPlantAreaType = "MotherPlant";   // = Data.MotherPlantAreaSchema.MotherPlantAreaType
+
+        // Who approves one: an Area Supervisor of the batch's own Area (an active user holding ReadyStock.Confirm through a
+        // role assigned to that Area) or a System Administrator -- the same rule as a Mother Plant transplant batch, checked
+        // by ReadyConfirmationRepository.IsAreaApproverAsync (and TR_ReadyConfirmations_AssignedSupervisor); applied by
+        // CanApprove. The user who recorded it may approve it (owner decision 2026-10-13: most Mother Plant Areas have a
+        // single supervisor).
+        public static string NotMotherPlantDirectApproverMessage(string? areaName)
+            => $"A Direct Sowing batch of {areaName ?? "this Mother Plant Area"} is approved only by an Area Supervisor of {areaName ?? "that Area"} (a user who may approve sowings and is assigned to that Area) or a System Administrator.";
 
         // Nobody approves a sowing they recorded themselves (segregation of
         // duties). Compared by user id; the username is only used for rows

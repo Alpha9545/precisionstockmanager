@@ -10,6 +10,10 @@
         <div class="card-header">
             <h4 class="mb-0">Send Ready Stock (Trays)</h4>
             <small class="text-muted">The whole batch moves together -- it cannot be split across two Areas, and only before any of it is reserved or dispatched.</small>
+            @if (Model.CanDispatchToCustomer)
+            {
+                <small class="d-block text-muted">A customer dispatch takes whole trays of this batch, up to the complete trays available.</small>
+            }
         </div>
         <div class="card-body">
             @if (!ModelState.IsValid)
@@ -27,42 +31,62 @@
             <div class="table-responsive">
             <table class="table table-sm table-bordered">
                 <tbody>
-                    <tr><th class="w-50">Batch</th><td>@b.SowingCode</td></tr>
+                    <tr><th class="w-50">Source batch</th><td>@b.BatchNo <span class="small text-muted">(@b.SowingCode)</span></td></tr>
                     <tr><th>Variety</th><td>@b.SpeciesName?.Trim() (@b.PlantTypeName)</td></tr>
                     <tr><th>Cavity</th><td>@b.CavityType</td></tr>
                     <tr><th>From Area</th><td>@b.AreaName</td></tr>
-                    <tr><th>Ready trays</th><td class="fw-bold">@Qty(b.Quantity)</td></tr>
-                    <tr><th>Reserved / Dispatched</th><td>@Qty(b.ReservedQuantity) / @Qty(b.DispatchedQuantity)</td></tr>
+                    <tr><th>Plants (whole batch)</th><td class="fw-bold" id="batch-plants">@Qty(b.Quantity)</td></tr>
+                    <tr><th>Trays</th><td id="batch-trays">@(b.PhysicalTrays?.ToString("0") ?? "-")@(b.CavitySize is > 0 ? $" x {b.CavityType}" : "")</td></tr>
+                    <tr><th>Reserved / Dispatched / In transit</th><td>@Qty(b.ReservedQuantity) / @Qty(b.DispatchedQuantity) / @Qty(b.InTransitQuantity)</td></tr>
                 </tbody>
             </table>
             </div>
 
-            @if (b.ReservedQuantity > 0 || b.DispatchedQuantity > 0)
-            {
-                <div class="alert alert-warning">This batch already has bookings or dispatches against it, so it can no longer be moved.</div>
+            @{
+                var eligibility = Model.TransferEligibility;
+                // 2026-10-19: the form is shown when the batch can still move as a whole (unchanged) OR the user may dispatch it to a customer.
+                var transferOff = !eligibility.Available;
+                var customer = Model.CustomerEligibility;
             }
-            else if (b.AvailableQuantity <= 0)
+            @if (transferOff && !Model.CanDispatchToCustomer)
             {
-                <div class="alert alert-warning">Nothing is available to send.</div>
+                <div class="alert alert-warning" id="not-eligible">@eligibility.Reason</div>
             }
             else
             {
-                <form method="post">
+                <form method="post" id="moveForm">
+                    <input type="hidden" asp-for="From" />
+                    <input type="hidden" asp-for="SubmissionToken" />
                     <div class="mb-3">
                         <label class="form-label fw-bold">Send to</label>
                         <div class="d-flex gap-3 flex-wrap">
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" asp-for="Destination" value="@PlantStockManager.Pages.Production.ReadyStock.MoveModel.ToMainOffice" id="dMain" disabled="@(!Model.CanTransfer || !Model.MainOfficeAreas.Any())" />
+                                <input class="form-check-input" type="radio" asp-for="Destination" value="@PlantStockManager.Pages.Production.ReadyStock.MoveModel.ToMainOffice" id="dMain" disabled="@(!Model.CanTransfer || transferOff || !Model.MainOfficeAreas.Any())" />
                                 <label class="form-check-label" for="dMain">Main Office</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input" type="radio" asp-for="Destination" value="@PlantStockManager.Pages.Production.ReadyStock.MoveModel.ToOutlet" id="dOutlet" disabled="@(!Model.CanTransfer || !Model.OutletAreas.Any())" />
+                                <input class="form-check-input" type="radio" asp-for="Destination" value="@PlantStockManager.Pages.Production.ReadyStock.MoveModel.ToOutlet" id="dOutlet" disabled="@(!Model.CanTransfer || transferOff || !Model.OutletAreas.Any())" />
                                 <label class="form-check-label" for="dOutlet">Outlet</label>
                             </div>
+                            @if (Model.CanDispatchToCustomer)
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" asp-for="Destination" value="@PlantStockManager.Pages.Production.ReadyStock.MoveModel.ToCustomer" id="dCustomer" disabled="@(!customer.Available)" />
+                                    <label class="form-check-label" for="dCustomer">Customer</label>
+                                </div>
+                            }
                         </div>
                         @if (!Model.CanTransfer)
                         {
-                            <div class="form-text text-danger">You are not authorized to transfer stock.</div>
+                            <div class="form-text text-danger" id="no-transfer">You are not authorized to transfer stock@(Model.CanDispatchToCustomer ? " to Main Office or an Outlet" : "").</div>
+                        }
+                        else if (transferOff)
+                        {
+                            <div class="form-text text-warning-emphasis" id="not-eligible">Main Office / Outlet: @eligibility.Reason</div>
+                        }
+                        @if (Model.CanDispatchToCustomer && !customer.Available)
+                        {
+                            <div class="form-text text-warning-emphasis" id="customer-not-eligible">Customer: @customer.Reason</div>
                         }
                     </div>
 
@@ -86,11 +110,42 @@
                     </div>
                     <input type="hidden" asp-for="DestinationAreaId" id="destinationAreaId" />
 
+                    @if (Model.CanDispatchToCustomer && customer.Available)
+                    {
+                        <fieldset class="dest dest-Customer d-none border rounded p-3 mb-3" id="customerSection">
+                            <legend class="float-none w-auto px-2 fs-6 fw-bold mb-0">Customer details</legend>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold" for="customerName">Customer name</label>
+                                    <input type="text" asp-for="CustomerName" id="customerName" class="form-control cust-req" maxlength="100" autocomplete="off" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label fw-bold" for="customerContact">Contact number</label>
+                                    <input type="tel" asp-for="CustomerContact" id="customerContact" class="form-control cust-req" maxlength="50" autocomplete="off" />
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label" for="customerAddress">Address <span class="text-muted small">(optional)</span></label>
+                                    <input type="text" asp-for="CustomerAddress" id="customerAddress" class="form-control" maxlength="500" />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label fw-bold" for="traysInput">Trays to dispatch</label>
+                                    <input type="number" asp-for="Trays" id="traysInput" class="form-control cust-req" min="1" max="@Model.AvailableTrays" step="1"
+                                           data-cavity="@(b.CavitySize ?? 0)" value="@(Model.Trays > 0 ? Model.Trays.ToString() : "")" />
+                                    <div class="form-text">Whole @b.CavityType trays; at most @Model.AvailableTrays (@Qty(b.AvailableQuantity) plants available).</div>
+                                </div>
+                                <div class="col-md-8 d-flex align-items-end">
+                                    <div class="alert alert-info py-2 mb-0 w-100 d-none" id="customerSummary" aria-live="polite"></div>
+                                </div>
+                            </div>
+                            <div class="form-text mt-2">The customer is recorded on the dispatch (a Completed booking + Seedling Dispatch); the plants leave this batch once.</div>
+                        </fieldset>
+                    }
+
                     <div class="row g-3">
-                        <div class="col-md-4">
-                            <label class="form-label fw-bold">Trays to send</label>
+                        <div class="col-md-4@(Model.CanDispatchToCustomer ? " dest dest-MainOffice dest-Outlet d-none" : "")">
+                            <label class="form-label fw-bold">Plants to send</label>
                             <input type="number" asp-for="Quantity" asp-format="{0:0.##}" class="form-control" readonly />
-                            <div class="form-text">Always the whole batch.</div>
+                            <div class="form-text">Always the whole batch (@(b.PhysicalTrays?.ToString("0") ?? "-") trays).</div>
                         </div>
                         <div class="col-md-8">
                             <label class="form-label">Remarks / reference</label>
@@ -98,8 +153,8 @@
                         </div>
                     </div>
                     <div class="text-center mt-4">
-                        <a asp-page="/Production/ReadyStock/Index" class="btn btn-secondary me-2">Back</a>
-                        <button type="submit" class="btn btn-success">Send</button>
+                        <a asp-page="@(Model.FromMotherPlant ? "/Production/MotherPlant/ReadyStock" : "/Production/ReadyStock/Index")" class="btn btn-secondary me-2">Back</a>
+                        <button type="submit" class="btn btn-success" id="sendButton">Send</button>
                     </div>
                 </form>
             }
@@ -116,9 +171,27 @@
                 if (d) $('.dest-' + d).removeClass('d-none');
                 const $sel = $('.dest-area[data-for="' + d + '"]');
                 $('#destinationAreaId').val($sel.length ? $sel.val() : '');
+                // 2026-10-19: the customer fields are required only for a customer dispatch
+                const toCustomer = d === '@PlantStockManager.Pages.Production.ReadyStock.MoveModel.ToCustomer';
+                $('.cust-req').prop('required', toCustomer);
+                $('#sendButton').text(toCustomer ? 'Dispatch to Customer' : 'Send');
+                summary();
+            }
+            // Preview only -- the server recalculates the plants (trays x cavity) and re-checks the available trays.
+            function summary() {
+                const $box = $('#customerSummary');
+                if (!$box.length) return;
+                const t = parseInt($('#traysInput').val(), 10), c = parseInt($('#traysInput').attr('data-cavity'), 10);
+                const max = parseInt($('#traysInput').attr('max'), 10), name = ($('#customerName').val() || '').trim();
+                if (isNaN(t) || t <= 0) { $box.addClass('d-none').text(''); return; }
+                if (t > max) { $box.removeClass('d-none alert-info').addClass('alert-danger').text('Only ' + max + ' complete trays are available.'); return; }
+                $box.removeClass('d-none alert-danger').addClass('alert-info')
+                    .text(t + ' tray' + (t === 1 ? '' : 's') + ' = ' + (t * c).toLocaleString('en-IN') + ' plants will be dispatched' + (name ? ' to ' + name : '') + '.');
             }
             $('input[name="Destination"]').on('change', sync);
             $('.dest-area').on('change', sync);
+            $('#traysInput, #customerName').on('input', summary);
+            $('#moveForm').on('submit', function () { if (this.checkValidity()) $('#sendButton').prop('disabled', true).text('Saving...'); });
             sync();
         });
     </script>

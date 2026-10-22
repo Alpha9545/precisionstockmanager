@@ -166,11 +166,18 @@ namespace PlantStockManager.Tests
         {
             var confirm = Repo("Data", "ReadyConfirmationRepository.cs");
             Assert.Contains("SupervisorId, SourceType", confirm);
-            Assert.Contains("createdBy, sowingSourceType)", confirm);
+            Assert.Contains("createdBy, sowingSourceType,", confirm);   // 2026-10-16: + the Bed Sowing approver
             var page = Repo("Pages", "Production", "ReadyConfirmation", "Confirm.cshtml.cs");
-            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(page, @"sowing\.SourceType\)").Count);
-            var index = Repo("Pages", "Production", "ReadyConfirmation", "Index.cshtml");
-            Assert.Contains("User.Identity?.Name, sw.SourceType)", index);
+            // 2026-10-21: GET and POST share ONE authority check (AuthorityAsync), which passes the source type.
+            Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(page, @"User\.Identity\?\.Name, sowing\.SourceType,").Count);
+            Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(page, @"= await AuthorityAsync\(sowing\);").Count);
+            // 2026-10-19: the Sowing Approvals lists evaluate every row through SowingApprovalRules.Evaluate (shared by both
+            // approval pages and the home page), which passes the sowing's source type and the Bed Sowing approver.
+            var rules = Repo("Services", "SowingApprovalRules.cs");
+            Assert.Contains("s.SupervisorId, s.CreatedById, s.CreatedBy, userId, userName, s.SourceType,", rules);
+            Assert.Contains("settings.BedApprover, s.IsMotherPlantDirectSowing, isAreaApprover, s.AreaName);", rules);   // 2026-10-21
+            var queue = Repo("Data", "SowingApprovalQueueRepository.cs");
+            Assert.Contains("SowingApprovalRules.Evaluate(v.Sowing,", queue);
         }
 
         // ---- the database migration (written; dry run first, not applied) -----------------------------------

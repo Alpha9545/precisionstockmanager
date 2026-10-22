@@ -62,6 +62,8 @@ namespace PlantStockManager.Tests
 SELECT TOP 1 a.Id, p.Id FROM dbo.Polyhouses p
 INNER JOIN dbo.Area a ON a.Id = p.AreaId
 WHERE a.IsActive = 1 AND (a.AreaType IS NULL OR a.AreaType <> N'Outlet')
+  -- 2026-10-14: Mother Plant Areas hold ONE Area tray pool once that migration is applied (no Polyhouse pools there)
+  AND (ISNULL(a.AreaType, N'') <> N'MotherPlant' OR OBJECT_ID('dbo.TR_TrayStock_PoolLocation', 'TR') IS NULL)
   AND NOT EXISTS (SELECT 1 FROM dbo.TrayStock t WHERE t.AreaId = a.Id AND t.PolyhouseId = p.Id AND t.TraySize = N'102 Cavity')
 ORDER BY a.Id, p.Id", probe);
                 using var reader = await findCmd.ExecuteReaderAsync();

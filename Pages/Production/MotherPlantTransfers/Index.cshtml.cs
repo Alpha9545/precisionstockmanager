@@ -67,9 +67,16 @@ namespace PlantStockManager.Pages.Production.MotherPlantTransfers
             if (!User.HasPermission(ReceivePermission)) return Forbid();
             var (ok, msg, receivedBatchId) = await _repo.ReceiveAsync(id, receivedQuantity, shortfallReason, Actor(), a => _receiverAccess.CanAccessArea(User, a),
                 receivedDate, receiptDateReason);
-            // 2026-10-13: straight on to "Transplant into Trays" for the batch just received.
+            // 2026-10-13: straight on to "Transplant into Trays" for the batch just received -- 2026-10-14: only when
+            // it was sent for transplanting (a Pot Production transfer stays Ready Stock in the Mother Plant Area).
             if (ok && receivedBatchId is int batchId)
-                TempData["TransplantBatchId"] = batchId;
+            {
+                var received = await _repo.GetAsync(id);
+                if (received?.ForTrayTransplant != false)
+                    TempData["TransplantBatchId"] = batchId;
+                else
+                    TempData["PotBatchFromId"] = batchId;   // 2026-10-15: straight on to Pot Production from this batch
+            }
             return Done(ok, msg, id);
         }
 

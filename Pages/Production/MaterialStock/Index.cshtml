@@ -175,7 +175,7 @@
                         {
                             <tr>
                                 <td>@s.AreaName</td>
-                                <td>@s.PolyhouseName</td>
+                                <td>@(s.PolyhouseName ?? "Area stock (no Polyhouse)")</td>
                                 <td>@s.TraySize</td>
                                 <td class="ms-num fw-semibold">@QuantityFormat.Qty(s.PhysicalQuantity)</td>
                                 @if (canHistory)

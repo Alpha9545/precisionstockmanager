@@ -141,10 +141,18 @@
                 <ul class="sub-menu">
                     <li><a class="link_name" href="#">Mother Plant &amp; Cutting</a></li>
                     <li nav-page="/Production/MotherPlant/Index"><a asp-page="/Production/MotherPlant/Index">Mother Plants</a></li>
+                    <li nav-page="/Production/MotherPlant/ReadyStock"><a asp-page="/Production/MotherPlant/ReadyStock">Ready Stock (Trays &amp; Pots)</a></li>
+                    @* 2026-10-21: Direct (seed) Sowing into a Mother Plant Area; the batch waits in Sowing Approvals *@
+                    <li nav-page="/Production/MotherPlant/DirectSowing"><a asp-page="/Production/MotherPlant/DirectSowing">Direct Sowing</a></li>
+                    @* 2026-10-19: transplanted tray batches of the user's Mother Plant Areas waiting for approval *@
+                    <li nav-page="/Production/MotherPlant/SowingApprovals"><a asp-page="/Production/MotherPlant/SowingApprovals">Sowing Approvals</a></li>
                     <li nav-page="/Production/Cutting/Index"><a asp-page="/Production/Cutting/Index">Cutting Production</a></li>
                     <li nav-page="/Production/CuttingStock/GiveToMainOffice"><a asp-page="/Production/CuttingStock/GiveToMainOffice">Send Cuttings to Main Office</a></li>
                     <li nav-page="/Production/CuttingStock/MyTransactions"><a asp-page="/Production/CuttingStock/MyTransactions">Cutting Delivery History</a></li>
                     <li nav-page="/Production/CuttingStock/Index"><a asp-page="/Production/CuttingStock/Index">Cutting Stock</a></li>
+                    @* 2026-10-14: empty pots / trays of a Mother Plant or Cutting Area (Area only, no polyhouse). *@
+                    <li nav-page="/Production/EmptyPotInventory/AddStock"><a asp-page="/Production/EmptyPotInventory/AddStock" asp-route-section="MotherPlant">Add Empty Pots</a></li>
+                    <li nav-page="/Production/MotherPlant/AddEmptyTrays"><a asp-page="/Production/MotherPlant/AddEmptyTrays" asp-route-section="MotherPlant">Add Empty Trays</a></li>
                     <li nav-page="/Production/SeedSowing/CreateFromCutting"><a asp-page="/Production/SeedSowing/CreateFromCutting">Confirm Cutting Sowing</a></li>
                     @* One page serves both sides of a transfer; each menu entry shows only to its own side. *@
                     @if (PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.HasPermission(User, "ReadyStock.ReceiveTransfer"))
@@ -172,7 +180,6 @@
                 <ul class="sub-menu">
                     <li><a class="link_name" href="#">Pot Production</a></li>
                     <li nav-page="/Production/EmptyPotInventory/Index"><a asp-page="/Production/EmptyPotInventory/Index">Empty Pot Stock</a></li>
-                    <li nav-page="/Production/EmptyPotInventory/AddStock"><a asp-page="/Production/EmptyPotInventory/AddStock">Add Empty Pot Stock</a></li>
                     <li nav-page="/Production/PotBatch/Index"><a asp-page="/Production/PotBatch/Index">Pot Production Batches</a></li>
                     <li nav-page="/Production/PottedPlantStock/Index"><a asp-page="/Production/PottedPlantStock/Index">Potted Plant Stock</a></li>
                 </ul>
@@ -350,9 +357,8 @@
                 <ul class="sub-menu">
                     <li><a class="link_name" href="#">Labour</a></li>
                     <li nav-page="/Production/Labour/Attendance"><a asp-page="/Production/Labour/Attendance">Daily Attendance</a></li>
-                    <li nav-page="/Production/Labour/AttendanceHistory"><a asp-page="/Production/Labour/AttendanceHistory">Attendance History</a></li>
                     <li nav-page="/Production/Labour/Overtime"><a asp-page="/Production/Labour/Overtime">Overtime</a></li>
-                    <li nav-page="/Production/Labour/OvertimeHistory"><a asp-page="/Production/Labour/OvertimeHistory">Overtime History</a></li>
+                    <li nav-page="/Production/Labour/MyOvertime"><a asp-page="/Production/Labour/MyOvertime">My Overtime Entries</a></li>
                 </ul>
             </li>
 
@@ -401,6 +407,9 @@
                     <li nav-page="/Data/WastedStock"><a asp-page="/Data/WastedStock">Wastage</a></li>
                     <li nav-page="/Data/SeedSowingMonthlyReport"><a asp-page="/Data/SeedSowingMonthlyReport">Sowing Monthly Report</a></li>
                     <li nav-page="/Production/MaterialStock/History"><a asp-page="/Production/MaterialStock/History">Material History</a></li>
+                    @* 2026-10-20: labour reports, System Administrator only (FeatureAuthorizationConventions) *@
+                    <li nav-page="/Production/Labour/AttendanceHistory"><a asp-page="/Production/Labour/AttendanceHistory">Attendance History</a></li>
+                    <li nav-page="/Production/Labour/OvertimeHistory"><a asp-page="/Production/Labour/OvertimeHistory">Overtime History</a></li>
                 </ul>
             </li>
 

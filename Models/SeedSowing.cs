@@ -33,7 +33,13 @@ namespace PlantStockManager.Models
         public string UnitName => IsCuttingSource ? "Cuttings" : IsTransplantedBatch ? "Seedlings" : "Seeds";
         public string SourceLabel => IsCuttingSource ? "Cutting Stock" : IsBedSowingSource ? "Bed Sowing" : IsTransplantSource ? "Transplanted Ready Stock" : "Seed lot";
         // Origin shown on the approval and sowing pages.
-        public string OriginLabel => IsCuttingSource ? "Cutting Sowing" : IsBedSowingSource ? "Bed Sowing" : IsTransplantSource ? "Transplanted Ready Stock" : "Direct Seed Sowing";
+        public string OriginLabel => IsCuttingSource ? "Cutting Sowing" : IsBedSowingSource ? "Bed Sowing" : IsTransplantSource ? "Transplanted Ready Stock"
+            : IsMotherPlantDirectSowing ? "Direct Sowing (Mother Plant Area)" : "Direct Seed Sowing";
+
+        // 2026-10-21 (2026-10-21_MotherPlantDirectSowing.sql): a Direct (seed) Sowing recorded in a Mother Plant Area through
+        // Mother Plant & Cutting > Direct Sowing (SourceType stays 'Seed'). No Polyhouse, no assigned supervisor, no growing
+        // material; approved by an Area Supervisor of its Area or a System Administrator. Fixed once recorded (database trigger).
+        public bool IsMotherPlantDirectSowing { get; set; }
 
         // Bed lineage (null unless SourceType = BedSowing).
         public int? BedSowingId { get; set; }

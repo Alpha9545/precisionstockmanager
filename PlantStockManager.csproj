@@ -31,4 +31,13 @@
     <None Remove="mobile\**" />
   </ItemGroup>
 
+  <!-- One-off data-import console tools (tools/*) are separate projects that reference this one;
+       keep them out of the web application's build and publish output. -->
+  <ItemGroup>
+    <Compile Remove="tools\**" />
+    <Content Remove="tools\**" />
+    <EmbeddedResource Remove="tools\**" />
+    <None Remove="tools\**" />
+  </ItemGroup>
+
 </Project>

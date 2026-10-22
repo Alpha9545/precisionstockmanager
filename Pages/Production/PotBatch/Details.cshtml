@@ -34,7 +34,14 @@
                     <tr><th>Pot Size</th><td>@b.PotSize</td></tr>
                     <tr><th>Production Area</th><td>@b.AreaName</td></tr>
                     <tr><th>Polyhouse</th><td>@(b.PolyhouseName ?? "-")</td></tr>
-                    <tr><th>Cuttings from</th><td>@b.SourceAreaName Cutting Stock</td></tr>
+                    @if (b.IsFromReadyStock)
+                    {
+                        <tr><th>Seedlings from</th><td>Ready Stock batch @b.SourceReadyStockBatchNo (@b.SourceAreaName) <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@b.SourceReadyStockId" class="small">lineage</a></td></tr>
+                    }
+                    else
+                    {
+                        <tr><th>Cuttings from</th><td>@b.SourceAreaName Cutting Stock</td></tr>
+                    }
                     <tr><th>Start / Expected Ready</th><td>@b.ProductionStartDate.ToString("dd/MM/yyyy") &rarr; <strong>@b.ExpectedReadyDate.ToString("dd/MM/yyyy")</strong></td></tr>
                     <tr><th>Ready Confirmation By</th><td>@(b.SupervisorName ?? "-")</td></tr>
                     <tr><th>Created by</th><td>@(b.CreatedByName ?? b.CreatedBy)</td></tr>
@@ -48,15 +55,15 @@
         <div class="col-lg-6">
             <table class="table table-sm table-bordered">
                 <tbody>
-                    <tr><th class="w-50">Cuttings allocated</th><td class="text-end">@Qty(b.CuttingAllocated)</td></tr>
+                    <tr><th class="w-50">@(b.IsFromReadyStock ? "Seedlings" : "Cuttings") allocated</th><td class="text-end">@Qty(b.CuttingAllocated)</td></tr>
                     <tr><th>Pots produced (total of daily entries)</th><td class="text-end fw-bold">@Qty(b.PottedQuantity)</td></tr>
-                    <tr><th>Cuttings not yet potted</th><td class="text-end">@Qty(b.CuttingsLeft)</td></tr>
+                    <tr><th>@(b.IsFromReadyStock ? "Seedlings" : "Cuttings") not yet potted</th><td class="text-end">@Qty(b.CuttingsLeft)</td></tr>
                     <tr><th>Empty @b.PotSize pots in @b.AreaName</th><td class="text-end">@Qty(b.EmptyPotsAvailable)</td></tr>
                     @if (b.IsConfirmed)
                     {
                         <tr class="@(b.Status == "Lost" ? "table-danger" : "table-success")"><th>Ready pots (to Potted Plant Stock)</th><td class="text-end fw-bold">@Qty(b.ReadyQuantity!.Value)@(b.Status == "Lost" ? " - complete loss" : "")</td></tr>
                         <tr><th>Pots lost (wastage)</th><td class="text-end">@Qty(b.PotWastage) @(b.WastageReason != null ? "(" + b.WastageReason + ")" : "")</td></tr>
-                        <tr><th>Unused cuttings</th><td class="text-end">@Qty(b.UnusedCuttings) @(b.UnusedCuttingAction == "ReturnedToStock" ? "(returned to Cutting Stock)" : b.UnusedCuttingAction == "Wastage" ? "(wastage)" : "")</td></tr>
+                        <tr><th>Unused @b.SourceUnit</th><td class="text-end">@Qty(b.UnusedCuttings) @(b.UnusedCuttingAction == "ReturnedToStock" ? (b.IsFromReadyStock ? "(returned to the Ready Stock batch)" : "(returned to Cutting Stock)") : b.UnusedCuttingAction == "Wastage" ? "(wastage)" : "")</td></tr>
                         <tr><th>@(b.Status == "Lost" ? "Closed as complete loss by" : "Confirmed READY by")</th><td>@b.ReadyConfirmedByName on @b.ReadyDate?.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</td></tr>
                     }
                 </tbody>
@@ -95,6 +102,7 @@
             <div class="card-body">
                 <h6 class="card-title">Enter today's production</h6>
                 <form method="post" asp-page-handler="Entry" asp-route-id="@b.Id" class="row g-2 align-items-end">
+                    <input type="hidden" asp-for="SubmitToken" />
                     <div class="col-md-3">
                         <label class="form-label">Date</label>
                         <input type="date" asp-for="EntryDate" class="form-control" max="@DateTime.Today.ToString("yyyy-MM-dd")" min="@b.ProductionStartDate.ToString("yyyy-MM-dd")" required />
@@ -109,7 +117,7 @@
                     </div>
                     <div class="col-md-2"><button type="submit" class="btn btn-success w-100">Add</button></div>
                 </form>
-                <div class="form-text">Up to @Qty(b.CuttingsLeft) more (cuttings left) and @Qty(b.EmptyPotsAvailable) empty pots available in @b.AreaName.</div>
+                <div class="form-text">Up to @Qty(b.CuttingsLeft) more (@b.SourceUnit left) and @Qty(b.EmptyPotsAvailable) empty pots available in @b.AreaName.</div>
             </div>
         </div>
     }
@@ -143,10 +151,10 @@
                     @if (b.CuttingsLeft > 0)
                     {
                         <div class="col-md-3">
-                            <label class="form-label fw-bold">@Qty(b.CuttingsLeft) cuttings not potted</label>
+                            <label class="form-label fw-bold">@Qty(b.CuttingsLeft) @b.SourceUnit not potted</label>
                             <select asp-for="UnusedCuttingAction" class="form-select" required>
                                 <option value="">-- choose --</option>
-                                <option value="ReturnedToStock">Return to Cutting Stock</option>
+                                <option value="ReturnedToStock">@(b.IsFromReadyStock ? "Return to the Ready Stock batch" : "Return to Cutting Stock")</option>
                                 <option value="Wastage">Record as wastage</option>
                             </select>
                         </div>
@@ -177,7 +185,7 @@
             </form>
             @if (!Model.Entries.Any())
             {
-                <form method="post" asp-page-handler="Cancel" asp-route-id="@b.Id" onsubmit="return confirm('Cancel this batch? The allocated cuttings return to Cutting Stock.');">
+                <form method="post" asp-page-handler="Cancel" asp-route-id="@b.Id" onsubmit="return confirm('@(b.IsFromReadyStock ? "Cancel this batch? The allocated seedlings return to the Ready Stock batch." : "Cancel this batch? The allocated cuttings return to Cutting Stock.")');">
                     <button type="submit" class="btn btn-sm btn-outline-danger">Cancel batch</button>
                 </form>
             }

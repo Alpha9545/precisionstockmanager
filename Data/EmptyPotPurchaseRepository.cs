@@ -132,7 +132,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
     }

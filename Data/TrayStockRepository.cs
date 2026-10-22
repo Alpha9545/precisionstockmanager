@@ -18,6 +18,13 @@ namespace PlantStockManager.Data
     // The short-lived Area-level pools (PolyhouseId NULL) are retired at 0
     // and kept only for history; CK_TrayStock_ActivePoolHasPolyhouse makes
     // sure no Area-level pool can ever be active again.
+    //
+    // 2026-10-14 (2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql applied, MotherPlantAreaSchema):
+    // a MOTHER PLANT Area holds its empty trays in ONE pool per Area + cavity (PolyhouseId NULL) --
+    // Add Empty Trays is Area only, and every Mother Plant Area tray user (Ready Stock transplanting,
+    // Cutting Tray Sowing, a bed transplant into a Mother Plant Area, tray transfers and adjustments)
+    // goes through ResolvePoolAsync below, whatever Polyhouse it names. Every other Area keeps its
+    // Polyhouse pools exactly as before; TR_TrayStock_PoolLocation enforces both in the database.
     public class TrayStockRepository
     {
         // ReferenceType of an Add Tray Stock ledger row; its ReferenceId is
@@ -77,13 +84,104 @@ LEFT JOIN dbo.Polyhouses p ON p.Id = t.PolyhouseId";
             return (decimal)(await cmd.ExecuteScalarAsync())!;
         }
 
+        // Empty trays of ONE cavity available at each candidate location, in the candidates' order (the sowing pages'
+        // availability panel). A location's pool is the one its sowing would consume (ResolvePoolAsync): a Mother
+        // Plant Area's Area pool (one row per Area, however many of its Polyhouses are offered) or the Polyhouse's own
+        // pool. Only ACTIVE pools count: trays sent on a tray transfer have already left the source pool (in transit),
+        // and a retired pool can never be consumed. No pool yet = 0 (shown explicitly). A Polyhouse that does not
+        // belong to the candidate's Area, or a non-Mother-Plant candidate without a Polyhouse, is left out. Read only:
+        // the save re-checks the balance under the pool lock (RecordTransactionAsync), so this is never the authority.
+        public async Task<List<TrayAvailabilityRow>> GetCavityAvailabilityAsync(string traySize, IEnumerable<TrayLocation> candidates)
+        {
+            var locations = candidates.ToList();
+            var rows = new List<TrayAvailabilityRow>();
+            if (locations.Count == 0)
+                return rows;
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            var areaPools = await MotherPlantAreaSchema.ReadyAsync(conn);
+            var areaIds = string.Join(",", locations.Select(l => l.AreaId).Distinct());
+            var polyhouseIds = string.Join(",", locations.Where(l => l.PolyhouseId is > 0).Select(l => l.PolyhouseId!.Value).Append(0).Distinct());
+
+            var areas = new Dictionary<int, (string Name, string? Type)>();
+            using (var cmd = new SqlCommand($"SELECT Id, Name, AreaType FROM dbo.Area WHERE Id IN ({areaIds})", conn))
+            using (var r = await cmd.ExecuteReaderAsync())
+                while (await r.ReadAsync())
+                    areas[r.GetInt32(0)] = (r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2));
+            var polyhouses = new Dictionary<int, (int? AreaId, string Name)>();
+            using (var cmd = new SqlCommand($"SELECT Id, AreaId, Name FROM dbo.Polyhouses WHERE Id IN ({polyhouseIds})", conn))
+            using (var r = await cmd.ExecuteReaderAsync())
+                while (await r.ReadAsync())
+                    polyhouses[r.GetInt32(0)] = (r.IsDBNull(1) ? null : r.GetInt32(1), r.GetString(2));
+            var balances = new Dictionary<(int AreaId, int? PolyhouseId), decimal>();
+            using (var cmd = new SqlCommand($@"
+SELECT AreaId, PolyhouseId, SUM(PhysicalQuantity) FROM dbo.TrayStock
+WHERE IsActive = 1 AND TraySize = @TraySize AND AreaId IN ({areaIds})
+GROUP BY AreaId, PolyhouseId", conn))
+            {
+                cmd.Parameters.AddWithValue("@TraySize", traySize);
+                using var r = await cmd.ExecuteReaderAsync();
+                while (await r.ReadAsync())
+                    balances[(r.GetInt32(0), r.IsDBNull(1) ? null : r.GetInt32(1))] = r.GetDecimal(2);
+            }
+
+            var seen = new HashSet<string>();
+            foreach (var l in locations)
+            {
+                if (!areas.TryGetValue(l.AreaId, out var area))
+                    continue;
+                var areaPool = areaPools && area.Type == MotherPlantAreaSchema.MotherPlantAreaType;
+                if (!areaPool && (l.PolyhouseId is not > 0 || !polyhouses.TryGetValue(l.PolyhouseId.Value, out var p) || p.AreaId != l.AreaId))
+                    continue;
+                var row = areaPool
+                    ? new TrayAvailabilityRow($"a{l.AreaId}", l.AreaId, area.Name, null, null, true, traySize, balances.GetValueOrDefault((l.AreaId, null)))
+                    : new TrayAvailabilityRow($"p{l.PolyhouseId}", l.AreaId, area.Name, l.PolyhouseId, polyhouses[l.PolyhouseId!.Value].Name, false, traySize,
+                        balances.GetValueOrDefault((l.AreaId, l.PolyhouseId)));
+                if (seen.Add(row.Key))
+                    rows.Add(row);
+            }
+            return rows;
+        }
+
+        // 2026-10-14: does this Area hold its trays in one Area pool (a Mother Plant Area, migration applied)?
+        public static async Task<bool> UsesAreaPoolAsync(SqlConnection conn, SqlTransaction? tx, int areaId)
+        {
+            if (!await MotherPlantAreaSchema.ReadyAsync(conn, tx))
+                return false;
+            using var cmd = new SqlCommand("SELECT AreaType FROM dbo.Area WHERE Id = @A", conn, tx);
+            cmd.Parameters.AddWithValue("@A", areaId);
+            return await cmd.ExecuteScalarAsync() is string type && type == MotherPlantAreaSchema.MotherPlantAreaType;
+        }
+
+        public async Task<bool> UsesAreaPoolAsync(int areaId)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return await UsesAreaPoolAsync(conn, null, areaId);
+        }
+
+        // The Polyhouse key of the pool a location uses: null = the Area pool (Mother Plant Area), otherwise
+        // the given Polyhouse. Call after ValidateLocationAsync.
+        public static async Task<int?> ResolvePoolAsync(SqlConnection conn, SqlTransaction tx, int areaId, int? polyhouseId)
+            => await UsesAreaPoolAsync(conn, tx, areaId) ? null : polyhouseId;
+
         // Server-side check of a tray location, under the caller's transaction:
         // the Polyhouse exists and belongs to THIS Area, and the Area is
         // active and not an Outlet (Outlets sell; they never sow). Polyhouses
         // have no active flag of their own -- a Polyhouse is usable when its
         // Area is. Never trusts a posted AreaId/PolyhouseId pair.
+        // 2026-10-14: in a Mother Plant Area (Area pool) the Polyhouse is optional -- when one is named it
+        // must still belong to the Area.
         public static async Task<(bool Ok, string? Error)> ValidateLocationAsync(SqlConnection conn, SqlTransaction tx, int areaId, int? polyhouseId)
         {
+            if (polyhouseId is not > 0 && await UsesAreaPoolAsync(conn, tx, areaId))
+            {
+                using var areaCmd = new SqlCommand("SELECT IsActive FROM dbo.Area WHERE Id = @A", conn, tx);
+                areaCmd.Parameters.AddWithValue("@A", areaId);
+                return await areaCmd.ExecuteScalarAsync() is bool active && active
+                    ? (true, null)
+                    : (false, "Tray Stock cannot be used in this Area (inactive or an Outlet).");
+            }
             if (polyhouseId is not > 0)
                 return (false, PolyhouseRequiredMessage);
             var cmd = new SqlCommand(@"
@@ -121,9 +219,13 @@ WHERE p.Id = @PolyhouseId", conn, tx);
         // A matching row that is inactive (a Polyhouse that moved Areas and
         // came back -- Admin > Polyhouse retires its empty pools on a move) is
         // re-activated: the location has just been validated as current.
-        public async Task<int> GetOrCreateLockedAsync(SqlConnection conn, SqlTransaction tx, int areaId, int polyhouseId, string traySize, string? createdBy)
+        // 2026-10-14: a Mother Plant Area resolves to its Area pool (ResolvePoolAsync).
+        public async Task<int> GetOrCreateLockedAsync(SqlConnection conn, SqlTransaction tx, int areaId, int? requestedPolyhouseId, string traySize, string? createdBy)
         {
-            var lockKey = $"TrayStock:{areaId}:{polyhouseId}:{traySize}";
+            var polyhouseId = await ResolvePoolAsync(conn, tx, areaId, requestedPolyhouseId);
+            if (polyhouseId is not > 0 && !await UsesAreaPoolAsync(conn, tx, areaId))
+                throw new InvalidOperationException(PolyhouseRequiredMessage);
+            var lockKey = $"TrayStock:{areaId}:{(polyhouseId?.ToString() ?? "area")}:{traySize}";
             var appLockCmd = new SqlCommand("sp_getapplock", conn, tx) { CommandType = System.Data.CommandType.StoredProcedure };
             appLockCmd.Parameters.AddWithValue("@Resource", lockKey);
             appLockCmd.Parameters.AddWithValue("@LockMode", "Exclusive");
@@ -135,11 +237,12 @@ WHERE p.Id = @PolyhouseId", conn, tx);
             if ((int)returnValue.Value < 0)
                 throw new InvalidOperationException($"Could not reserve {traySize} tray stock for this Polyhouse right now -- another request is in progress. Please try again.");
 
-            var lockCmd = new SqlCommand(
-                "SELECT Id, IsActive FROM dbo.TrayStock WITH (UPDLOCK, HOLDLOCK) WHERE AreaId = @AreaId AND PolyhouseId = @PolyhouseId AND TraySize = @TraySize",
+            var lockCmd = new SqlCommand(polyhouseId.HasValue
+                ? "SELECT Id, IsActive FROM dbo.TrayStock WITH (UPDLOCK, HOLDLOCK) WHERE AreaId = @AreaId AND PolyhouseId = @PolyhouseId AND TraySize = @TraySize"
+                : "SELECT Id, IsActive FROM dbo.TrayStock WITH (UPDLOCK, HOLDLOCK) WHERE AreaId = @AreaId AND PolyhouseId IS NULL AND TraySize = @TraySize",
                 conn, tx);
             lockCmd.Parameters.AddWithValue("@AreaId", areaId);
-            lockCmd.Parameters.AddWithValue("@PolyhouseId", polyhouseId);
+            lockCmd.Parameters.AddWithValue("@PolyhouseId", (object?)polyhouseId ?? DBNull.Value);
             lockCmd.Parameters.AddWithValue("@TraySize", traySize);
             int? existingId = null; bool existingActive = false;
             using (var reader = await lockCmd.ExecuteReaderAsync())
@@ -167,7 +270,7 @@ VALUES (@AreaId, @PolyhouseId, @TraySize, 0, 1, SYSUTCDATETIME(), @CreatedBy);
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
             var insertCmd = new SqlCommand(insertSql, conn, tx);
             insertCmd.Parameters.AddWithValue("@AreaId", areaId);
-            insertCmd.Parameters.AddWithValue("@PolyhouseId", polyhouseId);
+            insertCmd.Parameters.AddWithValue("@PolyhouseId", (object?)polyhouseId ?? DBNull.Value);
             insertCmd.Parameters.AddWithValue("@TraySize", traySize);
             insertCmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
             return (int)(await insertCmd.ExecuteScalarAsync())!;
@@ -240,14 +343,16 @@ WHERE t.Id = @Id", conn, tx);
 
             var after = before + quantityDelta;
             if (after < 0)
-                return (false, $"Insufficient tray stock for this Area and Polyhouse ({areaName}, {polyhouseName}, {traySize}). Available: {QuantityFormat.Qty(before)}, Required: {QuantityFormat.Qty(-quantityDelta)}.");
+                return (false, polyhouseName == null
+                    ? $"Insufficient empty tray stock for this Area ({areaName}, {traySize}). Available: {QuantityFormat.Qty(before)}, Required: {QuantityFormat.Qty(-quantityDelta)}."
+                    : $"Insufficient tray stock for this Area and Polyhouse ({areaName}, {polyhouseName}, {traySize}). Available: {QuantityFormat.Qty(before)}, Required: {QuantityFormat.Qty(-quantityDelta)}.");
             // 2026-10-10: a back-dated deduction must also fit the balance ON its business date and at
             // every later point (AvailableFromAsync) -- the history may never go below zero.
             if (quantityDelta < 0 && IsBackDated(transactionDateUtc))
             {
                 var availableThen = await AvailableFromAsync(conn, tx, trayStockId, transactionDateUtc);
                 if (-quantityDelta > availableThen)
-                    return (false, HistoricalShortageMessage(availableThen, -quantityDelta, traySize, $"{areaName}, {polyhouseName}", transactionDateUtc!.Value));
+                    return (false, HistoricalShortageMessage(availableThen, -quantityDelta, traySize, polyhouseName == null ? areaName : $"{areaName}, {polyhouseName}", transactionDateUtc!.Value));
             }
 
             var updateCmd = new SqlCommand("UPDATE dbo.TrayStock SET PhysicalQuantity = @After, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id", conn, tx);
@@ -293,7 +398,7 @@ VALUES
             var (locationOk, locationError) = await ValidateLocationAsync(conn, tx, areaId, polyhouseId);
             if (!locationOk)
                 return (false, locationError);
-            var trayStockId = await GetOrCreateLockedAsync(conn, tx, areaId, polyhouseId!.Value, traySize, null);
+            var trayStockId = await GetOrCreateLockedAsync(conn, tx, areaId, polyhouseId, traySize, null);
             // transactionDateUtc (2026-10-12, bed transplanting): the business instant of the
             // consumption (LedgerDates.Instant); a back-dated one must fit the pool's history
             // (RecordTransactionAsync). null = now, as every sowing so far.
@@ -308,8 +413,9 @@ VALUES
         // server-side. submissionToken: the form's one-time token; a repeated
         // submit of the same form (double click, refresh, retry) finds the
         // first submit's ledger row under the same pool lock and adds nothing.
+        // 2026-10-14: polyhouseId null / 0 is accepted only for a Mother Plant Area (its Area pool).
         public async Task<(bool Success, string? Message, bool Duplicate, decimal Balance)> AddStockAsync(
-            int areaId, int polyhouseId, string traySize, decimal quantity, DateTime transactionDateUtc, int submissionToken,
+            int areaId, int? polyhouseId, string traySize, decimal quantity, DateTime transactionDateUtc, int submissionToken,
             int? userId, string? createdBy, string? remarks, Func<int, bool> canAccessArea)
         {
             if (quantity <= 0 || !DirectSowingRules.IsWholeNumber(quantity))
@@ -320,11 +426,13 @@ VALUES
                 return (false, "This form has expired. Reload the page and enter the trays again.", false, 0);
             if (!canAccessArea(areaId))
                 return (false, "You are not authorized to add Tray Stock for the selected Area.", false, 0);
-            if (polyhouseId <= 0)
-                return (false, "Polyhouse is required.", false, 0);
 
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
+            if (await WorkflowCorrectionsSchema.CavityNotSupportedAsync(conn, null, traySize) is string cavityError)
+                return (false, cavityError, false, 0);
+            if (polyhouseId is not > 0 && !await UsesAreaPoolAsync(conn, null, areaId))
+                return (false, "Polyhouse is required.", false, 0);
             using var tx = conn.BeginTransaction();
             try
             {
@@ -364,7 +472,7 @@ WHERE TrayStockId = @TrayStockId AND ReferenceType = @RefType AND ReferenceId = 
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, false, 0);
+                return (false, DbErrorMessage.For(ex), false, 0);
             }
         }
 
@@ -375,7 +483,7 @@ WHERE TrayStockId = @TrayStockId AND ReferenceType = @RefType AND ReferenceId = 
         // correction applies to (LedgerDates: TransactionDate = business, CreatedAt = recorded).
         // A positive correction may open a pool that has no row yet; a negative one needs trays.
         public async Task<(bool Success, string? Message, bool Duplicate, decimal Balance)> AdjustAsync(
-            int areaId, int polyhouseId, string traySize, decimal delta, DateTime businessDateIndia, int submissionToken,
+            int areaId, int? polyhouseId, string traySize, decimal delta, DateTime businessDateIndia, int submissionToken,
             string? reason, int? userId, string? createdBy, Func<int, bool> canAccessArea)
         {
             if (!DirectSowingRules.IsValidCavityType(traySize))
@@ -390,6 +498,8 @@ WHERE TrayStockId = @TrayStockId AND ReferenceType = @RefType AND ReferenceId = 
 
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
+            if (await WorkflowCorrectionsSchema.CavityNotSupportedAsync(conn, null, traySize) is string cavityError)
+                return (false, cavityError, false, 0);
             using var tx = conn.BeginTransaction();
             try
             {
@@ -425,7 +535,7 @@ WHERE TrayStockId = @TrayStockId AND ReferenceType = @RefType AND ReferenceId = 
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, false, 0);
+                return (false, DbErrorMessage.For(ex), false, 0);
             }
         }
 
@@ -464,9 +574,9 @@ HAVING ISNULL(-SUM(tr.Quantity), 0) > 0", conn, tx);
 
             foreach (var (areaId, polyhouseId, traySize, net) in toReturn)
             {
-                if (!polyhouseId.HasValue)
+                if (!polyhouseId.HasValue && !await UsesAreaPoolAsync(conn, tx, areaId))
                     return (false, "The trays used by this record cannot be matched to a Polyhouse -- nothing was changed.");
-                var trayStockId = await GetOrCreateLockedAsync(conn, tx, areaId, polyhouseId.Value, traySize, null);
+                var trayStockId = await GetOrCreateLockedAsync(conn, tx, areaId, polyhouseId, traySize, null);
                 var (success, message) = await RecordTransactionAsync(
                     conn, tx, trayStockId, net, "ReversalReturn", referenceType, referenceId, userId, remarks);
                 if (!success)

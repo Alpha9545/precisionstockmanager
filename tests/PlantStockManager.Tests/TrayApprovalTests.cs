@@ -179,7 +179,15 @@ namespace PlantStockManager.Tests
             var bound = typeof(ConfirmModel).GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.GetCustomAttribute<BindPropertyAttribute>() != null)
                 .Select(p => p.Name).OrderBy(n => n).ToArray();
-            Assert.Equal(new[] { "ActualReadyTrays", "Remarks", "SeedSowingId", "WastageReason" }, bound);
+            // 2026-10-19: + From, a return-navigation hint only ("mp" = back to Mother Plant & Cutting > Sowing Approvals) --
+            // never a quantity, person or Area. 2026-10-22: + the Sowing Approvals list state (workflow, Variety, Sowing Date) to
+            // return to -- navigation only, never read by the approval (ApprovalListState).
+            Assert.Equal(new[] { "ActualReadyTrays", "From", "ListCategory", "ListSowingDate", "ListVariety", "Remarks", "SeedSowingId", "WastageReason" }, bound);
+            Assert.Equal((typeof(string), typeof(int?), typeof(DateTime?)), (typeof(ConfirmModel).GetProperty("ListCategory")!.PropertyType,
+                typeof(ConfirmModel).GetProperty("ListVariety")!.PropertyType, typeof(ConfirmModel).GetProperty("ListSowingDate")!.PropertyType));
+            Assert.Equal("/Production/MotherPlant/SowingApprovals", new ConfirmModel(null!, null!, null!, null!) { From = "mp" }.ListPage);
+            foreach (var other in new[] { null, "", "MP", "x", "/Production/MotherPlant/SowingApprovals" })
+                Assert.Equal("/Production/ReadyConfirmation/Index", new ConfirmModel(null!, null!, null!, null!) { From = other }.ListPage);
         }
 
         [Fact]

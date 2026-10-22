@@ -150,10 +150,11 @@ namespace PlantStockManager.Tests
         public void Pages_UseTheExistingLabourPermissions_AndAreInTheMenu()
         {
             Assert.Equal("Labour.Enter", FeatureAuthorizationConventions.GetRule("/Production/Labour/Overtime").Read);
-            Assert.Equal("Labour.View", FeatureAuthorizationConventions.GetRule("/Production/Labour/OvertimeHistory").Read);
+            // 2026-10-20: Overtime History is a System Administrator report (menu: Reports, after Attendance History)
+            Assert.Same(FeatureAuthorizationConventions.FullAccessOnlyRule, FeatureAuthorizationConventions.GetRule("/Production/Labour/OvertimeHistory"));
             Assert.Equal("Labour.View", FeatureAuthorizationConventions.GetRule("/Production/Labour/OvertimeDetails").Read);
             var layout = ReadSource("Pages", "Shared", "_Layout.cshtml");
-            var order = new[] { ">Daily Attendance<", ">Attendance History<", ">Overtime<", ">Overtime History<" }.Select(x => layout.IndexOf(x)).ToArray();
+            var order = new[] { ">Daily Attendance<", ">Overtime<", "<span class=\"link_name\">Reports</span>", ">Attendance History<", ">Overtime History<" }.Select(x => layout.IndexOf(x)).ToArray();
             Assert.All(order, i => Assert.True(i > 0));
             Assert.Equal(order.OrderBy(i => i), order);   // menu order as approved
         }

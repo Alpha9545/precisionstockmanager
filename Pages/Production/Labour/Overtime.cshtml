@@ -1,8 +1,10 @@
 @page
 @model PlantStockManager.Pages.Production.Labour.OvertimeModel
 @using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
     ViewData["Title"] = Model.IsEdit ? "Edit Overtime" : "Add Overtime";
+    var canSeeHistory = await FeatureAccess.CanAccessPageAsync(User, "/Production/Labour/OvertimeHistory");   // a report: System Administrator only
     var max = DailyLabourRules.MaxCount;
 }
 
@@ -22,7 +24,13 @@
                 <h4 class="mb-0">@ViewData["Title"]</h4>
                 <small class="text-muted">Workers who work beyond the normal working day -- headcounts only.</small>
             </div>
-            <a asp-page="/Production/Labour/OvertimeHistory" class="btn btn-outline-secondary btn-sm">Overtime History</a>
+            <div class="d-flex gap-2">
+                <a asp-page="/Production/Labour/MyOvertime" class="btn btn-outline-secondary btn-sm">My Overtime Entries</a>
+                @if (canSeeHistory)
+                {
+                    <a asp-page="/Production/Labour/OvertimeHistory" class="btn btn-outline-secondary btn-sm">Overtime History</a>
+                }
+            </div>
         </div>
         <div class="card-body">
             @if (!ModelState.IsValid)

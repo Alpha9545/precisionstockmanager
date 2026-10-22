@@ -62,7 +62,12 @@ namespace PlantStockManager.Tests
             public int Species { get; init; }
             public int SeedStockId { get; init; }
             public int Cocopeat { get; init; }
+            // 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql applied: a Mother Plant Area (Green Bless) holds ONE
+            // tray pool per cavity, whatever Polyhouse is named; the pool helpers below follow that.
+            public bool Migrated { get; init; }
             public T Get<T>() where T : notnull => Provider.GetRequiredService<T>();
+            private bool AreaPool(int areaId) => Migrated && areaId == GreenBlessAreaId;
+            private string PoolKey(int areaId) => AreaPool(areaId) ? "t.PolyhouseId IS NULL" : "t.PolyhouseId = @P";
 
             // 2026-10-08: Direct Seed Sowing is done only in Main Area Polyhouses, and a
             // Main Area sowing uses one growing material -- keep plenty of Cocopeat there
@@ -107,9 +112,9 @@ UPDATE dbo.CuttingStock SET InTransitQuantity = 0, PhysicalQuantity = @P WHERE S
             // with a direct reset first (scratch copy only), then adds.
             public async Task<int> SetPoolAsync(int areaId, int polyhouseId, string traySize, decimal physical)
             {
-                await ExecAsync(@"
-UPDATE dbo.TrayStock SET PhysicalQuantity = 0 WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = @T;
-DELETE tr FROM dbo.TrayStockTransactions tr JOIN dbo.TrayStock t ON t.Id = tr.TrayStockId WHERE t.AreaId = @A AND t.PolyhouseId = @P AND t.TraySize = @T",
+                await ExecAsync($@"
+UPDATE t SET PhysicalQuantity = 0 FROM dbo.TrayStock t WHERE t.AreaId = @A AND {PoolKey(areaId)} AND t.TraySize = @T;
+DELETE tr FROM dbo.TrayStockTransactions tr JOIN dbo.TrayStock t ON t.Id = tr.TrayStockId WHERE t.AreaId = @A AND {PoolKey(areaId)} AND t.TraySize = @T",
                     ("@A", areaId), ("@P", polyhouseId), ("@T", traySize));
                 if (physical > 0)
                 {
@@ -121,7 +126,7 @@ DELETE tr FROM dbo.TrayStockTransactions tr JOIN dbo.TrayStock t ON t.Id = tr.Tr
             }
 
             public Task<int> PoolIdAsync(int areaId, int polyhouseId, string traySize)
-                => ScalarAsync<int>("SELECT Id FROM dbo.TrayStock WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = @T", ("@A", areaId), ("@P", polyhouseId), ("@T", traySize));
+                => ScalarAsync<int>($"SELECT t.Id FROM dbo.TrayStock t WHERE t.AreaId = @A AND {PoolKey(areaId)} AND t.TraySize = @T", ("@A", areaId), ("@P", polyhouseId), ("@T", traySize));
 
             public Task<decimal> TrayPhysicalAsync(int trayStockId) => ScalarAsync<decimal>("SELECT PhysicalQuantity FROM dbo.TrayStock WHERE Id = @Id", ("@Id", trayStockId));
 
@@ -136,7 +141,10 @@ DELETE tr FROM dbo.TrayStockTransactions tr JOIN dbo.TrayStock t ON t.Id = tr.Tr
             public Task<int> InvariantViolationsAsync()
                 => ScalarAsync<int>(@"
 SELECT (SELECT COUNT(*) FROM dbo.TrayStock t WHERE t.PhysicalQuantity <> ISNULL((SELECT SUM(x.Quantity) FROM dbo.TrayStockTransactions x WHERE x.TrayStockId = t.Id), 0) OR t.PhysicalQuantity < 0)
-     + (SELECT COUNT(*) FROM dbo.TrayStock WHERE IsActive = 1 AND PolyhouseId IS NULL)
+     + (SELECT COUNT(*) FROM dbo.TrayStock t JOIN dbo.Area a ON a.Id = t.AreaId WHERE t.IsActive = 1 AND t.PolyhouseId IS NULL
+          AND (a.AreaType <> N'MotherPlant' OR OBJECT_ID('dbo.TR_TrayStock_PoolLocation', 'TR') IS NULL))   -- 2026-10-14: Mother Plant Area pools
+     + (SELECT COUNT(*) FROM dbo.TrayStock t JOIN dbo.Area a ON a.Id = t.AreaId WHERE t.IsActive = 1 AND t.PolyhouseId IS NOT NULL
+          AND a.AreaType = N'MotherPlant' AND OBJECT_ID('dbo.TR_TrayStock_PoolLocation', 'TR') IS NOT NULL)
      + (SELECT COUNT(*) FROM dbo.TrayStock t JOIN dbo.Polyhouses p ON p.Id = t.PolyhouseId WHERE t.IsActive = 1 AND ISNULL(p.AreaId, -1) <> t.AreaId)");
         }
 
@@ -186,7 +194,8 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
                 seedStockId = await env.ScalarAsync<int>("SELECT TOP 1 Id FROM dbo.SeedStock WHERE SpeciesId = @S AND AreaId = @A", ("@S", species), ("@A", MainOfficeAreaId));
             }
             var cocopeat = await env.ScalarAsync<int>("SELECT Id FROM dbo.MaterialTypes WHERE Code = 'COCOPEAT'");
-            var ready = new Env { ConnectionString = cs!, Provider = provider, Species = species, SeedStockId = seedStockId, Cocopeat = cocopeat };
+            var migrated = await env.ScalarAsync<int>(MotherPlantAreaSchema.ProbeSql) == 1;
+            var ready = new Env { ConnectionString = cs!, Provider = provider, Species = species, SeedStockId = seedStockId, Cocopeat = cocopeat, Migrated = migrated };
             await ready.EnsureCocopeatAsync(MainOfficeAreaId, Facility5);
             await ready.EnsureCocopeatAsync(MainOfficeAreaId, Facility3);
             return ready;
@@ -218,19 +227,20 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
         public async Task AddStock_CreatesTheAreaPolyhouseCavityPool_WithALedgerRow_InUtc_AndASecondAdditionGoesToTheSamePool()
         {
             var env = await OpenAsync();
-            await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP2, "42 Cavity", 0);
+            // 2026-10-14: a Main Office Polyhouse (Polyhouse pools there with or without the Mother Plant Area migration).
+            await env.SetPoolAsync(MainOfficeAreaId, Facility3, "42 Cavity", 0);
             var repo = env.Get<TrayStockRepository>();
             var whenLocal = new DateTime(2026, 10, 4, 8, 15, 0, DateTimeKind.Local);
 
-            var first = await repo.AddStockAsync(GreenBlessAreaId, GreenBlessP2, "42 Cavity", 100, whenLocal.ToUniversalTime(), 424242, SupervisorId, "t", "new trays", id => id == GreenBlessAreaId);
-            var second = await repo.AddStockAsync(GreenBlessAreaId, GreenBlessP2, "42 Cavity", 25, DateTime.UtcNow, 424243, SupervisorId, "t", null, id => id == GreenBlessAreaId);
+            var first = await repo.AddStockAsync(MainOfficeAreaId, Facility3, "42 Cavity", 100, whenLocal.ToUniversalTime(), 424242, SupervisorId, "t", "new trays", id => id == MainOfficeAreaId);
+            var second = await repo.AddStockAsync(MainOfficeAreaId, Facility3, "42 Cavity", 25, DateTime.UtcNow, 424243, SupervisorId, "t", null, id => id == MainOfficeAreaId);
 
             Assert.True(first.Success, first.Message);
             Assert.True(second.Success, second.Message);
             Assert.Equal(125m, second.Balance);
-            var pool = await env.PoolIdAsync(GreenBlessAreaId, GreenBlessP2, "42 Cavity");
+            var pool = await env.PoolIdAsync(MainOfficeAreaId, Facility3, "42 Cavity");
             Assert.Equal(125m, await env.TrayPhysicalAsync(pool));
-            Assert.Equal(1, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.TrayStock WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = '42 Cavity'", ("@A", GreenBlessAreaId), ("@P", GreenBlessP2)));
+            Assert.Equal(1, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.TrayStock WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = '42 Cavity'", ("@A", MainOfficeAreaId), ("@P", Facility3)));
             Assert.Equal(whenLocal.ToUniversalTime(), await env.ScalarAsync<DateTime>(
                 "SELECT TransactionDate FROM dbo.TrayStockTransactions WHERE TrayStockId = @T AND ReferenceType = 'TrayStockAdd' AND ReferenceId = 424242", ("@T", pool)));
             Assert.Equal(0, await env.InvariantViolationsAsync());
@@ -241,6 +251,16 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
         {
             var env = await OpenAsync();
             var p2 = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP2, "24 Cavity", 100);
+            if (env.Migrated)
+            {
+                // 2026-10-14: a Mother Plant Area's Polyhouses share its ONE Area pool -- trays added "to" P-1 land there too.
+                Assert.True((await env.Get<TrayStockRepository>().AddStockAsync(GreenBlessAreaId, GreenBlessP1, "24 Cavity", 50, DateTime.UtcNow,
+                    Random.Shared.Next(1, int.MaxValue), SupervisorId, "tray-test", null, _ => true)).Success);
+                Assert.Equal(p2, await env.PoolIdAsync(GreenBlessAreaId, GreenBlessP1, "24 Cavity"));
+                Assert.Equal(150m, await env.TrayPhysicalAsync(p2));
+                Assert.Null(await env.ScalarAsync<int?>("SELECT PolyhouseId FROM dbo.TrayStock WHERE Id = @Id", ("@Id", p2)));
+                return;
+            }
             var p1 = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP1, "24 Cavity", 50);
 
             Assert.NotEqual(p1, p2);
@@ -290,7 +310,9 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
             Assert.False((await repo.AddStockAsync(OutletAreaId, OutletPolyhouse, "24 Cavity", 10, DateTime.UtcNow, 11, SupervisorId, "t", null, _ => true)).Success);
             Assert.False((await repo.AddStockAsync(GreenBlessAreaId, GreenBlessP1, "24 Cavity", 10.5m, DateTime.UtcNow, 12, SupervisorId, "t", null, _ => true)).Success);
             Assert.False((await repo.AddStockAsync(GreenBlessAreaId, GreenBlessP1, "50 Cavity", 10, DateTime.UtcNow, 13, SupervisorId, "t", null, _ => true)).Success);
-            Assert.False((await repo.AddStockAsync(GreenBlessAreaId, 0, "24 Cavity", 10, DateTime.UtcNow, 14, SupervisorId, "t", null, _ => true)).Success);
+            Assert.False((await repo.AddStockAsync(MainOfficeAreaId, 0, "24 Cavity", 10, DateTime.UtcNow, 14, SupervisorId, "t", null, _ => true)).Success);
+            // a Mother Plant Area needs no Polyhouse once its trays are held per Area (2026-10-14); before, it did
+            Assert.Equal(env.Migrated, (await repo.AddStockAsync(GreenBlessAreaId, 0, "24 Cavity", 10, DateTime.UtcNow, Random.Shared.Next(1, int.MaxValue), SupervisorId, "t", null, _ => true)).Success);
             Assert.Equal(0, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.TrayStock WHERE AreaId = @A", ("@A", OutletAreaId)));
         }
 
@@ -316,7 +338,8 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
         public async Task RetiredAreaLevelPool_CanNeverBeUsedAgain()
         {
             var env = await OpenAsync();
-            var areaPool = await env.ScalarAsync<int>("SELECT TOP 1 Id FROM dbo.TrayStock WHERE PolyhouseId IS NULL AND IsActive = 0");
+            var areaPool = await env.ScalarAsync<int>(@"SELECT TOP 1 t.Id FROM dbo.TrayStock t JOIN dbo.Area a ON a.Id = t.AreaId
+WHERE t.PolyhouseId IS NULL AND t.IsActive = 0 AND a.AreaType <> N'MotherPlant'");
             Skip.If(areaPool == 0, "No retired Area-level pool in this copy.");
 
             using var conn = new SqlConnection(env.ConnectionString);
@@ -411,12 +434,12 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
             var env = await OpenAsync();
             var cuttingPool = await env.ResetCuttingPoolAsync(AreaA, 950);
             var p2 = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP2, "24 Cavity", 100);
-            var p1 = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP1, "24 Cavity", 50);
+            var p1 = env.Migrated ? p2 : await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP1, "24 Cavity", 50);   // 2026-10-14: one Area pool
 
             var sowingId = await SowCuttingAsync(env, cuttingPool, GreenBlessAreaId, GreenBlessP2, 950);
 
             Assert.Equal(60m, await env.TrayPhysicalAsync(p2));
-            Assert.Equal(50m, await env.TrayPhysicalAsync(p1));
+            if (!env.Migrated) Assert.Equal(50m, await env.TrayPhysicalAsync(p1));
             Assert.Equal(-40m, await env.TrayNetForReferenceInPoolAsync(p2, "SeedSowing", sowingId));
         }
 
@@ -430,7 +453,7 @@ IF NOT EXISTS (SELECT 1 FROM dbo.UserRoles WHERE UserId = @U AND RoleId = @R AND
             var (ok, msg, _) = await env.Get<SeedSowingRepository>().InsertFromCuttingAsync(CuttingSowingInto(cuttingPool, GreenBlessAreaId, GreenBlessP2, 950), Recorder, _ => true, _ => true);
 
             Assert.False(ok);
-            Assert.Contains("Insufficient tray stock for this Area and Polyhouse", msg);
+            Assert.Contains(env.Migrated ? "Insufficient empty tray stock for this Area" : "Insufficient tray stock for this Area and Polyhouse", msg);
             Assert.Contains("Available: 30", msg);
             Assert.Equal(950m, await env.ScalarAsync<decimal>("SELECT PhysicalQuantity FROM dbo.CuttingStock WHERE Id = @Id", ("@Id", cuttingPool)));
             Assert.Equal(30m, await env.TrayPhysicalAsync(pool));
@@ -510,7 +533,7 @@ ORDER BY sw.Id");
             var env = await OpenAsync();
             var cuttingPool = await env.ResetCuttingPoolAsync(AreaA, 480);
             var p2 = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP2, "24 Cavity", 100);
-            var p1 = await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP1, "24 Cavity", 50);
+            var p1 = env.Migrated ? 0 : await env.SetPoolAsync(GreenBlessAreaId, GreenBlessP1, "24 Cavity", 50);   // 2026-10-14: one Area pool
             var sowingId = await SowCuttingAsync(env, cuttingPool, GreenBlessAreaId, GreenBlessP2, 480);   // 20 trays -> P-2 80
             await env.ExecAsync("UPDATE dbo.CuttingStock SET PhysicalQuantity = 3000 WHERE Id = @Id", ("@Id", cuttingPool));   // scratch: cuttings for the overage
 
@@ -518,14 +541,14 @@ ORDER BY sw.Id");
                 sowingId, 30, null, null, "tray-test", "tray-test", SupervisorId, _ => true);   // 10 extra trays
             Assert.True(ok, message);
             Assert.Equal(70m, await env.TrayPhysicalAsync(p2));
-            Assert.Equal(50m, await env.TrayPhysicalAsync(p1));
+            if (!env.Migrated) Assert.Equal(50m, await env.TrayPhysicalAsync(p1));
             Assert.Equal(-10m, await env.TrayNetForReferenceInPoolAsync(p2, "ReadyConfirmation", confirmationId));
             Assert.Equal(-20m, await env.TrayNetForReferenceAsync("SeedSowing", sowingId));   // the sowing's own trays are never taken twice
 
             var (cancelOk, cancelMessage) = await env.Get<ReadyConfirmationRepository>().CancelAsync(confirmationId, "tray-test", SupervisorId);
             Assert.True(cancelOk, cancelMessage);
             Assert.Equal(80m, await env.TrayPhysicalAsync(p2));
-            Assert.Equal(50m, await env.TrayPhysicalAsync(p1));
+            if (!env.Migrated) Assert.Equal(50m, await env.TrayPhysicalAsync(p1));
             Assert.Equal(0m, await env.TrayNetForReferenceAsync("ReadyConfirmation", confirmationId));
         }
 
@@ -598,6 +621,7 @@ ORDER BY sw.Id");
         public async Task PolyhouseWithTrays_CannotMoveToAnotherArea_NothingChanges()
         {
             var env = await OpenAsync();
+            Skip.If(env.Migrated, "2026-10-14: Mother Plant Area trays are held per Area -- a Mother Plant Polyhouse holds no trays of its own to guard or retire.");
             await env.SetPoolAsync(GreenBlessAreaId, GreenBlessNetHouse, "24 Cavity", 15);
             var name = await env.ScalarAsync<string>("SELECT Name FROM dbo.Polyhouses WHERE Id = @P", ("@P", GreenBlessNetHouse));
 
@@ -615,6 +639,7 @@ ORDER BY sw.Id");
         public async Task PolyhouseWithZeroTrays_CanMoveArea_EmptyPoolsRetired_AndReactivatedWhenItMovesBack()
         {
             var env = await OpenAsync();
+            Skip.If(env.Migrated, "2026-10-14: Mother Plant Area trays are held per Area -- a Mother Plant Polyhouse holds no trays of its own to guard or retire.");
             await env.SetPoolAsync(GreenBlessAreaId, GreenBlessNetHouse, "24 Cavity", 0);
             await env.ExecAsync("UPDATE dbo.TrayStock SET PhysicalQuantity = 0 WHERE PolyhouseId = @P", ("@P", GreenBlessNetHouse));
             await env.ExecAsync("DELETE tr FROM dbo.TrayStockTransactions tr JOIN dbo.TrayStock t ON t.Id = tr.TrayStockId WHERE t.PolyhouseId = @P", ("@P", GreenBlessNetHouse));

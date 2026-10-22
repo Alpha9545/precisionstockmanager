@@ -31,6 +31,8 @@ namespace PlantStockManager.Pages.Production.BedSowing
         public bool CanTransplant { get; private set; }
         public bool CanReverse { get; private set; }
         public bool CanCancel { get; private set; }
+        // 2026-10-22: an untouched bed may be edited (BedSowingRules.ValidateEditable; the Edit page and the repository re-check).
+        public bool CanEdit { get; private set; }
         public bool Conserved { get; private set; }
 
         public async Task<IActionResult> OnGetAsync(int id)
@@ -71,6 +73,8 @@ namespace PlantStockManager.Pages.Production.BedSowing
             CanReverse = CanTransplant || User.IsFullAccess();
             CanCancel = Bed.Status == Models.BedSowing.StatusPending
                         && await _features.CanAccessPageAsync(User, "/Production/BedSowing/Create");
+            CanEdit = BedSowingRules.ValidateEditable(Bed.Status, Bed.TransplantedQuantity, Bed.LostQuantity, Operations.Count, Bed.ReadyStockDays).Ok
+                      && await _features.CanAccessPageAsync(User, "/Production/BedSowing/Edit");
             Conserved = BedSowingRules.IsConserved(Bed.Quantity, Bed.TransplantedQuantity, Bed.LostQuantity, Bed.RemainingQuantity);
             return true;
         }

@@ -211,6 +211,11 @@ ORDER BY h.Id", conn);
                 sb.Append(" AND o.PolyhouseId = @PolyhouseId");
                 cmd.Parameters.AddWithValue("@PolyhouseId", filter.PolyhouseId.Value);
             }
+            if (filter.CreatedById.HasValue)
+            {
+                sb.Append(" AND o.CreatedById = @CreatedById");
+                cmd.Parameters.AddWithValue("@CreatedById", filter.CreatedById.Value);
+            }
             if (areaScope != null)
             {
                 var names = areaScope.Select((id, i) =>

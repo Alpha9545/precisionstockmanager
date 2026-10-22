@@ -71,12 +71,12 @@ namespace PlantStockManager.Data
                 catch (SqlException ex) when (ex.Number == 547)
                 {
                     try { tx.Rollback(); } catch { }
-                    return (false, "The database refused the change because it would break a stock rule (" + ex.Message + ")");
+                    return (false, DbErrorMessage.For(ex, "The database refused the change because it would break a stock rule. Nothing was changed."));
                 }
                 catch (Exception ex)
                 {
                     try { tx.Rollback(); } catch { }
-                    return (false, ex.Message);
+                    return (false, DbErrorMessage.For(ex));
                 }
             }
         }
@@ -722,6 +722,192 @@ WHERE Id = @Id", conn, tx);
                     ? $"Dispatch {code}: {QuantityFormat.Qty(total)} plants. The booking is fully dispatched and Completed."
                     : $"Dispatch {code}: {QuantityFormat.Qty(total)} plants. {QuantityFormat.Qty(b.Quantity - newDispatched)} still to dispatch.");
             });
+
+        // ------------------------------------------------------------------
+        // 2026-10-18 (owner decision 2026-10-12): DIRECT TRAY SALE from a Mother Plant Area's Ready Stock -- a customer buys
+        // ready trays on the spot, no Seedling Booking first. ONE transaction records exactly what the regular customer path
+        // records, in the same tables and ledger types, so every booking / dispatch report sees it as a normal sale:
+        //   Bookings                 a booking already Completed (FulfilmentSource 'ReadyStock'; Quantity = plants sold)
+        //   BookingBatchAllocations  one allocation line on the batch, Closed (dispatched in full)
+        //   ReadyStock ledger        'Reservation' +plants, then 'Dispatch' -plants (the reservation released) -- the plants
+        //                            leave the batch exactly once; Reserved ends where it started
+        //   SeedlingDispatches/Lines the dispatch (SD- code), dated today, with the customer
+        // Whole trays only (plants = trays x the batch's cavity), never more than Available (Quantity - Reserved - Dispatched -
+        // In transit), checked under the batch's row lock -- concurrent sales of one batch run one after the other. The batch must
+        // be in an active Mother Plant Area the user may work in (canAccessArea) and not stock received for Pot Production.
+        // submissionToken: the form's one-time token (2026-10-18_SeedlingDirectSaleSubmissionToken.sql) -- a repeated submit
+        // returns the first sale. Without that column the sale is refused (never recorded without its duplicate guard).
+        // 2026-10-19: FromReadySeedlingStock = the same sale started from Seed Production > Ready Stock > Send > Customer
+        // (ReadyStock/Move, ReadyStock.DispatchToCustomer): the batch may then ALSO be in an active Main Office Area. Every other
+        // rule, table, ledger row and the duplicate guard are exactly the ones above; only the remarks name it a direct customer
+        // dispatch so the dispatch history tells the two entry points apart.
+        // ------------------------------------------------------------------
+        public const string AlreadySoldMessage = "This form was already saved -- the trays were sold once; nothing was sold twice.";
+        public const string DirectSaleNeedsMigrationMessage =
+            "Direct tray sales need the database update 2026-10-18_SeedlingDirectSaleSubmissionToken.sql.";
+
+        public sealed record DirectTraySaleRequest(int ReadyStockId, int Trays, string? CustomerName, string? Contact, string? Address,
+            string? Remarks, Guid SubmissionToken, bool FromReadySeedlingStock = false);
+
+        public const string DirectCustomerDispatchLabel = "Direct customer dispatch";
+
+        public async Task<(bool Success, string? Message, string? DispatchCode)> DirectTraySaleAsync(
+            DirectTraySaleRequest req, Actor actor, Func<int, bool> canAccessArea)
+        {
+            var customer = req.CustomerName?.Trim();
+            var contact = req.Contact?.Trim();
+            if (string.IsNullOrEmpty(customer)) return (false, "Customer name is required.", null);
+            if (customer.Length > 100) return (false, "Customer name is too long (100 characters at most).", null);
+            if (string.IsNullOrEmpty(contact)) return (false, "Customer contact number is required.", null);
+            if (contact.Length > 50) return (false, "Customer contact is too long (50 characters at most).", null);
+            if (req.Trays <= 0) return (false, "Trays to sell must be a whole number greater than zero.", null);
+            if (req.SubmissionToken == Guid.Empty) return (false, "This form has expired. Open it again.", null);
+
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            if (!await WorkflowCorrectionsSchema.SeedlingSaleTokenAsync(conn))
+                return (false, DirectSaleNeedsMigrationMessage, null);
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                // 1) the batch, locked (the sale's single serialisation point)
+                var rsCmd = new SqlCommand(@"
+SELECT rs.SpeciesId, ps.PlantTypeId, rs.AreaId, a.AreaType, a.IsActive, rs.CavityType, rs.BatchNo,
+       rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity
+FROM dbo.ReadyStock rs WITH (UPDLOCK, HOLDLOCK)
+JOIN dbo.Area a ON a.Id = rs.AreaId
+JOIN dbo.PlantSpecies ps ON ps.Id = rs.SpeciesId
+WHERE rs.Id = @Id", conn, tx);
+                rsCmd.Parameters.AddWithValue("@Id", req.ReadyStockId);
+                int speciesId, plantTypeId, areaId; string? areaType; bool areaActive; string cavityType, batchNo; decimal available;
+                using (var r = await rsCmd.ExecuteReaderAsync())
+                {
+                    if (!await r.ReadAsync()) { r.Close(); tx.Rollback(); return (false, "Ready Stock batch not found.", null); }
+                    speciesId = r.GetInt32(0); plantTypeId = r.GetInt32(1); areaId = r.GetInt32(2); areaType = r.IsDBNull(3) ? null : r.GetString(3);
+                    areaActive = r.GetBoolean(4); cavityType = r.GetString(5); batchNo = r.GetString(6); available = r.GetDecimal(7);
+                }
+
+                // 2) the same form again: the first sale
+                using (var dup = new SqlCommand("SELECT DispatchCode FROM dbo.SeedlingDispatches WITH (UPDLOCK, HOLDLOCK) WHERE SubmissionToken = @T", conn, tx))
+                {
+                    dup.Parameters.AddWithValue("@T", req.SubmissionToken);
+                    if (await dup.ExecuteScalarAsync() is string firstCode) { tx.Rollback(); return (true, AlreadySoldMessage, firstCode); }
+                }
+
+                // 3) where, what, how much -- all from the locked row, never from the form
+                if (!canAccessArea(areaId)) { tx.Rollback(); return (false, "You are not authorized to sell Ready Stock of this Area.", null); }
+                var saleArea = areaType == MotherPlantAreaSchema.MotherPlantAreaType
+                    || (req.FromReadySeedlingStock && areaType == DirectSowingRules.MainOfficeAreaType);
+                if (!saleArea || !areaActive)
+                {
+                    tx.Rollback();
+                    return (false, req.FromReadySeedlingStock
+                        ? "Customer dispatches are made from the Ready Stock of an active Main Office or Mother Plant Area."
+                        : "Direct tray sales are made from the Ready Stock of an active Mother Plant Area.", null);
+                }
+                var label = req.FromReadySeedlingStock ? DirectCustomerDispatchLabel : "Direct tray sale";
+                if (await MotherPlantTransferRepository.ReceivedBatchPurposeAsync(conn, tx, req.ReadyStockId) == MotherPlantTransferRules.PurposePotProduction)
+                { tx.Rollback(); return (false, "This stock was received for Pot Production; it is potted, not sold as trays.", null); }
+                var cavity = DirectSowingRules.CavityCount(cavityType);
+                if (cavity is not > 0) { tx.Rollback(); return (false, "The batch's tray cavity is not known, so trays cannot be counted.", null); }
+                var plants = req.Trays * (decimal)cavity.Value;
+                if (plants > available)
+                {
+                    tx.Rollback();
+                    return (false, $"Only {QuantityFormat.Qty(Math.Max(available, 0))} plants ({QuantityFormat.Qty(decimal.Floor(Math.Max(available, 0) / cavity.Value))} complete {cavityType} trays) of this batch are available.", null);
+                }
+                var today = AppClock.Today;
+
+                // 4) the booking, already Completed (the customer takes the trays now)
+                var bk = new SqlCommand(@"
+INSERT INTO dbo.Bookings
+(PlantId, SpeciesId, CustomerName, DeliveryDate, Quantity, Status, AddedBy, BookingDate, Address, Contact, AdvanceTaken, BookedById,
+ ReservedQuantity, DispatchedQuantity, FulfilmentSource, ActualDeliveryDate)
+VALUES (@PlantId, @SpeciesId, @Customer, @Today, @Quantity, 'Completed', @AddedBy, GETDATE(), @Address, @Contact, 0, @UserId,
+        0, @Quantity, @Source, @Today);
+SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
+                bk.Parameters.AddWithValue("@PlantId", plantTypeId);
+                bk.Parameters.AddWithValue("@SpeciesId", speciesId);
+                bk.Parameters.AddWithValue("@Customer", customer);
+                bk.Parameters.Add("@Today", System.Data.SqlDbType.Date).Value = today;
+                bk.Parameters.AddWithValue("@Quantity", (int)plants);
+                bk.Parameters.AddWithValue("@AddedBy", actor.Name ?? "System");
+                bk.Parameters.AddWithValue("@Address", string.IsNullOrWhiteSpace(req.Address) ? DBNull.Value : Truncate(req.Address.Trim(), 500)!);
+                bk.Parameters.AddWithValue("@Contact", contact);
+                bk.Parameters.AddWithValue("@UserId", (object?)actor.UserId ?? DBNull.Value);
+                bk.Parameters.AddWithValue("@Source", SeedlingBookingRules.SourceReadyStock);
+                var bookingId = (int)(await bk.ExecuteScalarAsync())!;
+                var log = new SqlCommand(@"
+INSERT INTO Transactions (BookingId, TransactionType, Quantity, TransactionDate, UpdatedBy, UpdatedOn)
+VALUES (@BookingId, 'Booking', @Quantity, GETDATE(), @UpdatedBy, GETDATE());", conn, tx);
+                log.Parameters.AddWithValue("@BookingId", bookingId);
+                log.Parameters.AddWithValue("@Quantity", (int)plants);
+                log.Parameters.AddWithValue("@UpdatedBy", actor.Name ?? "System");
+                await log.ExecuteNonQueryAsync();
+
+                // 5) the allocation on this batch + its reservation (the regular path's ledger rows)
+                var allocationId = await AddToAllocationAsync(conn, tx, bookingId, req.ReadyStockId, speciesId, speciesId, false, null, plants, actor);
+                var reservedAtUtc = DateTime.UtcNow;
+                var (resOk, resMsg) = await _readyStockRepo.RecordReservationAsync(conn, tx, req.ReadyStockId, plants,
+                    "BookingBatchAllocation", allocationId, actor.UserId, $"{label} to {customer}");
+                if (!resOk) { tx.Rollback(); return (false, resMsg, null); }
+
+                // 6) the dispatch: the plants leave the batch once (reservation released by the dispatch itself)
+                var code = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, DispatchCodePrefix, today.Year);
+                var header = new SqlCommand(@"
+INSERT INTO dbo.SeedlingDispatches
+(DispatchCode, BookingId, DispatchDate, CustomerName, TotalQuantity, Status, Remarks, CreatedById, CreatedBy, CreatedDate, SubmissionToken)
+VALUES (@Code, @B, @Date, @Customer, @Total, 'Completed', @Remarks, @UserId, @By, SYSUTCDATETIME(), @Token);
+SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
+                header.Parameters.AddWithValue("@Code", code);
+                header.Parameters.AddWithValue("@B", bookingId);
+                header.Parameters.Add("@Date", System.Data.SqlDbType.Date).Value = today;
+                header.Parameters.AddWithValue("@Customer", customer);
+                header.Parameters.AddWithValue("@Total", plants);
+                header.Parameters.AddWithValue("@Remarks", Truncate($"{label}: {req.Trays} x {cavityType} trays of batch {batchNo}"
+                    + (string.IsNullOrWhiteSpace(req.Remarks) ? "" : " -- " + req.Remarks.Trim()), 500)!);
+                header.Parameters.AddWithValue("@UserId", (object?)actor.UserId ?? DBNull.Value);
+                header.Parameters.AddWithValue("@By", (object?)actor.Name ?? DBNull.Value);
+                header.Parameters.AddWithValue("@Token", req.SubmissionToken);
+                var dispatchId = (int)(await header.ExecuteScalarAsync())!;
+
+                var (disOk, disMsg) = await _readyStockRepo.RecordDispatchAsync(conn, tx, req.ReadyStockId, plants,
+                    "SeedlingDispatch", dispatchId, actor.UserId, $"{code} {label.ToLowerInvariant()} to {customer} (booking {bookingId})", "Dispatch",
+                    today, reservedAtUtc);
+                if (!disOk) { tx.Rollback(); return (false, disMsg, null); }
+                var line = new SqlCommand(@"
+INSERT INTO dbo.SeedlingDispatchLines
+(SeedlingDispatchId, BookingBatchAllocationId, ReadyStockId, BookedSpeciesId, ActualSpeciesId, IsSubstitution, SubstitutionReason, Quantity)
+VALUES (@D, @A, @R, @S, @S, 0, NULL, @Q);
+UPDATE dbo.BookingBatchAllocations
+SET DispatchedQuantity = DispatchedQuantity + @Q, Status = 'Closed', ModifiedBy = @By, ModifiedDate = SYSUTCDATETIME()
+WHERE Id = @A;", conn, tx);
+                line.Parameters.AddWithValue("@D", dispatchId);
+                line.Parameters.AddWithValue("@A", allocationId);
+                line.Parameters.AddWithValue("@R", req.ReadyStockId);
+                line.Parameters.AddWithValue("@S", speciesId);
+                line.Parameters.AddWithValue("@Q", plants);
+                line.Parameters.AddWithValue("@By", (object?)actor.Name ?? DBNull.Value);
+                await line.ExecuteNonQueryAsync();
+
+                tx.Commit();
+                return (true, $"Dispatch {code}: {req.Trays} x {cavityType} trays ({QuantityFormat.Qty(plants)} plants) {(req.FromReadySeedlingStock ? "dispatched" : "sold")} to {customer}.", code);
+            }
+            catch (SqlException ex) when (ex.Number is 2601 or 2627)
+            {
+                try { tx.Rollback(); } catch { }
+                using var conn2 = _dbHelper.GetConnection();
+                await conn2.OpenAsync();
+                using var find = new SqlCommand("SELECT DispatchCode FROM dbo.SeedlingDispatches WHERE SubmissionToken = @T", conn2);
+                find.Parameters.AddWithValue("@T", req.SubmissionToken);
+                return await find.ExecuteScalarAsync() is string first ? (true, AlreadySoldMessage, first) : (false, DbErrorMessage.For(ex), null);
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { }
+                return (false, DbErrorMessage.For(ex), null);
+            }
+        }
 
         // ------------------------------------------------------------------
         // Reads

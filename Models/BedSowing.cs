@@ -119,5 +119,9 @@ namespace PlantStockManager.Models
         public int? GrowingMaterialTypeId { get; set; }
         public string? Remarks { get; set; }
         public Guid? SubmissionToken { get; set; }
+        // 2026-10-14: the Transplanter's explicit confirmation that ALL the remaining seedlings are dead /
+        // unusable -- the whole remaining quantity recorded as waste with WasteReason, no tray batch, bed closed.
+        public bool CloseAsWaste { get; set; }
+        public string? WasteReason { get; set; }
     }
 }

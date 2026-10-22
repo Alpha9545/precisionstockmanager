@@ -10,23 +10,28 @@ namespace PlantStockManager.Pages.Production.OutletPurchase
 {
     // Potted plants an Outlet buys directly from an outside supplier --
     // distinct from a Main Office purchase order. Credits the Outlet's own
-    // Potted Plant Stock.
+    // Potted Plant Stock. 2026-10-21: a double click / browser retry / replay of
+    // the same form is stopped by SubmissionTokenGuard (it used to record the purchase again).
     public class CreateModel : PageModel
     {
+        public const string TokenScope = "OutletPurchase";
+
         private readonly OutletPurchaseRepository _purchaseRepo;
         private readonly PlantSpeciesRepository _speciesRepo;
         private readonly PotSizeRepository _potSizeRepo;
         private readonly AreaRepository _areaRepo;
         private readonly AreaAccessService _areaAccess;
+        private readonly SubmissionTokenGuard _tokens;
 
         public CreateModel(OutletPurchaseRepository purchaseRepo, PlantSpeciesRepository speciesRepo,
-            PotSizeRepository potSizeRepo, AreaRepository areaRepo, AreaAccessService areaAccess)
+            PotSizeRepository potSizeRepo, AreaRepository areaRepo, AreaAccessService areaAccess, SubmissionTokenGuard tokens)
         {
             _purchaseRepo = purchaseRepo;
             _speciesRepo = speciesRepo;
             _potSizeRepo = potSizeRepo;
             _areaRepo = areaRepo;
             _areaAccess = areaAccess;
+            _tokens = tokens;
         }
 
         [BindProperty] public DateTime PurchaseDate { get; set; } = DateTime.Today;
@@ -36,6 +41,7 @@ namespace PlantStockManager.Pages.Production.OutletPurchase
         [BindProperty] public string? PotSize { get; set; }
         [BindProperty] public decimal Quantity { get; set; }
         [BindProperty] public string? Remarks { get; set; }
+        [BindProperty] public string? SubmitToken { get; set; }
 
         public List<Area> Outlets { get; set; } = new();
         public List<PlantSpecies> Species { get; set; } = new();
@@ -45,6 +51,7 @@ namespace PlantStockManager.Pages.Production.OutletPurchase
         public async Task OnGetAsync()
         {
             await LoadAsync();
+            SubmitToken = SubmissionTokenGuard.NewToken();
             if (Outlets.Count == 1)
                 OutletAreaId = Outlets[0].Id;
         }
@@ -57,6 +64,12 @@ namespace PlantStockManager.Pages.Production.OutletPurchase
             {
                 await LoadAsync();
                 return Page();
+            }
+
+            if (!_tokens.TryConsume(TokenScope, SubmitToken))
+            {
+                TempData["Error"] = "This purchase form was already submitted. Check the recent purchases below before recording it again.";
+                return RedirectToPage();
             }
 
             var entry = new PlantStockManager.Models.OutletPurchase
@@ -74,6 +87,9 @@ namespace PlantStockManager.Pages.Production.OutletPurchase
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to record the purchase.");
+                // The token was used up; issue a fresh one so the corrected form can be sent again.
+                ModelState.Remove(nameof(SubmitToken));
+                SubmitToken = SubmissionTokenGuard.NewToken();
                 await LoadAsync();
                 return Page();
             }

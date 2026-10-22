@@ -35,7 +35,7 @@ namespace PlantStockManager.Data
             }
             catch (Exception ex)
             {
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 

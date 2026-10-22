@@ -286,11 +286,13 @@ VALUES (@S, 100, @P, @B, N'{Marker}', N'Pending', N'{Marker}', @O, @Par); SELECT
             var (from, to) = await RealRangeAsync(env);
             var reports = R.BuildAll(await env.Repo.GetAsync(from, to), AppClock.Today, AppClock.Now);
             // 2026-10-12: with Bed Sowing, a bed counts once on its own sowing date and the tray batches
-            // transplanted from it (SourceType BedSowing) are not sowings again.
+            // transplanted from it (SourceType BedSowing) are not sowings again -- nor (2026-10-13) the tray batches transplanted
+            // from received Ready Stock (SourceType Transplant): BedSowingSchema.SowingActivitySql, the report's own rule.
             var bedReady = await env.ScalarAsync<int>(BedSowingSchema.ProbeSql) == 1;
             var expected = (await env.RowsAsync(@"
 SELECT CAST(SowingDate AS date), COUNT(*), SUM(QuantitySown), SUM(CASE WHEN SourceType = N'Cutting' THEN QuantitySown ELSE 0 END)
 FROM (SELECT SowingDate, SourceType, QuantitySown FROM dbo.SeedSowings WHERE Status <> 'Cancelled' AND SourceType <> N'BedSowing'"
+                + (bedReady ? " AND SourceType <> N'Transplant'" : "")
                 + (bedReady ? " UNION ALL SELECT CAST(SowingDate AS datetime2), N'BedSowing', Quantity FROM dbo.BedSowings WHERE Status <> N'Cancelled'" : "") + @") s
 WHERE SowingDate >= @F AND SowingDate < @T GROUP BY CAST(SowingDate AS date)",
                 ("@F", from), ("@T", to.AddDays(1)))).ToDictionary(x => (DateTime)x[0]);

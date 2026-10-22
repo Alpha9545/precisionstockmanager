@@ -166,8 +166,9 @@ namespace PlantStockManager.Pages.Production.MaterialStock
             var listedIds = DestinationAreas.Select(a => a.Id).Concat(sourceIds).ToHashSet();   // both dropdowns
             Polyhouses = (await _polyhouseRepo.GetAllPolyhouses())
                 .Where(p => p.AreaId.HasValue && listedIds.Contains(p.AreaId.Value)).OrderBy(p => p.Name).ToList();
+            // 2026-10-14: includes a Mother Plant Area's one Area pool (no Polyhouse) -- any of its Polyhouses resolves to it.
             SourcePools = (await _trayStockRepo.GetAllAsync(activeOnly: true))
-                .Where(t => sourceIds.Contains(t.AreaId) && t.PolyhouseId.HasValue && t.PhysicalQuantity > 0).ToList();
+                .Where(t => sourceIds.Contains(t.AreaId) && t.PhysicalQuantity > 0).ToList();
             if (!SchemaReady)
                 return;
             // listed: transfers touching an Area whose trays the user may see, receive in, or send from

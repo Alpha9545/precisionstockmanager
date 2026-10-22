@@ -1,0 +1,85 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.MotherPlant.SellTraysModel
+@{
+    ViewData["Title"] = "Sell Trays to Customer";
+    var b = Model.Batch;
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 820px;">
+        <div class="card-header">
+            <h4 class="mb-0">Sell Trays to Customer</h4>
+            <small class="text-muted">Ready trays of this Area sold straight to a customer -- no booking needed first. The sale is recorded as a
+                completed booking and a Seedling Dispatch; the plants leave this batch at once.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger" id="errors">
+                    <ul class="mb-0">@foreach (var e in ModelState.Values.SelectMany(v => v.Errors)) { <li>@e.ErrorMessage</li> }</ul>
+                </div>
+            }
+            @if (!Model.SchemaReady)
+            {
+                <div class="alert alert-warning" id="needs-migration">@PlantStockManager.Data.SeedlingFulfilmentRepository.DirectSaleNeedsMigrationMessage</div>
+            }
+
+            <table class="table table-sm table-bordered mb-3">
+                <tbody>
+                    <tr><th class="w-50">Area</th><td>@b.AreaName</td></tr>
+                    <tr><th>Variety</th><td>@b.SpeciesName?.Trim() (@b.PlantTypeName)</td></tr>
+                    <tr><th>Batch</th><td>@b.BatchNo &middot; @b.SowingCode &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@b.Id">lineage</a></td></tr>
+                    <tr><th>Tray cavity</th><td>@b.CavityType</td></tr>
+                    <tr><th>Available</th><td class="fw-bold" id="available" data-trays="@Model.AvailableTrays" data-cavity="@(b.CavitySize ?? 0)">
+                        @Model.AvailableTrays complete trays (@Qty(b.AvailableQuantity) plants)</td></tr>
+                </tbody>
+            </table>
+
+            <form method="post" id="sell-form">
+                <input type="hidden" asp-for="SubmissionToken" />
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label asp-for="Trays" class="form-label fw-bold">Trays to sell</label>
+                        <input asp-for="Trays" type="number" min="1" step="1" max="@Model.AvailableTrays" class="form-control" id="trays" required />
+                        <div class="form-text" id="plants-preview"></div>
+                    </div>
+                    <div class="col-md-4">
+                        <label asp-for="CustomerName" class="form-label fw-bold">Customer name</label>
+                        <input asp-for="CustomerName" class="form-control" maxlength="100" required />
+                    </div>
+                    <div class="col-md-4">
+                        <label asp-for="Contact" class="form-label fw-bold">Contact number</label>
+                        <input asp-for="Contact" class="form-control" maxlength="50" required />
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="Address" class="form-label">Address</label>
+                        <input asp-for="Address" class="form-control" maxlength="500" />
+                    </div>
+                    <div class="col-md-6">
+                        <label asp-for="Remarks" class="form-label">Remarks</label>
+                        <input asp-for="Remarks" class="form-control" maxlength="300" />
+                    </div>
+                </div>
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/MotherPlant/ReadyStock" class="btn btn-secondary me-2">Back</a>
+                    <button type="submit" class="btn btn-success" id="sellBtn" @(Model.SchemaReady && Model.AvailableTrays > 0 ? "" : "disabled")>Sell</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const cavity = parseInt($('#available').data('cavity') || '0', 10);
+            function preview() {
+                const t = parseInt($('#trays').val() || '0', 10);
+                $('#plants-preview').text(t > 0 && cavity ? `${(t * cavity).toLocaleString('en-IN')} plants` : '');
+            }
+            $('#trays').on('input', preview); preview();
+            // one submit per form (the server also ignores a repeated form token)
+            $('#sell-form').on('submit', function () { if (this.checkValidity()) $('#sellBtn').prop('disabled', true); });
+        });
+    </script>
+}

@@ -71,8 +71,8 @@ namespace PlantStockManager.Services
             new Module("labour", "Labour", "Daily attendance and overtime.", "compass.svg", new[]
             {
                 new Link("Daily Attendance", "/Production/Labour/Attendance"),
-                new Link("Attendance History", "/Production/Labour/AttendanceHistory"),
                 new Link("Overtime", "/Production/Labour/Overtime"),
+                new Link("My Overtime Entries", "/Production/Labour/MyOvertime"),
             }),
             new Module("suggestions", "Suggestions & Problems", "Share a suggestion or report a problem.", "bulb.svg", new[]
             {
@@ -90,6 +90,9 @@ namespace PlantStockManager.Services
                 new Link("Stock History", "/Data/StockHistory"),
                 new Link("Wastage", "/Data/WastedStock"),
                 new Link("Sowing Monthly Report", "/Data/SeedSowingMonthlyReport"),
+                // 2026-10-20: labour reports, System Administrator only (a link shows only to who may open it)
+                new Link("Attendance History", "/Production/Labour/AttendanceHistory"),
+                new Link("Overtime History", "/Production/Labour/OvertimeHistory"),
             }),
         };
 

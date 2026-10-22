@@ -150,7 +150,9 @@ namespace PlantStockManager.Tests
                 .GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.GetCustomAttribute<BindPropertyAttribute>() != null)
                 .Select(p => p.Name).OrderBy(n => n).ToArray();
-            Assert.Equal(new[] { "Destination", "DestinationAreaId", "Quantity", "Remarks" }, bound);
+            // 2026-10-17: + From (where to return) and SubmissionToken (one-time form token) -- still no source Area / batch / stock field
+            // 2026-10-19: + the Customer destination's customer details and whole Trays (plants = trays x the batch's cavity, server side)
+            Assert.Equal(new[] { "CustomerAddress", "CustomerContact", "CustomerName", "Destination", "DestinationAreaId", "From", "Quantity", "Remarks", "SubmissionToken", "Trays" }, bound);
             Assert.Equal("InternalTransfer.Enter|MainOffice.Confirm", PlantStockManager.Pages.Production.ReadyStock.MoveModel.TransferPolicy);
         }
 

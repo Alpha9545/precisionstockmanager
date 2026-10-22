@@ -1,4 +1,5 @@
 @model PlantStockManager.Pages.Production.MaterialStock.AddModel
+@inject PlantStockManager.Data.DatabaseHelper CavityDb
 @* Tray part of Add Material -- the former Add Tray Stock form (same fields, same order,
    same server rules in TrayAddForm). Trays are a COUNT per cavity: no kg, no conversion. *@
 <form method="post" asp-page-handler="Tray" id="addTrayForm" class="@(Model.Kind == PlantStockManager.Services.MaterialStockRules.TraysKind ? "" : "d-none")">
@@ -32,7 +33,7 @@
             <label class="form-label fw-bold" for="trayCavity">Cavity</label>
             <select asp-for="Tray.TraySize" id="trayCavity" class="form-select" required>
                 <option value="">-- Select Cavity --</option>
-                @foreach (var t in Model.TraySizes)
+                @foreach (var t in (await PlantStockManager.Data.WorkflowCorrectionsSchema.SelectableCavitiesAsync(CavityDb)))
                 {
                     <option value="@t" selected="@(Model.Tray.TraySize == t)">@t</option>
                 }

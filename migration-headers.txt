@@ -1,0 +1,638 @@
+==================== 2026-10-06_DailyLabourAttendance.sql   (10/06/2026 18:00:21)
+-- ============================================================================
+-- 2026-10-06_DailyLabourAttendance.sql
+--
+-- WHY: Daily Labour is now recorded as TWO attendance checkpoints per working
+-- day -- 9:00 AM and 2:00 PM -- instead of four manual Full/Half Day counts.
+-- Full/Half Day are then ESTIMATED from the two headcounts (individual
+-- workers are not identified), separately for male and female workers:
+--     Full Day = MIN(9 AM, 2 PM)      Half Day = ABS(9 AM - 2 PM)
+-- A day with only one checkpoint is "Incomplete" and is left out of the
+-- Full/Half Day totals. The calculation lives in the application
+-- (DailyLabourRules.Classify) -- nothing derived is stored.
+--
+-- LOCATION RULE: identical to dbo.DailyLabourCounts (2026-10-04):
+--   Area.AreaType = 'MainOffice' -> per Date + Area + Polyhouse (Polyhouse required,
+--                                   must belong to that Area)
+--   any other Area               -> per Date + Area (Polyhouse must be NULL)
+--   Outlet                       -> not part of Daily Labour
+--
+-- WHAT THIS DOES:
+--   dbo.DailyLabourAttendance          new table: one row per Date + location + AttendanceTime
+--                                      (AttendanceTime 'AM09' = 9:00 AM, 'PM14' = 2:00 PM),
+--                                      MaleCount / FemaleCount 0..500, optional Remarks.
+--   UX_DailyLabourAttendance_Polyhouse filtered unique (Date, Area, Polyhouse, AttendanceTime) WHERE PolyhouseId IS NOT NULL
+--   UX_DailyLabourAttendance_Area      filtered unique (Date, Area, AttendanceTime)            WHERE PolyhouseId IS NULL
+--   TR_DailyLabourAttendance_Location  the location rule above, PLUS: no attendance for a
+--                                      date + location that already has a manual (legacy)
+--                                      dbo.DailyLabourCounts record (never counted twice).
+--   dbo.DailyLabourAttendanceHistory   audit trail: one row per insert / correction / delete,
+--                                      with the old and new counts and who changed it.
+--                                      Written ONLY by TR_DailyLabourAttendance_Audit, so the
+--                                      application cannot skip it.
+--   TR_DailyLabourAttendanceHistory_Protect
+--                                      history rows can never be UPDATEd; a history row can only
+--                                      be DELETEd once its attendance row no longer exists.
+--
+-- NOT changed: dbo.DailyLabourCounts (kept, read-only history), dbo.LabourLogs,
+-- any permission or role grant (Labour.View / Labour.Enter are reused as they
+-- are), any other existing table/column/constraint/trigger/row.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the
+-- server named with -v TARGET_SERVER=<@@SERVERNAME> (the live database is ALSO
+-- named PlantsIMS2_Test). One transaction. Idempotent (re-run = no-op).
+-- Requires QUOTED_IDENTIFIER ON (filtered indexes) -- sqlcmd -I.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+--       then MODE=COMMIT.   Undo: 2026-10-06_DailyLabourAttendance_Rollback.sql
+---- risky lines / sqlcmd variables:
+  L50: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L52: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L70: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L256: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-06_LabourOvertime.sql   (10/06/2026 20:42:02)
+-- ============================================================================
+-- 2026-10-06_LabourOvertime.sql
+--
+-- WHY: Labour Overtime -- workers who work beyond the normal working day.
+-- One row per overtime ENTRY (a work period of a worker group at one
+-- location). Several entries on the same date and location are normal (other
+-- periods, other tasks, even overlapping times for different groups); they are
+-- never merged. Headcounts only -- no worker names, ids or wages.
+--
+-- LOCATION RULE: identical to Daily Labour (2026-10-04 / 2026-10-06):
+--   Area.AreaType = 'MainOffice' -> Area + Polyhouse (Polyhouse required, must belong to that Area)
+--   any other Area               -> Area only (Polyhouse must be NULL)
+--   Outlet                       -> not part of Daily Labour
+--
+-- WHAT THIS DOES:
+--   dbo.LabourOvertime                 new table: Date, Area, Polyhouse, MaleWorkers / FemaleWorkers
+--                                      (0..500, at least one worker), StartTime < EndTime (whole minutes,
+--                                      same day), WorkDescription (required), Remarks, audit fields.
+--     DurationMinutes                  PERSISTED computed = minutes from StartTime to EndTime
+--     MaleWorkerMinutes                PERSISTED computed = DurationMinutes x MaleWorkers
+--     FemaleWorkerMinutes              PERSISTED computed = DurationMinutes x FemaleWorkers
+--                                      (derived from the stored times -- nobody can type them; the
+--                                      application shows them as hours, e.g. 150 min x 4 = 10 worker-hours)
+--     CK_LabourOvertime_LabourDate     not in the future (India date, UTC+05:30) and not before 2000
+--   TR_LabourOvertime_Location         the location rule above (same error numbers as Daily Labour)
+--   dbo.LabourOvertimeHistory          audit trail: one row per insert / correction / delete with the
+--                                      old and new values and who changed it, written ONLY by
+--                                      TR_LabourOvertime_Audit
+--   TR_LabourOvertimeHistory_Protect   history rows can never be UPDATEd; a history row can only be
+--                                      DELETEd once its overtime row no longer exists
+--
+-- NOT changed: dbo.DailyLabourAttendance, dbo.DailyLabourCounts, dbo.LabourLogs, any permission or
+-- role grant (Labour.View / Labour.Enter are reused), any other existing object or row.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the server named with
+-- -v TARGET_SERVER=<@@SERVERNAME> (the live database is ALSO named PlantsIMS2_Test). One
+-- transaction. Idempotent (re-run = no-op).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+--       then MODE=COMMIT.   Undo: 2026-10-06_LabourOvertime_Rollback.sql
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 51741, '2026-10-06_LabourOvertime.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 51742, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+---- risky lines / sqlcmd variables:
+  L26: --   dbo.LabourOvertimeHistory          audit trail: one row per insert / correction / delete with the
+  L44: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L46: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L62: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L257: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-06_MaintenanceTickets.sql   (10/06/2026 21:15:57)
+-- ============================================================================
+-- 2026-10-06_MaintenanceTickets.sql
+--
+-- WHY: internal Maintenance / Service tickets. A supervisor raises a ticket
+-- (Electrical / Welding / Plumbing) for an Area (optionally a Polyhouse of that
+-- Area); a worker of the matching trade accepts it, visits, works and resolves
+-- it; a supervisor of that Area confirms the arrival and the completion.
+--
+-- STATUS WORKFLOW (enforced by the application, every step a conditional UPDATE
+-- -- WHERE Status = <expected> -- so two people can never move the same ticket
+-- twice; the CHECK constraints below make every status carry its data):
+--   Open -> Accepted -> Arrived -> ArrivalConfirmed -> InProgress -> Resolved -> Closed
+--   Resolved -> InProgress   (completion rejected, reason required)
+--   Open / Accepted -> Cancelled   (requester or administrator, reason required)
+--
+-- WHAT THIS DOES:
+--   dbo.Roles                      Electrician, Welder, Plumber (only if missing)
+--   dbo.Permissions                Maintenance.Raise   raise tickets, confirm arrival / completion (own Areas)
+--                                  Maintenance.View    see the tickets of own Areas, reports
+--                                  Maintenance.Work    worker: accept / visit / work / resolve own-trade tickets
+--                                  Maintenance.Manage  reassign + all-Area reports (full-access users have it
+--                                                      implicitly; granted to no role here)
+--   dbo.RolePermissions            Raise + View -> Sowing Supervisor, Mother Plant Supervisor,
+--                                                  Fertilizer Supervisor, Office Coordinator
+--                                  Work + Dashboard.View -> Electrician, Welder, Plumber
+--   dbo.MaintenanceCategories      Electrical -> Electrician, Welding -> Welder, Plumbing -> Plumber
+--                                  (master data: a category names the worker ROLE that may take it)
+--   dbo.MaintenanceTickets         the ticket; TicketNo = 'MT-' + 6-digit Id (computed, persisted)
+--   dbo.MaintenanceTicketEvents    every status change and workflow action (who, when, from/to, note)
+--   dbo.MaintenanceTicketPhotos    photo METADATA only (files live outside wwwroot under a GUID name)
+--   TR_MaintenanceTickets_Location           Polyhouse must belong to the ticket's Area; Area active
+--   TR_MaintenanceTicketEvents_Protect       events can never be UPDATEd, nor DELETEd while the ticket exists
+--                                            (events / photo records go only WITH their ticket: ON DELETE CASCADE;
+--                                            the application never deletes a ticket)
+--
+-- NOT changed: any existing table, column, row, role, permission or grant other
+-- than the grants listed above.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the
+-- server named with -v TARGET_SERVER=<@@SERVERNAME> (the live database is ALSO
+-- named PlantsIMS2_Test). One transaction. Idempotent (re-run = no-op).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+--       then MODE=COMMIT.   Undo: 2026-10-06_MaintenanceTickets_Rollback.sql
+-- ============================================================================
+:on error exit
+---- risky lines / sqlcmd variables:
+  L33: --                                            (events / photo records go only WITH their ticket: ON DELETE CASCADE;
+  L48: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L50: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L66: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L260: TicketId    INT            NOT NULL CONSTRAINT FK_MaintenanceTicketEvents_Ticket REFERENCES dbo.MaintenanceTickets(Id) ON DELETE CASCADE,
+  L277: TicketId         INT           NOT NULL CONSTRAINT FK_MaintenanceTicketPhotos_Ticket REFERENCES dbo.MaintenanceTickets(Id) ON DELETE CASCADE,
+  L363: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-06_StoreInventory.sql   (10/07/2026 09:34:40)
+-- ============================================================================
+-- 2026-10-06_StoreInventory.sql
+--
+-- WHY: a dedicated internal STORE (tools, cable, pipe, consumables) at Main
+-- Office: item master, an insert-only stock ledger, multi-item requests from
+-- the Areas, approval, issue, and settlement of every issued line as
+-- CONSUMED / KEPT (permanently at the Area) / RETURNED (stock back only when
+-- the Store Keeper confirms the physical return), plus direct permanent
+-- transfers. NOT plant / seed / cutting / empty-pot / fertilizer stock, and
+-- NOT the retired seedling pipeline: dbo.Inventory / dbo.InventoryTransactions
+-- are neither read nor changed (their row counts are printed before / after).
+--
+-- STOCK MODEL
+--   StoreItems.AvailableQuantity   Main Office stock on the shelf -- changes ONLY through the ledger:
+--   StoreTransactions              PURCHASE (+), ISSUE (-), RETURN (+), PERMANENT_TRANSFER (-), ADJUSTMENT (+/-),
+--                                  each with BalanceBefore / BalanceAfter. Enforced in the database:
+--     TR_StoreTransactions_Ledger   insert-only (no UPDATE / DELETE), one row per item per statement,
+--                                   BalanceBefore must equal the item's CURRENT stock, issue / return amounts
+--                                   must match their request line
+--     TR_StoreItems_Balance         an item's AvailableQuantity may only change to exactly SUM(its ledger);
+--                                   a new item starts at 0
+--     CK_StoreItems_Available       >= 0 (never negative)
+--   The application locks the item row (UPDLOCK) before reading the balance, so two simultaneous stock
+--   operations on the same item run one after the other.
+--   Issued (out with the Area), consumed, kept (assigned to an Area / Polyhouse) and returned quantities
+--   are kept per request line; direct transfers are ledger rows with their Area / Polyhouse. Nothing
+--   "disappears": every unit is on the shelf, out on issue, consumed, or assigned to a location.
+--
+-- REQUEST WORKFLOW (dbo.StoreRequests + dbo.StoreRequestLines, one line per item)
+--   Pending -> Approved (some line approved, partial allowed) | Rejected (nothing approved)
+--   Approved -> Issued (issued <= approved and <= available, per line) -> Closed (every line settled)
+--   Pending / Approved -> Cancelled
+--
+-- ALSO: Permissions Store.Request, Store.View (Sowing / Mother Plant / Fertilizer Supervisor, Office
+-- Coordinator) and Store.Manage (Main Office Store Keeper; full-access users have every permission).
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the server named with
+-- -v TARGET_SERVER=<@@SERVERNAME> (the live database is ALSO named PlantsIMS2_Test). One transaction.
+-- Idempotent (re-run = no-op). Undo: 2026-10-06_StoreInventory_Rollback.sql
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 51801, '2026-10-06_StoreInventory.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+---- risky lines / sqlcmd variables:
+  L17: --     TR_StoreTransactions_Ledger   insert-only (no UPDATE / DELETE), one row per item per statement,
+  L45: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L47: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L63: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L414: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-07_SuggestionsProblems.sql   (10/07/2026 11:07:55)
+-- ============================================================================
+-- 2026-10-07_SuggestionsProblems.sql
+--
+-- WHY: internal "Suggestions & Problems" board. An employee posts a Problem or a
+-- Suggestion for an Area (and a Polyhouse of that Area), optionally with one
+-- photo; colleagues who may see that Area discuss it with comments and replies.
+-- No likes / reactions of any kind.
+--
+-- RULES (the application enforces them first; this schema repeats them):
+--   * Every post belongs to an active Area; a Polyhouse must belong to that Area
+--     and is REQUIRED for the MainOffice Area (the DailyLabourRules.RequiresPolyhouse
+--     convention).
+--   * Lifetime: ExpiresAt = CreatedAt + 48 hours, a PERSISTED computed column --
+--     never a value from the browser. A post is expired when IsPermanent = 0 AND
+--     ExpiresAt <= SYSUTCDATETIME(); no background job marks anything.
+--   * Permanent: only an administrator (Suggestion.Manage) sets IsPermanent = 1;
+--     it never goes back, and CreatedAt is never changed.
+--   * Business Status (Open / InDiscussion / InProgress / Resolved / Closed) is
+--     separate from lifetime and from Permanent.
+--   * Delete = SOFT delete with a reason (never undone here); comments too.
+--   * Replies: one level -- a reply's parent is a top-level comment of the SAME
+--     post (composite foreign key + trigger).
+--
+-- WHAT THIS DOES:
+--   dbo.Permissions          Suggestion.View / Suggestion.Create / Suggestion.Comment / Suggestion.Manage
+--   dbo.RolePermissions      View + Create + Comment -> every Area-based role that exists:
+--                              Office Coordinator, Sowing Operator, Booking Executive, Dispatch Executive,
+--                              Fertilizer Supervisor, Mother Plant Supervisor, Sowing Supervisor,
+--                              Main Office Store Keeper, Outlet Sales, Pot Production Operator, Purchase Officer
+--                            (NOT the System Administrator -- full access already -- and NOT the
+--                             Electrician / Welder / Plumber roles, which have no Area.)
+--                            Suggestion.Manage -> no role (full-access users have it implicitly).
+--   dbo.SuggestionPostTypes  Problem, Suggestion (more types = more rows)
+--   dbo.SuggestionPosts      the post; PostNo = 'SP-' + 6-digit Id (computed, persisted)
+--   dbo.SuggestionPostPhotos photo METADATA only (files live outside wwwroot under a GUID name)
+--   dbo.SuggestionComments   comments and replies (ParentCommentId)
+--   dbo.SuggestionPostEvents audit: created, status changes, made permanent, deleted,
+--                            comment edited (old text) / deleted
+--   TR_SuggestionPosts_Rules        location rules; immutable columns; no un-delete / un-permanent
+--   TR_SuggestionComments_Rules     reply parent is a top-level comment; immutable columns
+--   TR_SuggestionPostEvents_Protect events never UPDATEd, nor DELETEd while the post exists
+--                                   (events / photos / comments go only WITH their post: ON DELETE
+--                                   CASCADE; the application never deletes a post row)
+--
+-- NOT changed: any existing table, column, row, role, permission or grant other
+---- risky lines / sqlcmd variables:
+  L20: --   * Delete = SOFT delete with a reason (never undone here); comments too.
+  L39: --   TR_SuggestionPosts_Rules        location rules; immutable columns; no un-delete / un-permanent
+  L58: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L60: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L76: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L217: PostId            INT           NOT NULL CONSTRAINT FK_SuggestionPostPhotos_Post REFERENCES dbo.SuggestionPosts (Id) ON DELETE CASCADE,
+  L240: PostId           INT            NOT NULL CONSTRAINT FK_SuggestionComments_Post REFERENCES dbo.SuggestionPosts (Id) ON DELETE CASCADE,
+  L271: PostId      INT            NOT NULL CONSTRAINT FK_SuggestionPostEvents_Post REFERENCES dbo.SuggestionPosts (Id) ON DELETE CASCADE,
+  L390: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-07_SuggestionsGlobalAccess.sql   (10/07/2026 11:53:02)
+-- ============================================================================
+-- 2026-10-07_SuggestionsGlobalAccess.sql      (run AFTER 2026-10-07_SuggestionsProblems.sql)
+--
+-- WHY: Suggestions & Problems became a GLOBAL module: EVERY signed-in user (any role,
+-- with or without an Area -- Electrician, Welder, Plumber included) may view, post,
+-- comment and reply, for every Area. The application now grants Suggestion.View /
+-- Suggestion.Create / Suggestion.Comment to every authenticated user in code
+-- (SuggestionAuthorization.GlobalPermissions) and the three pages use the existing
+-- "@authenticated" page rule. The per-role grants of those three codes are therefore
+-- dead data -- and misleading (un-ticking one in Role Permissions would appear to
+-- restrict access but would not). This script removes them.
+--
+-- WHAT THIS DOES:
+--   dbo.RolePermissions   removes every grant of Suggestion.View / Create / Comment
+--   dbo.Permissions       removes the codes Suggestion.View / Create / Comment
+--   Suggestion.Manage     KEPT (administrator-only; granted to no role, full access has it)
+--
+-- NOT changed: any table, column, post, comment, photo, history row, role, user,
+-- Area assignment, or any other permission / grant. Area authorization of every
+-- other module is untouched.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the
+-- server named with -v TARGET_SERVER=<@@SERVERNAME>. One transaction. Idempotent.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+--       then MODE=COMMIT.   Undo: 2026-10-07_SuggestionsGlobalAccess_Rollback.sql
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 51853, '2026-10-07_SuggestionsGlobalAccess.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 51854, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 51855, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION SuggestionsGlobal20261007;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF OBJECT_ID('dbo.SuggestionPosts', 'U') IS NULL
+        THROW 51856, 'Run 2026-10-07_SuggestionsProblems.sql first.', 1;
+---- risky lines / sqlcmd variables:
+  L30: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L32: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L43: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L56: DELETE rp FROM dbo.RolePermissions rp JOIN dbo.Permissions p ON p.Id = rp.PermissionId
+  L60: DELETE FROM dbo.Permissions WHERE Code IN (N'Suggestion.View', N'Suggestion.Create', N'Suggestion.Comment');
+  L82: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-08_MaterialStock.sql   (10/08/2026 17:50:14)
+-- ============================================================================
+-- 2026-10-08_MaterialStock.sql
+--
+-- WHY: growing material (Cocopeat, Pitmos) is a production-side stock kept in
+-- the Polyhouses of the Main Office Area. The Sowing Supervisor adds it; every
+-- sowing in a Main Office Polyhouse uses exactly ONE material, deducted from
+-- that SAME Polyhouse in the sowing's own transaction. NOT the Inventory Store
+-- (dbo.StoreItems / StoreTransactions) and NOT the retired dbo.Inventory /
+-- dbo.InventoryTransactions -- none of them is read or changed (row counts are
+-- printed before / after).
+--
+-- MASTER DATA (approximate business values, changeable later as DATA):
+--   MaterialTypes              Code, Name, Unit, ConversionFactor (dry kg -> usable kg)
+--                              COCOPEAT 5.2 (5 kg dry = 26 kg usable), PITMOS 1.0
+--   MaterialConsumptionRules   kg of material per tray, per Cavity and Material
+--                              (all five cavities x both materials = 1.5 kg / tray)
+--
+-- STOCK MODEL (the same design as the Inventory Store ledger)
+--   MaterialStock          one balance per MATERIAL + AREA + POLYHOUSE; CurrentQuantity changes ONLY
+--                          through the ledger; only at a Polyhouse of an active MainOffice Area
+--   MaterialTransactions   insert-only ledger: RECEIVE (+), CONSUME (-), REVERSAL (+, a cancelled
+--                          sowing), ADJUSTMENT (+/-, reason required). StockQuantity is always > 0;
+--                          Direction (+1/-1) gives the sign; BalanceBefore / BalanceAfter per row.
+--                          RECEIVE keeps the entered (dry) InputQuantity and the ConversionFactor used;
+--                          CONSUME keeps the Trays and QuantityPerTray used.
+--   Enforced in the database:
+--     CK_MaterialStock_NotNegative / CK_MaterialTransactions_Balance   never negative
+--     TR_MaterialStock_Rules          new balance starts at 0; key never changes; Main Office Polyhouse
+--                                     only; CurrentQuantity = exactly SUM(its ledger)
+--     TR_MaterialTransactions_Ledger  insert-only; BalanceBefore = the current balance; a CONSUME /
+--                                     REVERSAL matches its sowing's material, Area and Polyhouse; a
+--                                     REVERSAL returns exactly what was consumed
+--     UX_MaterialTransactions_SowingLink   one CONSUME and at most one REVERSAL per sowing
+--   The application takes sp_getapplock + UPDLOCK on the balance first (same as Tray Stock), so
+--   concurrent operations on one balance run strictly one after the other.
+--
+-- SOWINGS (dbo.SeedSowings, two new NULLable columns -- existing rows untouched)
+--   GrowingMaterialTypeId   the ONE material of the sowing. TR_SeedSowings_GrowingMaterial: a NEW
+--                           sowing in a Main Office Area must name one active material; a sowing
+--                           elsewhere must name none (no material stock exists there); never changes.
+--   SubmissionToken         the form's one-time token; UX_SeedSowings_SubmissionToken makes a double
+--                           submit unable to create a second sowing (or a second deduction).
+--
+-- ALSO: Permissions MaterialStock.View / .Add / .History (Sowing Supervisor) and MaterialStock.Manage
+-- (adjustments, conversion factors, consumption rules -- full-access users only; no role gets it).
+---- risky lines / sqlcmd variables:
+  L56: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L58: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L74: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L410: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-08_MaterialStockApprovals.sql   (10/08/2026 18:42:26)
+-- ============================================================================
+-- 2026-10-08_MaterialStockApprovals.sql   (run AFTER 2026-10-08_MaterialStock.sql)
+--
+-- WHY: a Cutting Sowing at a Main Office Polyhouse may be approved with MORE trays than
+-- were sown (Supervisor Approval "overage"). The approval already takes the extra
+-- cuttings and the extra physical trays; the extra trays also need growing material:
+--     extra trays x the CURRENT kg per tray of the sowing's OWN material,
+-- taken from the sowing's OWN Area + Polyhouse, in the approval's own transaction.
+-- Example: sown 100 trays (150 kg Cocopeat at 1.5 kg/tray), approved 105 -> +7.5 kg.
+--
+-- The ledger links that consumption to the APPROVAL (ReferenceType 'ReadyConfirmation',
+-- ReferenceId = dbo.ReadyConfirmations.Id), so cancelling just that approval returns
+-- exactly its 7.5 kg and cancelling the sowing still returns exactly its own 150 kg.
+--
+-- CHANGES (no table, column or data change):
+--   CK_MaterialTransactions_Sowing   CONSUME / REVERSAL may reference 'SeedSowing' or
+--                                    'ReadyConfirmation'; RECEIVE / ADJUSTMENT still none
+--   TR_MaterialTransactions_Ledger   a 'ReadyConfirmation' row must belong (via
+--                                    ReadyConfirmations.SeedSowingId) to a sowing of the SAME
+--                                    material, Area and Polyhouse -- the same rule (51935) as a
+--                                    sowing's own consumption; a REVERSAL still returns exactly
+--                                    the CONSUME of the same reference (51936)
+--   UX_MaterialTransactions_SowingLink (unchanged) -> at most one CONSUME and one REVERSAL
+--                                    per approval, as per sowing
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the server named
+-- with -v TARGET_SERVER=<@@SERVERNAME> (the live database is ALSO named PlantsIMS2_Test).
+-- One transaction. Idempotent. Every existing ledger row satisfies the new constraint
+-- (it only widens the allowed ReferenceType); WITH CHECK re-validates them anyway.
+-- Undo: 2026-10-08_MaterialStockApprovals_Rollback.sql
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 51951, '2026-10-08_MaterialStockApprovals.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 51952, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 51953, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+IF OBJECT_ID('dbo.MaterialTransactions', 'U') IS NULL
+    THROW 51954, 'Run 2026-10-08_MaterialStock.sql first.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+---- risky lines / sqlcmd variables:
+  L36: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L38: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L56: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L63: ALTER TABLE dbo.MaterialTransactions DROP CONSTRAINT CK_MaterialTransactions_Sowing;
+  L126: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-08_VehicleTracking_Masters.sql   (10/08/2026 20:44:01)
+-- ============================================================================
+-- 2026-10-08_VehicleTracking_Masters.sql
+--
+-- WHY: Vehicle Tracking module, Phase 2 -- the master data a round trip needs
+-- (docs/VEHICLE_TRACKING.md). Nothing like it existed (no vehicle / driver /
+-- location tables or columns anywhere), so nothing is duplicated or migrated.
+--
+-- WHAT THIS DOES:
+--   dbo.Permissions        Vehicle.View    see vehicles / drivers (phone + licence masked)
+--                          Vehicle.Manage  maintain vehicles, drivers, company locations
+--                          (granted to NO role: full-access users hold them implicitly;
+--                           assign them in Admin -> Roles)
+--   dbo.Vehicles           VehicleNumber unique (stored normalised: upper case, no spaces);
+--                          Status Available / OnTrip / Maintenance / Inactive;
+--                          IsActive is COMPUTED from Status (never inconsistent)
+--   dbo.Drivers            PhoneNumber 10 digits, unique among ACTIVE drivers;
+--                          LicenseNumber unique among active drivers; optional link to the
+--                          driver's own login (IMSUsers), unique
+--   dbo.CompanyLocations   company start / end point with a geofence radius; exactly one
+--                          default, and the default must be active
+--
+-- NOT changed: any existing table, column, row, role or grant.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the
+-- server named with -v TARGET_SERVER=<@@SERVERNAME> (the live database is ALSO
+-- named PlantsIMS2_Test). One transaction. Idempotent (re-run = no-op).
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+--       then MODE=COMMIT.   Undo: 2026-10-08_VehicleTracking_Masters_Rollback.sql
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 51901, '2026-10-08_VehicleTracking_Masters.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 51902, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 51903, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+---- risky lines / sqlcmd variables:
+  L33: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L35: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L51: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L188: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-08_VehicleTracking_Trips.sql   (10/08/2026 21:03:34)
+-- ============================================================================
+-- 2026-10-08_VehicleTracking_Trips.sql      (run AFTER 2026-10-08_VehicleTracking_Masters.sql)
+--
+-- WHY: Vehicle Tracking Phase 3 -- the ROUND TRIP (Company -> Destination ->
+-- Company), its state machine, legs, planned routes and audit events
+-- (docs/VEHICLE_TRACKING.md, sections C and H).
+--
+-- WHAT THIS DOES:
+--   dbo.Permissions      Vehicle.Trip.Create    create / mark ready / cancel trips
+--                        Vehicle.Trip.View      view trips
+--                        Vehicle.Trip.Start     start a trip from the office (always an override, reason required)
+--                        Vehicle.Trip.Track     driver app: track and move OWN trip through its states
+--                        Vehicle.Trip.Complete  office: arrival overrides, start return, end trip
+--   dbo.Roles            Driver (only if missing) -- holds Vehicle.Trip.Track ONLY
+--   dbo.RolePermissions  Driver -> Vehicle.Trip.Track (no other grant; office permissions are
+--                        assigned in Admin -> Roles; full-access users hold all implicitly)
+--   dbo.VehicleTrips          one row = one round trip; destination + start location are SNAPSHOTS
+--                             (a later edit of the location never changes a trip); TripNumber
+--                             'VT-' + 6-digit Id (computed, persisted). CHECKs make every status
+--                             carry its data and keep the timeline in order. ONE in-progress
+--                             trip per vehicle and per driver (filtered unique indexes).
+--   dbo.VehicleTripLegs       OUTBOUND / DESTINATION / RETURN: start + end of each leg
+--                             (distance / time columns are filled by Phase 6)
+--   dbo.VehicleTripRoutes     planned route options per leg (provider, distance, duration,
+--                             encoded polyline); at most one selected per leg
+--   dbo.VehicleTripEvents     insert-only audit of every trip event (TR_..._Protect)
+--   dbo.VehicleRouteProviderUsage  daily counter of routing-provider calls (cost safeguard)
+--
+-- NOT changed: any existing table, column, row, role or grant other than the above.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the
+-- server named with -v TARGET_SERVER=<@@SERVERNAME>. One transaction. Idempotent.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+--       then MODE=COMMIT.   Undo: 2026-10-08_VehicleTracking_Trips_Rollback.sql
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 51921, '2026-10-08_VehicleTracking_Trips.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 51922, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 51923, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+IF OBJECT_ID('dbo.Vehicles', 'U') IS NULL OR OBJECT_ID('dbo.Drivers', 'U') IS NULL OR OBJECT_ID('dbo.CompanyLocations', 'U') IS NULL
+    THROW 51924, 'Run 2026-10-08_VehicleTracking_Masters.sql first.', 1;
+GO
+---- risky lines / sqlcmd variables:
+  L39: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L41: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L59: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L349: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-08_VehicleTracking_Gps.sql   (10/08/2026 21:04:33)
+-- ============================================================================
+-- 2026-10-08_VehicleTracking_Gps.sql        (run AFTER 2026-10-08_VehicleTracking_Trips.sql)
+--
+-- WHY: Vehicle Tracking Phase 4 -- the driver app's device sessions and the
+-- GPS points it uploads (docs/VEHICLE_TRACKING.md, sections C, E and I).
+--
+-- WHAT THIS DOES:
+--   dbo.VehicleDriverDevices  one row per driver-app login on a phone: ONLY the SHA-256 hash of the
+--                             bearer token is stored (the token itself is shown to the phone once);
+--                             expiry; last seen; revocation (who / when / why). A revoked or expired
+--                             session is refused on the next request.
+--   dbo.VehicleGpsPoints      every stored GPS point. Clustered on (TripId, RecordedAt, Id) so a trip's
+--                             track is one range scan; ClientPointId (the phone's UUID per point) is
+--                             UNIQUE -> a re-sent point is acknowledged, never stored twice.
+--                             Insert-only (TR_VehicleGpsPoints_Protect): GPS history is never changed
+--                             or silently deleted (archival is a separate, documented step).
+--
+-- NOT changed: any existing table, column, row, role or grant.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the
+-- server named with -v TARGET_SERVER=<@@SERVERNAME>. One transaction. Idempotent.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+--       then MODE=COMMIT.   Undo: 2026-10-08_VehicleTracking_Gps_Rollback.sql
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 51931, '2026-10-08_VehicleTracking_Gps.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 51932, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 51933, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+IF OBJECT_ID('dbo.VehicleTrips', 'U') IS NULL
+    THROW 51934, 'Run 2026-10-08_VehicleTracking_Trips.sql first.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION VehicleTrackingGps2026_10_08;
+---- risky lines / sqlcmd variables:
+  L28: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L30: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L48: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L130: -- session flag VehicleGpsArchive = 1 (DELETE only; points are never UPDATEd).
+  L149: IF N'$(MODE)' = N'COMMIT'
+
+==================== 2026-10-08_VehicleTracking_TrackingSessions.sql   (10/09/2026 06:51:10)
+-- ============================================================================
+-- 2026-10-08_VehicleTracking_TrackingSessions.sql   (run AFTER 2026-10-08_VehicleTracking_Gps.sql)
+--
+-- WHY: Vehicle Tracking Phase 5 -- replaces the implicit "one phone per trip"
+-- (VehicleTrips.TrackingDeviceId) with an explicit TRACKING SESSION:
+--   Trip -> Tracking Session -> Driver -> Device (app install) [-> device login session]
+-- so phone replacement, revocation, logout, reinstall, a lost phone and an old offline
+-- queue are all decided by data, not by guesswork (docs/VEHICLE_TRACKING.md, Phase 5).
+--
+-- WHAT THIS DOES:
+--   dbo.VehicleTripTrackingSessions  one row per period in which ONE phone tracks ONE trip:
+--       StartedAt .. EndedAt, EndReason (TripCompleted / TripCancelled / ReplacedByDevice /
+--       DeviceRevoked / LoggedOut). At most ONE active (EndedAt IS NULL) session per trip
+--       (filtered unique index). A point is accepted only inside a session window of the
+--       uploading phone; after DeviceRevoked (lost phone) nothing more is ever accepted.
+--   dbo.VehicleGpsPoints.TrackingSessionId  (new, NULL-able: rows stored before this migration
+--       have none) -- the session each point was accepted under.
+--   VehicleTrips.TrackingDeviceId stays as a DISPLAY value (current phone) only.
+--
+--   TR_VehicleGpsPoints_Attribution  every NEW point must belong to a session of its own trip, driver
+--       and phone, inside the session window (5-minute start tolerance, never after its end).
+--
+-- NOT changed: any existing row; no role or permission.
+--
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to the
+-- server named with -v TARGET_SERVER=<@@SERVERNAME>. One transaction. Idempotent.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+--       then MODE=COMMIT.   Undo: 2026-10-08_VehicleTracking_TrackingSessions_Rollback.sql
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 51961, '2026-10-08_VehicleTracking_TrackingSessions.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 51962, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 51963, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+IF OBJECT_ID('dbo.VehicleGpsPoints', 'U') IS NULL OR OBJECT_ID('dbo.VehicleDriverDevices', 'U') IS NULL
+    THROW 51964, 'Run 2026-10-08_VehicleTracking_Gps.sql first.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+---- risky lines / sqlcmd variables:
+  L33: IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+  L35: IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+  L53: PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+  L121: IF N'$(MODE)' = N'COMMIT'
+

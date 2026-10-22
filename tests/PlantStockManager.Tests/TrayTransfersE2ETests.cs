@@ -42,15 +42,19 @@ namespace PlantStockManager.Tests
                 return r == null || r == DBNull.Value ? default! : (T)Convert.ChangeType(r, typeof(T));
             }
 
+            // 2026-10-14: a Mother Plant Area's trays sit in its ONE active Area pool once 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql
+            // is applied (inactive -- so not counted -- before it); every other Area keeps the Polyhouse pool.
+            public const string PoolOf = "(t.PolyhouseId = @P OR (t.PolyhouseId IS NULL AND t.IsActive = 1 AND EXISTS (SELECT 1 FROM dbo.Area a WHERE a.Id = t.AreaId AND a.AreaType = N'MotherPlant')))";
+
             public Task<decimal> BalanceAsync(int area, int polyhouse, string cavity = Cavity)
-                => ScalarAsync<decimal>("SELECT ISNULL(SUM(PhysicalQuantity), 0) FROM dbo.TrayStock WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = @C",
+                => ScalarAsync<decimal>("SELECT ISNULL(SUM(t.PhysicalQuantity), 0) FROM dbo.TrayStock t WHERE t.AreaId = @A AND " + PoolOf + " AND t.TraySize = @C",
                     ("@A", area), ("@P", polyhouse), ("@C", cavity));
 
             // The tray ledger explains every pool the test touched.
             public async Task AssertLedgerExplainsAsync(int area, int polyhouse, string cavity = Cavity)
             {
                 var net = await ScalarAsync<decimal>(@"SELECT ISNULL(SUM(x.Quantity), 0) FROM dbo.TrayStockTransactions x
-JOIN dbo.TrayStock t ON t.Id = x.TrayStockId WHERE t.AreaId = @A AND t.PolyhouseId = @P AND t.TraySize = @C", ("@A", area), ("@P", polyhouse), ("@C", cavity));
+JOIN dbo.TrayStock t ON t.Id = x.TrayStockId WHERE t.AreaId = @A AND " + PoolOf + " AND t.TraySize = @C", ("@A", area), ("@P", polyhouse), ("@C", cavity));
                 Assert.Equal(await BalanceAsync(area, polyhouse, cavity), net);
             }
         }
@@ -103,7 +107,7 @@ JOIN dbo.TrayStock t ON t.Id = x.TrayStockId WHERE t.AreaId = @A AND t.Polyhouse
             await conn.OpenAsync();
             using var cmd = new SqlCommand(@"SELECT TOP 1 x.TransactionType, x.TransactionDate, x.CreatedAt, x.Quantity, x.Remarks
 FROM dbo.TrayStockTransactions x JOIN dbo.TrayStock t ON t.Id = x.TrayStockId
-WHERE t.AreaId = @A AND t.PolyhouseId = @P AND t.TraySize = @C ORDER BY x.Id DESC", conn);
+WHERE t.AreaId = @A AND " + Env.PoolOf + " AND t.TraySize = @C ORDER BY x.Id DESC", conn);
             cmd.Parameters.AddWithValue("@A", area);
             cmd.Parameters.AddWithValue("@P", polyhouse);
             cmd.Parameters.AddWithValue("@C", Cavity);

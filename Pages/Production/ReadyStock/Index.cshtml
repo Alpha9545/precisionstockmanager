@@ -1,11 +1,18 @@
 @page
 @model PlantStockManager.Pages.Production.ReadyStock.IndexModel
 @inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@using Microsoft.AspNetCore.Authorization
+@inject IAuthorizationService Authz
+@inject PlantStockManager.Authorization.AreaAccessService StrictArea
 @{
     ViewData["Title"] = "Ready Stock";
     var canSeeSowing = await FeatureAccess.CanAccessPageAsync(User, "/Production/SeedSowing/Details");
     var canSeeApproval = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyConfirmation/Index");
     var canMove = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyStock/Move");
+    // 2026-10-19: Send opens the Main Office / Outlet transfer (whole untouched batch, unchanged) and, for ReadyStock.DispatchToCustomer
+    // holders in the batch's own Area, the customer dispatch (whole trays). The Move page and the repository re-check both.
+    var canTransferStock = canMove && (await Authz.AuthorizeAsync(User, PlantStockManager.Pages.Production.ReadyStock.MoveModel.TransferPolicy)).Succeeded;
+    var canCustomerDispatch = canMove && (await Authz.AuthorizeAsync(User, PlantStockManager.Pages.Production.ReadyStock.MoveModel.CustomerDispatchPolicy)).Succeeded;
     // 2026-10-09: the two paths of Main Area Ready Stock, and transplanting in Mother Plant Areas.
     var canDispatch = await FeatureAccess.CanAccessPageAsync(User, "/Bookings/SeedlingDispatch");
     var canTransferMp = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyStock/TransferToMotherPlant");
@@ -126,7 +133,8 @@
                         <td>@(r.IsSowingBatch ? r.ApprovedByName ?? "-" : dash)</td>
                         <td>@(r.IsSowingBatch ? r.ApprovalDate?.ToString("dd/MM/yyyy") ?? "-" : dash)</td>
                         <td class="text-nowrap">
-                            @if (canMove && r.IsSowingBatch && r.AvailableQuantity > 0 && r.ReservedQuantity == 0 && r.DispatchedQuantity == 0 && r.InTransitQuantity == 0)
+                            @if ((canTransferStock && r.IsSowingBatch && r.AvailableQuantity > 0 && r.ReservedQuantity == 0 && r.DispatchedQuantity == 0 && r.InTransitQuantity == 0)
+                                 || (canCustomerDispatch && (r.InMainArea || r.InMotherPlantArea) && StrictArea.CanAccessArea(User, r.AreaId) && r.CavitySize is > 0 && r.AvailableQuantity >= r.CavitySize))
                             {
                                 <a asp-page="/Production/ReadyStock/Move" asp-route-id="@r.Id" class="btn btn-sm btn-outline-primary">Send</a>
                             }

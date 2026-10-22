@@ -13,6 +13,9 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
     // never trusted -- it must be one of the Areas this page itself offers the
     // user (server-side AreaAccess claims), and the repository re-checks the
     // Area (active, not Main Office) inside the stock transaction.
+    // 2026-10-14: "Add Empty Pots" of the Mother Plant and Cutting sections (removed from Pot Production):
+    // Mother Plant / Cutting Areas only (AreaType MotherPlant, re-checked in the repository), Area only --
+    // no polyhouse -- and the new balance is shown after every addition.
     public class AddStockModel : PageModel
     {
         private const string TokenScope = "EmptyPotAddStock";
@@ -39,9 +42,14 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
         [BindProperty] public DateTime StockDate { get; set; } = DateTime.Today;
         [BindProperty] public string? Remarks { get; set; }
         [BindProperty] public string? SubmitToken { get; set; }
+        // Which menu section opened the page (heading / back link only).
+        [BindProperty(SupportsGet = true)] public string? Section { get; set; }
 
         public List<Area> Areas { get; set; } = new();
         public List<PotSize> PotSizes { get; set; } = new();
+        // The current empty pot stock of the Areas offered (after an addition, its new balance).
+        public List<Models.EmptyPotInventory> Balances { get; set; } = new();
+        public bool IsCuttingSection => Section == EmptyPotStockRules.SectionCutting;
 
         public async Task OnGetAsync()
         {
@@ -71,12 +79,13 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
 
             if (!_tokens.TryConsume(TokenScope, SubmitToken))
             {
-                TempData["Error"] = "This form was already submitted. Check Empty Pot Stock before adding again.";
-                return RedirectToPage("/Production/EmptyPotInventory/Index");
+                TempData["Error"] = "This form was already submitted. Check the current stock below before adding again.";
+                return RedirectToPage(new { section = Section });
             }
 
-            var (success, message, _) = await _emptyPotRepo.AddAreaStockAsync(
-                area!.Id, PotSize, Quantity, StockDate, Remarks, User.GetUserId(), User.Identity?.Name ?? "System");
+            var (success, message, poolId) = await _emptyPotRepo.AddAreaStockAsync(
+                area!.Id, PotSize, Quantity, StockDate, Remarks, User.GetUserId(), User.Identity?.Name ?? "System",
+                EmptyPotStockRules.MotherPlantAreaType);
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to add the empty pots.");
@@ -86,15 +95,22 @@ namespace PlantStockManager.Pages.Production.EmptyPotInventory
                 return Page();
             }
 
-            TempData["Success"] = $"{QuantityFormat.Qty(Quantity)} x {PotSize!.Trim()} empty pots added to {area.Name}.";
-            return RedirectToPage("/Production/EmptyPotInventory/Index");
+            var balance = (await _emptyPotRepo.GetByIdAsync(poolId))?.PhysicalQuantity;
+            TempData["Success"] = $"{QuantityFormat.Qty(Quantity)} x {PotSize!.Trim()} empty pots added to {area.Name}."
+                + (balance.HasValue ? $" Current {PotSize.Trim()} empty pot stock in {area.Name}: {QuantityFormat.Qty(balance.Value)}." : "");
+            return RedirectToPage(new { section = Section });
         }
 
         private async Task LoadAsync()
         {
+            Section = EmptyPotStockRules.NormalizeSection(Section);
             PotSizes = await _potSizeRepo.GetAllAsync(activeOnly: true);
-            Areas = EmptyPotStockRules.SelectableAreas(
+            Areas = EmptyPotStockRules.SelectableMotherPlantAreas(
                 await _areaRepo.GetAllAreas(), _areaAccess.HasFullAreaAccess(User), _areaAccess.GetAccessibleAreaIds(User));
+            var areaIds = Areas.Select(a => a.Id).ToHashSet();
+            Balances = (await _emptyPotRepo.GetAllAsync(activeOnly: true))
+                .Where(p => p.AreaId.HasValue && areaIds.Contains(p.AreaId.Value))
+                .OrderBy(p => p.AreaName).ThenBy(p => p.PotSize).ToList();
         }
     }
 }

@@ -316,12 +316,12 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                     MarkDuplicate(entry, saved.Value.Id, saved.Value.Code);
                     return (true, null, saved.Value.Id);
                 }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 

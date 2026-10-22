@@ -1,0 +1,161 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.BedSowing.EditModel
+@{
+    var b = Model.Bed!;
+    ViewData["Title"] = "Edit Bed " + b.BedSowingCode;
+    var locked = !Model.EditSchemaReady;
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Edit Bed Sowing @b.BedSowingCode</h4>
+            <small class="text-muted">Correct an untouched bed (nothing transplanted or lost yet). The Bed No., Polyhouse, recorder and
+                recorded time stay as they are. When the date, variety, seed lot or quantity change, the original seed deduction is
+                reversed and the corrected one is deducted from the chosen Main Office lot, in one step.</small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger" id="editErrors">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+            @if (locked)
+            {
+                <div class="alert alert-warning" id="editSchemaMissing">@PlantStockManager.Data.WorkflowCorrectionsSchema.BedSowingEditMigrationMessage</div>
+            }
+
+            <dl class="row small mb-3">
+                <dt class="col-sm-3">Polyhouse</dt><dd class="col-sm-9">@b.PolyhouseName (@b.AreaName)</dd>
+                <dt class="col-sm-3">Recorded</dt><dd class="col-sm-9">@PlantStockManager.Services.AppClock.ToIndiaTime(b.CreatedDate).ToString("dd/MM/yyyy HH:mm") by @b.CreatedBy</dd>
+                <dt class="col-sm-3">Current</dt>
+                <dd class="col-sm-9">@b.SowingDate.ToString("dd/MM/yyyy") &middot; @b.SpeciesName &middot; lot @(string.IsNullOrEmpty(b.SeedLotNo) ? "(no lot no.)" : b.SeedLotNo) &middot; @Qty(b.Quantity) seeds</dd>
+            </dl>
+
+            <form method="post" id="editForm">
+                <input type="hidden" asp-for="OriginalSowingDate" value="@Model.OriginalSowingDate.ToString("yyyy-MM-dd")" />
+                <input type="hidden" asp-for="OriginalSpeciesId" />
+                <input type="hidden" asp-for="OriginalSeedStockId" />
+                <input type="hidden" asp-for="OriginalQuantity" value="@Model.OriginalQuantity.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)" />
+                <input type="hidden" asp-for="OriginalRemarks" />
+                <div class="row g-3">
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold" for="sowingDate">Sowing Date</label>
+                        <input type="date" asp-for="SowingDate" id="sowingDate" class="form-control" required disabled="@locked"
+                               value="@Model.SowingDate.ToString("yyyy-MM-dd")" max="@PlantStockManager.Services.AppClock.Today.ToString("yyyy-MM-dd")" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold" for="plantTypeSelect">Species</label>
+                        <select asp-for="PlantTypeId" id="plantTypeSelect" class="form-select" required disabled="@locked">
+                            <option value="">-- Select Species --</option>
+                            @foreach (var t in Model.PlantTypes)
+                            {
+                                <option value="@t.Id">@t.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold" for="varietySelect">Variety</label>
+                        <select asp-for="SpeciesId" id="varietySelect" class="form-select" required disabled="@locked"
+                                data-selected="@(Model.SpeciesId > 0 ? Model.SpeciesId.ToString() : "")">
+                            <option value="">-- Select Species first --</option>
+                        </select>
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label fw-bold" for="seedLotSelect">Main Office Seed Lot</label>
+                        <select asp-for="SeedStockId" id="seedLotSelect" class="form-select" required disabled="@locked"
+                                data-selected="@(Model.SeedStockId > 0 ? Model.SeedStockId.ToString() : "")">
+                            <option value="">-- Select Variety first --</option>
+                        </select>
+                        <div class="form-text">The bed's current lot is listed with its own seeds added back. The save re-checks the lot's balance on the sowing date.</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label fw-bold" for="quantityInput">Quantity (seeds)</label>
+                        <input type="number" step="1" min="1" asp-for="Quantity" asp-format="{0:0.##}" id="quantityInput" class="form-control" required disabled="@locked" />
+                        <div class="text-danger small d-none" id="quantityWarning">More than the lot would have available.</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold" for="remarks">Notes</label>
+                        <textarea asp-for="Remarks" id="remarks" class="form-control" rows="2" maxlength="500"></textarea>
+                    </div>
+                    <div class="col-12" id="reasonGroup">
+                        <label class="form-label fw-bold" for="reason">Reason for the correction <span class="text-muted fw-normal">(required when the date, variety, seed lot or quantity change; kept in the audit log)</span></label>
+                        <input type="text" asp-for="Reason" id="reason" class="form-control" maxlength="500" />
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <a asp-page="/Production/BedSowing/Details" asp-route-id="@b.Id" class="btn btn-secondary me-2" id="cancelEdit">Cancel</a>
+                    <button type="submit" class="btn btn-success" id="saveButton">Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            const handlerUrl = '@Url.Page("/Production/BedSowing/Edit", new { id = b.Id })';
+            const original = { date: '@Model.OriginalSowingDate.ToString("yyyy-MM-dd")', species: '@Model.OriginalSpeciesId', lot: '@Model.OriginalSeedStockId', qty: '@Model.OriginalQuantity.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)' };
+            let available = null;
+
+            function fill($select, items, placeholder, textFn, dataFn) {
+                const selected = String($select.data('selected') || '');
+                $select.empty().append($('<option>').val('').text(placeholder));
+                items.forEach(function (it) {
+                    const $o = $('<option>').val(it.id).text(textFn(it));
+                    if (dataFn) dataFn($o, it);
+                    if (String(it.id) === selected) $o.prop('selected', true);
+                    $select.append($o);
+                });
+                $select.data('selected', '');
+            }
+            function loadVarieties() {
+                const typeId = $('#plantTypeSelect').val();
+                const $v = $('#varietySelect');
+                if (!typeId) { fill($v, [], '-- Select Species first --', x => x.name); loadLots(); return; }
+                $.getJSON(handlerUrl, { handler: 'Varieties', plantTypeId: typeId }, function (list) {
+                    fill($v, list, '-- Select Variety --', x => x.name);
+                    loadLots();
+                });
+            }
+            function loadLots() {
+                const speciesId = $('#varietySelect').val();
+                const $lot = $('#seedLotSelect');
+                if (!speciesId) { fill($lot, [], '-- Select Variety first --', x => x.lot); onLot(); return; }
+                $.getJSON(handlerUrl, { handler: 'SeedLots', speciesId: speciesId }, function (list) {
+                    fill($lot, list, list.length ? '-- Select Seed Lot --' : '-- No Main Office stock for this variety --',
+                        x => x.lot + ' - ' + (x.source || 'no source') + ' (available' + (x.current ? ' incl. this bed' : '') + ': ' + formatQuantity(x.available) + ')' + (x.current ? ' - current lot' : ''),
+                        ($o, x) => $o.attr('data-available', x.available));
+                    onLot();
+                });
+            }
+            function onLot() {
+                const a = parseFloat($('#seedLotSelect option:selected').attr('data-available'));
+                available = isNaN(a) ? null : a;
+                refresh();
+            }
+            // The reason becomes required as soon as a "sown" field differs from what the bed holds now.
+            function refresh() {
+                const q = parseFloat($('#quantityInput').val());
+                $('#quantityWarning').toggleClass('d-none', !(available !== null && !isNaN(q) && q > available));
+                const sownChanged = $('#sowingDate').val() !== original.date || String($('#varietySelect').val() || original.species) !== original.species
+                    || String($('#seedLotSelect').val() || original.lot) !== original.lot || String($('#quantityInput').val()) !== original.qty;
+                $('#reason').prop('required', sownChanged && !$('#sowingDate').prop('disabled'));
+            }
+            $('#plantTypeSelect').on('change', loadVarieties);
+            $('#varietySelect').on('change', loadLots);
+            $('#seedLotSelect').on('change', onLot);
+            $('#quantityInput, #sowingDate').on('input change', refresh);
+            $('#editForm').on('submit', function () { if (this.checkValidity()) $('#saveButton').prop('disabled', true).text('Saving...'); });
+            if ($('#plantTypeSelect').val()) loadVarieties();
+        });
+    </script>
+}

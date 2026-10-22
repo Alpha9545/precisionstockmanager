@@ -1,0 +1,144 @@
+=== 0. Where am I ===
+ServerName|Machine|DatabaseName|ClientHost|Transport|CheckedAtUtc
+----------|-------|------------|----------|---------|------------
+srv1202245|srv1202245|PlantsIMS2_Test|srv1202245|TCP|2026-10-14 17:50:18.8341951
+=== 1. Schema needed by the scripts ===
+MotherPlantsTable|PlantSpeciesTable|SequenceTable|SpeciesReadyDaysCol|SpeciesColorCol|MpAreaCol|MpSupervisorCol|MpTriggerEnabled|MpCounter2026|MotherPlantRows|VarietyRows
+-----------------|-----------------|-------------|-------------------|---------------|---------|---------------|----------------|-------------|---------------|-----------
+418100530|786101841|1333579789|4|100|4|4|1|29|28|422
+Id|Name
+--|----
+1|MERI GOLD
+2|CHRYSANTHEMUM
+3|ZINNIA
+4|SEASONAL VARITIES
+=== 2. Areas, Polyhouses, supervisors, creator ===
+Id|Name|AreaType|IsActive
+--|----|--------|--------
+1|Shree Swami Samarth Agro|MotherPlant|1
+122|Ashirawad Cutting|MotherPlant|1
+123|Samarth Ropvatika|MotherPlant|1
+127|Green Bless Nursery|MotherPlant|1
+Id|Name|AreaId|AreaName
+--|----|------|--------
+9|OpenField-1|122|Ashirawad Cutting
+16|Net House|127|Green Bless Nursery
+14|P-1|127|Green Bless Nursery
+15|P-2|127|Green Bless Nursery
+20|OpenField-3|123|Samarth Ropvatika
+8|P-1|123|Samarth Ropvatika
+19|P-2|123|Samarth Ropvatika
+11|Net House|1|Shree Swami Samarth Agro
+17|OpenField-2|1|Shree Swami Samarth Agro
+Id|Username|Name|IsActive|Role|AreaId|AreaName
+--|--------|----|--------|----|------|--------
+21|Prajwal|Prajwal Shekhar Maka|1|System Administrator|NULL|NULL
+101|Achyut|Achyut Kunjir|1|Mother Plant Supervisor|122|Ashirawad Cutting
+110|Vasant|Vasant Shinde|1|Mother Plant Supervisor|127|Green Bless Nursery
+111|Abhijeet|Abhijeet Gaikwad|1|Mother Plant Supervisor|123|Samarth Ropvatika
+115|Kiran|Kiran Kohle|1|Mother Plant Supervisor|1|Shree Swami Samarth Agro
+=== 3. Varieties (NEW = created locally today; EXISTING = used by today's batches) ===
+Seq|Role|Wanted|Matches|Found
+---|----|------|-------|-----
+1|NEW|Branangel White|0|:::-
+2|NEW|Branchili|0|:::-
+3|NEW|Brandevil|0|:::-
+4|NEW|Brandune|0|:::-
+5|NEW|Branfountain Apricot|0|:::-
+6|NEW|Branfountain Pink|0|:::-
+7|NEW|Branfountain Salmon|0|:::-
+8|NEW|Branfountain White|0|:::-
+9|NEW|Branfountain Yellow|0|:::-
+10|NEW|Branfountain Purple|0|:::-
+11|NEW|Branglobe Pink|0|:::-
+12|NEW|Branglobe Red|0|:::-
+13|NEW|Branglobe White|0|:::-
+14|NEW|Branlena|0|:::-
+15|NEW|Branperfect Ice (White)|0|:::-
+16|NEW|Branperfect Pink|0|:::-
+17|NEW|Branperfect Purple|0|:::-
+18|NEW|Branperfect Yellow|0|:::-
+19|NEW|Branroyal Purple|0|:::-
+20|NEW|Branroyal Scarlet (Red)|0|:::-
+21|NEW|Bransound Dark Orange|0|:::-
+22|NEW|Bransound Magenta|0|:::-
+23|NEW|Bransound Purple|0|:::-
+24|NEW|Bransound Red|0|:::-
+25|NEW|Kibo|0|:::-
+26|NEW|Madhura|0|:::-
+27|NEW|Trinidad|0|:::-
+28|NEW|Trinidad Fire|0|:::-
+29|NEW|Wendy Red|0|:::-
+30|NEW|Catalina|0|:::-
+31|NEW|Cayman Orange|0|:::-
+32|NEW|Cayman Yellow|0|:::-
+33|NEW|Dahlia Grande White|0|:::-
+34|NEW|Dahlia Labelia Grande Coral|0|:::-
+35|NEW|Dahlia Magenta IMPR|0|:::-
+36|NEW|Dahlia Red Grande|0|:::-
+37|NEW|Impatiens Orange Boost|0|:::-
+38|NEW|Impatiens Pink Jellew|0|:::-
+39|NEW|Impatiens Spark Pink Jellew|0|:::-
+40|NEW|Impatiens Magenta Bliss|0|:::-
+41|NEW|Impatiens Salmon Punch|0|:::-
+42|NEW|Impatiens White|0|:::-
+43|NEW|Latania Red|0|:::-
+44|NEW|Latania Beach|0|:::-
+45|NEW|Latania Pattaya|0|:::-
+46|NEW|Latania Transizin|0|:::-
+47|NEW|Latania Nadu|0|:::-
+48|NEW|Latania Coconut|0|:::-
+49|NEW|Latania Litchi|0|:::-
+50|NEW|Latania IBIS|0|:::-
+51|EXISTING|Branangel Pink|1|3807:SEASONAL VARITIES:20:Pink
+52|EXISTING|Ping Pong Green|1|3259:CHRYSANTHEMUM:20:Green
+53|EXISTING|Ping Pong Pink|1|3258:CHRYSANTHEMUM:20:Pink
+54|EXISTING|Ping Pong Purple|1|3262:CHRYSANTHEMUM:20:Purple
+55|EXISTING|Ping Pong Red|1|3257:CHRYSANTHEMUM:20:Red
+56|EXISTING|Ping Pong White|1|3260:CHRYSANTHEMUM:20:White
+57|EXISTING|Ping Pong Yellow|1|3261:CHRYSANTHEMUM:20:Yellow
+58|EXISTING|Samui (Pink)|1|3155:CHRYSANTHEMUM:20:Pink
+59|EXISTING|Smola White|1|3156:CHRYSANTHEMUM:20:White
+60|EXISTING|Vido Purple|1|3154:CHRYSANTHEMUM:20:Purple
+61|EXISTING|Vido Red|1|3153:CHRYSANTHEMUM:20:Red
+62|EXISTING|Bhagyshree White|1|17:CHRYSANTHEMUM:20:White:CRLF
+63|EXISTING|Suvidha White|1|34:CHRYSANTHEMUM:20:White:CRLF
+64|EXISTING|Pramila Yellow|1|22:CHRYSANTHEMUM:20:Yellow:CRLF
+65|EXISTING|Meghana Orange|1|44:CHRYSANTHEMUM:20:Orange:CRLF
+66|EXISTING|Sharvari Purple|2|3136:CHRYSANTHEMUM:22:Purple | 24:CHRYSANTHEMUM:22:Purple:CRLF
+67|EXISTING|Aishwarya Yellow|2|3144:CHRYSANTHEMUM:20:Yellow | 33:CHRYSANTHEMUM:20:Yellow:CRLF
+68|EXISTING|Pramila Bronze|2|3142:CHRYSANTHEMUM:20:Bronze | 26:CHRYSANTHEMUM:20:Bronze:CRLF
+69|EXISTING|Aditi Pink|1|3204:CHRYSANTHEMUM:20:Pink
+70|EXISTING|Wendy Bronze|1|3140:CHRYSANTHEMUM:20:Bronze
+71|EXISTING|Salvia F. Evalution Violet|1|3189:SEASONAL VARITIES:28:Violet
+72|EXISTING|Salvia F. Victoria Blue|1|3190:SEASONAL VARITIES:28:Blue
+73|EXISTING|Salvia F. White|1|3126:SEASONAL VARITIES:28:White
+=== 4. Existing Mother Plant batches in the four Areas ===
+Id|MotherPlantCode|Area|Polyhouse|Variety|SupervisorId|PlantingDate|MotherPlantQuantity|CuttingPeriodDays|CuttingRate|Status|CreatedBy
+--|---------------|----|---------|-------|------------|------------|-------------------|-----------------|-----------|------|---------
+91|MP-2025-00001|Ashirawad Cutting|OpenField-1|Basil|101|2025-12-25|700.00|8|5.0000|Removed|Prajwal
+106|MP-2026-00018|Ashirawad Cutting|OpenField-1|Bhagyshree Yellow|101|2026-09-28|148000.00|8|1.5000|Active|Prajwal
+107|MP-2026-00019|Ashirawad Cutting|OpenField-1|Kalpataru White|101|2026-09-28|60000.00|15|2.0000|Active|Prajwal
+92|MP-2026-00004|Green Bless Nursery|P-1|Bhagyshree White|110|2026-09-27|25000.00|15|3.0000|Active|Prajwal
+93|MP-2026-00005|Green Bless Nursery|P-1|Aditi Purple|110|2026-09-27|1500.00|8|1.0000|Active|Prajwal
+94|MP-2026-00006|Green Bless Nursery|P-1|Aditi Red|110|2026-09-27|1700.00|8|2.0000|Active|Prajwal
+95|MP-2026-00007|Green Bless Nursery|P-1|Aditi White|110|2026-09-27|3000.00|8|2.0000|Active|Prajwal
+96|MP-2026-00008|Green Bless Nursery|P-1|Aditi Yellow|110|2026-09-27|8000.00|8|2.0000|Active|Prajwal
+97|MP-2026-00009|Green Bless Nursery|P-1|Bhagyshree Pink|110|2026-09-27|8000.00|8|1.5000|Active|Prajwal
+98|MP-2026-00010|Green Bless Nursery|P-1|Bhagyshree Red|110|2026-09-27|1700.00|8|1.5000|Active|Prajwal
+99|MP-2026-00011|Green Bless Nursery|P-1|Bhagyshree Yellow|110|2026-09-27|5000.00|8|1.5000|Active|Prajwal
+100|MP-2026-00012|Green Bless Nursery|P-1|Meghana Orange|110|2026-09-27|13000.00|8|2.0000|Active|Prajwal
+101|MP-2026-00013|Green Bless Nursery|P-1|PC11|110|2026-09-27|3000.00|8|1.5000|Active|Prajwal
+102|MP-2026-00014|Green Bless Nursery|P-1|Ping Pong Purple|110|2026-09-27|2500.00|8|1.0000|Active|Prajwal
+103|MP-2026-00015|Green Bless Nursery|P-1|Ping Pong Purple|110|2026-09-27|2500.00|8|1.0000|Active|Prajwal
+104|MP-2026-00016|Green Bless Nursery|P-1|Ping Pong Red|110|2026-09-27|1500.00|8|1.0000|Active|Prajwal
+105|MP-2026-00017|Green Bless Nursery|P-1|Pramila Bronze|110|2026-09-27|10000.00|8|2.0000|Active|Prajwal
+110|MP-2026-00022|Samarth Ropvatika|OpenField-3|Bhagyshree Plus|111|2026-09-28|23625.00|10|1.5000|Active|Prajwal
+111|MP-2026-00023|Samarth Ropvatika|P-1|Branangel Pink|111|2026-09-28|162.00|10|5.0000|Active|Prajwal
+108|MP-2026-00020|Shree Swami Samarth Agro|Net House|Aishwarya Yellow|115|2026-09-28|9300.00|8|1.5000|Removed|Prajwal
+109|MP-2026-00021|Shree Swami Samarth Agro|Net House|Bhagyshree White|115|2026-09-28|28080.00|8|1.5000|Active|Prajwal
+114|MP-2026-00026|Shree Swami Samarth Agro|Net House|Aishwarya Yellow|115|2026-09-28|10.00|8|1.5000|Active|Kiran
+115|MP-2026-00027|Shree Swami Samarth Agro|Net House|Aishwarya Yellow|115|2026-09-28|40.00|8|1.5000|Active|Kiran
+116|MP-2026-00028|Shree Swami Samarth Agro|OpenField-2|Aditi Pink|115|2026-10-05|5000.00|8|1.5000|Active|Kiran
+117|MP-2026-00029|Shree Swami Samarth Agro|OpenField-2|Ping Pong Red|115|2026-10-05|30000.00|9|1.5000|Active|Kiran
+=== END ===

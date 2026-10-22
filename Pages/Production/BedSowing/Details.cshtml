@@ -14,6 +14,10 @@
     {
         <div class="alert alert-danger">@TempData["Error"]</div>
     }
+    @if (TempData["Info"] != null)
+    {
+        <div class="alert alert-info">@TempData["Info"]</div>
+    }
 
     <div class="card shadow-sm mb-4">
         <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
@@ -45,9 +49,13 @@
         </div>
         <div class="card-footer d-flex flex-wrap justify-content-end gap-2">
             <a asp-page="/Production/BedSowing/Index" class="btn btn-secondary">Back</a>
+            @if (Model.CanEdit)
+            {
+                <a asp-page="/Production/BedSowing/Edit" asp-route-id="@b.Id" class="btn btn-outline-primary" id="editBedButton">Edit</a>
+            }
             @if (Model.CanTransplant && b.IsOpen)
             {
-                <a asp-page="/Production/BedSowing/Transplant" asp-route-bedId="@b.Id" class="btn btn-primary">Transplant / record loss</a>
+                <a asp-page="/Production/BedSowing/Transplant" asp-route-bedId="@b.Id" class="btn btn-primary">Transplant</a>
             }
         </div>
     </div>

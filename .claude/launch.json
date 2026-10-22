@@ -4,12 +4,203 @@
     {
       "name": "psm-scratch",
       "runtimeExecutable": "dotnet",
-      "runtimeArgs": ["run", "--no-build", "--no-launch-profile", "--project", "PlantStockManager.csproj", "--urls", "http://localhost:5013"],
+      "runtimeArgs": [
+        "run",
+        "--no-build",
+        "--no-launch-profile",
+        "--project",
+        "PlantStockManager.csproj",
+        "--urls",
+        "http://localhost:5013"
+      ],
       "env": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "ConnectionStrings__DefaultConnection": "Server=localhost\\MSSQLSERVER02;Database=PlantsIMS2_Scratch_Confirmer_20261001;Trusted_Connection=True;TrustServerCertificate=True;"
       },
       "port": 5013
+    },
+    {
+      "name": "psm-dashboard",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--no-build",
+        "-c",
+        "Release",
+        "--no-launch-profile",
+        "--project",
+        "PlantStockManager.csproj",
+        "--urls",
+        "http://localhost:5004"
+      ],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Server=localhost\\MSSQLSERVER02;Database=PlantsIMS2_Scratch_Dashboard_20261007;Trusted_Connection=True;TrustServerCertificate=True;"
+      },
+      "port": 5004
+    },
+    {
+      "name": "psm-material",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--no-build",
+        "-c",
+        "Release",
+        "--no-launch-profile",
+        "--project",
+        "PlantStockManager.csproj",
+        "--urls",
+        "http://localhost:5004"
+      ],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Server=localhost\\MSSQLSERVER02;Database=PlantsIMS2_Scratch_OverageBrowser_20261008;Trusted_Connection=True;TrustServerCertificate=True;"
+      },
+      "port": 5004
+    },
+    {
+      "name": "psm-dashboard-empty",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--no-build",
+        "-c",
+        "Release",
+        "--no-launch-profile",
+        "--project",
+        "PlantStockManager.csproj",
+        "--urls",
+        "http://localhost:5005"
+      ],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Server=localhost\\MSSQLSERVER02;Database=PlantsIMS2_Scratch_DashEmpty_20261007;Trusted_Connection=True;TrustServerCertificate=True;"
+      },
+      "port": 5005
+    },
+    {
+      "name": "psm-dailyops",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--no-build",
+        "-c",
+        "Release",
+        "--no-launch-profile",
+        "--project",
+        "PlantStockManager.csproj",
+        "--urls",
+        "http://localhost:5004"
+      ],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Server=localhost\\MSSQLSERVER02;Database=PlantsIMS2_Scratch_DailyOps_20261009;Trusted_Connection=True;TrustServerCertificate=True;"
+      },
+      "port": 5004
+    },
+    {
+      "name": "psm-transplant",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--no-build",
+        "-c",
+        "Release",
+        "--no-launch-profile",
+        "--project",
+        "PlantStockManager.csproj",
+        "--urls",
+        "http://localhost:5004"
+      ],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Server=localhost\\MSSQLSERVER02;Database=PlantsIMS2_Scratch_TransplantRb_20261009;Trusted_Connection=True;TrustServerCertificate=True;"
+      },
+      "port": 5004
+    },
+    {
+      "name": "psm-audit",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--no-build",
+        "-c",
+        "Release",
+        "--no-launch-profile",
+        "--project",
+        "PlantStockManager.csproj",
+        "--urls",
+        "http://localhost:5004"
+      ],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Server=localhost\\MSSQLSERVER02;Database=PlantsIMS2_Scratch_Smoke_20261010;Trusted_Connection=True;TrustServerCertificate=True;"
+      },
+      "port": 5004
+    },
+    {
+      "name": "psm-release-candidate",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--no-build",
+        "-c",
+        "Release",
+        "--no-launch-profile",
+        "--project",
+        "C:/Users/hp/AppData/Local/Temp/psmrc/PlantStockManager.csproj",
+        "--urls",
+        "http://localhost:5004"
+      ],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Server=localhost\\MSSQLSERVER02;Database=PlantsIMS2_Scratch_R3Rel3_20261010;Trusted_Connection=True;TrustServerCertificate=True;"
+      },
+      "port": 5004
+    },
+    {
+      "name": "psm-bedsowing",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--no-build",
+        "-c",
+        "Release",
+        "--no-launch-profile",
+        "--project",
+        "PlantStockManager.csproj",
+        "--urls",
+        "http://localhost:5004"
+      ],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Server=localhost\\MSSQLSERVER02;Database=PlantsIMS2_Scratch_RemBrowser_20261011;Trusted_Connection=True;TrustServerCertificate=True;"
+      },
+      "port": 5004
+    },
+    {
+      "name": "psm-wf19",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": [
+        "run",
+        "--no-build",
+        "-c",
+        "Release",
+        "--no-launch-profile",
+        "--project",
+        "PlantStockManager.csproj",
+        "--urls",
+        "http://localhost:5004"
+      ],
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ConnectionStrings__DefaultConnection": "Server=localhost\\MSSQLSERVER02;Database=PlantsIMS2_Scratch_Wf19Browser_20261012;Trusted_Connection=True;TrustServerCertificate=True;",
+        "SeedlingWorkflow__EnforceAreaScope": "true",
+        "DailyReportWhatsApp__Enabled": "false",
+        "Sendvise__ApiKey": ""
+      },
+      "port": 5004
     }
   ]
 }

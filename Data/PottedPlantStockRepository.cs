@@ -351,6 +351,30 @@ VALUES
             return (true, null);
         }
 
+        // 2026-10-17 (Mother Plant & Cutting > Ready Stock): the pot batches confirmed READY into each of these pools -- the
+        // pools' lineage, newest first (read only; the balances come from the pool rows themselves).
+        public sealed record ReadySource(int PoolId, int BatchId, string BatchCode, DateTime? ReadyDateUtc, decimal ReadyQuantity, bool FromReadyStock);
+
+        public async Task<List<ReadySource>> GetReadySourcesAsync(IReadOnlyCollection<int> poolIds)
+        {
+            var list = new List<ReadySource>();
+            if (poolIds.Count == 0) return list;
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            var rsSource = await PotBatchSchema.ReadyStockSourceAsync(conn);
+            using var cmd = new SqlCommand(@"
+SELECT b.PottedPlantStockId, b.Id, b.BatchCode, b.ReadyDate, ISNULL(b.ReadyQuantity, 0), "
+                + (rsSource ? "CASE WHEN b.SourceReadyStockId IS NULL THEN 0 ELSE 1 END" : "0") + @"
+FROM dbo.PotProductionBatches b
+WHERE b.Status = N'Ready' AND b.PottedPlantStockId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Pools, ','))
+ORDER BY b.ReadyDate DESC, b.Id DESC", conn);
+            cmd.Parameters.AddWithValue("@Pools", string.Join(",", poolIds));
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                list.Add(new ReadySource(r.GetInt32(0), r.GetInt32(1), r.GetString(2), r.IsDBNull(3) ? null : r.GetDateTime(3), r.GetDecimal(4), r.GetInt32(5) == 1));
+            return list;
+        }
+
         public async Task<List<PottedPlantStockTransaction>> GetTransactionsAsync(int pottedPlantStockId)
         {
             var list = new List<PottedPlantStockTransaction>();

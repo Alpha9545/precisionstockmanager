@@ -1,10 +1,11 @@
 @page "{id:int}"
 @model PlantStockManager.Pages.Production.Transplanting.CreateModel
+@inject PlantStockManager.Data.DatabaseHelper CavityDb
 @using PlantStockManager.Services
 @{
     ViewData["Title"] = "Transplant into Trays";
     var s = Model.Source;
-    var cavities = TransplantRules.TargetCavityTypes.ToDictionary(c => c, c => DirectSowingRules.CavityCount(c) ?? 0);
+    var cavities = (await PlantStockManager.Data.WorkflowCorrectionsSchema.SelectableCavitiesAsync(CavityDb)).ToDictionary(c => c, c => DirectSowingRules.CavityCount(c) ?? 0);
 }
 
 <div class="container mt-4">
@@ -14,8 +15,9 @@
             <small class="text-muted">
                 @if (Model.ToSowingApprovals)
                 {
-                    <text>The plants become a growing tray batch in Sowing Approvals (complete trays only); its Ready Date = transplant date + the variety's Ready Days.
-                    The batch gives up the plants used (transplanted + lost); the empty trays come from the polyhouse's Tray Stock.</text>
+                    <text>Enter the seedlings to process: complete trays of the chosen cavity become a growing tray batch in Sowing Approvals
+                    (Ready Date = transplant date + the variety's Ready Days) and the remainder is recorded as waste in the same save.
+                    The empty trays come from @(Model.AreaOnly ? "this Mother Plant Area's" : "the polyhouse's") Tray Stock; no Cocopeat / Pitmos is used.</text>
                 }
                 else
                 {
@@ -56,43 +58,83 @@
                             <span asp-validation-for="TargetCavityType" class="text-danger small"></span>
                             <div class="form-text" id="trays-available"></div>
                         </div>
-                        <div class="col-md-4">
-                            <label asp-for="TransplantedQuantity" class="form-label fw-bold">Plants transplanted</label>
-                            <input asp-for="TransplantedQuantity" type="number" min="1" step="1" class="form-control" id="transplanted" required />
-                            <span asp-validation-for="TransplantedQuantity" class="text-danger small"></span>
-                        </div>
-                        <div class="col-md-4">
-                            <label asp-for="LostQuantity" class="form-label">Lost / damaged <span class="text-muted">(if any)</span></label>
-                            <input asp-for="LostQuantity" type="number" min="0" step="1" class="form-control" id="lost" />
-                            <span asp-validation-for="LostQuantity" class="text-danger small"></span>
-                        </div>
+                        @if (Model.ToSowingApprovals)
+                        {
+                            <div class="col-md-4">
+                                <label asp-for="ProcessQuantity" class="form-label fw-bold">Seedlings to process</label>
+                                <input asp-for="ProcessQuantity" asp-format="{0:0}" type="number" min="1" step="1" max="@((int)s.AvailableQuantity)" class="form-control" id="process" required />
+                                <span asp-validation-for="ProcessQuantity" class="text-danger small"></span>
+                                <div class="form-text">Default: all @Qty(s.AvailableQuantity) available. Fewer leaves the rest in this batch (not waste).</div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="col-md-4">
+                                <label asp-for="TransplantedQuantity" class="form-label fw-bold">Plants transplanted</label>
+                                <input asp-for="TransplantedQuantity" type="number" min="1" step="1" class="form-control" id="transplanted" required />
+                                <span asp-validation-for="TransplantedQuantity" class="text-danger small"></span>
+                            </div>
+                            <div class="col-md-4">
+                                <label asp-for="LostQuantity" class="form-label">Lost / damaged <span class="text-muted">(if any)</span></label>
+                                <input asp-for="LostQuantity" type="number" min="0" step="1" class="form-control" id="lost" />
+                                <span asp-validation-for="LostQuantity" class="text-danger small"></span>
+                            </div>
+                        }
                         <div class="col-md-4">
                             <label asp-for="TransplantDate" class="form-label fw-bold">Transplant date</label>
                             <input asp-for="TransplantDate" type="date" class="form-control" id="date" max="@AppClock.Today.ToString("yyyy-MM-dd")" required />
                             <span asp-validation-for="TransplantDate" class="text-danger small"></span>
                         </div>
-                        <div class="col-md-4">
-                            <label asp-for="TargetPolyhouseId" class="form-label fw-bold">Polyhouse</label>
-                            <select asp-for="TargetPolyhouseId" class="form-select" id="polyhouse" required>
-                                @if (Model.TargetPolyhouses.Count != 1) { <option value="">-- choose --</option> }
-                                @foreach (var p in Model.TargetPolyhouses) { <option value="@p.Id">@p.Name</option> }
-                            </select>
-                            <span asp-validation-for="TargetPolyhouseId" class="text-danger small"></span>
-                        </div>
+                        @if (!Model.AreaOnly)
+                        {
+                            <div class="col-md-4">
+                                <label asp-for="TargetPolyhouseId" class="form-label fw-bold">Polyhouse</label>
+                                <select asp-for="TargetPolyhouseId" class="form-select" id="polyhouse" required>
+                                    @if (Model.TargetPolyhouses.Count != 1) { <option value="">-- choose --</option> }
+                                    @foreach (var p in Model.TargetPolyhouses) { <option value="@p.Id">@p.Name</option> }
+                                </select>
+                                <span asp-validation-for="TargetPolyhouseId" class="text-danger small"></span>
+                            </div>
+                        }
                         <div class="col-md-4">
                             <label asp-for="Notes" class="form-label">Notes</label>
                             <input asp-for="Notes" class="form-control" maxlength="500" />
                         </div>
+                        @if (Model.ToSowingApprovals)
+                        {
+                            <div class="col-md-8" id="waste-reason-group">
+                                <label asp-for="WasteReason" class="form-label fw-bold">Waste reason <span class="text-muted fw-normal" id="waste-reason-hint">(required when seedlings are wasted)</span></label>
+                                <input asp-for="WasteReason" class="form-control" maxlength="@TransplantRules.MaxWasteReasonLength" id="waste-reason" />
+                                <span asp-validation-for="WasteReason" class="text-danger small"></span>
+                            </div>
+                            @if (Model.WasteOnlyAvailable)
+                            {
+                                <div class="col-md-4 d-flex align-items-end">
+                                    <div class="form-check">
+                                        <input asp-for="DiscardAll" class="form-check-input" id="discard-all" />
+                                        <label class="form-check-label small" for="discard-all">@TransplantRules.WasteOnlyConfirmation</label>
+                                    </div>
+                                </div>
+                            }
+                        }
                     </div>
+
+                    <div class="row g-3 mt-1"><partial name="~/Pages/Production/SeedSowing/_TrayAvailability.cshtml" /></div>
 
                     <div class="alert alert-light border mt-3 mb-0" id="preview" aria-live="polite"
                          data-days="@(Model.ReadyDays?.ToString() ?? "")" data-whole="@(Model.ToSowingApprovals ? "1" : "0")">
                         <div class="row g-2 small">
-                            <div class="col-6 col-md-3">Output trays<br /><strong id="p-trays">-</strong></div>
-                            <div class="col-6 col-md-3">Ready Date<br /><strong id="p-ready">-</strong></div>
-                            <div class="col-6 col-md-3">Empty trays here<br /><strong id="p-have">-</strong></div>
-                            <div class="col-6 col-md-3">Left in this batch<br /><strong id="p-left">-</strong></div>
+                            <div class="col-6 col-md-2">Complete trays<br /><strong id="p-trays">-</strong></div>
+                            @if (Model.ToSowingApprovals)
+                            {
+                                <div class="col-6 col-md-2">Transplanted<br /><strong id="p-transplanted">-</strong></div>
+                                <div class="col-6 col-md-2">Waste<br /><strong id="p-waste">-</strong></div>
+                            }
+                            <div class="col-6 col-md-2">Ready Date<br /><strong id="p-ready">-</strong></div>
+                            <div class="col-6 col-md-2">Empty trays here<br /><strong id="p-have">-</strong></div>
+                            <div class="col-6 col-md-2">Left in this batch<br /><strong id="p-left">-</strong></div>
                         </div>
+                        <div class="small mt-2 fw-semibold" id="p-summary"></div>
                         <div class="small mt-2" id="p-check"></div>
                         @if (Model.ToSowingApprovals && Model.ReadyDays == null)
                         {
@@ -112,11 +154,15 @@
 </div>
 
 @section Scripts {
+    <script src="~/js/tray-availability.js" asp-append-version="true"></script>
     <script>
         $(function () {
             const trays = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.TrayBalances));
             const available = parseInt($('#available').data('value') || '0', 10);
             const days = parseInt($('#preview').attr('data-days'), 10);
+            const areaOnly = @(Model.AreaOnly ? "true" : "false");   // 2026-10-14: the Area's tray pool, no Polyhouse
+            const poolKey = () => (areaOnly ? 'area' : $('#polyhouse').val()) + '|' + $('#cavity').val();
+            const located = () => (areaOnly || $('#polyhouse').val()) && $('#cavity').val();
             const wholeOnly = $('#preview').attr('data-whole') === '1';
             const fmt = n => Number(n).toLocaleString('en-IN');
             const int = sel => { const v = $(sel).val(); return v === '' || v == null ? null : parseInt(v, 10); };
@@ -126,26 +172,63 @@
                 const p = d.split('-').map(Number), dt = new Date(Date.UTC(p[0], p[1] - 1, p[2] + days));
                 return String(dt.getUTCDate()).padStart(2, '0') + '-' + String(dt.getUTCMonth() + 1).padStart(2, '0') + '-' + dt.getUTCFullYear();
             }
-            function recalc() {
+            function recalcLegacy() {
                 const size = parseInt($('#cavity option:selected').data('size') || '0', 10);
                 const t = int('#transplanted'), lost = int('#lost') ?? 0;
-                const have = trays[$('#polyhouse').val() + '|' + $('#cavity').val()] ?? 0;
-                $('#p-have').text($('#polyhouse').val() && $('#cavity').val() ? fmt(have) : '-');
+                const have = trays[poolKey()] ?? 0;
+                $('#p-have').text(located() ? fmt(have) : '-');
                 $('#p-left').text(t !== null ? `${fmt(available - t - lost)} plants` : '-');
                 if (!(size && t > 0)) { $('#p-trays,#p-ready').text('-'); $('#p-check').text(''); return; }
-                const full = Math.floor(t / size), last = t - full * size;
-                // complete trays only on the tray-batch path; otherwise the last tray may be partial (ceiling)
-                const n = wholeOnly ? full : Math.ceil(t / size);
-                $('#p-trays').text(!wholeOnly && last > 0 ? `${fmt(full)} full + 1 with ${fmt(last)}` : fmt(n));
-                $('#p-ready').text(wholeOnly ? readyDate() : '-');
+                const full = Math.floor(t / size), last = t - full * size, n = Math.ceil(t / size);
+                $('#p-trays').text(last > 0 ? `${fmt(full)} full + 1 with ${fmt(last)}` : fmt(n));
+                $('#p-ready').text('-');
                 const msgs = [];
-                if (wholeOnly && last > 0) msgs.push(`${fmt(t)} plants do not fill complete trays: use ${fmt(full * size)} (${fmt(full)} trays); the rest stays in this batch.`);
                 if (t + lost > available) msgs.push(`Only ${fmt(available)} plants are available.`);
                 if (n > have) msgs.push(`${fmt(n)} empty trays needed, ${fmt(have)} in Tray Stock.`);
                 $('#p-check').html(msgs.length ? '<span class="text-danger">' + msgs.join(' ') + '</span>' : '<span class="text-success">OK to save.</span>');
             }
-            $('#cavity,#polyhouse,#transplanted,#lost,#date').on('input change', recalc);
+            // 2026-10-16: processed -> complete trays (transplanted) + waste (remainder); the unprocessed rest stays.
+            function recalc() {
+                if (!wholeOnly) { recalcLegacy(); return; }
+                const discard = $('#discard-all').is(':checked');
+                const size = parseInt($('#cavity option:selected').data('size') || '0', 10);
+                const q = int('#process');
+                const have = trays[poolKey()] ?? 0;
+                $('#cavity').prop('required', !discard);
+                $('#p-have').text(located() ? fmt(have) : '-');
+                $('#p-left').text(q !== null ? `${fmt(available - q)} plants` : '-');
+                const msgs = [];
+                let n = 0, t = 0, w = 0;
+                if (q > 0 && discard) { w = q; }
+                else if (q > 0 && size) { n = Math.floor(q / size); t = n * size; w = q - t; }
+                const known = q > 0 && (discard || size);
+                $('#p-trays').text(known ? fmt(n) : '-');
+                $('#p-transplanted').text(known ? fmt(t) : '-');
+                $('#p-waste').text(known ? fmt(w) : '-');
+                $('#p-ready').text(n > 0 ? readyDate() : '-');
+                $('#waste-reason').prop('required', w > 0);
+                $('#waste-reason-hint').text(w > 0 ? `(required: ${fmt(w)} seedlings will be wasted)` : '(required when seedlings are wasted)');
+                if (!(q > 0)) { $('#p-summary,#p-check').text(''); return; }
+                if (q > available) msgs.push(`Only ${fmt(available)} plants are available.`);
+                if (!discard && size && n === 0) msgs.push(`${fmt(q)} seedlings do not fill one tray of ${size}: choose a smaller cavity${$('#discard-all').length ? ', or confirm they are discarded as waste' : ''}.`);
+                if (n > have) msgs.push(`${fmt(n)} empty trays needed, ${fmt(have)} in Tray Stock.`);
+                if (w > 0 && !$('#waste-reason').val().trim()) msgs.push('Enter the waste reason.');
+                $('#p-summary').text(discard ? `No tray batch: all ${fmt(w)} seedlings will be recorded as waste.`
+                    : n > 0 ? `${fmt(t)} seedlings will be transplanted into ${fmt(n)} trays` + (w > 0 ? `; the remaining ${fmt(w)} will be recorded as waste.` : '.')
+                    : '');
+                $('#p-check').html(msgs.length ? '<span class="text-danger">' + msgs.join(' ') + '</span>' : '<span class="text-success">OK to save.</span>');
+            }
+            $('#cavity,#polyhouse,#transplanted,#lost,#date,#process,#waste-reason,#discard-all').on('input change', recalc);
             recalc();
+            // Empty trays of the chosen cavity in this batch's own Mother Plant Area pool (server balance); only complete
+            // trays take a tray, and a waste-only closure takes none.
+            if ($('#transplant-form').length) initTrayAvailability({
+                url: '@Url.Page("/Production/Transplanting/Create", new { id = s.Id })',
+                params: () => ({ cavityType: $('#cavity').val(), polyhouseId: $('#polyhouse').val() || '',
+                    quantity: (wholeOnly ? $('#process').val() : $('#transplanted').val()) || 0, discard: $('#discard-all').is(':checked') }),
+                triggers: '#cavity, #polyhouse, #process, #transplanted, #discard-all',
+                guard: () => document.getElementById(wholeOnly ? 'process' : 'transplanted')
+            });
             $('#transplant-form').on('submit', function () { if (this.checkValidity()) $('#saveBtn').prop('disabled', true); });
         });
     </script>

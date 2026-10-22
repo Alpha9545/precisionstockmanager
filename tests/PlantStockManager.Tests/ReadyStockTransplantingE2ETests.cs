@@ -37,6 +37,10 @@ namespace PlantStockManager.Tests
 
         private sealed class Env
         {
+            // 2026-10-16: with 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql a transfer / transplant to the Mother
+            // Plant Area stores NO Polyhouse, even when one is posted; before it, the posted Polyhouse (MpP1).
+            public bool AreaOnly;
+            public int? MpPolyhouse => AreaOnly ? null : MpP1;
             public string ConnectionString { get; init; } = "";
             public ServiceProvider Provider { get; init; } = null!;
             public int Species { get; init; }
@@ -81,8 +85,10 @@ WHERE ReadyStockId = @Id AND TransactionType NOT IN ('Reservation', 'Reservation
                 Assert.Equal(b.InTransit, hold);
             }
 
+            // 2026-10-14: with 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql a Mother Plant Area holds ONE tray pool
+            // (no Polyhouse) that every one of its Polyhouses uses; before it, the Polyhouse's own pool. Both are counted.
             public Task<decimal> TraysAsync(int polyhouse, string cavity)
-                => ScalarAsync<decimal>("SELECT ISNULL(SUM(PhysicalQuantity), 0) FROM dbo.TrayStock WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = @C AND IsActive = 1",
+                => ScalarAsync<decimal>("SELECT ISNULL(SUM(PhysicalQuantity), 0) FROM dbo.TrayStock WHERE AreaId = @A AND (PolyhouseId = @P OR PolyhouseId IS NULL) AND TraySize = @C AND IsActive = 1",
                     ("@A", MpArea), ("@P", polyhouse), ("@C", cavity));
         }
 
@@ -114,6 +120,7 @@ WHERE ReadyStockId = @Id AND TransactionType NOT IN ('Reservation', 'Reservation
             var provider = services.BuildServiceProvider();
 
             var env = new Env { ConnectionString = cs!, Provider = provider };
+            env.AreaOnly = await env.ScalarAsync<int>(MotherPlantAreaSchema.ProbeSql) == 1;
             var species = await env.ScalarAsync<int>("SELECT SpeciesId FROM dbo.MotherPlants WHERE Id = @M", ("@M", MotherPlantForSpecies));
             var seedStockId = await env.ScalarAsync<int>("SELECT TOP 1 Id FROM dbo.SeedStock WHERE SpeciesId = @S AND AreaId = @A", ("@S", species), ("@A", MainArea));
             if (seedStockId == 0)
@@ -124,7 +131,7 @@ WHERE ReadyStockId = @Id AND TransactionType NOT IN ('Reservation', 'Reservation
             }
             await env.ExecAsync("UPDATE dbo.SeedStock SET InTransitQuantity = 0, PhysicalQuantity = 1000000 WHERE Id = @Id", ("@Id", seedStockId));
             var cocopeat = await env.ScalarAsync<int>("SELECT Id FROM dbo.MaterialTypes WHERE Code = 'COCOPEAT'");
-            return new Env { ConnectionString = cs!, Provider = provider, Species = species, SeedStockId = seedStockId, Cocopeat = cocopeat };
+            return new Env { ConnectionString = cs!, Provider = provider, Species = species, SeedStockId = seedStockId, Cocopeat = cocopeat, AreaOnly = env.AreaOnly };
         }
 
         // A Main Area sowing of `plants` (default 24 Cavity) approved in full -> its Ready Stock batch id.
@@ -148,8 +155,9 @@ WHERE ReadyStockId = @Id AND TransactionType NOT IN ('Reservation', 'Reservation
             return await env.ScalarAsync<int>("SELECT Id FROM dbo.ReadyStock WHERE SeedSowingId = @S AND OriginType = N'Sowing'", ("@S", sowingId));
         }
 
+        // 2026-10-14: sent for transplanting (the purpose is required -- and only used -- once the 2026-10-14 migration is applied).
         private static MotherPlantTransferRepository.CreateRequest Send(int batch, decimal qty, int? area = MpArea, int? polyhouse = MpP1, Guid? token = null)
-            => new(batch, qty, area, polyhouse, AppClock.Today, "test transfer", token ?? Guid.NewGuid());
+            => new(batch, qty, area, polyhouse, AppClock.Today, "test transfer", token ?? Guid.NewGuid(), MotherPlantTransferRules.PurposeTrayTransplant);
 
         // arrivedUtc (2026-10-10): when the trays arrived -- a back-dated transplant may only use trays that
         // were there on its date (TrayStockRepository.AvailableFromAsync), so such tests stock them earlier.
@@ -281,7 +289,7 @@ WHERE ReadyStockId = @Id AND TransactionType NOT IN ('Reservation', 'Reservation
             Assert.Equal(main, batch.ParentReadyStockId);
             Assert.Equal(id, batch.OriginReferenceId);
             Assert.Equal(MpArea, batch.AreaId);
-            Assert.Equal(MpP1, batch.PolyhouseId);
+            Assert.Equal(env.MpPolyhouse, batch.PolyhouseId);
             Assert.Equal((await env.Get<ReadyStockRepository>().GetByIdAsync(main))!.SeedSowingId, batch.SeedSowingId);   // original sowing kept
             Assert.Equal(1, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ReadyStock WHERE OriginType = N'Transfer' AND OriginReferenceId = @T", ("@T", id)));
             Assert.Equal(MotherPlantTransferRules.StatusCompleted, (await env.Transfers.GetAsync(id))!.Status);
@@ -341,7 +349,8 @@ WHERE ReadyStockId = @Id AND TransactionType NOT IN ('Reservation', 'Reservation
 
         private static TransplantRepository.CreateRequest Plant(int source, decimal selected, decimal transplanted, decimal lost,
             string cavity = "9 Cavity", int? polyhouse = MpP1, Guid? token = null)
-            => new(source, MpArea, polyhouse, cavity, selected, transplanted, lost, AppClock.Today, "test transplant", token ?? Guid.NewGuid());
+            => new(source, MpArea, polyhouse, cavity, selected, transplanted, lost, AppClock.Today, "test transplant", token ?? Guid.NewGuid(),
+                lost > 0 ? "test loss" : null);   // 2026-10-16: waste needs a reason
 
         [SkippableFact]
         public async Task Transplant_TransformsStock_ExactPlants_PartialLastTray_TraysConsumed_LossSeparate()
@@ -393,9 +402,9 @@ WHERE ReadyStockId = @Id AND TransactionType NOT IN ('Reservation', 'Reservation
             if (tray42 < needed)
                 await Refused(Plant(received, plants42, plants42, 0, "42 Cavity", MpP2), "Not enough empty");
             if (trayBatchPath)
-                await Refused(Plant(received, 100, 100, 0, "24 Cavity"), "do not fill complete 24 Cavity trays");
+                await Refused(Plant(received, 100, 100, 0, "24 Cavity"), "4 seedlings do not fill a complete tray and will be recorded as waste: enter the reason");
             await Refused(Plant(received, 300, 300, 0), "available");
-            await Refused(Plant(received, 100, 90, 5), "must equal");
+            await Refused(Plant(received, 100, 90, 5), trayBatchPath ? "do not match" : "must equal");
             await Refused(Plant(received, 10, 10, 0, "10 Cavity"), "Target tray");
             await Refused(Plant(received, 10, 10, 0), "not allowed", _ => false);
             await Refused(Plant(received, 10, 10, 0) with { TargetAreaId = MainArea, TargetPolyhouseId = MainPolyhouse }, "Mother Plant Area");
@@ -533,7 +542,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", quantity), (
             Assert.Equal((450m, 150m, 0m, 0m, 300m), await env.BatchAsync(main));
             Assert.Equal((600m, 0m, 0m, 0m, 600m), await env.BatchAsync(received!.Value));
             var rb = (await env.Get<ReadyStockRepository>().GetByIdAsync(received.Value))!;
-            Assert.Equal((MpArea, (int?)MpP1, "150 Cavity", main, ReadyStock.OriginTransfer), (rb.AreaId, rb.PolyhouseId, rb.CavityType, rb.ParentReadyStockId!.Value, rb.OriginType));
+            Assert.Equal((MpArea, env.MpPolyhouse, "150 Cavity", main, ReadyStock.OriginTransfer), (rb.AreaId, rb.PolyhouseId, rb.CavityType, rb.ParentReadyStockId!.Value, rb.OriginType));
 
             // STEP 5: transplant 485 selected = 480 transplanted + 5 lost into 24-cavity trays -> exactly 20 trays.
             // Tray-batch path (2026-10-13): the batch is approved only from its Ready Date (transplant date +
@@ -549,7 +558,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", quantity), (
             var trays0 = await env.TraysAsync(MpP1, "24 Cavity");
             var owned0 = await OwnedAsync(env, main, received.Value);
             var (tOk, tMsg, tid, _) = await env.Transplants.CreateAsync(new TransplantRepository.CreateRequest(received.Value, MpArea, MpP1, "24 Cavity",
-                485, 480, 5, transplantOn, "acceptance", Guid.NewGuid()), Actor, Any);
+                485, 480, 5, transplantOn, "acceptance", Guid.NewGuid(), "acceptance loss"), Actor, Any);
             Assert.True(tOk, tMsg);
             var t = (await env.Transplants.GetAsync(tid))!;
             Assert.Equal((20, 485m, 480m, 5m, "24 Cavity"), (t.OutputTrays, t.SelectedQuantity, t.TransplantedQuantity, t.LostQuantity, t.TargetCavityType));
@@ -559,7 +568,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", quantity), (
                 // 2026-10-13: a 20-tray growing batch in Sowing Approvals; Ready Stock only once it is approved.
                 Assert.Null(t.OutputReadyStockId);
                 var sw = (await env.Get<SeedSowingRepository>().GetByIdAsync(t.OutputSeedSowingId!.Value))!;
-                Assert.Equal((SeedSowing.SourceTransplant, (int?)20, 480m, MpArea, (int?)MpP1, "Sown"), (sw.SourceType, sw.NumberOfTrays, sw.QuantitySown, sw.AreaId, sw.PolyhouseId, sw.Status));
+                Assert.Equal((SeedSowing.SourceTransplant, (int?)20, 480m, MpArea, env.MpPolyhouse, "Sown"), (sw.SourceType, sw.NumberOfTrays, sw.QuantitySown, sw.AreaId, sw.PolyhouseId, sw.Status));
                 Assert.Equal(600m, (await env.BatchAsync(received.Value)).Qty + 480 + 5);
                 Assert.Equal(trays0 - 20, await env.TraysAsync(MpP1, "24 Cavity"));
                 Assert.Equal(owned0 - 480 - 5, await OwnedAsync(env, main, received.Value));     // 480 growing in trays, 5 lost
@@ -575,7 +584,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", quantity), (
                 var lin = await env.Get<ReadyStockRepository>().GetLineageAsync(output);
                 Assert.Equal(new[] { main, received.Value, output }, lin.Select(b => b.Id));
                 Assert.Equal(new[] { ReadyStock.OriginSowing, ReadyStock.OriginTransfer, ReadyStock.OriginSowing }, lin.Select(b => b.OriginType));
-                Assert.Equal((MpArea, (int?)MpP1, "24 Cavity", env.Species, (int?)sw.Id), (lin[2].AreaId, lin[2].PolyhouseId, lin[2].CavityType, lin[2].SpeciesId, lin[2].SeedSowingId));
+                Assert.Equal((MpArea, env.MpPolyhouse, "24 Cavity", env.Species, (int?)sw.Id), (lin[2].AreaId, lin[2].PolyhouseId, lin[2].CavityType, lin[2].SpeciesId, lin[2].SeedSowingId));
             }
             else
             {
@@ -593,7 +602,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", ("@S", env.Species), ("@Q", quantity), (
             Assert.Equal(new[] { ReadyStock.OriginSowing, ReadyStock.OriginTransfer, ReadyStock.OriginTransplant }, lineage.Select(b => b.OriginType));
             Assert.Equal(lineage[0].SeedSowingId, lineage[2].SeedSowingId);
             var ob = lineage[2];
-            Assert.Equal((MpArea, (int?)MpP1, "24 Cavity", env.Species), (ob.AreaId, ob.PolyhouseId, ob.CavityType, ob.SpeciesId));
+            Assert.Equal((MpArea, env.MpPolyhouse, "24 Cavity", env.Species), (ob.AreaId, ob.PolyhouseId, ob.CavityType, ob.SpeciesId));
             }
 
             // STEP 7: the transplanted stock follows the existing booking / dispatch workflow.
@@ -850,8 +859,10 @@ WHERE {keyColumn} = @K AND (@RT IS NULL OR (ReferenceType = @RT AND ReferenceId 
             return received;
         }
 
+        // 2026-10-14: these are Mother Plant Areas -- their ONE active Area pool once 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql
+        // is applied (inactive, so not counted, before it), the Polyhouse pool otherwise.
         private static Task<decimal> PoolAsync(Env env, int area, int polyhouse, string cavity)
-            => env.ScalarAsync<decimal>("SELECT ISNULL(SUM(PhysicalQuantity), 0) FROM dbo.TrayStock WHERE AreaId = @A AND PolyhouseId = @P AND TraySize = @C",
+            => env.ScalarAsync<decimal>("SELECT ISNULL(SUM(PhysicalQuantity), 0) FROM dbo.TrayStock WHERE AreaId = @A AND (PolyhouseId = @P OR (PolyhouseId IS NULL AND IsActive = 1)) AND TraySize = @C",
                 ("@A", area), ("@P", polyhouse), ("@C", cavity));
 
         [SkippableFact]
@@ -1099,9 +1110,10 @@ WHERE r.ReferenceType = N'InternalTransfer' AND r.ReferenceId = @Id AND r.Transa
             // transfer B: 48 sent 2 days ago, cancelled today
             var (_, _, bId, _) = await env.Transfers.CreateAsync(Send(main, 48) with { TransferDate = today.AddDays(-2) }, Actor, Any);
             Assert.True((await env.Transfers.CancelAsync(bId, "not needed", Actor, Any)).Success);
-            // transplanting today (95 + 5 lost; 90 + 10 on the tray-batch path -- complete trays only), reversed today
+            // transplanting today (95 + 5 lost; 99 + 1 waste on the tray-batch path -- 100 processed make 11 complete 9-cavity
+            // trays and the remainder is waste, 2026-10-16), reversed today
             await AddMpTraysAsync(env, MpP1, "9 Cavity", 15);
-            var (moved, lostHere) = await TrayBatchPathAsync(env) ? (90m, 10m) : (95m, 5m);
+            var (moved, lostHere) = await TrayBatchPathAsync(env) ? (99m, 1m) : (95m, 5m);
             var (tOk, tMsg, tp, _) = await env.Transplants.CreateAsync(Plant(received!.Value, 100, moved, lostHere), Actor, Any);
             Assert.True(tOk, tMsg);
             Assert.True((await env.Transplants.ReverseAsync(tp, "entered on the wrong batch", Actor, Any)).Success);
@@ -1176,7 +1188,7 @@ WHERE r.ReferenceType = N'InternalTransfer' AND r.ReferenceId = @Id AND r.Transa
             var sw = (await env.Get<SeedSowingRepository>().GetByIdAsync(t.OutputSeedSowingId!.Value))!;
             Assert.Equal((SeedSowing.SourceTransplant, (int?)null, (int?)5, 120m, 120m, "Sown"),
                 (sw.SourceType, sw.SupervisorId, sw.NumberOfTrays, sw.QuantitySown, sw.SeedQuantity, sw.Status));
-            Assert.Equal((MpArea, (int?)MpP1, "24 Cavity", env.Species, (int?)null), (sw.AreaId, sw.PolyhouseId, sw.CavityType, sw.SpeciesId, sw.GrowingMaterialTypeId));
+            Assert.Equal((MpArea, env.MpPolyhouse, "24 Cavity", env.Species, (int?)null), (sw.AreaId, sw.PolyhouseId, sw.CavityType, sw.SpeciesId, sw.GrowingMaterialTypeId));
             Assert.Equal((originalSowingDate.Date, transplantDate.AddDays(days), (int?)days), (sw.SowingDate.Date, sw.ExpectedReadyDate, sw.ReadyStockDays));
             Assert.Equal((int?)id, sw.TransplantId);
             Assert.True(sw.IsTransplantedBatch);
@@ -1208,7 +1220,10 @@ WHERE r.ReferenceType = N'InternalTransfer' AND r.ReferenceId = @Id AND r.Transa
 
             // BEFORE its Ready Date: refused by the server (inside the approval transaction), shown as "Approve
             // from <date>" by the same rule on the list / Confirm page, and refused by the database too.
+            // 2026-10-20: not once 2026-10-20_TransplantApprovalAnyDate.sql is applied (any date; WorkflowCorrections1020E2ETests).
             var approvals = env.Get<ReadyConfirmationRepository>();
+            if (!(await env.ScalarAsync<int>(WorkflowCorrectionsSchema.TransplantAnyDateProbeSql) == 1))
+            {
             var expectedEarly = string.Format(BedSowingRules.TransplantNotReadyYetMessageFormat, transplantDate.AddDays(days));
             var (earlyOk, earlyMsg, _) = await approvals.ConfirmAsync(sw.Id, 5, null, null, null, "transplant-test", Recorder, Any);
             Assert.False(earlyOk);
@@ -1221,6 +1236,7 @@ INSERT INTO dbo.ReadyConfirmations (ConfirmationCode, SeedSowingId, ReadyStockId
 VALUES (@C, @S, @R, 5, 120, 0, @U, SYSUTCDATETIME(), 'Confirmed', @U, SYSUTCDATETIME(), N'transplant-test')",
                 ("@C", "ZZT-" + Guid.NewGuid().ToString("N")[..10]), ("@S", sw.Id), ("@R", anyReadyStock), ("@U", Recorder)));
             Assert.Contains("transplanted from Ready Stock cannot be approved before its Ready Date", forged.Message);
+            }
             Assert.Equal(0, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ReadyStock WHERE SeedSowingId = @S", ("@S", sw.Id)));
             Assert.Equal(0, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.ReadyConfirmations WHERE SeedSowingId = @S", ("@S", sw.Id)));
 
@@ -1301,7 +1317,7 @@ VALUES (@C, @S, @R, 5, 120, 0, @U, SYSUTCDATETIME(), 'Confirmed', @U, SYSUTCDATE
             }
 
             // no fabricated seedlings and no tray count that contradicts the quantity: 30 do not fill 24-cavity trays
-            await Refused(Plant(received, 30, 30, 0, "24 Cavity"), "30 plants do not fill complete 24 Cavity trays. Transplant 24 (1 trays)");
+            await Refused(Plant(received, 30, 30, 0, "24 Cavity"), "6 seedlings do not fill a complete tray and will be recorded as waste: enter the reason");
             await Refused(Plant(received, 24, 24, 0, "24 Cavity"), "not allowed", _ => false);          // forged Area access
             try
             {

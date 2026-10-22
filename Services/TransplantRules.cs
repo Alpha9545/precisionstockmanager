@@ -49,6 +49,65 @@ namespace PlantStockManager.Services
             return (true, new Plan(trays, full, transplanted - full * cavity.Value, cavity.Value), null);
         }
 
+        // 2026-10-16 (owner): Mother Plant transplanting works like Main Office bed transplanting. The user enters the
+        // seedlings to PROCESS (default: all available) and the cavity; C = cavity, Q = processed:
+        //   complete trays = floor(Q / C), transplanted = trays x C, WASTE = Q - transplanted (reason required),
+        //   left in the batch = available - Q (the unprocessed part is NOT waste and stays available).
+        // Example: 170 received, 150 cavity, process 170 -> 1 tray, 150 transplanted, 20 waste, 0 left.
+        // Fewer seedlings than one tray make no tray batch: the user may only close them as waste, explicitly
+        // confirmed (discardAll) and with a reason -- never an empty / zero tray batch.
+        public const string WasteOnlyConfirmation =
+            "These seedlings are dead / unusable: record all of them as waste (no tray batch is made).";
+        public const int MaxWasteReasonLength = 500;
+
+        public record ProcessPlan(int Trays, decimal Transplanted, decimal Waste, decimal Processed, decimal LeftInBatch, int Cavity)
+        {
+            public bool MakesTrayBatch => Trays > 0;
+            public string Summary(string? cavityType, bool done = false)
+            {
+                var willBe = done ? "were" : "will be";
+                var left = LeftInBatch > 0 ? $" {QuantityFormat.Qty(LeftInBatch)} seedlings {(done ? "stayed" : "stay")} in the batch." : "";
+                return Trays > 0
+                    ? $"{QuantityFormat.Qty(Transplanted)} seedlings {willBe} transplanted into {Trays} {cavityType} trays"
+                      + (Waste > 0 ? $"; the remaining {QuantityFormat.Qty(Waste)} {willBe} recorded as waste." : ".") + left
+                    : $"No tray batch: all {QuantityFormat.Qty(Waste)} seedlings {willBe} recorded as waste." + left;
+            }
+        }
+
+        // sourceWholeTrayCavity: the source is a sowing batch kept in whole trays -- Q must be whole source trays.
+        public static (bool Ok, ProcessPlan? Plan, string? Error) PlanProcessing(
+            decimal available, decimal processQuantity, string? targetCavityType, bool discardAll, string? wasteReason,
+            int? sourceWholeTrayCavity = null)
+        {
+            if (processQuantity <= 0 || !DirectSowingRules.IsWholeNumber(processQuantity))
+                return (false, null, "Seedlings to process must be a whole number greater than zero.");
+            if (processQuantity > available)
+                return (false, null, $"Only {QuantityFormat.Qty(Math.Max(available, 0))} seedlings of this batch are available.");
+            if (sourceWholeTrayCavity is > 0 && processQuantity % sourceWholeTrayCavity.Value != 0)
+                return (false, null, $"This batch is a sowing batch kept in whole {sourceWholeTrayCavity.Value}-cavity trays: process a multiple of {sourceWholeTrayCavity.Value} seedlings.");
+            var reason = wasteReason?.Trim();
+            if (reason?.Length > MaxWasteReasonLength)
+                return (false, null, $"The waste reason is too long ({MaxWasteReasonLength} characters at most).");
+            if (discardAll)
+            {
+                if (string.IsNullOrEmpty(reason))
+                    return (false, null, "Enter the reason the seedlings are discarded as waste.");
+                return (true, new ProcessPlan(0, 0, processQuantity, processQuantity, available - processQuantity, 0), null);
+            }
+            var cavity = DirectSowingRules.CavityCount(targetCavityType);
+            if (cavity is null or <= 0)
+                return (false, null, $"Target tray must be one of: {string.Join(", ", TargetCavityTypes)}.");
+            var trays = (int)decimal.Floor(processQuantity / cavity.Value);
+            if (trays == 0)
+                return (false, null, $"{QuantityFormat.Qty(processQuantity)} seedlings do not fill one {targetCavityType} tray ({cavity.Value}). "
+                    + "Choose a smaller cavity, or confirm that these seedlings are discarded as waste.");
+            var transplanted = trays * (decimal)cavity.Value;
+            var waste = processQuantity - transplanted;
+            if (waste > 0 && string.IsNullOrEmpty(reason))
+                return (false, null, $"{QuantityFormat.Qty(waste)} seedlings do not fill a complete tray and will be recorded as waste: enter the reason.");
+            return (true, new ProcessPlan(trays, transplanted, waste, processQuantity, available - processQuantity, cavity.Value), null);
+        }
+
         public record Location(string? AreaType, bool AreaActive, int AreaId);
 
         public static (bool Ok, string? Error) ValidateLocations(Location source, Location target, int? targetPolyhouseAreaId)
@@ -73,13 +132,15 @@ namespace PlantStockManager.Services
 
         // availableAsOfIndia (2026-10-10): for a back-dated transplanting, the trays counted are those
         // available from that date onward (TrayStockRepository.AvailableFromAsync).
-        public static (bool Ok, string? Error) ValidateTrays(int required, decimal available, string targetCavityType, DateTime? availableAsOfIndia = null)
+        // where (2026-10-14): "the target Polyhouse", or "this Mother Plant Area" (its Area tray pool).
+        public static (bool Ok, string? Error) ValidateTrays(int required, decimal available, string targetCavityType, DateTime? availableAsOfIndia = null,
+            string where = "the target Polyhouse")
             => available >= required
                 ? (true, null)
                 : (false, availableAsOfIndia.HasValue
-                    ? $"Not enough empty {targetCavityType} trays in the target Polyhouse on {availableAsOfIndia:dd/MM/yyyy}: {required} needed, "
+                    ? $"Not enough empty {targetCavityType} trays in {where} on {availableAsOfIndia:dd/MM/yyyy}: {required} needed, "
                       + $"{QuantityFormat.Qty(Math.Max(available, 0))} available from that date onward (counting every later movement). Record the trays' arrival first, or use a later date."
-                    : $"Not enough empty {targetCavityType} trays in the target Polyhouse: {required} needed, {QuantityFormat.Qty(available)} in Tray Stock. Add Tray Stock first.");
+                    : $"Not enough empty {targetCavityType} trays in {where}: {required} needed, {QuantityFormat.Qty(available)} in Tray Stock. Add Tray Stock first.");
 
         // A transplanting can be reversed only while its output batch is untouched.
         public record Output(decimal Quantity, decimal Reserved, decimal Dispatched, decimal InTransit, int Children);

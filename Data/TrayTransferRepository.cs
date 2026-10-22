@@ -153,6 +153,8 @@ WHERE EXISTS (SELECT 1 FROM dbo.UserRoles r2
 
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
+            if (await WorkflowCorrectionsSchema.CavityNotSupportedAsync(conn, null, req.TraySize) is string cavityError)
+                return (false, cavityError, 0, null, false);
             using var tx = conn.BeginTransaction();
             try
             {
@@ -233,7 +235,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0, null, false);
+                return (false, DbErrorMessage.For(ex), 0, null, false);
             }
         }
 
@@ -280,7 +282,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -332,7 +334,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 

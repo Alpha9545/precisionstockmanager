@@ -54,7 +54,7 @@
 
     <div class="row g-2 mb-3" id="totals">
         <div class="col-6 col-md-3"><div class="border rounded p-2 bg-white"><div class="small text-muted">Transplanted (completed)</div><div class="fs-5 fw-bold">@Qty(done.Sum(r => r.TransplantedQuantity))</div></div></div>
-        <div class="col-6 col-md-3"><div class="border rounded p-2 bg-white"><div class="small text-muted">Lost / damaged</div><div class="fs-5 fw-bold">@Qty(done.Sum(r => r.LostQuantity))</div></div></div>
+        <div class="col-6 col-md-3"><div class="border rounded p-2 bg-white"><div class="small text-muted">Waste</div><div class="fs-5 fw-bold">@Qty(done.Sum(r => r.LostQuantity))</div></div></div>
         <div class="col-12 col-md-6"><div class="border rounded p-2 bg-white"><div class="small text-muted">Output by cavity (plants / trays)</div>
             <div class="small">@(done.Any() ? string.Join(" · ", done.GroupBy(r => r.TargetCavityType).OrderBy(g => DirectSowingRules.CavityCount(g.Key)).Select(g => $"{g.Key}: {Qty(g.Sum(r => r.TransplantedQuantity))} / {g.Sum(r => r.OutputTrays)}")) : "-")</div></div></div>
     </div>
@@ -63,7 +63,7 @@
         <table class="table table-sm table-striped align-middle" id="history">
             <thead class="table-light">
                 <tr><th>Code</th><th>Date</th><th>Status</th><th>Variety</th><th>Source (batch / cavity)</th><th>Target (Area / Polyhouse)</th><th>Target cavity</th>
-                    <th class="text-end">Selected</th><th class="text-end">Transplanted</th><th class="text-end">Lost</th><th class="text-end">Trays</th><th>By</th></tr>
+                    <th class="text-end">Processed</th><th class="text-end">Transplanted</th><th class="text-end">Waste</th><th class="text-end">Trays</th><th>By</th></tr>
             </thead>
             <tbody>
                 @foreach (var r in Model.Rows)
@@ -74,11 +74,11 @@
                         <td><span class="badge @(r.Status == TransplantRules.StatusCompleted ? "bg-success" : "bg-secondary")">@r.Status</span></td>
                         <td>@r.SpeciesName<div class="small text-muted">@r.PlantTypeName</div></td>
                         <td>@r.BatchNo &middot; @r.SourceCavityType<div class="small text-muted">@r.SourceAreaName / @(r.SourcePolyhouseName ?? "-") &middot; @r.SowingCode</div></td>
-                        <td>@r.AreaName / @r.PolyhouseName</td>
+                        <td>@r.AreaName / @(r.PolyhouseName ?? "Area trays")</td>
                         <td>@r.TargetCavityType</td>
                         <td class="text-end">@Qty(r.SelectedQuantity)</td>
                         <td class="text-end fw-bold">@Qty(r.TransplantedQuantity)</td>
-                        <td class="text-end">@(r.LostQuantity > 0 ? Qty(r.LostQuantity) : "-")</td>
+                        <td class="text-end">@(r.LostQuantity > 0 ? Qty(r.LostQuantity) : "-")@if (!string.IsNullOrWhiteSpace(r.WasteReason)) {<div class="small text-muted">@r.WasteReason</div>}</td>
                         <td class="text-end">@r.OutputTrays@if (r.PlantsInLastTray > 0 && r.PlantsInLastTray < r.TargetCavitySize) {<div class="small text-muted">last: @Qty(r.PlantsInLastTray)</div>}</td>
                         <td class="small">@r.CreatedBy</td>
                     </tr>

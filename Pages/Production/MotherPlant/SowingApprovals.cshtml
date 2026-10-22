@@ -1,0 +1,130 @@
+@page
+@model PlantStockManager.Pages.Production.MotherPlant.SowingApprovalsModel
+@using PlantStockManager.Pages.Production.MotherPlant
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Sowing Approvals";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+        <h2 class="mb-0">Sowing Approvals <span class="text-muted fs-6">&mdash; Mother Plant &amp; Cutting Areas</span></h2>
+        <div>
+            <a asp-page="/Production/MotherPlant/ReadyStock" class="btn btn-outline-secondary btn-sm me-2">Ready Stock</a>
+            <a asp-page="/Production/Transplanting/History" class="btn btn-outline-secondary btn-sm">Transplanting History</a>
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+
+    <ul class="nav nav-tabs" id="mp-approval-tabs">
+        <li class="nav-item">
+            <a class="nav-link @(Model.ShowPending ? "" : "active")" asp-page="/Production/MotherPlant/SowingApprovals" id="tab-approved">
+                @(Model.IsAdministrator ? "Approval history (all users)" : "Approved by me") <span class="badge bg-secondary">@Model.History.Count</span></a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link @(Model.ShowPending ? "active" : "")" asp-page="/Production/MotherPlant/SowingApprovals" asp-route-tab="@SowingApprovalsModel.TabPending" id="tab-pending">
+                Waiting for approval <span class="badge bg-warning text-dark">@Model.Items.Count</span></a>
+        </li>
+    </ul>
+    <div class="border border-top-0 p-2 mb-4">
+    @if (!Model.ShowPending)
+    {
+        <p class="text-muted small mb-2" id="approved-help">
+            @if (Model.IsAdministrator)
+            {
+                <text>Approval history of <strong>all users</strong> (administrator view): every tray batch transplanted, and every Direct
+                Sowing recorded, in a Mother Plant Area that has been approved, newest first, with who approved it in <strong>Approved by</strong>.</text>
+            }
+            else
+            {
+                <text>Your own approval history: the tray batches transplanted, and the Direct Sowings recorded, in a Mother Plant Area that
+                <strong>you</strong> approved, newest first, wherever their Ready Stock is now. Batches approved by another supervisor are not listed here.</text>
+            }
+            Batches still waiting for approval are under <a asp-page="/Production/MotherPlant/SowingApprovals" asp-route-tab="@SowingApprovalsModel.TabPending">Waiting for approval</a>.
+        </p>
+        <partial name="/Pages/Production/ReadyConfirmation/_ApprovalHistory.cshtml" model='new PlantStockManager.Pages.Production.ReadyConfirmation.ApprovalHistoryView(Model.History, Model.IsAdministrator, true, "mp-approved")' />
+    }
+    else
+    {
+        <p class="text-muted small mb-2" id="pending-help">
+            @if (Model.IsAdministrator)
+            {
+                <text>Every tray batch transplanted, and every Direct Sowing recorded, in a Mother Plant Area that is waiting for approval
+                (administrator view), with who approves it.</text>
+            }
+            else
+            {
+                <text>The tray batches transplanted, and the Direct Sowings recorded, in your Mother Plant Areas that are waiting for approval
+                and that <strong>you</strong> may approve, whoever recorded them -- every Area Supervisor of an Area sees that Area's batches,
+                and any one of them approves each batch once. Batches you may not approve are not listed.</text>
+            }
+            @(Model.Settings.TransplantAnyDate
+                ? "A transplant batch may be approved on any date -- before, on or after its Ready Date, which stays recorded as it is."
+                : "A transplant batch is approved from its Ready Date.")
+            A Direct Sowing follows the Direct Sowing rule (no Ready Date gate; its Ready Date is the Sowing Date + the variety's growing days).
+            A batch becomes the Area's Ready Stock when it is approved.
+        </p>
+        @if (!Model.AreaNames.Any())
+        {
+            <div class="alert alert-warning" id="no-areas">You are not assigned to any Mother Plant / Cutting Area.</div>
+        }
+        else
+        {
+            <div class="small text-muted mb-2">Your Areas: @string.Join(", ", Model.AreaNames)</div>
+        }
+        <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle" id="mp-approvals">
+                <thead class="table-light">
+                    <tr>
+                        <th>Batch No.</th><th>Workflow</th><th>Variety</th><th>Source batch</th><th>Mother Plant Area</th><th>Cavity</th>
+                        <th class="text-end">Trays</th><th class="text-end">Plants</th><th>Transplant / sowing date</th><th>Ready Date</th>
+                        <th>Status</th><th>Who approves</th><th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in Model.Items)
+                    {
+                        var sw = item.Sowing;
+                        <tr data-sowing="@sw.Id" data-category="@item.Category">
+                            <td>@sw.SowingCode
+                                @if (sw.TransplantId.HasValue)
+                                {
+                                    <div class="small"><a asp-page="/Production/Transplanting/Details" asp-route-id="@sw.TransplantId">@sw.TransplantCode</a></div>
+                                }
+                            </td>
+                            <td class="small">@(sw.IsMotherPlantDirectSowing ? "Direct Sowing" : "Transplant")</td>
+                            <td>@sw.SpeciesName?.Trim() <span class="small text-muted">(@sw.PlantTypeName)</span></td>
+                            <td>
+                                @if (sw.IsMotherPlantDirectSowing)
+                                {
+                                    <span class="small" title="Main Office seed lot">Seed lot @sw.BatchNo</span>
+                                }
+                                else if (item.SourceReadyStockId.HasValue)
+                                {
+                                    <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@item.SourceReadyStockId">@(item.SourceBatchNo ?? "#" + item.SourceReadyStockId)</a>
+                                }
+                                else { <span class="text-muted">-</span> }
+                            </td>
+                            <td>@sw.AreaName</td>
+                            <td>@sw.CavityType</td>
+                            <td class="text-end">@sw.NumberOfTrays</td>
+                            <td class="text-end">@Qty(sw.QuantitySown)@if (sw.ConfirmedReadyQuantity > 0) {<div class="small text-muted">@Qty(sw.RemainingReadyQuantity) to approve</div>}</td>
+                            <td>@(sw.TransplantDate?.ToString("dd/MM/yyyy") ?? sw.SowingDate.ToString("dd/MM/yyyy"))</td>
+                            <td>@(sw.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not set")</td>
+                            <td><span class="badge @(item.Status == "Waiting for approval" ? "bg-warning text-dark" : "bg-light text-dark border")">@item.Status</span></td>
+                            <td class="small">@item.Eligibility.Approver</td>
+                            <td><partial name="/Pages/Production/ReadyConfirmation/_ApprovalAction.cshtml" model="new PlantStockManager.Pages.Production.ReadyConfirmation.ApprovalActionView(item, PlantStockManager.Pages.Production.ReadyConfirmation.ConfirmModel.FromMotherPlant)" /></td>
+                        </tr>
+                    }
+                    @if (!Model.Items.Any())
+                    {
+                        <tr><td colspan="13" class="text-center text-muted">@(Model.IsAdministrator ? "No Mother Plant Area batch is waiting for approval." : "No Mother Plant Area batch is waiting for your approval.")</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    </div>
+</div>

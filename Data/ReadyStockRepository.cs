@@ -383,7 +383,7 @@ WHERE Id = @Id", conn, tx);
         // transplanting, so a repeated receive / save can never create a second one.
         public async Task<int> CreateDerivedBatchAsync(
             SqlConnection conn, SqlTransaction tx, int parentReadyStockId, string originType, int originReferenceId,
-            int areaId, int polyhouseId, string cavityType, string? createdBy, DateTime? availableFromUtc = null)
+            int areaId, int? polyhouseId, string cavityType, string? createdBy, DateTime? availableFromUtc = null)
         {
             // availableFromUtc (2026-10-11): a received batch is usable here from its business receipt
             // instant (stored as FirstConfirmationDate); NULL = from CreatedDate (recorded time), as before.
@@ -396,7 +396,7 @@ FROM dbo.ReadyStock p WHERE p.Id = @ParentId;
 SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             cmd.Parameters.Add("@AvailableFrom", System.Data.SqlDbType.DateTime2).Value = (object?)availableFromUtc ?? DBNull.Value;
             cmd.Parameters.AddWithValue("@AreaId", areaId);
-            cmd.Parameters.AddWithValue("@PolyhouseId", polyhouseId);
+            cmd.Parameters.AddWithValue("@PolyhouseId", (object?)polyhouseId ?? DBNull.Value);   // 2026-10-14: none -- received into the Area
             cmd.Parameters.AddWithValue("@CavityType", cavityType);
             cmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@OriginType", originType);

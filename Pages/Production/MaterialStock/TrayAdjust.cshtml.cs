@@ -109,8 +109,9 @@ namespace PlantStockManager.Pages.Production.MaterialStock
             Polyhouses = (await _polyhouseRepo.GetAllPolyhouses())
                 .Where(p => p.AreaId.HasValue && areaIds.Contains(p.AreaId.Value))
                 .OrderBy(p => p.Name).ToList();
+            // 2026-10-14: a Mother Plant Area's one Area pool (no Polyhouse) is listed too -- any of its Polyhouses resolves to it.
             Pools = (await _trayStockRepo.GetAllAsync(activeOnly: true))
-                .Where(t => areaIds.Contains(t.AreaId) && t.PolyhouseId.HasValue)
+                .Where(t => areaIds.Contains(t.AreaId))
                 .ToList();
         }
     }

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc.RazorPages;
 using PlantStockManager.Authorization;
 using PlantStockManager.Data;
 using PlantStockManager.Models;
+using PlantStockManager.Services;
 using PottedPlantBookingModel = PlantStockManager.Models.PottedPlantBooking;
 
 namespace PlantStockManager.Pages.Production.PottedPlantBooking
@@ -19,30 +20,40 @@ namespace PlantStockManager.Pages.Production.PottedPlantBooking
     // showed. Mirrors the identical fix already applied in Phase D's
     // CreateFromCutting.cshtml.cs and Phase F's GrowingPartnerToOutlet/
     // Create.cshtml.cs for the same structural reason.
+    // (3) 2026-10-21: a double click / browser retry / replay of the same form
+    // is stopped by SubmissionTokenGuard (it used to reserve the stock again).
     public class CreateModel : PageModel
     {
+        public const string TokenScope = "PottedPlantBooking";
+
         private readonly PottedPlantBookingRepository _bookingRepo;
         private readonly PottedPlantStockRepository _pottedPlantStockRepo;
         private readonly BookingRepository _legacyBookingRepo; // reused read-only for the shared States/Districts lookups
         private readonly EmployeeRepository _employeeRepo;
         private readonly AreaAccessService _areaAccessService;
+        private readonly SubmissionTokenGuard _tokens;
 
         public CreateModel(
             PottedPlantBookingRepository bookingRepo,
             PottedPlantStockRepository pottedPlantStockRepo,
             BookingRepository legacyBookingRepo,
             EmployeeRepository employeeRepo,
-            AreaAccessService areaAccessService)
+            AreaAccessService areaAccessService,
+            SubmissionTokenGuard tokens)
         {
             _bookingRepo = bookingRepo;
             _pottedPlantStockRepo = pottedPlantStockRepo;
             _legacyBookingRepo = legacyBookingRepo;
             _employeeRepo = employeeRepo;
             _areaAccessService = areaAccessService;
+            _tokens = tokens;
         }
 
         [BindProperty]
         public PottedPlantBookingModel Booking { get; set; } = new();
+
+        [BindProperty]
+        public string? SubmitToken { get; set; }
 
         // Only pools with Available quantity > 0 are offered.
         public List<PlantStockManager.Models.PottedPlantStock> StockPools { get; set; } = new();
@@ -52,6 +63,7 @@ namespace PlantStockManager.Pages.Production.PottedPlantBooking
         public async Task OnGetAsync()
         {
             Booking.BookingDate = DateTime.Today;
+            SubmitToken = SubmissionTokenGuard.NewToken();
             await LoadDropdownsAsync();
         }
 
@@ -101,6 +113,12 @@ namespace PlantStockManager.Pages.Production.PottedPlantBooking
                 return Page();
             }
 
+            if (!_tokens.TryConsume(TokenScope, SubmitToken))
+            {
+                TempData["Error"] = "This booking form was already submitted. Check the bookings below before booking again.";
+                return RedirectToPage("/Production/PottedPlantBooking/Index");
+            }
+
             Booking.CreatedBy = User.Identity?.Name ?? "System";
             var userIdClaim = User.FindFirst("UserId")?.Value;
             int? userId = int.TryParse(userIdClaim, out var parsedUserId) ? parsedUserId : null;
@@ -110,6 +128,9 @@ namespace PlantStockManager.Pages.Production.PottedPlantBooking
             {
                 // Covers "not enough Available stock" and any DB-level
                 // constraint failure -- surfaced as a friendly message.
+                // The token was used up; issue a fresh one so the corrected form can be sent again.
+                ModelState.Remove(nameof(SubmitToken));
+                SubmitToken = SubmissionTokenGuard.NewToken();
                 ModelState.AddModelError(string.Empty, message ?? "Failed to record Booking.");
                 await LoadDropdownsAsync();
                 return Page();

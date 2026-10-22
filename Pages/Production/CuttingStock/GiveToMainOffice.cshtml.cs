@@ -12,7 +12,10 @@ namespace PlantStockManager.Pages.Production.CuttingStock
     // Cutting Delivery to Main Office. Creates a Cutting-type
     // InternalTransfer in 'PendingConfirmation'; only InTransitQuantity is
     // reserved here. Stock moves when Main Office confirms what it received
-    // (ConfirmReceipt).
+    // (ConfirmReceipt). 2026-10-21: every send carries the page's one-time token
+    // (dbo.InternalTransfers.SubmissionToken, unique -- durable, so it holds across restarts
+    // and app instances): the same form sent twice reserves the cuttings ONCE. A post without
+    // a token is refused.
     public class GiveToMainOfficeModel : PageModel
     {
         private readonly CuttingStockRepository _cuttingStockRepo;
@@ -39,6 +42,8 @@ namespace PlantStockManager.Pages.Production.CuttingStock
         public List<CuttingStockModel> StockPools { get; set; } = new();
         public int? SelectedAreaId { get; set; }
 
+        [BindProperty] public Guid SubmissionToken { get; set; }
+
         public async Task<IActionResult> OnGetAsync(int? areaId)
         {
             // F1: block browsing another Area's stock pools by URL.
@@ -49,12 +54,18 @@ namespace PlantStockManager.Pages.Production.CuttingStock
             }
 
             SelectedAreaId = areaId;
+            SubmissionToken = Guid.NewGuid();
             await LoadDropdownsAsync(areaId);
             return Page();
         }
 
         public async Task<IActionResult> OnPostSendAsync(int cuttingStockId, decimal quantity, int pendingConfirmationAreaId, string? remarks, int? areaId)
         {
+            if (SubmissionToken == Guid.Empty)
+            {
+                TempData["Error"] = "This form is out of date. Nothing was sent -- check the stock below and send again.";
+                return RedirectToPage("/Production/CuttingStock/GiveToMainOffice", new { areaId });
+            }
             var (quantityOk, quantityError) = PlantStockManager.Services.CuttingRules.ValidateProductionQuantity(quantity);
             if (!quantityOk)
             {
@@ -95,10 +106,16 @@ namespace PlantStockManager.Pages.Production.CuttingStock
                 PendingConfirmationAreaId = pendingConfirmationAreaId,
                 Quantity = quantity,
                 Remarks = remarks,
-                CreatedBy = createdBy
+                CreatedBy = createdBy,
+                SubmissionToken = SubmissionToken
             };
 
             var (success, message, _) = await _internalTransferRepo.InsertAsync(entry, userId);
+            if (success && message == InternalTransferRepository.AlreadySentMessage)
+            {
+                TempData["Success"] = message;
+                return RedirectToPage("/Production/CuttingStock/GiveToMainOffice", new { areaId });
+            }
             TempData[success ? "Success" : "Error"] = success
                 ? $"Sent {QuantityFormat.Qty(quantity)} cuttings to Main Office. Waiting for Main Office to confirm what it received."
                 : (message ?? "Failed to send cutting to Main Office.");

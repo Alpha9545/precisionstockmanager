@@ -91,10 +91,25 @@ ORDER BY p.Code", conn);
             if (alignment)
                 Assert.Contains("TrayStock.ViewMotherPlant", permissions);
             Assert.DoesNotContain("TrayStock.ReceiveTransferMainArea", permissions);   // receives only in Mother Plant Areas
-            // never: adding, adjusting or sending trays, or growing material
-            foreach (var p in new[] { "TrayStock.Transfer", "TrayStock.Adjust", "TrayStock.Enter", "TrayStock.EnterMotherPlant", "MaterialStock.Add", "MaterialStock.View" })
+            // (+ TrayStock.Enter, 2026-10-16_MotherPlantSupervisorTrayEnter.sql, owner approval 2026-10-12: empty trays for his OWN
+            //  Mother Plant Area(s) only -- TrayAreaScope; MotherPlantSupervisorTrayEnterTests)
+            var trayEnter = await TrayEnterGrantedAsync(conn);
+            if (trayEnter)
+                Assert.Contains("TrayStock.Enter", permissions);
+            else
+                Assert.DoesNotContain("TrayStock.Enter", permissions);
+            // never: adjusting or sending trays, trays for every Mother Plant Area, or growing material
+            foreach (var p in new[] { "TrayStock.Transfer", "TrayStock.Adjust", "TrayStock.EnterMotherPlant", "MaterialStock.Add", "MaterialStock.View" })
                 Assert.DoesNotContain(p, permissions);
-            Assert.Equal(18 + (trayTransfers ? 1 : 0) + (alignment ? 1 : 0), permissions.Count);
+            Assert.Equal(18 + (trayTransfers ? 1 : 0) + (alignment ? 1 : 0) + (trayEnter ? 1 : 0), permissions.Count);
+        }
+
+        private static async Task<bool> TrayEnterGrantedAsync(SqlConnection conn)
+        {
+            using var cmd = new SqlCommand(@"SELECT CASE WHEN OBJECT_ID(N'dbo.RolePermissionChangeLog', N'U') IS NOT NULL
+ AND EXISTS (SELECT 1 FROM dbo.RolePermissionChangeLog WHERE Script = N'2026-10-16_MotherPlantSupervisorTrayEnter.sql' AND Change = N'Added')
+ THEN 1 ELSE 0 END", conn);
+            return (int)(await cmd.ExecuteScalarAsync())! == 1;
         }
 
         private static async Task<bool> TrayTransfersAppliedAsync(SqlConnection conn)

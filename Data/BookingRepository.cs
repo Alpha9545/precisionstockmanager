@@ -152,7 +152,7 @@ VALUES (@BookingId, @TransactionType, @Quantity, GETDATE(), @UpdatedBy, GETDATE(
             catch (Exception ex)
             {
                 try { transaction.Rollback(); } catch { }
-                return (false, "The booking could not be saved (nothing was saved): " + ex.Message, 0, new List<int>());
+                return (false, "The booking could not be saved (nothing was saved): " + DbErrorMessage.For(ex), 0, new List<int>());
             }
         }
 
@@ -592,7 +592,7 @@ WHERE OrderBookingId = @O AND Id <> @BookingId;", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, "Failed to update Booking: " + ex.Message);
+                return (false, "Failed to update Booking: " + DbErrorMessage.For(ex));
             }
         }
 

@@ -138,7 +138,8 @@ LEFT JOIN dbo.MaterialTypes gm ON gm.Id = sw.GrowingMaterialTypeId";
         // (BedSowingSchema); otherwise the same columns are NULL, so Map() is unchanged.
         // 2026-10-13: with 2026-10-13_TraysToSowingApprovals.sql also the lineage of a tray batch made by
         // transplanting received Ready Stock (dbo.ReadyStockTransplants.OutputSeedSowingId).
-        private static string BaseSelectFor(bool bedReady, bool traysReady = false)
+        // 2026-10-21: mpDirectReady = 2026-10-21_MotherPlantDirectSowing.sql applied (sw.IsMotherPlantDirectSowing; else 0).
+        private static string BaseSelectFor(bool bedReady, bool traysReady = false, bool mpDirectReady = false)
         {
             var columns = bedReady && traysReady
                 ? @",
@@ -151,6 +152,7 @@ LEFT JOIN dbo.MaterialTypes gm ON gm.Id = sw.GrowingMaterialTypeId";
                 : @",
     CAST(NULL AS INT) AS BedSowingId, CAST(NULL AS NVARCHAR(30)) AS BedSowingCode, CAST(NULL AS NVARCHAR(30)) AS BedTransplantCode, CAST(NULL AS DATE) AS BedTransplantDate,
     CAST(NULL AS INT) AS TransplantId, CAST(NULL AS INT) AS TransplantSourceReadyStockId";
+            columns += mpDirectReady ? ", sw.IsMotherPlantDirectSowing" : ", CAST(0 AS BIT) AS IsMotherPlantDirectSowing";
             var fromAt = BaseSelect.IndexOf("FROM dbo.SeedSowings sw", StringComparison.Ordinal);
             var sql = BaseSelect[..fromAt].TrimEnd() + columns + Environment.NewLine + BaseSelect[fromAt..];
             if (bedReady)
@@ -164,7 +166,8 @@ LEFT JOIN dbo.ReadyStockTransplants rt ON rt.OutputSeedSowingId = sw.Id";
         }
 
         private static async Task<string> BaseSelectAsync(SqlConnection conn)
-            => BaseSelectFor(await BedSowingSchema.ReadyAsync(conn), await BedSowingSchema.TraysToApprovalsAsync(conn));
+            => BaseSelectFor(await BedSowingSchema.ReadyAsync(conn), await BedSowingSchema.TraysToApprovalsAsync(conn),
+                await WorkflowCorrectionsSchema.MotherPlantDirectSowingAsync(conn));
 
         public async Task<List<SeedSowing>> GetAllAsync(string? status = null)
         {
@@ -339,7 +342,9 @@ ORDER BY sw.ExpectedReadyDate";
         // ... remain alerts only"). A Cancelled Sowing can never appear
         // here (Status = 'Sown' only), and a fully-confirmed Sowing
         // drops off once ConfirmedReadyQuantity reaches QuantitySown.
-        public async Task<List<SeedSowing>> GetReadyForConfirmationAsync()
+        // 2026-10-22: filter = Sowing Approvals' Variety / Sowing Date (null = every pending batch, as before). SowingDate is
+        // DATETIME2, so the chosen calendar day is matched as [day 00:00, next day 00:00).
+        public async Task<List<SeedSowing>> GetReadyForConfirmationAsync(SowingListFilter? filter = null)
         {
             var list = new List<SeedSowing>();
             using var conn = _dbHelper.GetConnection();
@@ -347,8 +352,13 @@ ORDER BY sw.ExpectedReadyDate";
 
             var sql = await BaseSelectAsync(conn) + @"
 WHERE sw.Status = 'Sown' AND sw.ConfirmedReadyQuantity + sw.WastageQuantity < sw.QuantitySown
+  AND (@Species IS NULL OR sw.SpeciesId = @Species)
+  AND (@DayStart IS NULL OR (sw.SowingDate >= @DayStart AND sw.SowingDate < @DayEnd))
 ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
             using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.Add("@Species", System.Data.SqlDbType.Int).Value = (object?)filter?.SpeciesId ?? DBNull.Value;
+            cmd.Parameters.Add("@DayStart", System.Data.SqlDbType.DateTime2).Value = (object?)filter?.DayStart ?? DBNull.Value;
+            cmd.Parameters.Add("@DayEnd", System.Data.SqlDbType.DateTime2).Value = (object?)filter?.DayEnd ?? DBNull.Value;
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
@@ -398,17 +408,52 @@ ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
         //   6) insert the sowing and write the 'Sown' ledger entry.
         // Area AUTHORIZATION (may this user sow into that Area?) is checked
         // by the page before this call, against the growing Area.
-        public async Task<(bool Success, string? Message, int Id)> InsertAsync(SeedSowing entry, int? userId, Func<int, bool>? canAccessArea = null)
+        public Task<(bool Success, string? Message, int Id)> InsertAsync(SeedSowing entry, int? userId, Func<int, bool>? canAccessArea = null)
+            => InsertSeedSowingAsync(entry, userId, canAccessArea, motherPlantArea: false);
+
+        // 2026-10-21 -- Mother Plant & Cutting > DIRECT SOWING (2026-10-21_MotherPlantDirectSowing.sql). The SAME transaction
+        // as InsertAsync (one-time token, Main Office seed lot under lock, complete-tray plan, growing days -> Ready Date,
+        // batch number, 'Sown' + automatic remainder 'Wastage' on the lot, trays under the pool lock), except:
+        //   * the growing Area is the chosen Mother Plant Area (entry.AreaId, re-read here: it must exist, be active and be a
+        //     Mother Plant Area -- DirectSowingRules.ResolveMotherPlantDirectSowingArea) and canAccessArea (REQUIRED) must
+        //     allow it; no Polyhouse (a posted one is refused);
+        //   * trays come from that Area's own pool (TrayStockRepository: one pool per Mother Plant Area + cavity);
+        //   * no assigned supervisor (a posted one is refused) and no growing material (Main Office Polyhouses only);
+        //   * IsMotherPlantDirectSowing = 1, so the batch waits in Sowing Approvals for an Area Supervisor of that Area
+        //     (ReadyConfirmationRepository.ConfirmAsync, TR_ReadyConfirmations_AssignedSupervisor).
+        public Task<(bool Success, string? Message, int Id)> InsertMotherPlantDirectAsync(SeedSowing entry, int? userId, Func<int, bool> canAccessArea)
+            => InsertSeedSowingAsync(entry, userId, canAccessArea, motherPlantArea: true);
+
+        private async Task<(bool Success, string? Message, int Id)> InsertSeedSowingAsync(SeedSowing entry, int? userId, Func<int, bool>? canAccessArea,
+            bool motherPlantArea)
         {
             entry.SourceType = SeedSowing.SourceSeed;
             entry.SourceCuttingStockId = null;
+            entry.IsMotherPlantDirectSowing = motherPlantArea;
             if (entry.SourceSeedStockId <= 0)
                 return (false, "Main Office seed lot is required.", 0);
+            if (motherPlantArea)
+            {
+                // The Area is the only location input; nothing else may be forced in by the request.
+                if (canAccessArea == null)
+                    return (false, "Your Area access could not be checked.", 0);
+                if (entry.AreaId <= 0)
+                    return (false, DirectSowingRules.MotherPlantDirectAreaRequiredMessage, 0);
+                if (entry.PolyhouseId is > 0)
+                    return (false, DirectSowingRules.MotherPlantDirectNoPolyhouseMessage, 0);
+                if (entry.SupervisorId is > 0)
+                    return (false, DirectSowingRules.MotherPlantDirectNoSupervisorMessage, 0);
+                if (entry.GrowingMaterialTypeId is > 0)
+                    return (false, DirectSowingRules.MotherPlantDirectNoMaterialMessage, 0);
+                entry.PolyhouseId = null;
+                entry.SupervisorId = null;
+                entry.GrowingMaterialTypeId = null;
+            }
             // The Polyhouse is REQUIRED (2026-10-04): physical trays are taken
             // from that Polyhouse's Tray Stock, never from a generic Area-level
             // pool. Since 2026-10-08 the Area is NOT an input: step 3 derives it
             // from the Polyhouse (Main Areas only).
-            if (entry.PolyhouseId is not > 0)
+            else if (entry.PolyhouseId is not > 0)
                 return (false, TrayStockRepository.PolyhouseRequiredMessage, 0);
             // The operator's Seed Quantity (entered on the form). Only the seeds
             // that fill COMPLETE trays are sown and deducted; the rest stay in
@@ -432,6 +477,12 @@ ORDER BY sw.ExpectedReadyDate, sw.SowingDate";
 
             try
             {
+                if (motherPlantArea && !await WorkflowCorrectionsSchema.MotherPlantDirectSowingAsync(conn, tx))
+                {
+                    tx.Rollback();
+                    return (false, WorkflowCorrectionsSchema.MotherPlantDirectSowingMigrationMessage, 0);
+                }
+
                 // 0) A repeat of an already-saved form (double click, refresh) finds
                 //    that sowing and creates nothing -- no second sowing, no second
                 //    seed / tray / material deduction.
@@ -496,13 +547,22 @@ WHERE ss.Id = @Id", conn, tx);
                 entry.QuantitySown = seedsUsed;
 
                 // Assigned supervisor: an active Sowing Supervisor, not the recorder.
-                var approvers = (await _userRoleRepo.GetSowingApproversAsync(conn, tx)).Select(a => a.EmployeeID).ToList();
-                var (supervisorOk, supervisorError) = DirectSowingRules.ValidateSupervisorAssignment(
-                    entry.SupervisorId, entry.CreatedById ?? userId, approvers);
-                if (!supervisorOk)
+                // (A Mother Plant Area Direct Sowing has none: an Area Supervisor of its Area approves it.)
+                if (!motherPlantArea)
+                {
+                    var approvers = (await _userRoleRepo.GetSowingApproversAsync(conn, tx)).Select(a => a.EmployeeID).ToList();
+                    var (supervisorOk, supervisorError) = DirectSowingRules.ValidateSupervisorAssignment(
+                        entry.SupervisorId, entry.CreatedById ?? userId, approvers);
+                    if (!supervisorOk)
+                    {
+                        tx.Rollback();
+                        return (false, supervisorError, 0);
+                    }
+                }
+                else if (!(entry.CreatedById ?? userId).HasValue)
                 {
                     tx.Rollback();
-                    return (false, supervisorError, 0);
+                    return (false, "Your user could not be identified.", 0);
                 }
                 entry.ResponsiblePersonId = null;   // Phase D: the assigned supervisor is the only person recorded
 
@@ -514,6 +574,36 @@ WHERE ss.Id = @Id", conn, tx);
                 //    (DirectSowingRules.ResolveDirectSowingArea). (A Polyhouse holding
                 //    tray stock cannot be moved to another Area at all --
                 //    PolyhouseRepository.UpdatePolyhouse -- and this sowing needs its trays.)
+                // 2026-10-21: a Mother Plant Area Direct Sowing -- the chosen Area itself, re-read here.
+                if (motherPlantArea)
+                {
+                    var areaCmd = new SqlCommand("SELECT AreaType, IsActive FROM dbo.Area WHERE Id = @AreaId", conn, tx);
+                    areaCmd.Parameters.AddWithValue("@AreaId", entry.AreaId);
+                    bool areaFound, areaActive = false;
+                    string? areaType = null;
+                    using (var areaReader = await areaCmd.ExecuteReaderAsync())
+                    {
+                        areaFound = await areaReader.ReadAsync();
+                        if (areaFound)
+                        {
+                            areaType = areaReader.IsDBNull(0) ? null : areaReader.GetString(0);
+                            areaActive = !areaReader.IsDBNull(1) && areaReader.GetBoolean(1);
+                        }
+                    }
+                    var (mpOk, mpError) = DirectSowingRules.ResolveMotherPlantDirectSowingArea(entry.AreaId, entry.PolyhouseId, areaFound, areaType, areaActive);
+                    if (!mpOk)
+                    {
+                        tx.Rollback();
+                        return (false, mpError, 0);
+                    }
+                    if (!canAccessArea!(entry.AreaId))
+                    {
+                        tx.Rollback();
+                        return (false, DirectSowingRules.MotherPlantDirectNotAuthorizedMessage, 0);
+                    }
+                }
+                else
+                {
                 var phCmd = new SqlCommand(@"
 SELECT p.AreaId, a.AreaType, a.IsActive
 FROM dbo.Polyhouses p
@@ -547,6 +637,7 @@ WHERE p.Id = @PolyhouseId", conn, tx);
                     return (false, "You are not authorized to sow in this Area.", 0);
                 }
                 entry.AreaId = growingAreaId;
+                }
 
                 // 3b) Growing material: exactly one for a Main Office Polyhouse, none elsewhere.
                 var (materialOk, _, materialError) = await ValidateGrowingMaterialAsync(conn, tx, entry);
@@ -574,15 +665,16 @@ WHERE p.Id = @PolyhouseId", conn, tx);
                 // 5) Unique sowing batch number (existing counter table).
                 var sowingCode = await _batchNumberRepo.GetNextSowingBatchNumberAsync(conn, tx, entry.SowingDate.Date);
 
-                const string insertSql = @"
+                // 2026-10-21: a Mother Plant Area Direct Sowing also records its workflow (IsMotherPlantDirectSowing = 1).
+                var insertSql = @"
 INSERT INTO dbo.SeedSowings
 (SowingCode, SourceType, SourceSeedStockId, SpeciesId, AreaId, PolyhouseId, BatchNo, SeedSourceId, CavityType, NumberOfTrays, QuantitySown, SeedQuantity,
  SowingDate, ReadyStockDays, ExpectedReadyDate, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy, CreatedById,
- GrowingMaterialTypeId, SubmissionToken)
+ GrowingMaterialTypeId, SubmissionToken" + (motherPlantArea ? ", IsMotherPlantDirectSowing" : "") + @")
 VALUES
 (@SowingCode, N'Seed', @SourceSeedStockId, @SpeciesId, @AreaId, @PolyhouseId, @BatchNo, @SeedSourceId, @CavityType, @NumberOfTrays, @QuantitySown, @SeedQuantity,
  @SowingDate, @ReadyStockDays, @ExpectedReadyDate, 'Sown', @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy, @CreatedById,
- @GrowingMaterialTypeId, @SubmissionToken);
+ @GrowingMaterialTypeId, @SubmissionToken" + (motherPlantArea ? ", 1" : "") + @");
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
                 using var cmd = new SqlCommand(insertSql, conn, tx);
@@ -667,7 +759,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             catch (Exception ex)
             {
                 tx.Rollback();
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 
@@ -695,7 +787,7 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
             }
             catch (Exception ex)
             {
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -754,7 +846,7 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
             }
             catch (Exception ex)
             {
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -1099,7 +1191,7 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 
@@ -1290,7 +1382,7 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
             catch (Exception ex)
             {
                 tx.Rollback();
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -1351,7 +1443,8 @@ WHERE Id = @TransferId AND ConsumedBySeedSowingId IS NULL", conn, tx);
                 BedTransplantCode = reader.IsDBNull(reader.GetOrdinal("BedTransplantCode")) ? null : reader.GetString(reader.GetOrdinal("BedTransplantCode")),
                 BedTransplantDate = reader.IsDBNull(reader.GetOrdinal("BedTransplantDate")) ? null : reader.GetDateTime(reader.GetOrdinal("BedTransplantDate")),
                 TransplantId = reader.IsDBNull(reader.GetOrdinal("TransplantId")) ? null : reader.GetInt32(reader.GetOrdinal("TransplantId")),
-                TransplantSourceReadyStockId = reader.IsDBNull(reader.GetOrdinal("TransplantSourceReadyStockId")) ? null : reader.GetInt32(reader.GetOrdinal("TransplantSourceReadyStockId"))
+                TransplantSourceReadyStockId = reader.IsDBNull(reader.GetOrdinal("TransplantSourceReadyStockId")) ? null : reader.GetInt32(reader.GetOrdinal("TransplantSourceReadyStockId")),
+                IsMotherPlantDirectSowing = reader.GetBoolean(reader.GetOrdinal("IsMotherPlantDirectSowing"))
             };
         }
     }

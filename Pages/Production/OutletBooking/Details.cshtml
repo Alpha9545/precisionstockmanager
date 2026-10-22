@@ -56,6 +56,7 @@
                             {
                                 <form method="post" asp-page-handler="Collect" asp-route-id="@b.Id" class="d-flex gap-1">
                                     <input type="hidden" name="CollectItemId" value="@i.Id" />
+                                    <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
                                     <input type="number" step="1" min="1" max="@i.OpenQuantity.ToString("0")" name="CollectQuantity" class="form-control form-control-sm" style="width:90px" required />
                                     <button type="submit" class="btn btn-sm btn-success">Collect</button>
                                 </form>

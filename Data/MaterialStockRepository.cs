@@ -371,7 +371,7 @@ VALUES
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return Fail(ex.Message);
+                return Fail(DbErrorMessage.For(ex));
             }
         }
 
@@ -421,7 +421,7 @@ VALUES
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 

@@ -1,0 +1,282 @@
+
+
+######## 2026-10-15_PlantSpeciesIsActive ########
+-- ============================================================================
+-- 2026-10-15_PlantSpeciesIsActive.sql
+--
+-- WHY (owner requirement 2026-10-15, duplicate-variety cleanup): a duplicate variety must be RETIRED, never deleted --
+--   its history moves to the kept variety and the row itself stays, marked inactive and renamed "DUP-...".
+--   dbo.PlantSpecies has no active flag, so there is nothing to mark.
+--
+-- WHAT (one transaction; nothing else changes): adds dbo.PlantSpecies.IsActive BIT NOT NULL, default 1
+--   (constraint DF_PlantSpecies_IsActive), so every existing and future variety starts active.
+--
+-- Safe to run more than once (no-op when the column already exists). Does not name a database:
+-- select the target database first (SSMS: database dropdown / sqlcmd -d), then run.
+-- Rollback: 2026-10-15_PlantSpeciesIsActive_Rollback.sql
+-- ============================================================================
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' ===';
+IF OBJECT_ID(N'dbo.PlantSpecies', N'U') IS NULL
+    THROW 53201, 'dbo.PlantSpecies not found -- wrong database selected?', 1;
+
+IF COL_LENGTH(N'dbo.PlantSpecies', N'IsActive') IS NOT NULL
+    PRINT '=== PlantSpecies.IsActive already exists -- no-op ===';
+ELSE
+BEGIN
+    BEGIN TRANSACTION PlantSpeciesIsActive;
+    BEGIN TRY
+        ALTER TABLE dbo.PlantSpecies ADD IsActive BIT NOT NULL CONSTRAINT DF_PlantSpecies_IsActive DEFAULT (1);
+        COMMIT TRANSACTION PlantSpeciesIsActive;
+        PRINT '=== Added PlantSpecies.IsActive (all existing varieties = 1) ===';
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH
+END
+GO
+SELECT COUNT(*) AS Varieties, SUM(CASE WHEN IsActive = 1 THEN 1 ELSE 0 END) AS Active FROM dbo.PlantSpecies;
+
+######## 2026-10-15_PlantSpeciesUniqueActiveName ########
+-- ============================================================================
+-- 2026-10-15_PlantSpeciesUniqueActiveName.sql
+--
+-- WHY (owner requirement 2026-10-15): after the duplicate-variety cleanup, the database itself must refuse a second
+--   ACTIVE variety with the same name (the Add / Edit Variety page already refuses it; this also stops scripts / imports).
+--
+-- WHAT (one transaction; nothing else changes): unique index UX_PlantSpecies_Name_Active on dbo.PlantSpecies (Name)
+--   WHERE IsActive = 1. The column's collation (SQL_Latin1_General_CP1_CI_AS) ignores capitals and trailing spaces;
+--   retired "DUP-..." rows (IsActive = 0) are outside the index.
+--
+-- ORDER: run AFTER 2026-10-15_PlantSpeciesIsActive.sql AND Fix_Duplicate_Varieties.sql (@Commit = 1).
+--   Refuses -- listing the clashing names -- while any two active varieties still share a name.
+-- Safe to run more than once. Does not name a database: select the target database first.
+-- Rollback: 2026-10-15_PlantSpeciesUniqueActiveName_Rollback.sql
+-- ============================================================================
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET NUMERIC_ROUNDABORT OFF;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' ===';
+IF COL_LENGTH(N'dbo.PlantSpecies', N'IsActive') IS NULL
+    THROW 53221, 'dbo.PlantSpecies.IsActive is missing -- run 2026-10-15_PlantSpeciesIsActive.sql first.', 1;
+
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.PlantSpecies') AND name = N'UX_PlantSpecies_Name_Active')
+BEGIN
+    PRINT '=== UX_PlantSpecies_Name_Active already exists -- no-op ===';
+    RETURN;
+END
+
+DECLARE @Dups TABLE (Name NVARCHAR(100), Ids NVARCHAR(400));
+EXEC sp_executesql N'SELECT MIN(Name), STRING_AGG(CAST(Id AS NVARCHAR(12)), N'', '') FROM dbo.PlantSpecies WHERE IsActive = 1 GROUP BY Name HAVING COUNT(*) > 1;';
+INSERT @Dups EXEC sp_executesql N'SELECT MIN(Name), STRING_AGG(CAST(Id AS NVARCHAR(12)), N'', '') FROM dbo.PlantSpecies WHERE IsActive = 1 GROUP BY Name HAVING COUNT(*) > 1;';
+IF EXISTS (SELECT 1 FROM @Dups)
+    THROW 53222, 'Active varieties still share a name (listed above) -- run Fix_Duplicate_Varieties.sql first. Nothing created.', 1;
+
+BEGIN TRANSACTION PlantSpeciesUniqueActiveName;
+BEGIN TRY
+    EXEC sp_executesql N'CREATE UNIQUE NONCLUSTERED INDEX UX_PlantSpecies_Name_Active ON dbo.PlantSpecies (Name) WHERE IsActive = 1;';
+    COMMIT TRANSACTION PlantSpeciesUniqueActiveName;
+    PRINT '=== Created UX_PlantSpecies_Name_Active (unique Name among active varieties) ===';
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH
+
+######## 2026-10-22_BedSowingEdit ########
+-- ============================================================================
+-- 2026-10-22_BedSowingEdit.sql
+--
+-- WHY (owner requirement 2026-10-13, "Edit option for Bed Sowing"): an authorised user may correct an UNTOUCHED bed
+--   sowing's sowing date, variety, seed lot and quantity in place -- same Bed Sowing code, recorder and created time --
+--   with the seed ledger reconciled. TR_BedSowings_Guard (2026-10-12_BedSowing.sql) makes exactly those fields immutable
+--   (52171, "cancel and record again instead"), so the edit cannot be saved without this change.
+--
+-- WHAT (one transaction; only this trigger changes -- no table, column, row, ledger or permission):
+--   TR_BedSowings_Guard is replaced (only if byte-for-byte the current version, SHA-256) by a version that
+--     * keeps fixed: code, Area, Polyhouse, recorder, form token, Ready Date fields; a cancelled bed stays cancelled (52171);
+--     * allows variety / seed lot / sowing date / quantity to change ONLY on an untouched bed: pending transplant before
+--       and after, Transplanted + Lost = 0, no transplant / loss operation ever, no legacy Ready Date (52801);
+--     * then requires the lot to be an active Main Office lot of the bed's variety, with the bed's lot number and seed
+--       source copied from it (52802);
+--     * and requires the bed's own seed ledger ('BedSowing' rows) to match: net -Quantity on its lot, 0 on every other
+--       lot -- i.e. the application reversed the original deduction and recorded the revised one in the same
+--       transaction (52803);
+--     * keeps the transplant / loss conservation rule unchanged (52172).
+--   Remarks were and stay editable. Existing rows are unaffected (the trigger checks only new changes).
+-- Requires: 2026-10-12_BedSowing.sql (and dbo.BedSowingAuditLog from 2026-10-16_BedSowingApprover.sql, used by the
+--   application to audit each edit).
+-- SAFETY: guarded to PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy AND to -v TARGET_SERVER=<@@SERVERNAME>.
+-- Idempotent (re-run = no-op). Undo: 2026-10-22_BedSowingEdit_Rollback.sql.
+-- Run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER=<@@SERVERNAME> -i <this file>
+-- Probe used by the application (Data/WorkflowCorrectionsSchema.BedSowingEditProbeSql): OBJECT_DEFINITION(OBJECT_ID('dbo.TR_BedSowings_Guard')) LIKE N'%BedSowingEdit%'
+-- ============================================================================
+:on error exit
+IF DB_NAME() <> N'PlantsIMS2_Test' AND DB_NAME() NOT LIKE N'PlantsIMS2[_]Scratch[_]%'
+    THROW 52811, '2026-10-22_BedSowingEdit.sql may only be run against PlantsIMS2_Test or a PlantsIMS2_Scratch_* copy.', 1;
+IF N'$(MODE)' NOT IN (N'DRYRUN', N'COMMIT')
+    THROW 52812, 'Run with sqlcmd -v MODE=DRYRUN or MODE=COMMIT.', 1;
+IF @@SERVERNAME <> N'$(TARGET_SERVER)'
+    THROW 52813, 'TARGET_SERVER does not match @@SERVERNAME -- refusing to run on an unexpected server.', 1;
+GO
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRANSACTION BedSowingEdit1022;
+
+BEGIN TRY
+    PRINT '=== Server / database: ' + @@SERVERNAME + ' / ' + DB_NAME() + ' -- MODE=$(MODE) ===';
+    IF OBJECT_ID('dbo.BedSowings', 'U') IS NULL OR OBJECT_ID('dbo.TR_BedSowings_Guard', 'TR') IS NULL
+        THROW 52814, 'Run 2026-10-12_BedSowing.sql first.', 1;
+    IF OBJECT_ID('dbo.BedSowingAuditLog', 'U') IS NULL
+        THROW 52815, 'Run 2026-10-16_BedSowingApprover.sql first (dbo.BedSowingAuditLog).', 1;
+    IF OBJECT_DEFINITION(OBJECT_ID('dbo.TR_BedSowings_Guard')) LIKE N'%BedSowingEdit%'
+        PRINT '=== Already applied -- no-op ===';
+    ELSE
+    BEGIN
+        IF CONVERT(VARCHAR(64), HASHBYTES('SHA2_256', OBJECT_DEFINITION(OBJECT_ID('dbo.TR_BedSowings_Guard'))), 2) <> '1DB1E8BF2B920F334A8F0D38AB3C0073B9429F609EADE53B7FDC654FB0738CD3'
+            THROW 52816, 'TR_BedSowings_Guard is not the expected version -- schema drift, nothing changed.', 1;
+        DECLARE @sql NVARCHAR(MAX);
+        DROP TRIGGER dbo.TR_BedSowings_Guard;
+        SET @sql = N'CREATE TRIGGER dbo.TR_BedSowings_Guard ON dbo.BedSowings
+AFTER INSERT, UPDATE
+AS
+BEGIN
+
+######## 2026-10-23_ReadyStockDispatchToCustomer ########
+-- ============================================================================
+-- 2026-10-23_ReadyStockDispatchToCustomer.sql
+--
+-- WHY (requirement 2026-10-19): the Office Coordinator dispatches Ready Seedling Stock straight to a customer from
+--   Seed Production > Ready Stock > Send > Customer (Pages/Production/ReadyStock/Move). Today the role is read-only on
+--   Ready Stock (ReadyStock.View) and cannot open that page at all.
+--
+-- WHAT: the permission code ReadyStock.DispatchToCustomer (created only if missing) granted to the role "Office
+--   Coordinator" only (one dbo.RolePermissions row), logged in dbo.RolePermissionChangeLog. The code means exactly
+--   "dispatch whole trays of a Ready Stock batch in an active Main Office / Mother Plant Area the user is ASSIGNED to, to a
+--   customer" -- the existing direct tray sale (SeedlingFulfilmentRepository.DirectTraySaleAsync: Completed booking +
+--   allocation + reservation + Seedling Dispatch, one transaction, once per form token). Area scope = AreaAccessService
+--   (regular Area rule), checked on the page and again inside the transaction under the batch's lock.
+--
+-- OWNERSHIP RECORD (what the rollback may undo) -- no table or constraint is changed for it:
+--   * a code CREATED here gets the exact Description in @OwnedDescription (ends "[created by <this script>]");
+--   * the grant's 'Added' row in dbo.RolePermissionChangeLog names the Permission Id and whether the code was created here:
+--       Reason ends "[code created by this script; PermissionId=<Id>]"  or  "[code pre-existed; PermissionId=<Id>]".
+--   A code that already existed is never marked as created here, so the rollback never deletes it.
+--
+-- AREA SCOPE GUARD: refuses (nothing changed) when an Office Coordinator role assignment has NO Area -- the grant must
+--   stay inside the Areas each Office Coordinator is assigned to. Every holder and all of their Areas are printed for review.
+--
+-- NOT changed: InternalTransfer.Enter / MainOffice.Confirm (the Main Office / Outlet transfer) are NOT granted -- the
+--   Office Coordinator still cannot send a batch to an Outlet unless that is decided separately. No other role, user,
+--   Area, stock, booking or dispatch row; no schema. Requires 2026-10-18_SeedlingDirectSaleSubmissionToken.sql for the
+--   dispatch itself (without it the page shows the dispatch as unavailable).
+--
+-- TARGET SAFEGUARDS: the local AND the live database can both be named PlantsIMS2_Test, so the name alone proves nothing.
+--   The first batch refuses to continue unless ALL of these hold (nothing is read or written before them):
+--     1. DB_NAME() is PlantsIMS2_Test or PlantsIMS2_Scratch_*                         (allow-list, unchanged)
+--     2. MODE is DRYRUN or COMMIT                                                       (unchanged)
+--     3. @@SERVERNAME            = $(TARGET_SERVER)                                     (unchanged)
+--     4. SERVERPROPERTY('ServerName') = @@SERVERNAME   (a renamed host leaves @@SERVERNAME stale -- refused)
+--     5. SERVERPROPERTY('MachineName') = $(TARGET_MACHINE)   (the Windows host, read from the OS, not from sys.servers)
+--     6. DB_NAME()               = $(TARGET_DB)          (the database the operator meant, not only "an allowed name")
+--     7. sys.databases.create_date of THIS database = $(TARGET_DB_CREATED)  (yyyy-mm-ddThh:mi:ss; differs between the
+--        local and the live copy, and changes on every restore -- identifies the exact database instance)
+--   Every variable is required: a missing -v value stops sqlcmd before anything runs. No server name is built in.
+--
+-- OPERATOR CHECKLIST
+--   Before DRYRUN (on the intended server, connected to the intended database):
+--     a) run the read-only identity query and keep its output:
+--          SELECT @@SERVERNAME AS ServerName, CAST(SERVERPROPERTY('ServerName') AS NVARCHAR(128)) AS ServerProperty,
+--                 CAST(SERVERPROPERTY('MachineName') AS NVARCHAR(128)) AS MachineName, DB_NAME() AS DatabaseName,
+--                 CONVERT(CHAR(19), d.create_date, 126) AS DatabaseCreated
+--          FROM sys.databases d WHERE d.database_id = DB_ID();
+--     b) confirm independently (not from that output) that this machine IS the intended one: for live, the VPS you are
+--        logged on to (e.g. hostname / the RDP or SSH session target); for local, this laptop. ServerName and MachineName
+--        must name that host; DatabaseName must be PlantsIMS2_Test (or the intended scratch copy).
+--     c) take a COPY_ONLY backup of that database and note its file name.
+--     d) run:  sqlcmd -S <server> -d <db> -E -C -I -b -v MODE=DRYRUN TARGET_SERVER="<ServerName>" TARGET_MACHINE="<MachineName>"
+--                     TARGET_DB="<DatabaseName>" TARGET_DB_CREATED="<DatabaseCreated>" -i 2026-10-23_ReadyStockDispatchToCustomer.sql
+--   Read the DRYRUN output: the identity line, the holders and their Areas (only intended Office Coordinators, each with
+--   an Area), "created" or "pre-existed" for the code, and "Roles holding ..." = Office Coordinator only. It ends
+--   "DRY RUN -- rolled back".
+--   Before COMMIT: the DRYRUN above was on the SAME server and database (same four values), its output was reviewed and
+--   approved, the backup exists, and nobody changed roles in between. Re-run with MODE=COMMIT and the same four values.
+--
+-- One transaction. Idempotent (re-run = no-op). Undo: 2026-10-23_ReadyStockDispatchToCustomer_Rollback.sql.
+
+######## Fix_Duplicate_Varieties ########
+-- ============================================================================
+-- Fix_Duplicate_Varieties.sql   (2026-10-15)
+--
+-- Retires duplicate varieties in dbo.PlantSpecies and moves ALL their history to the kept variety.
+-- No variety row and no transaction row is ever deleted.
+--
+--   @Commit = 0  PREVIEW (default): read-only. Shows the plan, the records that would move, the name / growing-day
+--                changes and any BLOCKERS. Writes nothing.
+--   @Commit = 1  SAVE: the same plan in ONE transaction; any error -> everything rolled back. Refused while any
+--                blocker exists or while dbo.PlantSpecies.IsActive is missing (run 2026-10-15_PlantSpeciesIsActive.sql).
+--
+-- Does not name a database: select it first (SSMS database dropdown / sqlcmd -d). Matches by NAME, never by Id,
+-- so the same file runs unchanged on local and live. Safe to run more than once (a second run finds nothing to do).
+--
+-- Owner decisions 2026-10-15:
+--   * Each group below = the names that are one variety. KEEP = the OLDEST Id (lowest) among the active varieties whose
+--     name matches any name of the group; it gets the group's final name. Every other match is a duplicate: its records
+--     move to the kept Id, then it is set IsActive = 0 and renamed "DUP-<Id>-<old name>".
+--     If only one match exists (e.g. live without this morning's rows), it is simply renamed.
+--   * Names compare like Add Variety does: capitals ignored, spaces / tabs / line breaks at the ends ignored,
+--     runs of spaces inside count as one space.
+--   * All variety names are trimmed (spaces, tabs, line breaks at start / end).
+--   * Every active "Lantana ..." variety gets Ready Stock Days = 25.
+--   * "Marigold French Hot Pack Mix" is NOT part of this cleanup.
+--
+-- BLOCKERS (the script stops instead of guessing -- nothing is disabled, no trigger is bypassed):
+--   - a group whose matches belong to different Plant Types
+--   - a duplicate used in a table whose triggers forbid changing the variety (SeedSowings, PotProductionBatches,
+--     OutletBookingItems) or by a child row of a composite (row + variety) foreign key
+--   - a stock / balance row of a duplicate whose unique key (e.g. Area + Batch) already exists for the kept variety:
+--     those quantities must be combined by hand first
+--   - a bed sowing of a duplicate that its trigger would not let change variety (not untouched, or ledger mismatch)
+--   - two different active varieties ending up with the same name after the cleanup
+-- ============================================================================
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+DECLARE @Commit BIT = 0;          -- 0 = PREVIEW (read-only), 1 = SAVE
+
+DECLARE @Ws NVARCHAR(10) = N' ' + NCHAR(9) + NCHAR(10) + NCHAR(13) + NCHAR(160);
+DECLARE @HasIsActive BIT = CASE WHEN COL_LENGTH(N'dbo.PlantSpecies', N'IsActive') IS NULL THEN 0 ELSE 1 END;
+DECLARE @sql NVARCHAR(MAX), @t SYSNAME, @c SYSNAME, @n INT;
+
+IF OBJECT_ID(N'dbo.PlantSpecies', N'U') IS NULL
+    THROW 53301, 'dbo.PlantSpecies not found -- wrong database selected?', 1;
+
+SELECT @@SERVERNAME AS ServerName, DB_NAME() AS DatabaseName,
+       CASE WHEN @Commit = 1 THEN 'SAVE (@Commit = 1)' ELSE 'PREVIEW (@Commit = 0) - read-only' END AS Mode,
+       CASE WHEN @HasIsActive = 1 THEN 'present' ELSE 'MISSING - run 2026-10-15_PlantSpeciesIsActive.sql before saving' END AS PlantSpecies_IsActive;
+
+DROP TABLE IF EXISTS #Spec, #Species, #Member, #Refs, #RefCount, #RefCountAfter, #TableTotal, #Blocker, #NameChange, #DaysChange;
+
+-- ---- 1. the groups (final name + every name that is the same variety) -------------------------------------------
+CREATE TABLE #Spec (GroupNo INT, FinalName NVARCHAR(100), AliasName NVARCHAR(100));
+INSERT #Spec (GroupNo, FinalName, AliasName) VALUES
+ ( 1, N'Lantana Beach',            N'Latania Beach'),            ( 1, N'Lantana Beach',            N'Lantana Beach'),
+ ( 2, N'Lantana Coconut',          N'Latania Coconut'),          ( 2, N'Lantana Coconut',          N'Lantana Coconut'),
+ ( 3, N'Lantana IBIS',             N'Latania IBIS'),             ( 3, N'Lantana IBIS',             N'Lantana IBIS'),

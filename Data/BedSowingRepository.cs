@@ -11,11 +11,14 @@ namespace PlantStockManager.Data
     //               no material, no Ready Stock.
     //   transplant  bed Transplanted +Quantity; NEW growing tray batch (dbo.SeedSowings,
     //               SourceType 'BedSowing', Sowing Date / Ready Days / Ready Date of the BED);
+    //               2026-10-14: the rest of the bed -> a system-generated loss, bed closed;
     //               Tray Stock of the target Polyhouse -trays (dated at the transplant date);
     //               growing material -trays x kg per tray (existing Main Office rule). The batch then
     //               goes through the EXISTING Sowing Approval -> Ready Stock; nothing here creates
     //               Ready Stock.
-    //   loss        bed Lost +Quantity (reason required).
+    //   loss        bed Lost +Quantity (reason required). 2026-10-14: the user-facing "Record bed loss"
+    //               form is retired -- a transplant records the untransplanted remainder itself; this
+    //               method stays for the existing loss mechanism (and its tests), not on any page.
     //   reverse     a transplant (only while its tray batch has no approval: batch cancelled, trays
     //               and material returned, seedlings back in the bed) or a loss. The operation row
     //               stays, marked Reversed with who / when / why.
@@ -103,10 +106,9 @@ SELECT p.Id, p.Name, a.Id, a.Name, a.AreaType
 FROM dbo.Polyhouses p
 JOIN dbo.Area a ON a.Id = p.AreaId AND a.IsActive = 1
 WHERE (@P IS NULL OR p.Id = @P)
-  AND (   (a.AreaType = N'MotherPlant')
-       OR (a.Id = @BedArea AND a.AreaType = N'MainOffice'
-           AND EXISTS (SELECT 1 FROM dbo.BedSowingLocations l WHERE l.PolyhouseId = p.Id AND l.AreaId = a.Id AND l.IsActive = 1)))
-ORDER BY CASE WHEN a.Id = @BedArea THEN 0 ELSE 1 END, a.Name, p.Name", conn, tx);
+  AND a.Id = @BedArea AND a.AreaType = N'MainOffice'
+  AND EXISTS (SELECT 1 FROM dbo.BedSowingLocations l WHERE l.PolyhouseId = p.Id AND l.AreaId = a.Id AND l.IsActive = 1)
+ORDER BY p.Name", conn, tx);
             cmd.Parameters.AddWithValue("@P", (object?)polyhouseId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@BedArea", bedAreaId);
             using var r = await cmd.ExecuteReaderAsync();
@@ -328,7 +330,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 
@@ -373,23 +375,29 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                     return (false, $"Bed Sowing {bed.BedSowingCode} is {BedSowingRules.StatusLabel(bed.Status).ToLowerInvariant()}; nothing is left to transplant.", 0, 0, false);
                 }
 
-                // Target: the Bed Sowing Polyhouse of the bed's own Area, or a Polyhouse of an active
-                // Mother Plant Area (Areas from the database, never from the request).
-                var target = (await ReadTransplantTargetsAsync(conn, tx, bed.AreaId, req.TargetPolyhouseId)).FirstOrDefault();
-                if (target == null)
-                {
-                    tx.Rollback();
-                    return (false, "Transplant into the Bed Sowing Polyhouse of this bed's Area or into a Polyhouse of an active Mother Plant Area.", 0, 0, false);
-                }
-
-                // Transplanting ALL the remaining seedlings: complete trays + the remainder as a system-generated
-                // bed loss, in this one transaction (BedSowingRules.PlanTransplant). Part of a bed: complete trays only.
+                // 2026-10-14: the entered Quantity to Transplant in complete trays + EVERYTHING else left in the bed
+                // as a system-generated bed loss, in this one transaction -- the bed always closes
+                // (BedSowingRules.PlanTransplant, on the remaining quantity re-read under the bed lock).
                 var (ok, plan, error) = BedSowingRules.PlanTransplant(
-                    bed.RemainingQuantity, req.Quantity, req.CavityType, req.OutputTrays, req.TransplantDate, bed.SowingDate, AppClock.Today);
+                    bed.RemainingQuantity, req.Quantity, req.CavityType, req.OutputTrays, req.TransplantDate, bed.SowingDate, AppClock.Today,
+                    req.CloseAsWaste, req.WasteReason);
                 if (!ok)
                 {
                     tx.Rollback();
                     return (false, error, 0, 0, false);
+                }
+
+                // Target (only when a tray batch is made): the Bed Sowing Polyhouse of the bed's own Main Office
+                // Area -- from the database, never from the request. Mother Plant Areas are not a target (2026-10-11).
+                BedSowingLocation? target = null;
+                if (plan!.MakesTrayBatch)
+                {
+                    target = (await ReadTransplantTargetsAsync(conn, tx, bed.AreaId, req.TargetPolyhouseId)).FirstOrDefault();
+                    if (target == null)
+                    {
+                        tx.Rollback();
+                        return (false, "Transplant into the Bed Sowing Polyhouse of this bed's Area.", 0, 0, false);
+                    }
                 }
                 var trays = plan!.Trays;
                 var (instantOk, transplantUtc, instantError) = LedgerDates.Instant(req.TransplantDate);
@@ -419,7 +427,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                     }
 
                     // Growing material: required in a Main Office Polyhouse (existing rule).
-                    var (materialOk, materialError, materialRequired) = await MaterialStockRepository.ValidateSowingMaterialAsync(conn, tx, target.AreaId, req.GrowingMaterialTypeId);
+                    var (materialOk, materialError, materialRequired) = await MaterialStockRepository.ValidateSowingMaterialAsync(conn, tx, target!.AreaId, req.GrowingMaterialTypeId);
                     if (!materialOk)
                     {
                         tx.Rollback();
@@ -433,7 +441,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                     var remarks = $"Transplanted from bed {bed.BedSowingCode} on {req.TransplantDate:dd/MM/yyyy} ({transplantCode})"
                         + (string.IsNullOrWhiteSpace(req.Remarks) ? "" : ": " + req.Remarks.Trim());
                     (sowingId, sowingCode) = await TrayBatchWriter.InsertAsync(conn, tx, _batchNumberRepo, new TrayBatchWriter.Spec(
-                        SeedSowing.SourceBedSowing, bed.Id, bed.SpeciesId, target.AreaId, target.PolyhouseId, bed.SeedLotNo, bed.SeedSourceId,
+                        SeedSowing.SourceBedSowing, bed.Id, bed.SpeciesId, target!.AreaId, target.PolyhouseId, bed.SeedLotNo, bed.SeedSourceId,
                         req.CavityType!, trays, plan.Transplanted, bed.SowingDate, readyDays!.Value, readyDate.Value, materialId, remarks,
                         actor.UserName, actor.UserId));
 
@@ -450,7 +458,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                     opCmd.Parameters.AddWithValue("@Qty", plan.Transplanted);
                     opCmd.Parameters.AddWithValue("@Cavity", req.CavityType!);
                     opCmd.Parameters.AddWithValue("@Trays", trays);
-                    opCmd.Parameters.AddWithValue("@AreaId", target.AreaId);
+                    opCmd.Parameters.AddWithValue("@AreaId", target!.AreaId);
                     opCmd.Parameters.AddWithValue("@PolyhouseId", target.PolyhouseId);
                     opCmd.Parameters.AddWithValue("@SowingId", sowingId);
                     opCmd.Parameters.AddWithValue("@Remarks", string.IsNullOrWhiteSpace(req.Remarks) ? DBNull.Value : req.Remarks.Trim());
@@ -476,10 +484,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                     lossCmd.Parameters.AddWithValue("@BedId", bed.Id);
                     lossCmd.Parameters.Add("@Date", System.Data.SqlDbType.Date).Value = req.TransplantDate.Date;
                     lossCmd.Parameters.AddWithValue("@Qty", plan.Waste);
-                    lossCmd.Parameters.AddWithValue("@Reason", BedSowingRules.RemainderLossReason);
+                    lossCmd.Parameters.AddWithValue("@Reason", req.CloseAsWaste ? req.WasteReason!.Trim() : BedSowingRules.RemainderLossReason);
                     lossCmd.Parameters.AddWithValue("@Remarks", plan.MakesTrayBatch
-                        ? $"System-generated with transplant {transplantCode}: {QuantityFormat.Qty(plan.Transplanted)} of {QuantityFormat.Qty(req.Quantity)} seedlings filled {trays} complete {req.CavityType} trays."
-                        : $"System-generated: {QuantityFormat.Qty(req.Quantity)} seedlings do not fill one {req.CavityType} tray; no tray batch was created.");
+                        ? $"System-generated with transplant {transplantCode}: {QuantityFormat.Qty(plan.Transplanted)} of the {QuantityFormat.Qty(bed.RemainingQuantity)} remaining seedlings filled {trays} complete {req.CavityType} trays."
+                        : $"Waste-only closure confirmed by the Transplanter: all {QuantityFormat.Qty(plan.Waste)} remaining seedlings recorded as waste; no tray batch was created.");
                     lossCmd.Parameters.AddWithValue("@Token", plan.MakesTrayBatch ? DBNull.Value : token);
                     lossCmd.Parameters.AddWithValue("@CreatedBy", (object?)actor.UserName ?? DBNull.Value);
                     lossCmd.Parameters.AddWithValue("@CreatedById", (object?)actor.UserId ?? DBNull.Value);
@@ -495,7 +503,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                     // Empty trays and the growing material for them, BOTH dated at the transplant's business
                     // date (CreatedAt keeps the recorded time); a back-dated transplant must fit each pool's history.
                     var (trayOk, trayMessage) = await _trayStockRepo.ConsumeForSowingAsync(
-                        conn, tx, target.AreaId, target.PolyhouseId, req.CavityType!, trays, "SeedSowing", sowingId, actor.UserId,
+                        conn, tx, target!.AreaId, target.PolyhouseId, req.CavityType!, trays, "SeedSowing", sowingId, actor.UserId,
                         $"Bed transplant {transplantCode} from {bed.BedSowingCode} (batch {sowingCode})", transplantUtc);
                     if (!trayOk)
                     {
@@ -503,7 +511,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                         return (false, trayMessage, 0, 0, false);
                     }
                     var (matOk, matMessage) = await MaterialStockRepository.ConsumeForSowingAsync(
-                        conn, tx, target.AreaId, target.PolyhouseId, materialId, req.CavityType, trays, sowingId, sowingCode!, actor.UserId, transplantUtc);
+                        conn, tx, target!.AreaId, target.PolyhouseId, materialId, req.CavityType, trays, sowingId, sowingCode!, actor.UserId, transplantUtc);
                     if (!matOk)
                     {
                         tx.Rollback();
@@ -519,7 +527,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0, 0, false);
+                return (false, DbErrorMessage.For(ex), 0, 0, false);
             }
         }
 
@@ -592,7 +600,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0, false);
+                return (false, DbErrorMessage.For(ex), 0, false);
             }
         }
 
@@ -725,7 +733,7 @@ WHERE Id = @Id AND Status = N'Active'", conn, tx))
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -790,8 +798,245 @@ WHERE Id = @Id", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
+        }
+
+        // ---- Edit (2026-10-22) ---------------------------------------------------------------
+        // Corrects an UNTOUCHED bed in place: same code, recorder and created time; one transaction under the bed's lock.
+        //   original  the values the form was opened with -- must equal the stored bed (else EditStaleMessage), so a
+        //             repeated or stale submit never applies an edit twice;
+        //   revised   the new values. Remarks-only edits need no migration and touch no ledger.
+        // When the sowing date, variety, seed lot or quantity change (needs 2026-10-22_BedSowingEdit.sql):
+        //   1) the bed's current deduction is reversed on its lot -- 'ReversalReturn' +old quantity, dated at the ORIGINAL
+        //      deduction's instant (owner decision), so history reads as if the corrected values applied from the start.
+        //      10 ms before it: the ledger orders rows by (TransactionDate, Id), and the historical check
+        //      (SeedStockRepository.AvailableFromAsync) takes the LOWEST running balance -- a reversal sorted after the
+        //      deduction it cancels would leave a momentary dip and wrongly refuse legitimate edits. (10 ms, not one tick:
+        //      ledger dates travel as SQL datetime, 1/300 s precision, and 10 ms = 3 of those steps, so it stays distinct.)
+        //   2) the revised deduction is recorded -- 'Sown' -new quantity on the (new) lot, at the original instant when the
+        //      date is unchanged, else at the new date (LedgerDates.Instant), through the same historical-balance check as
+        //      a new bed (SeedStockRepository.RecordTransactionAsync / AvailableFromAsync);
+        //   3) the bed row is updated (lot number and source copied from the lot) and an 'Edit' row is appended to
+        //      dbo.BedSowingAuditLog with the old -> new values and the reason.
+        // TR_BedSowings_Guard re-checks the untouched rule, the lot, and that the bed's ledger nets to exactly -Quantity on
+        // its lot and 0 elsewhere. No ledger row is ever updated or deleted.
+        public sealed record BedEditRequest(int BedSowingId, BedSowingRules.BedEditValues Original, BedSowingRules.BedEditValues Revised, string? Reason);
+
+        public async Task<(bool Success, string? Message, bool Changed)> EditAsync(BedEditRequest req, Actor actor, Func<int, bool> canAccessArea)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            if (!await BedSowingSchema.ReadyAsync(conn))
+                return (false, "Bed Sowing is not set up in this database yet.", false);
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                var cmd = new SqlCommand(@"
+SELECT b.Id, b.BedSowingCode, b.SpeciesId, b.SeedStockId, b.SeedLotNo, b.AreaId, b.SowingDate, b.Quantity, b.Remarks,
+       b.TransplantedQuantity, b.LostQuantity, b.Status, b.ReadyStockDays,
+       (SELECT COUNT(*) FROM dbo.BedSowingOperations o WHERE o.BedSowingId = b.Id) AS Ops,
+       RTRIM(LTRIM(REPLACE(REPLACE(ps.Name, CHAR(13), ''), CHAR(10), ''))) AS Variety
+FROM dbo.BedSowings b WITH (UPDLOCK, HOLDLOCK)
+JOIN dbo.PlantSpecies ps ON ps.Id = b.SpeciesId
+WHERE b.Id = @Id", conn, tx);
+                cmd.Parameters.AddWithValue("@Id", req.BedSowingId);
+                string code, lotNo, status, variety; int areaId, ops; int? readyDays; BedSowingRules.BedEditValues stored;
+                decimal transplanted, lost;
+                using (var r = await cmd.ExecuteReaderAsync())
+                {
+                    if (!await r.ReadAsync())
+                    {
+                        r.Close();
+                        tx.Rollback();
+                        return (false, "Bed Sowing not found.", false);
+                    }
+                    code = r.GetString(1);
+                    lotNo = r.GetString(4);
+                    areaId = r.GetInt32(5);
+                    stored = new BedSowingRules.BedEditValues(r.GetDateTime(6), r.GetInt32(2), r.GetInt32(3), r.GetDecimal(7), r.IsDBNull(8) ? null : r.GetString(8));
+                    transplanted = r.GetDecimal(9);
+                    lost = r.GetDecimal(10);
+                    status = r.GetString(11);
+                    readyDays = r.IsDBNull(12) ? null : r.GetInt32(12);
+                    ops = r.GetInt32(13);
+                    variety = r.GetString(14);
+                }
+
+                if (!canAccessArea(areaId))
+                {
+                    tx.Rollback();
+                    return (false, "You are not authorized to work in this bed's Area.", false);
+                }
+                var (editable, notEditable) = BedSowingRules.ValidateEditable(status, transplanted, lost, ops, readyDays);
+                if (!editable)
+                {
+                    tx.Rollback();
+                    return (false, notEditable, false);
+                }
+                if (!BedSowingRules.MatchesStored(stored, req.Original))
+                {
+                    tx.Rollback();
+                    return (false, BedSowingRules.EditStaleMessage, false);
+                }
+                var changes = BedSowingRules.Compare(stored, req.Revised);
+                if (!changes.Any)
+                {
+                    tx.Rollback();
+                    return (true, BedSowingRules.EditNoChangesMessage, false);
+                }
+                var (valid, invalid) = BedSowingRules.ValidateEdit(req.Revised, AppClock.Today, changes, req.Reason);
+                if (!valid)
+                {
+                    tx.Rollback();
+                    return (false, invalid, false);
+                }
+                var remarks = BedSowingRules.NormaliseRemarks(req.Revised.Remarks);
+
+                string details;
+                if (!changes.Sown)
+                {
+                    using var upd = new SqlCommand(
+                        "UPDATE dbo.BedSowings SET Remarks = @Remarks, ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @By WHERE Id = @Id", conn, tx);
+                    upd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
+                    upd.Parameters.AddWithValue("@By", (object?)actor.UserName ?? DBNull.Value);
+                    upd.Parameters.AddWithValue("@Id", req.BedSowingId);
+                    await upd.ExecuteNonQueryAsync();
+                    details = BedSowingRules.DescribeChanges(changes, stored, req.Revised, null, null, null, null);
+                }
+                else
+                {
+                    if (!await WorkflowCorrectionsSchema.BedSowingEditAsync(conn, tx))
+                    {
+                        tx.Rollback();
+                        return (false, WorkflowCorrectionsSchema.BedSowingEditMigrationMessage, false);
+                    }
+                    // The revised lot: an active Main Office lot of the revised variety (locked; the stock check is the
+                    // ledger's own, below).
+                    var lotCmd = new SqlCommand(@"
+SELECT ss.SpeciesId, ss.BatchNo, ss.SeedSourceId, a.AreaType, a.IsActive,
+       RTRIM(LTRIM(REPLACE(REPLACE(ps.Name, CHAR(13), ''), CHAR(10), '')))
+FROM dbo.SeedStock ss WITH (UPDLOCK, HOLDLOCK)
+JOIN dbo.Area a ON a.Id = ss.AreaId
+JOIN dbo.PlantSpecies ps ON ps.Id = ss.SpeciesId
+WHERE ss.Id = @Id", conn, tx);
+                    lotCmd.Parameters.AddWithValue("@Id", req.Revised.SeedStockId);
+                    int lotSpecies; string newLotNo, newVariety; int? newSource; string? lotAreaType; bool lotAreaActive;
+                    using (var r = await lotCmd.ExecuteReaderAsync())
+                    {
+                        if (!await r.ReadAsync())
+                        {
+                            r.Close();
+                            tx.Rollback();
+                            return (false, "Selected Main Office seed lot not found.", false);
+                        }
+                        lotSpecies = r.GetInt32(0);
+                        newLotNo = r.GetString(1);
+                        newSource = r.IsDBNull(2) ? null : r.GetInt32(2);
+                        lotAreaType = r.IsDBNull(3) ? null : r.GetString(3);
+                        lotAreaActive = r.GetBoolean(4);
+                        newVariety = r.GetString(5);
+                    }
+                    if (!DirectSowingRules.IsMainOfficeSeedLocation(lotAreaType, lotAreaActive))
+                    {
+                        tx.Rollback();
+                        return (false, "Bed Sowing must use seed from an active Main Office Seed Stock lot.", false);
+                    }
+                    if (lotSpecies != req.Revised.SpeciesId)
+                    {
+                        tx.Rollback();
+                        return (false, "The selected seed lot does not belong to the selected Variety.", false);
+                    }
+
+                    // The current deduction: the bed's most recently RECORDED 'Sown' row on its current lot (each edit adds
+                    // exactly one; by Id, not by date -- an edit may have moved the date earlier).
+                    var whenCmd = new SqlCommand(@"
+SELECT TOP 1 TransactionDate FROM dbo.SeedStockTransactions
+WHERE ReferenceType = @Ref AND ReferenceId = @Bed AND SeedStockId = @Lot AND TransactionType = N'Sown'
+ORDER BY Id DESC", conn, tx);
+                    whenCmd.Parameters.AddWithValue("@Ref", LedgerReference);
+                    whenCmd.Parameters.AddWithValue("@Bed", req.BedSowingId);
+                    whenCmd.Parameters.AddWithValue("@Lot", stored.SeedStockId);
+                    if (await whenCmd.ExecuteScalarAsync() is not DateTime originalUtc)
+                    {
+                        tx.Rollback();
+                        return (false, "The original seed deduction of this bed was not found in the seed ledger, so it cannot be edited safely.", false);
+                    }
+
+                    // 1) reverse the original deduction at its own instant (10 ms before it -- see above)
+                    var (backOk, backMessage) = await _seedStockRepo.RecordTransactionAsync(
+                        conn, tx, stored.SeedStockId, stored.Quantity, "ReversalReturn", LedgerReference, req.BedSowingId, actor.UserId,
+                        $"Edit of Bed Sowing {code}: original deduction reversed", originalUtc.AddMilliseconds(-10));
+                    if (!backOk)
+                    {
+                        tx.Rollback();
+                        return (false, backMessage, false);
+                    }
+                    // 2) the revised deduction (historical balance checked from its instant onward)
+                    var newUtc = changes.Date ? LedgerDates.Instant(req.Revised.SowingDate).TransactionUtc : originalUtc;
+                    var (sownOk, sownMessage) = await _seedStockRepo.RecordTransactionAsync(
+                        conn, tx, req.Revised.SeedStockId, -req.Revised.Quantity, "Sown", LedgerReference, req.BedSowingId, actor.UserId,
+                        $"Bed Sowing {code} (edited)", newUtc);
+                    if (!sownOk)
+                    {
+                        tx.Rollback();
+                        return (false, sownMessage, false);
+                    }
+                    // 3) the bed itself
+                    using var upd = new SqlCommand(@"
+UPDATE dbo.BedSowings
+SET SpeciesId = @Species, SeedStockId = @Lot, SeedLotNo = @LotNo, SeedSourceId = @Source, SowingDate = @Date, Quantity = @Qty,
+    Remarks = @Remarks, ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @By
+WHERE Id = @Id", conn, tx);
+                    upd.Parameters.AddWithValue("@Species", req.Revised.SpeciesId);
+                    upd.Parameters.AddWithValue("@Lot", req.Revised.SeedStockId);
+                    upd.Parameters.AddWithValue("@LotNo", newLotNo);
+                    upd.Parameters.AddWithValue("@Source", (object?)newSource ?? DBNull.Value);
+                    upd.Parameters.Add("@Date", System.Data.SqlDbType.Date).Value = req.Revised.SowingDate.Date;
+                    upd.Parameters.AddWithValue("@Qty", req.Revised.Quantity);
+                    upd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
+                    upd.Parameters.AddWithValue("@By", (object?)actor.UserName ?? DBNull.Value);
+                    upd.Parameters.AddWithValue("@Id", req.BedSowingId);
+                    await upd.ExecuteNonQueryAsync();
+                    details = BedSowingRules.DescribeChanges(changes, stored, req.Revised, variety, newVariety,
+                        LotLabel(stored.SeedStockId, lotNo), LotLabel(req.Revised.SeedStockId, newLotNo));
+                }
+
+                if (await WorkflowCorrectionsSchema.BedApproverAsync(conn, tx))   // dbo.BedSowingAuditLog exists
+                    await AuditAsync(conn, tx, "Edit", req.BedSowingId, null, actor, req.Reason, $"{code}: {details}");
+                tx.Commit();
+                return (true, $"Bed Sowing {code} updated: {details}.", true);
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { }
+                return (false, DbErrorMessage.For(ex), false);
+            }
+        }
+
+        private static string LotLabel(int seedStockId, string lotNo) => string.IsNullOrEmpty(lotNo) ? $"lot #{seedStockId} (no lot no.)" : $"{lotNo} (#{seedStockId})";
+
+        // Seed lots offered by the Edit form for a variety: Main Office lots with stock, plus the bed's own current lot
+        // (whose seeds come back when the bed is edited), with what would be available to this bed.
+        public async Task<List<(int Id, string Lot, string? Source, decimal AvailableForBed, bool Current)>> GetEditLotsAsync(int speciesId, int bedSowingId)
+        {
+            var list = new List<(int, string, string?, decimal, bool)>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var cmd = new SqlCommand(@"
+SELECT ss.Id, ss.BatchNo, src.Name, ss.AvailableQuantity + CASE WHEN ss.Id = b.SeedStockId THEN b.Quantity ELSE 0 END, CASE WHEN ss.Id = b.SeedStockId THEN 1 ELSE 0 END
+FROM dbo.SeedStock ss
+JOIN dbo.Area a ON a.Id = ss.AreaId AND a.AreaType = N'MainOffice' AND a.IsActive = 1
+LEFT JOIN dbo.SeedSources src ON src.Id = ss.SeedSourceId
+LEFT JOIN dbo.BedSowings b ON b.Id = @Bed
+WHERE ss.SpeciesId = @Species AND (ss.AvailableQuantity > 0 OR ss.Id = b.SeedStockId)
+ORDER BY ss.CreatedDate", conn);
+            cmd.Parameters.AddWithValue("@Species", speciesId);
+            cmd.Parameters.AddWithValue("@Bed", bedSowingId);
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                list.Add((r.GetInt32(0), r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2), r.GetDecimal(3), r.GetInt32(4) == 1));
+            return list;
         }
 
         // ---- Reads -------------------------------------------------------------------------
@@ -841,7 +1086,8 @@ LEFT JOIN dbo.IMSUsers cu ON cu.Id = b.CancelledById";
         };
 
         // areaIds null = every Area. openOnly: pending / partially transplanted only.
-        public async Task<List<BedSowing>> ListAsync(IReadOnlyCollection<int>? areaIds, bool openOnly = false, int max = 500)
+        // 2026-10-22: filter (Bed Transplanting's Variety / Sowing Date) -- AND-ed onto the Area scope, never widening it.
+        public async Task<List<BedSowing>> ListAsync(IReadOnlyCollection<int>? areaIds, bool openOnly = false, int max = 500, SowingListFilter? filter = null)
         {
             var list = new List<BedSowing>();
             using var conn = _dbHelper.GetConnection();
@@ -851,13 +1097,41 @@ LEFT JOIN dbo.IMSUsers cu ON cu.Id = b.CancelledById";
             using var cmd = new SqlCommand(Top(BedSelect) + @"
 WHERE (@Areas IS NULL OR b.AreaId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Areas, ',')))
   AND (@Open = 0 OR b.Status IN (N'PendingTransplant', N'PartiallyTransplanted'))
+  AND (@Species IS NULL OR b.SpeciesId = @Species)
+  AND (@SowingDate IS NULL OR b.SowingDate = @SowingDate)
 ORDER BY b.SowingDate DESC, b.Id DESC", conn);
             cmd.Parameters.AddWithValue("@Max", max);
             cmd.Parameters.AddWithValue("@Areas", areaIds == null ? DBNull.Value : string.Join(",", areaIds.DefaultIfEmpty(-1)));
             cmd.Parameters.AddWithValue("@Open", openOnly ? 1 : 0);
+            cmd.Parameters.Add("@Species", System.Data.SqlDbType.Int).Value = (object?)filter?.SpeciesId ?? DBNull.Value;
+            cmd.Parameters.Add("@SowingDate", System.Data.SqlDbType.Date).Value = (object?)filter?.SowingDate?.Date ?? DBNull.Value;   // DATE column
             using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
                 list.Add(MapBed(r));
+            return list;
+        }
+
+        // 2026-10-22: Bed Transplanting's Variety dropdown -- the varieties of the beds still waiting for transplanting
+        // (pending / partially transplanted) in the given Areas (null = every Area), the same scope as ListAsync(openOnly).
+        public async Task<List<VarietyOption>> ListOpenVarietiesAsync(IReadOnlyCollection<int>? areaIds)
+        {
+            var list = new List<VarietyOption>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            if (!await BedSowingSchema.ReadyAsync(conn))
+                return list;
+            using var cmd = new SqlCommand(@"
+SELECT DISTINCT b.SpeciesId, RTRIM(ps.Name) AS SpeciesName, pt.Name AS PlantTypeName
+FROM dbo.BedSowings b
+JOIN dbo.PlantSpecies ps ON ps.Id = b.SpeciesId
+LEFT JOIN dbo.PlantTypes pt ON pt.Id = ps.PlantTypeId
+WHERE (@Areas IS NULL OR b.AreaId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Areas, ',')))
+  AND b.Status IN (N'PendingTransplant', N'PartiallyTransplanted')
+ORDER BY SpeciesName, b.SpeciesId", conn);
+            cmd.Parameters.AddWithValue("@Areas", areaIds == null ? DBNull.Value : string.Join(",", areaIds.DefaultIfEmpty(-1)));
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                list.Add(new VarietyOption(r.GetInt32(0), r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2)));
             return list;
         }
 

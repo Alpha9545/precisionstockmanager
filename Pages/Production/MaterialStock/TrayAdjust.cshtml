@@ -1,5 +1,6 @@
 @page
 @model PlantStockManager.Pages.Production.MaterialStock.TrayAdjustModel
+@inject PlantStockManager.Data.DatabaseHelper CavityDb
 @using PlantStockManager.Services
 @{
     ViewData["Title"] = "Tray Adjustment";
@@ -54,7 +55,7 @@
                             <label class="form-label fw-bold" for="adjCavity">Cavity</label>
                             <select asp-for="TraySize" id="adjCavity" class="form-select" required>
                                 <option value="">-- Select Cavity --</option>
-                                @foreach (var t in Model.TraySizes)
+                                @foreach (var t in (await PlantStockManager.Data.WorkflowCorrectionsSchema.SelectableCavitiesAsync(CavityDb)))
                                 {
                                     <option value="@t" selected="@(Model.TraySize == t)">@t</option>
                                 }
@@ -122,8 +123,10 @@
             }
             function show() {
                 if (!ph.value || !cavity.value) { balance.textContent = 'Select a Polyhouse and Cavity'; return; }
-                const p = pools.find(function (x) { return String(x.polyhouse) === ph.value && x.size === cavity.value; });
-                balance.textContent = (p ? Number(p.qty) : 0) + ' trays';
+                // a Polyhouse pool, or (2026-10-14) the Mother Plant Area's own pool that every one of its Polyhouses uses
+                const p = pools.find(function (x) { return String(x.polyhouse) === ph.value && x.size === cavity.value; })
+                       || pools.find(function (x) { return x.polyhouse === null && String(x.area) === area.value && x.size === cavity.value; });
+                balance.textContent = (p ? Number(p.qty) : 0) + ' trays' + (p && p.polyhouse === null ? ' (Area stock)' : '');
             }
             area.addEventListener('change', filter);
             ph.addEventListener('change', show);

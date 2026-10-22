@@ -1,5 +1,6 @@
 @page
 @model PlantStockManager.Pages.Production.SeedSowing.CreateFromCuttingModel
+@inject PlantStockManager.Data.DatabaseHelper CavityDb
 @{
     ViewData["Title"] = "Confirm Cutting Sowing";
 }
@@ -81,7 +82,7 @@
                         <label class="form-label fw-bold">Tray Cavity</label>
                         <select asp-for="CavityType" id="cavity" class="form-select" required>
                             <option value="">-- Select --</option>
-                            @foreach (var c in Model.CavityTypes)
+                            @foreach (var c in (await PlantStockManager.Data.WorkflowCorrectionsSchema.SelectableCavitiesAsync(CavityDb)))
                             {
                                 <option value="@c">@c</option>
                             }
@@ -114,6 +115,8 @@
                     </div>
                     <div class="col-12"><div class="text-danger small d-none" id="trayError"></div></div>
 
+                    <partial name="_TrayAvailability" />
+
                     <partial name="_GrowingMaterial" model="Model.GrowingMaterial" />
 
                     <div class="col-md-6">
@@ -143,6 +146,7 @@
 
 @section Scripts {
     <script src="~/js/growing-material.js" asp-append-version="true"></script>
+    <script src="~/js/tray-availability.js" asp-append-version="true"></script>
     <script>
         $(function () {
             initGrowingMaterial({
@@ -152,6 +156,14 @@
                 cavity: () => $('#cavity').val(),
                 quantity: () => $('#qty').val(),
                 triggers: '#polyhouseSelect, #cavity'
+            });
+            // Empty trays of the chosen cavity at every destination offered: a Main Office Polyhouse's own pool, a Mother
+            // Plant Area's one Area pool. The Cutting Quantity is fixed, so the cavity (or destination) is what to correct.
+            initTrayAvailability({
+                url: '@Url.Page("/Production/SeedSowing/CreateFromCutting")',
+                params: () => ({ cavityType: $('#cavity').val(), polyhouseId: $('#polyhouseSelect').val(), quantity: $('#qty').val() || 0 }),
+                triggers: '#polyhouseSelect, #cavity',
+                guard: () => document.getElementById('cavity')
             });
             $('#cuttingSowingForm').on('submit', function () { if (this.checkValidity()) $('#confirmSowingButton').prop('disabled', true).text('Saving...'); });
             const url = '@Url.Page("/Production/SeedSowing/CreateFromCutting")';

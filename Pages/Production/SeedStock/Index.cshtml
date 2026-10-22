@@ -1,7 +1,10 @@
 @page
 @model PlantStockManager.Pages.Production.SeedStock.IndexModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @{
     ViewData["Title"] = "Seed Stock";
+    // 2026-10-20: correcting a receipt is System Administrator only (the page itself enforces it on the server)
+    var canEdit = await FeatureAccess.CanAccessPageAsync(User, PlantStockManager.Services.SeedStockEditRules.EditPage);
 }
 
 <div class="container mt-4">
@@ -94,6 +97,10 @@
                     <td>
                         <a asp-page="/Production/SeedStock/Details" asp-route-id="@s.Id" class="btn btn-sm btn-outline-secondary">Details</a>
                         <a asp-page="/Production/SeedStock/AddStock" asp-route-id="@s.Id" class="btn btn-sm btn-outline-success">Add Stock</a>
+                        @if (canEdit)
+                        {
+                            <a asp-page="/Production/SeedStock/Edit" asp-route-id="@s.Id" class="btn btn-sm btn-outline-primary">Edit</a>
+                        }
                     </td>
                 </tr>
             }

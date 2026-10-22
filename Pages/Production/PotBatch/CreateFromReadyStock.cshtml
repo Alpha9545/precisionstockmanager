@@ -1,0 +1,110 @@
+@page "{readyStockId:int}"
+@model PlantStockManager.Pages.Production.PotBatch.CreateFromReadyStockModel
+@{
+    ViewData["Title"] = "Pot Production from Ready Stock";
+    var s = Model.Source;
+}
+
+<div class="container mt-4">
+    <div class="card shadow-sm mx-auto" style="max-width: 900px;">
+        <div class="card-header">
+            <h4 class="mb-0">Pot Production from Ready Stock</h4>
+            <small class="text-muted">
+                These seedlings were sent to this Mother Plant Area for <strong>Pot Production</strong>. One seedling makes one pot. The
+                seedlings leave the Ready Stock batch now; each day's production uses the Area's own empty pots, and READY adds the pots to
+                Potted Plant Stock. Seedlings not potted are returned to the batch or recorded as wastage at READY.
+            </small>
+        </div>
+        <div class="card-body">
+            @if (!ModelState.IsValid)
+            {
+                <div class="alert alert-danger" id="errors">
+                    <ul class="mb-0">
+                        @foreach (var err in ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <li>@err.ErrorMessage</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            <div class="table-responsive">
+                <table class="table table-sm table-bordered mb-3">
+                    <tbody>
+                        <tr><th class="w-50">Mother Plant Area</th><td>@s.AreaName</td></tr>
+                        <tr><th>Variety</th><td>@s.SpeciesName?.Trim() (@s.PlantTypeName)</td></tr>
+                        <tr><th>Ready Stock batch</th><td>@s.BatchNo &middot; @s.CavityType <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@s.Id" class="small">lineage</a></td></tr>
+                        <tr><th>Seedlings available</th><td class="fw-bold" id="available" data-value="@((int)s.AvailableQuantity)">@Qty(s.AvailableQuantity)</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            @if (s.AvailableQuantity <= 0)
+            {
+                <div class="alert alert-warning">No seedlings of this batch are available to pot.</div>
+            }
+            else
+            {
+                <form method="post" id="pot-form">
+                    <input type="hidden" asp-for="SubmissionToken" />
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label asp-for="PotSize" class="form-label fw-bold">Pot size</label>
+                            <select asp-for="PotSize" class="form-select" id="potSize" required>
+                                <option value="">-- choose --</option>
+                                @foreach (var p in Model.PotSizes)
+                                {
+                                    var have = Model.EmptyPots.TryGetValue(p.Name, out var q) ? q : 0;
+                                    <option value="@p.Name" data-pots="@have.ToString("0")">@p.Name (@Qty(have) empty pots here)</option>
+                                }
+                            </select>
+                            <div class="text-warning small d-none" id="potWarning">Fewer empty pots than seedlings: add empty pots to this Area before potting them all.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="SeedlingsAllocated" class="form-label fw-bold">Seedlings to pot</label>
+                            <input asp-for="SeedlingsAllocated" type="number" step="1" min="1" max="@((int)s.AvailableQuantity)" class="form-control" id="allocated" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="ReadyConfirmerId" class="form-label fw-bold">Ready Confirmation By</label>
+                            <select asp-for="ReadyConfirmerId" class="form-select" required>
+                                <option value="">@(Model.ReadyConfirmers.Any() ? "-- Select user --" : "-- No authorized user is assigned to this Area --")</option>
+                                @foreach (var u in Model.ReadyConfirmers) { <option value="@u.Id">@u.Name</option> }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="ProductionStartDate" class="form-label fw-bold">Production Start Date</label>
+                            <input asp-for="ProductionStartDate" type="date" class="form-control" max="@PlantStockManager.Services.AppClock.Today.ToString("yyyy-MM-dd")" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label asp-for="ExpectedReadyDate" class="form-label fw-bold">Expected Ready Date</label>
+                            <input asp-for="ExpectedReadyDate" type="date" class="form-control" required />
+                        </div>
+                        <div class="col-12">
+                            <label asp-for="Remarks" class="form-label">Remarks</label>
+                            <textarea asp-for="Remarks" class="form-control" rows="2" maxlength="500"></textarea>
+                        </div>
+                    </div>
+                    <div class="text-center mt-4">
+                        <a asp-page="/Production/MotherPlantTransfers/Index" class="btn btn-secondary me-2">Back</a>
+                        <button type="submit" class="btn btn-success" id="saveBtn">Start Pot Batch</button>
+                    </div>
+                </form>
+            }
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(function () {
+            function check() {
+                const q = parseFloat($('#allocated').val()), pots = parseFloat($('#potSize option:selected').data('pots'));
+                $('#potWarning').toggleClass('d-none', !(!isNaN(q) && !isNaN(pots) && q > pots));
+            }
+            $('#allocated').on('input', check);
+            $('#potSize').on('change', check);
+            check();
+            $('#pot-form').on('submit', function () { if (this.checkValidity()) $('#saveBtn').prop('disabled', true); });
+        });
+    </script>
+}

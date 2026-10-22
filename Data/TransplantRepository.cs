@@ -21,6 +21,10 @@ namespace PlantStockManager.Data
     // Bed Sowing) that goes through the existing Sowing Approvals; its Ready Date = transplant date +
     // the variety's Ready Days. Complete trays only on that path (approved Ready Stock is whole trays);
     // the rest stays in the received batch. Without the migration the earlier behaviour is unchanged.
+    //
+    // 2026-10-14 (2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql, MotherPlantAreaSchema): no Polyhouse is
+    // chosen -- the trays come from the Mother Plant Area's own tray pool and the tray batch is the Area's; and a
+    // batch received through a transfer for POT PRODUCTION is never transplanted into trays (refused under lock).
     public class TransplantRepository
     {
         private readonly DatabaseHelper _dbHelper;
@@ -36,8 +40,12 @@ namespace PlantStockManager.Data
             _batchNumberRepo = batchNumberRepo;
         }
 
+        // 2026-10-16: on the tray-batch path SelectedQuantity is the seedlings PROCESSED; the server derives the complete
+        // trays and the waste (TransplantRules.PlanProcessing) and refuses posted Transplanted / Lost that differ.
+        // WasteReason: why the remainder is wasted; DiscardAll: the user confirmed all processed seedlings are discarded.
         public record CreateRequest(int SourceReadyStockId, int? TargetAreaId, int? TargetPolyhouseId, string? TargetCavityType,
-            decimal SelectedQuantity, decimal TransplantedQuantity, decimal LostQuantity, DateTime TransplantDate, string? Notes, Guid SubmissionToken);
+            decimal SelectedQuantity, decimal TransplantedQuantity, decimal LostQuantity, DateTime TransplantDate, string? Notes, Guid SubmissionToken,
+            string? WasteReason = null, bool DiscardAll = false);
 
         public async Task<(bool Success, string? Message, int Id, bool Duplicate)> CreateAsync(
             CreateRequest req, MotherPlantTransferRepository.Actor actor, Func<int, bool> canAccessArea)
@@ -73,12 +81,18 @@ WHERE rs.Id = @Id", conn, tx);
                     availableFromUtc = r.GetDateTime(7); speciesId = r.GetInt32(8); sourceSowingDate = r.GetDateTime(9);
                 }
                 if (!canAccessArea(sourceAreaId)) { tx.Rollback(); return (false, "You are not allowed to transplant stock of this Area.", 0, false); }
-                if (req.TargetAreaId is not > 0 || req.TargetPolyhouseId is not > 0) { tx.Rollback(); return (false, "Choose the target Mother Plant Area and Polyhouse.", 0, false); }
+                // 2026-10-14: the Mother Plant Area only (its tray pool); a Polyhouse is optional and, if named, must be the Area's.
+                var areaOnly = await MotherPlantAreaSchema.ReadyAsync(conn, tx);
+                if (req.TargetAreaId is not > 0 || (req.TargetPolyhouseId is not > 0 && !areaOnly)) { tx.Rollback(); return (false, "Choose the target Mother Plant Area and Polyhouse.", 0, false); }
                 if (!canAccessArea(req.TargetAreaId.Value)) { tx.Rollback(); return (false, "You are not allowed to transplant into this Mother Plant Area.", 0, false); }
+                // A batch received for Pot Production is not transplanted into trays.
+                var (purposeOk, purposeError) = MotherPlantTransferRules.ValidateTransplantPurpose(
+                    await MotherPlantTransferRepository.ReceivedBatchPurposeAsync(conn, tx, req.SourceReadyStockId));
+                if (!purposeOk) { tx.Rollback(); return (false, purposeError, 0, false); }
 
-                var tgtCmd = new SqlCommand("SELECT a.AreaType, a.IsActive, (SELECT p.AreaId FROM dbo.Polyhouses p WHERE p.Id = @P) FROM dbo.Area a WHERE a.Id = @A", conn, tx);
+                var tgtCmd = new SqlCommand("SELECT a.AreaType, a.IsActive, ISNULL((SELECT p.AreaId FROM dbo.Polyhouses p WHERE p.Id = @P), CASE WHEN @P IS NULL THEN a.Id END) FROM dbo.Area a WHERE a.Id = @A", conn, tx);
                 tgtCmd.Parameters.AddWithValue("@A", req.TargetAreaId.Value);
-                tgtCmd.Parameters.AddWithValue("@P", req.TargetPolyhouseId.Value);
+                tgtCmd.Parameters.AddWithValue("@P", (object?)req.TargetPolyhouseId ?? DBNull.Value);
                 string? targetAreaType = null; bool targetActive = false; int? polyhouseAreaId = null;
                 using (var r = await tgtCmd.ExecuteReaderAsync())
                 {
@@ -91,136 +105,212 @@ WHERE rs.Id = @Id", conn, tx);
                     new TransplantRules.Location(sourceAreaType, sourceActive, sourceAreaId),
                     new TransplantRules.Location(targetAreaType, targetActive, req.TargetAreaId.Value), polyhouseAreaId);
                 if (!locOk) { tx.Rollback(); return (false, locError, 0, false); }
+                // 2026-10-16: the Area's trays -- a posted Polyhouse (one of another Area was refused above) is never used or stored
+                if (areaOnly)
+                    req = req with { TargetPolyhouseId = null };
 
                 var (dateOk, dateError) = TransplantRules.ValidateDate(req.TransplantDate, AppClock.Today, AppClock.ToIndiaTime(availableFromUtc));
                 if (!dateOk) { tx.Rollback(); return (false, dateError, 0, false); }
 
                 var wholeTrayCavity = originType == ReadyStock.OriginSowing ? DirectSowingRules.CavityCount(sourceCavity) : null;
-                var (planOk, plan, planError) = TransplantRules.PlanTransplant(req.SelectedQuantity, req.TransplantedQuantity, req.LostQuantity,
-                    available, req.TargetCavityType, wholeTrayCavity);
-                if (!planOk) { tx.Rollback(); return (false, planError, 0, false); }
+                if (!await BedSowingSchema.TraysToApprovalsAsync(conn, tx))
+                    return await CreateLegacyAsync(conn, tx, req, actor, available, wholeTrayCavity, batchNo, sourceCavity);
 
-                // 2026-10-13: tray batch in Sowing Approvals -- complete trays only, Ready Days configured.
-                var traysToApprovals = await BedSowingSchema.TraysToApprovalsAsync(conn, tx);
-                int? readyDays = null; DateTime? readyDate = null;
-                if (traysToApprovals)
+                // 2026-10-16: the seedlings PROCESSED -> complete trays + waste (the untransplanted remainder), re-planned
+                // here under the source lock from the batch's own available quantity -- never the browser's numbers.
+                var wasteSchema = await WorkflowCorrectionsSchema.TransplantWasteAsync(conn, tx);
+                var (planOk, plan, planError) = TransplantRules.PlanProcessing(available, req.SelectedQuantity, req.TargetCavityType,
+                    req.DiscardAll, req.WasteReason, wholeTrayCavity);
+                if (!planOk) { tx.Rollback(); return (false, planError, 0, false); }
+                if (req.TransplantedQuantity != plan!.Transplanted || req.LostQuantity != plan.Waste)
                 {
-                    var (wholeOk, _, wholeError) = TrayBatchRules.CompleteTrays(req.TransplantedQuantity, req.TargetCavityType, "in the received batch");
-                    if (!wholeOk) { tx.Rollback(); return (false, wholeError, 0, false); }
+                    tx.Rollback();
+                    return (false, $"The quantities do not match: {QuantityFormat.Qty(plan.Processed)} seedlings make {plan.Trays} complete trays "
+                        + $"({QuantityFormat.Qty(plan.Transplanted)} transplanted) and {QuantityFormat.Qty(plan.Waste)} waste. Check the form and save again.", 0, false);
+                }
+                if (!plan.MakesTrayBatch && !wasteSchema) { tx.Rollback(); return (false, WorkflowCorrectionsSchema.TransplantWasteMigrationMessage, 0, false); }
+                var wasteReason = plan.Waste > 0 ? req.WasteReason!.Trim() : null;
+                // a waste-only row keeps a valid cavity label (CK_RsTransplants_Cavity): the chosen one, else the batch's own
+                var cavityLabel = DirectSowingRules.IsValidCavityType(req.TargetCavityType) ? req.TargetCavityType! : sourceCavity;
+
+                // Tray batch in Sowing Approvals -- complete trays only, Ready Date = transplant date + configured Ready Days.
+                int? readyDays = null; DateTime? readyDate = null;
+                if (plan.MakesTrayBatch)
+                {
                     string? varietyName;
                     (readyDays, varietyName) = await TrayBatchWriter.ReadyDaysAsync(conn, tx, speciesId);
                     readyDate = TrayBatchRules.ReadyDate(req.TransplantDate, readyDays);
                     if (!readyDate.HasValue) { tx.Rollback(); return (false, string.Format(TrayBatchRules.NoReadyDaysMessageFormat, varietyName), 0, false); }
                 }
 
-                // Empty target trays: the TARGET Polyhouse's own Tray Stock pool -- never another Area's.
-                var (trayLocOk, trayLocError) = await TrayStockRepository.ValidateLocationAsync(conn, tx, req.TargetAreaId.Value, req.TargetPolyhouseId);
-                if (!trayLocOk) { tx.Rollback(); return (false, trayLocError, 0, false); }
-                var trayStockId = await _trayStockRepo.GetOrCreateLockedAsync(conn, tx, req.TargetAreaId.Value, req.TargetPolyhouseId.Value, req.TargetCavityType!, actor.UserName);
-                // 2026-10-10: trays available on the TRANSPLANTING date and at every later point (a back-dated
-                // transplant may not use trays that arrived afterwards); today -> the current balance.
+                // Empty target trays: only the trays the complete trays need, from the Mother Plant Area's own pool.
+                int? trayStockId = null;
                 var (_, trayAtUtc, _) = LedgerDates.Instant(req.TransplantDate.Date);
-                var backDated = TrayStockRepository.IsBackDated(trayAtUtc);
-                var trayBalance = await TrayStockRepository.AvailableFromAsync(conn, tx, trayStockId, backDated ? trayAtUtc : null);
-                var (traysOk, traysError) = TransplantRules.ValidateTrays(plan!.OutputTrays, trayBalance, req.TargetCavityType!,
-                    backDated ? req.TransplantDate.Date : null);
-                if (!traysOk) { tx.Rollback(); return (false, traysError, 0, false); }
+                if (plan.MakesTrayBatch)
+                {
+                    var (trayLocOk, trayLocError) = await TrayStockRepository.ValidateLocationAsync(conn, tx, req.TargetAreaId.Value, req.TargetPolyhouseId);
+                    if (!trayLocOk) { tx.Rollback(); return (false, trayLocError, 0, false); }
+                    trayStockId = await _trayStockRepo.GetOrCreateLockedAsync(conn, tx, req.TargetAreaId.Value, req.TargetPolyhouseId, req.TargetCavityType!, actor.UserName);
+                    // 2026-10-10: trays available on the TRANSPLANTING date and at every later point; today -> the current balance.
+                    var backDated = TrayStockRepository.IsBackDated(trayAtUtc);
+                    var trayBalance = await TrayStockRepository.AvailableFromAsync(conn, tx, trayStockId.Value, backDated ? trayAtUtc : null);
+                    var (traysOk, traysError) = TransplantRules.ValidateTrays(plan.Trays, trayBalance, req.TargetCavityType!,
+                        backDated ? req.TransplantDate.Date : null, req.TargetPolyhouseId is > 0 ? "the target Polyhouse" : "this Mother Plant Area");
+                    if (!traysOk) { tx.Rollback(); return (false, traysError, 0, false); }
+                }
 
+                var notes = string.IsNullOrWhiteSpace(req.Notes) ? null : req.Notes.Trim();
+                if (wasteReason != null && !wasteSchema)
+                    notes = $"Waste reason: {wasteReason}" + (notes == null ? "" : " | " + notes);   // no WasteReason column yet
                 var code = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "TP", req.TransplantDate.Year);
                 var insert = new SqlCommand(@"
+INSERT INTO dbo.ReadyStockTransplants
+(TransplantCode, SourceReadyStockId, AreaId, PolyhouseId, TargetCavityType, SelectedQuantity, TransplantedQuantity, LostQuantity,
+ OutputTrays, TrayStockId, TransplantDate, Notes, Status, SubmissionToken, CreatedById, CreatedBy" + (wasteSchema ? ", WasteReason" : "") + @")
+VALUES
+(@Code, @Source, @Area, @Polyhouse, @Cavity, @Selected, @Transplanted, @Lost, @Trays, @TrayStock, @Date, @Notes, N'Completed', @Token, @UserId, @UserName" + (wasteSchema ? ", @WasteReason" : "") + @");
+SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
+                insert.Parameters.AddWithValue("@Code", code);
+                insert.Parameters.AddWithValue("@Source", req.SourceReadyStockId);
+                insert.Parameters.AddWithValue("@Area", req.TargetAreaId.Value);
+                insert.Parameters.AddWithValue("@Polyhouse", (object?)req.TargetPolyhouseId ?? DBNull.Value);
+                insert.Parameters.AddWithValue("@Cavity", cavityLabel);
+                insert.Parameters.AddWithValue("@Selected", plan.Processed);
+                insert.Parameters.AddWithValue("@Transplanted", plan.Transplanted);
+                insert.Parameters.AddWithValue("@Lost", plan.Waste);
+                insert.Parameters.AddWithValue("@Trays", plan.Trays);
+                insert.Parameters.AddWithValue("@TrayStock", (object?)trayStockId ?? DBNull.Value);
+                insert.Parameters.Add("@Date", System.Data.SqlDbType.Date).Value = req.TransplantDate.Date;
+                insert.Parameters.AddWithValue("@Notes", (object?)notes ?? DBNull.Value);
+                insert.Parameters.AddWithValue("@Token", req.SubmissionToken);
+                insert.Parameters.AddWithValue("@UserId", (object?)actor.UserId ?? DBNull.Value);
+                insert.Parameters.AddWithValue("@UserName", (object?)actor.UserName ?? DBNull.Value);
+                insert.Parameters.AddWithValue("@WasteReason", (object?)wasteReason ?? DBNull.Value);
+                var id = (int)(await insert.ExecuteScalarAsync())!;
+
+                // 1) the source loses everything processed -- transplanted + waste -- as one change, on the transplant date.
+                var (srcOk, srcError) = await _readyStockRepo.RecordMovementsAsync(conn, tx, req.SourceReadyStockId,
+                    new List<(string, decimal, string?)>
+                    {
+                        ("TransplantOut", -plan.Transplanted, $"{code}: transplanted into {req.TargetCavityType} trays"),
+                        ("TransplantLoss", -plan.Waste, plan.Waste > 0 ? $"{code}: waste -- {wasteReason}" : null),
+                    }, TransplantRules.ReferenceType, id, actor.UserId, req.TransplantDate.Date);
+                if (!srcOk) { tx.Rollback(); return (false, srcError, 0, false); }
+
+                // 2) the output: a growing tray batch in Sowing Approvals (no Ready Stock until approved) -- only when at
+                //    least one complete tray was made. No growing material: Mother Plant transplanting never consumes
+                //    Cocopeat / Pitmos (owner 2026-10-12); bed transplanting keeps its material rule (BedSowingRepository).
+                int? outputSowingId = null; string? outputSowingCode = null;
+                if (plan.MakesTrayBatch)
+                {
+                    var (sowId, sowCode) = await TrayBatchWriter.InsertAsync(conn, tx, _batchNumberRepo, new TrayBatchWriter.Spec(
+                        SeedSowing.SourceTransplant, null, speciesId, req.TargetAreaId.Value, req.TargetPolyhouseId, batchNo, null,
+                        req.TargetCavityType!, plan.Trays, plan.Transplanted, sourceSowingDate, readyDays!.Value, readyDate!.Value, null,
+                        $"Transplanted from Ready Stock batch {batchNo} ({sourceCavity}) on {req.TransplantDate:dd/MM/yyyy} ({code})"
+                            + (notes == null ? "" : ": " + notes),
+                        actor.UserName, actor.UserId));
+                    var linkSowing = new SqlCommand("UPDATE dbo.ReadyStockTransplants SET OutputSeedSowingId = @O WHERE Id = @Id", conn, tx);
+                    linkSowing.Parameters.AddWithValue("@O", sowId);
+                    linkSowing.Parameters.AddWithValue("@Id", id);
+                    await linkSowing.ExecuteNonQueryAsync();
+                    outputSowingId = sowId; outputSowingCode = sowCode;
+
+                    // 3) only the empty trays the complete trays need.
+                    var (trayOk, trayError) = await _trayStockRepo.RecordTransactionAsync(conn, tx, trayStockId!.Value, -plan.Trays, "Transplant",
+                        TransplantRules.ReferenceType, id, actor.UserId, $"{code}: {QuantityFormat.Qty(plan.Transplanted)} plants transplanted", trayAtUtc);
+                    if (!trayOk) { tx.Rollback(); return (false, trayError, 0, false); }
+                }
+
+                tx.Commit();
+                return (true, $"{code} saved: " + plan.Summary(req.TargetCavityType, done: true)
+                    + (outputSowingId.HasValue ? $" Tray batch {outputSowingCode}, Ready Date {readyDate:dd-MM-yyyy} (transplant date + {readyDays} days), now waiting in Sowing Approvals." : ""),
+                    id, false);
+            }
+            catch (SqlException ex) when (ex.Number is 2601 or 2627)
+            {
+                SafeRollback(tx);
+                var existing = await ScalarOrNullAsync("SELECT Id FROM dbo.ReadyStockTransplants WHERE SubmissionToken = @V", req.SubmissionToken);
+                return existing.HasValue ? (true, "This transplanting was already saved.", existing.Value, true) : (false, DbErrorMessage.For(ex), 0, false);
+            }
+            catch (Exception ex)
+            {
+                SafeRollback(tx);
+                return (false, DbErrorMessage.For(ex), 0, false);
+            }
+        }
+
+        // Before 2026-10-13_TraysToSowingApprovals.sql: the output is a NEW Ready Stock batch with exact plant counts
+        // (the last tray may be partly filled) and the user enters transplanted + lost -- unchanged behaviour.
+        // Runs inside CreateAsync's transaction (source batch locked); commits or rolls back that transaction.
+        private async Task<(bool Success, string? Message, int Id, bool Duplicate)> CreateLegacyAsync(SqlConnection conn, SqlTransaction tx,
+            CreateRequest req, MotherPlantTransferRepository.Actor actor, decimal available, int? wholeTrayCavity, string batchNo, string sourceCavity)
+        {
+            var (planOk, plan, planError) = TransplantRules.PlanTransplant(req.SelectedQuantity, req.TransplantedQuantity, req.LostQuantity,
+                available, req.TargetCavityType, wholeTrayCavity);
+            if (!planOk) { tx.Rollback(); return (false, planError, 0, false); }
+
+            var (trayLocOk, trayLocError) = await TrayStockRepository.ValidateLocationAsync(conn, tx, req.TargetAreaId!.Value, req.TargetPolyhouseId);
+            if (!trayLocOk) { tx.Rollback(); return (false, trayLocError, 0, false); }
+            var trayStockId = await _trayStockRepo.GetOrCreateLockedAsync(conn, tx, req.TargetAreaId.Value, req.TargetPolyhouseId, req.TargetCavityType!, actor.UserName);
+            var (_, trayAtUtc, _) = LedgerDates.Instant(req.TransplantDate.Date);
+            var backDated = TrayStockRepository.IsBackDated(trayAtUtc);
+            var trayBalance = await TrayStockRepository.AvailableFromAsync(conn, tx, trayStockId, backDated ? trayAtUtc : null);
+            var (traysOk, traysError) = TransplantRules.ValidateTrays(plan!.OutputTrays, trayBalance, req.TargetCavityType!,
+                backDated ? req.TransplantDate.Date : null, req.TargetPolyhouseId is > 0 ? "the target Polyhouse" : "this Mother Plant Area");
+            if (!traysOk) { tx.Rollback(); return (false, traysError, 0, false); }
+
+            var code = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "TP", req.TransplantDate.Year);
+            var insert = new SqlCommand(@"
 INSERT INTO dbo.ReadyStockTransplants
 (TransplantCode, SourceReadyStockId, AreaId, PolyhouseId, TargetCavityType, SelectedQuantity, TransplantedQuantity, LostQuantity,
  OutputTrays, TrayStockId, TransplantDate, Notes, Status, SubmissionToken, CreatedById, CreatedBy)
 VALUES
 (@Code, @Source, @Area, @Polyhouse, @Cavity, @Selected, @Transplanted, @Lost, @Trays, @TrayStock, @Date, @Notes, N'Completed', @Token, @UserId, @UserName);
 SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
-                insert.Parameters.AddWithValue("@Code", code);
-                insert.Parameters.AddWithValue("@Source", req.SourceReadyStockId);
-                insert.Parameters.AddWithValue("@Area", req.TargetAreaId.Value);
-                insert.Parameters.AddWithValue("@Polyhouse", req.TargetPolyhouseId.Value);
-                insert.Parameters.AddWithValue("@Cavity", req.TargetCavityType!);
-                insert.Parameters.AddWithValue("@Selected", req.SelectedQuantity);
-                insert.Parameters.AddWithValue("@Transplanted", req.TransplantedQuantity);
-                insert.Parameters.AddWithValue("@Lost", req.LostQuantity);
-                insert.Parameters.AddWithValue("@Trays", plan.OutputTrays);
-                insert.Parameters.AddWithValue("@TrayStock", trayStockId);
-                insert.Parameters.Add("@Date", System.Data.SqlDbType.Date).Value = req.TransplantDate.Date;
-                insert.Parameters.AddWithValue("@Notes", string.IsNullOrWhiteSpace(req.Notes) ? DBNull.Value : req.Notes.Trim());
-                insert.Parameters.AddWithValue("@Token", req.SubmissionToken);
-                insert.Parameters.AddWithValue("@UserId", (object?)actor.UserId ?? DBNull.Value);
-                insert.Parameters.AddWithValue("@UserName", (object?)actor.UserName ?? DBNull.Value);
-                var id = (int)(await insert.ExecuteScalarAsync())!;
+            insert.Parameters.AddWithValue("@Code", code);
+            insert.Parameters.AddWithValue("@Source", req.SourceReadyStockId);
+            insert.Parameters.AddWithValue("@Area", req.TargetAreaId.Value);
+            insert.Parameters.AddWithValue("@Polyhouse", (object?)req.TargetPolyhouseId ?? DBNull.Value);
+            insert.Parameters.AddWithValue("@Cavity", req.TargetCavityType!);
+            insert.Parameters.AddWithValue("@Selected", req.SelectedQuantity);
+            insert.Parameters.AddWithValue("@Transplanted", req.TransplantedQuantity);
+            insert.Parameters.AddWithValue("@Lost", req.LostQuantity);
+            insert.Parameters.AddWithValue("@Trays", plan.OutputTrays);
+            insert.Parameters.AddWithValue("@TrayStock", trayStockId);
+            insert.Parameters.Add("@Date", System.Data.SqlDbType.Date).Value = req.TransplantDate.Date;
+            insert.Parameters.AddWithValue("@Notes", string.IsNullOrWhiteSpace(req.Notes) ? DBNull.Value : req.Notes.Trim());
+            insert.Parameters.AddWithValue("@Token", req.SubmissionToken);
+            insert.Parameters.AddWithValue("@UserId", (object?)actor.UserId ?? DBNull.Value);
+            insert.Parameters.AddWithValue("@UserName", (object?)actor.UserName ?? DBNull.Value);
+            var id = (int)(await insert.ExecuteScalarAsync())!;
 
-                // 1) the source loses what the operation consumed (plants transplanted + lost), as one change.
-                var (srcOk, srcError) = await _readyStockRepo.RecordMovementsAsync(conn, tx, req.SourceReadyStockId,
-                    new List<(string, decimal, string?)>
-                    {
-                        ("TransplantOut", -req.TransplantedQuantity, $"{code}: transplanted into {req.TargetCavityType} trays"),
-                        ("TransplantLoss", -req.LostQuantity, req.LostQuantity > 0 ? $"{code}: lost / damaged while transplanting" : null),
-                    }, TransplantRules.ReferenceType, id, actor.UserId, req.TransplantDate.Date);
-                if (!srcOk) { tx.Rollback(); return (false, srcError, 0, false); }
-
-                // 2) the output, only the transplanted plants.
-                int? outputSowingId = null; string? outputSowingCode = null;
-                if (traysToApprovals)
+            var (srcOk, srcError) = await _readyStockRepo.RecordMovementsAsync(conn, tx, req.SourceReadyStockId,
+                new List<(string, decimal, string?)>
                 {
-                    // 2026-10-13: a growing tray batch in Sowing Approvals (no Ready Stock until approved).
-                    // Growing material: the existing rule (Main Office Polyhouses only) -- none here.
-                    var (sowId, sowCode) = await TrayBatchWriter.InsertAsync(conn, tx, _batchNumberRepo, new TrayBatchWriter.Spec(
-                        SeedSowing.SourceTransplant, null, speciesId, req.TargetAreaId.Value, req.TargetPolyhouseId.Value, batchNo, null,
-                        req.TargetCavityType!, plan.OutputTrays, req.TransplantedQuantity, sourceSowingDate, readyDays!.Value, readyDate!.Value, null,
-                        $"Transplanted from Ready Stock batch {batchNo} ({sourceCavity}) on {req.TransplantDate:dd/MM/yyyy} ({code})"
-                            + (string.IsNullOrWhiteSpace(req.Notes) ? "" : ": " + req.Notes.Trim()),
-                        actor.UserName, actor.UserId));
-                    var (matOk, matError) = await MaterialStockRepository.ConsumeForSowingAsync(conn, tx, req.TargetAreaId.Value, req.TargetPolyhouseId.Value,
-                        null, req.TargetCavityType, plan.OutputTrays, sowId, sowCode, actor.UserId);
-                    if (!matOk) { tx.Rollback(); return (false, matError, 0, false); }
-                    var linkSowing = new SqlCommand("UPDATE dbo.ReadyStockTransplants SET OutputSeedSowingId = @O WHERE Id = @Id", conn, tx);
-                    linkSowing.Parameters.AddWithValue("@O", sowId);
-                    linkSowing.Parameters.AddWithValue("@Id", id);
-                    await linkSowing.ExecuteNonQueryAsync();
-                    outputSowingId = sowId; outputSowingCode = sowCode;
-                }
-                else
-                {
-                var outputId = await _readyStockRepo.CreateDerivedBatchAsync(conn, tx, req.SourceReadyStockId, ReadyStock.OriginTransplant, id,
-                    req.TargetAreaId.Value, req.TargetPolyhouseId.Value, req.TargetCavityType!, actor.UserName);
-                var (outOk, outError) = await _readyStockRepo.RecordTransactionAsync(conn, tx, outputId, req.TransplantedQuantity, "TransplantIn",
-                    TransplantRules.ReferenceType, id, actor.UserId, $"{code}: from batch {batchNo} ({sourceCavity})", req.TransplantDate.Date);
-                if (!outOk) { tx.Rollback(); return (false, outError, 0, false); }
-                var link = new SqlCommand("UPDATE dbo.ReadyStockTransplants SET OutputReadyStockId = @O WHERE Id = @Id", conn, tx);
-                link.Parameters.AddWithValue("@O", outputId);
-                link.Parameters.AddWithValue("@Id", id);
-                await link.ExecuteNonQueryAsync();
-                }
+                    ("TransplantOut", -req.TransplantedQuantity, $"{code}: transplanted into {req.TargetCavityType} trays"),
+                    ("TransplantLoss", -req.LostQuantity, req.LostQuantity > 0 ? $"{code}: lost / damaged while transplanting" : null),
+                }, TransplantRules.ReferenceType, id, actor.UserId, req.TransplantDate.Date);
+            if (!srcOk) { tx.Rollback(); return (false, srcError, 0, false); }
 
-                // 3) the empty target trays.
-                var (_, trayUtc, _) = LedgerDates.Instant(req.TransplantDate.Date);
-                var (trayOk, trayError) = await _trayStockRepo.RecordTransactionAsync(conn, tx, trayStockId, -plan.OutputTrays, "Transplant",
-                    TransplantRules.ReferenceType, id, actor.UserId, $"{code}: {QuantityFormat.Qty(req.TransplantedQuantity)} plants transplanted", trayUtc);
-                if (!trayOk) { tx.Rollback(); return (false, trayError, 0, false); }
+            var outputId = await _readyStockRepo.CreateDerivedBatchAsync(conn, tx, req.SourceReadyStockId, ReadyStock.OriginTransplant, id,
+                req.TargetAreaId.Value, req.TargetPolyhouseId, req.TargetCavityType!, actor.UserName);
+            var (outOk, outError) = await _readyStockRepo.RecordTransactionAsync(conn, tx, outputId, req.TransplantedQuantity, "TransplantIn",
+                TransplantRules.ReferenceType, id, actor.UserId, $"{code}: from batch {batchNo} ({sourceCavity})", req.TransplantDate.Date);
+            if (!outOk) { tx.Rollback(); return (false, outError, 0, false); }
+            var link = new SqlCommand("UPDATE dbo.ReadyStockTransplants SET OutputReadyStockId = @O WHERE Id = @Id", conn, tx);
+            link.Parameters.AddWithValue("@O", outputId);
+            link.Parameters.AddWithValue("@Id", id);
+            await link.ExecuteNonQueryAsync();
 
-                tx.Commit();
-                if (outputSowingId.HasValue)
-                    return (true, $"{code} saved: {QuantityFormat.Qty(req.TransplantedQuantity)} plants in {plan.OutputTrays} x {req.TargetCavityType} trays -- tray batch {outputSowingCode}, "
-                        + $"Ready Date {readyDate:dd-MM-yyyy} (transplant date + {readyDays} days), now waiting in Sowing Approvals"
-                        + (req.LostQuantity > 0 ? $"; {QuantityFormat.Qty(req.LostQuantity)} recorded as lost / damaged." : "."), id, false);
-                var last = plan.PlantsInLastTray > 0 && plan.PlantsInLastTray < plan.Cavity
-                    ? $" ({plan.FullTrays} full + 1 tray with {QuantityFormat.Qty(plan.PlantsInLastTray)})" : "";
-                return (true, $"{code} saved: {QuantityFormat.Qty(req.TransplantedQuantity)} plants in {plan.OutputTrays} x {req.TargetCavityType} trays{last}"
-                    + (req.LostQuantity > 0 ? $"; {QuantityFormat.Qty(req.LostQuantity)} recorded as lost / damaged." : "."), id, false);
-            }
-            catch (SqlException ex) when (ex.Number is 2601 or 2627)
-            {
-                SafeRollback(tx);
-                var existing = await ScalarOrNullAsync("SELECT Id FROM dbo.ReadyStockTransplants WHERE SubmissionToken = @V", req.SubmissionToken);
-                return existing.HasValue ? (true, "This transplanting was already saved.", existing.Value, true) : (false, ex.Message, 0, false);
-            }
-            catch (Exception ex)
-            {
-                SafeRollback(tx);
-                return (false, ex.Message, 0, false);
-            }
+            var (trayOk, trayError) = await _trayStockRepo.RecordTransactionAsync(conn, tx, trayStockId, -plan.OutputTrays, "Transplant",
+                TransplantRules.ReferenceType, id, actor.UserId, $"{code}: {QuantityFormat.Qty(req.TransplantedQuantity)} plants transplanted", trayAtUtc);
+            if (!trayOk) { tx.Rollback(); return (false, trayError, 0, false); }
+
+            tx.Commit();
+            var last = plan.PlantsInLastTray > 0 && plan.PlantsInLastTray < plan.Cavity
+                ? $" ({plan.FullTrays} full + 1 tray with {QuantityFormat.Qty(plan.PlantsInLastTray)})" : "";
+            return (true, $"{code} saved: {QuantityFormat.Qty(req.TransplantedQuantity)} plants in {plan.OutputTrays} x {req.TargetCavityType} trays{last}"
+                + (req.LostQuantity > 0 ? $"; {QuantityFormat.Qty(req.LostQuantity)} recorded as lost / damaged." : "."), id, false);
         }
 
         public async Task<(bool Success, string? Message)> ReverseAsync(int transplantId, string? reason, MotherPlantTransferRepository.Actor actor, Func<int, bool> canAccessArea)
@@ -236,18 +326,22 @@ SELECT TransplantCode, Status, SourceReadyStockId, OutputReadyStockId, AreaId, T
                     + (traysToApprovals ? "OutputSeedSowingId" : "CAST(NULL AS INT)") + @"
 FROM dbo.ReadyStockTransplants WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
                 tCmd.Parameters.AddWithValue("@Id", transplantId);
-                string code, status; int sourceId, outputId = 0, areaId, trays, trayStockId; int? outputSowingId; decimal transplanted, lost;
+                string code, status; int sourceId, outputId = 0, areaId, trays, trayStockId = 0; int? outputSowingId; decimal transplanted, lost;
                 using (var r = await tCmd.ExecuteReaderAsync())
                 {
                     if (!await r.ReadAsync()) { r.Close(); tx.Rollback(); return (false, "Transplanting not found."); }
                     code = r.GetString(0); status = r.GetString(1); sourceId = r.GetInt32(2);
                     outputSowingId = r.IsDBNull(9) ? null : r.GetInt32(9);
-                    if (r.IsDBNull(3) && outputSowingId == null) { r.Close(); tx.Rollback(); return (false, "This transplanting has no output batch."); }
-                    if (!r.IsDBNull(3)) outputId = r.GetInt32(3);
                     areaId = r.GetInt32(4); transplanted = r.GetDecimal(5); lost = r.GetDecimal(6);
-                    trays = r.GetInt32(7); trayStockId = r.GetInt32(8);
+                    // 2026-10-16: a waste-only closure has no output batch and no tray pool (TrayStockId NULL).
+                    if (r.IsDBNull(3) && outputSowingId == null && transplanted > 0) { r.Close(); tx.Rollback(); return (false, "This transplanting has no output batch."); }
+                    if (!r.IsDBNull(3)) outputId = r.GetInt32(3);
+                    trays = r.GetInt32(7);
+                    if (!r.IsDBNull(8)) trayStockId = r.GetInt32(8);
                 }
                 if (!canAccessArea(areaId)) { tx.Rollback(); return (false, "You are not allowed to reverse transplanting in this Area."); }
+                if (transplanted == 0)
+                    return await ReverseWasteOnlyAsync(conn, tx, transplantId, code, status, sourceId, lost, reason, actor);
                 if (outputSowingId.HasValue)
                     return await ReverseTrayBatchAsync(conn, tx, transplantId, code, status, sourceId, outputSowingId.Value, transplanted, lost, trays, trayStockId, reason, actor);
 
@@ -280,7 +374,7 @@ FROM dbo.ReadyStock rs WITH (UPDLOCK, HOLDLOCK) WHERE rs.Id = @Id", conn, tx);
                         ("ReversalReturn", lost, lost > 0 ? $"{code} reversed: plants recorded as lost returned -- {why}" : null),
                     }, TransplantRules.ReferenceType, transplantId, actor.UserId);
                 if (!srcOk) { tx.Rollback(); return (false, srcError); }
-                var (trayOk, trayError) = await _trayStockRepo.RecordTransactionAsync(conn, tx, trayStockId, trays, "ReversalReturn",
+                var (trayOk, trayError) = await _trayStockRepo.RecordTransactionAsync(conn, tx, await ReturnPoolAsync(conn, tx, trayStockId), trays, "ReversalReturn",
                     TransplantRules.ReferenceType, transplantId, actor.UserId, $"{code} reversed: {why}");
                 if (!trayOk) { tx.Rollback(); return (false, trayError); }
 
@@ -298,7 +392,7 @@ WHERE Id = @Id AND Status = N'Completed'", conn, tx);
             catch (Exception ex)
             {
                 SafeRollback(tx);
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -338,7 +432,7 @@ WHERE Id = @Id AND Status = N'Completed'", conn, tx);
                     ("ReversalReturn", lost, lost > 0 ? $"{code} reversed: plants recorded as lost returned -- {why}" : null),
                 }, TransplantRules.ReferenceType, transplantId, actor.UserId);
             if (!srcOk) { tx.Rollback(); return (false, srcError); }
-            var (trayOk, trayError) = await _trayStockRepo.RecordTransactionAsync(conn, tx, trayStockId, trays, "ReversalReturn",
+            var (trayOk, trayError) = await _trayStockRepo.RecordTransactionAsync(conn, tx, await ReturnPoolAsync(conn, tx, trayStockId), trays, "ReversalReturn",
                 TransplantRules.ReferenceType, transplantId, actor.UserId, $"{code} reversed: {why}");
             if (!trayOk) { tx.Rollback(); return (false, trayError); }
             var upd = new SqlCommand(@"
@@ -352,17 +446,60 @@ WHERE Id = @Id AND Status = N'Completed'", conn, tx);
             return (true, $"{code} reversed: the tray batch is cancelled, {QuantityFormat.Qty(transplanted + lost)} plants returned to the source batch and {trays} trays to Tray Stock.");
         }
 
+        // 2026-10-16: reversing a waste-only closure (seedlings discarded, no tray batch, no trays): the discarded seedlings
+        // return to the source batch. Ledger rows are never deleted.
+        private async Task<(bool Success, string? Message)> ReverseWasteOnlyAsync(SqlConnection conn, SqlTransaction tx, int transplantId, string code,
+            string status, int sourceId, decimal lost, string? reason, MotherPlantTransferRepository.Actor actor)
+        {
+            if (status != TransplantRules.StatusCompleted) { tx.Rollback(); return (false, "This transplanting is already reversed."); }
+            if (string.IsNullOrWhiteSpace(reason)) { tx.Rollback(); return (false, "Enter the reason for the reversal."); }
+            if (reason.Trim().Length > 500) { tx.Rollback(); return (false, "The reason is too long (500 characters at most)."); }
+            var why = reason.Trim();
+            var (srcOk, srcError) = await _readyStockRepo.RecordMovementsAsync(conn, tx, sourceId,
+                new List<(string, decimal, string?)> { ("ReversalReturn", lost, $"{code} reversed: seedlings recorded as waste returned -- {why}") },
+                TransplantRules.ReferenceType, transplantId, actor.UserId);
+            if (!srcOk) { tx.Rollback(); return (false, srcError); }
+            var upd = new SqlCommand(@"
+UPDATE dbo.ReadyStockTransplants SET Status = N'Reversed', ReversedById = @User, ReversedAt = SYSUTCDATETIME(), ReversalReason = @Reason
+WHERE Id = @Id AND Status = N'Completed'", conn, tx);
+            upd.Parameters.AddWithValue("@User", (object?)actor.UserId ?? DBNull.Value);
+            upd.Parameters.AddWithValue("@Reason", why);
+            upd.Parameters.AddWithValue("@Id", transplantId);
+            if (await upd.ExecuteNonQueryAsync() != 1) { tx.Rollback(); return (false, "This transplanting is already reversed."); }
+            tx.Commit();
+            return (true, $"{code} reversed: {QuantityFormat.Qty(lost)} seedlings recorded as waste returned to the source batch.");
+        }
+
+        // 2026-10-14: the pool a reversal gives the trays back to -- the transplant's own pool, unless that was a
+        // Mother Plant Area Polyhouse pool since merged into (and retired for) the Area pool: then the Area pool.
+        private async Task<int> ReturnPoolAsync(SqlConnection conn, SqlTransaction tx, int trayStockId)
+        {
+            int areaId; int? polyhouseId; string size; bool active;
+            using (var cmd = new SqlCommand("SELECT AreaId, PolyhouseId, TraySize, IsActive FROM dbo.TrayStock WHERE Id = @Id", conn, tx))
+            {
+                cmd.Parameters.AddWithValue("@Id", trayStockId);
+                using var r = await cmd.ExecuteReaderAsync();
+                if (!await r.ReadAsync()) return trayStockId;
+                areaId = r.GetInt32(0); polyhouseId = r.IsDBNull(1) ? null : r.GetInt32(1); size = r.GetString(2); active = r.GetBoolean(3);
+            }
+            if (active || !await TrayStockRepository.UsesAreaPoolAsync(conn, tx, areaId))
+                return trayStockId;
+            return await _trayStockRepo.GetOrCreateLockedAsync(conn, tx, areaId, polyhouseId, size, null);
+        }
+
         // ---- reads ------------------------------------------------------------------------------------
 
-        // traysReady: also the tray-batch output (2026-10-13); otherwise NULLs in the same positions.
-        private static string ListSelect(bool traysReady) => @"
+        // traysReady: also the tray-batch output (2026-10-13); wasteReady: the waste reason (2026-10-16); otherwise NULLs
+        // in the same positions.
+        private static string ListSelect(bool traysReady, bool wasteReady = false) => @"
 SELECT t.Id, t.TransplantCode, t.Status, t.TransplantDate, t.SourceReadyStockId, t.OutputReadyStockId,
        src.OriginType, sa.Name, sph.Name, src.CavityType, t.AreaId, ta.Name, t.PolyhouseId, tph.Name, t.TargetCavityType,
        src.SpeciesId, ps.Name, pt.Name, src.BatchNo, sw.SowingCode,
        t.SelectedQuantity, t.TransplantedQuantity, t.LostQuantity, t.OutputTrays, t.Notes, t.CreatedBy, t.CreatedAt,
        ru.Name, t.ReversedAt, t.ReversalReason, "
             + (traysReady ? "t.OutputSeedSowingId, os.SowingCode, os.Status, os.ExpectedReadyDate, os.ReadyStockDays, os.ConfirmedReadyQuantity"
-                          : "CAST(NULL AS INT), CAST(NULL AS NVARCHAR(40)), CAST(NULL AS NVARCHAR(60)), CAST(NULL AS DATE), CAST(NULL AS INT), CAST(NULL AS DECIMAL(18,2))") + @"
+                          : "CAST(NULL AS INT), CAST(NULL AS NVARCHAR(40)), CAST(NULL AS NVARCHAR(60)), CAST(NULL AS DATE), CAST(NULL AS INT), CAST(NULL AS DECIMAL(18,2))")
+            + (wasteReady ? ", t.WasteReason" : ", CAST(NULL AS NVARCHAR(500))") + @"
 FROM dbo.ReadyStockTransplants t
 JOIN dbo.ReadyStock src ON src.Id = t.SourceReadyStockId
 JOIN dbo.SeedSowings sw ON sw.Id = src.SeedSowingId
@@ -371,9 +508,12 @@ JOIN dbo.PlantTypes pt ON pt.Id = ps.PlantTypeId
 JOIN dbo.Area sa ON sa.Id = src.AreaId
 LEFT JOIN dbo.Polyhouses sph ON sph.Id = src.PolyhouseId
 JOIN dbo.Area ta ON ta.Id = t.AreaId
-JOIN dbo.Polyhouses tph ON tph.Id = t.PolyhouseId
+LEFT JOIN dbo.Polyhouses tph ON tph.Id = t.PolyhouseId
 LEFT JOIN dbo.IMSUsers ru ON ru.Id = t.ReversedById" + (traysReady ? @"
 LEFT JOIN dbo.SeedSowings os ON os.Id = t.OutputSeedSowingId" : "");
+
+        private static async Task<string> ListSelectAsync(SqlConnection conn)
+            => ListSelect(await BedSowingSchema.TraysToApprovalsAsync(conn), await WorkflowCorrectionsSchema.TransplantWasteAsync(conn));
 
         // areaIds: null = every Area; otherwise transplantings whose target OR source Area is one of them.
         public async Task<List<ReadyStockTransplant>> ListAsync(TransplantFilter f, IReadOnlyCollection<int>? areaIds, int max = 1000)
@@ -382,7 +522,7 @@ LEFT JOIN dbo.SeedSowings os ON os.Id = t.OutputSeedSowingId" : "");
             if (areaIds != null && areaIds.Count == 0) return list;
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(ListSelect(await BedSowingSchema.TraysToApprovalsAsync(conn)) + @"
+            using var cmd = new SqlCommand(await ListSelectAsync(conn) + @"
 WHERE (@Areas IS NULL OR t.AreaId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Areas, ','))
                       OR src.AreaId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Areas, ',')))
   AND (@From IS NULL OR t.TransplantDate >= @From) AND (@To IS NULL OR t.TransplantDate <= @To)
@@ -411,7 +551,7 @@ OFFSET 0 ROWS FETCH NEXT @Max ROWS ONLY", conn);
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(ListSelect(await BedSowingSchema.TraysToApprovalsAsync(conn)) + " WHERE t.Id = @Id", conn);
+            using var cmd = new SqlCommand(await ListSelectAsync(conn) + " WHERE t.Id = @Id", conn);
             cmd.Parameters.AddWithValue("@Id", id);
             using var r = await cmd.ExecuteReaderAsync();
             return await r.ReadAsync() ? Map(r) : null;
@@ -423,7 +563,7 @@ OFFSET 0 ROWS FETCH NEXT @Max ROWS ONLY", conn);
             var list = new List<ReadyStockTransplant>();
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(ListSelect(await BedSowingSchema.TraysToApprovalsAsync(conn)) + " WHERE t.SourceReadyStockId = @R OR t.OutputReadyStockId = @R ORDER BY t.Id", conn);
+            using var cmd = new SqlCommand(await ListSelectAsync(conn) + " WHERE t.SourceReadyStockId = @R OR t.OutputReadyStockId = @R ORDER BY t.Id", conn);
             cmd.Parameters.AddWithValue("@R", readyStockId);
             using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync()) list.Add(Map(r));
@@ -469,8 +609,8 @@ GROUP BY TargetCavityType ORDER BY TargetCavityType;", conn);
             Id = r.GetInt32(0), TransplantCode = r.GetString(1), Status = r.GetString(2), TransplantDate = r.GetDateTime(3),
             SourceReadyStockId = r.GetInt32(4), OutputReadyStockId = r.IsDBNull(5) ? null : r.GetInt32(5),
             SourceOriginType = r.GetString(6), SourceAreaName = r.GetString(7), SourcePolyhouseName = r.IsDBNull(8) ? null : r.GetString(8),
-            SourceCavityType = r.GetString(9), AreaId = r.GetInt32(10), AreaName = r.GetString(11), PolyhouseId = r.GetInt32(12),
-            PolyhouseName = r.GetString(13), TargetCavityType = r.GetString(14), SpeciesId = r.GetInt32(15), SpeciesName = r.GetString(16).Trim(),
+            SourceCavityType = r.GetString(9), AreaId = r.GetInt32(10), AreaName = r.GetString(11), PolyhouseId = r.IsDBNull(12) ? null : r.GetInt32(12),
+            PolyhouseName = r.IsDBNull(13) ? null : r.GetString(13), TargetCavityType = r.GetString(14), SpeciesId = r.GetInt32(15), SpeciesName = r.GetString(16).Trim(),
             PlantTypeName = r.GetString(17), BatchNo = r.GetString(18), SowingCode = r.GetString(19),
             SelectedQuantity = r.GetDecimal(20), TransplantedQuantity = r.GetDecimal(21), LostQuantity = r.GetDecimal(22), OutputTrays = r.GetInt32(23),
             Notes = r.IsDBNull(24) ? null : r.GetString(24), CreatedBy = r.IsDBNull(25) ? null : r.GetString(25), CreatedAt = r.GetDateTime(26),
@@ -482,6 +622,7 @@ GROUP BY TargetCavityType ORDER BY TargetCavityType;", conn);
             OutputReadyDate = r.IsDBNull(33) ? null : r.GetDateTime(33),
             OutputReadyDays = r.IsDBNull(34) ? null : r.GetInt32(34),
             OutputApprovedQuantity = r.IsDBNull(35) ? 0 : r.GetDecimal(35),
+            WasteReason = r.IsDBNull(36) ? null : r.GetString(36),
         };
 
         private async Task<int?> ScalarOrNullAsync(string sql, Guid value)

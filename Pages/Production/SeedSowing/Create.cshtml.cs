@@ -37,6 +37,7 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
         private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
         private readonly MaterialStockRepository _materialRepo;
+        private readonly TrayStockRepository _trayStockRepo;
 
         public CreateModel(
             SeedSowingRepository seedSowingRepo,
@@ -48,9 +49,11 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             PlantSpeciesRepository plantSpeciesRepo,
             SeedlingAreaScope areaAccessService,
             UserRoleRepository userRoleRepo,
-            MaterialStockRepository materialRepo)
+            MaterialStockRepository materialRepo,
+            TrayStockRepository trayStockRepo)
         {
             _materialRepo = materialRepo;
+            _trayStockRepo = trayStockRepo;
             _userRoleRepo = userRoleRepo;
             _seedSowingRepo = seedSowingRepo;
             _seedStockRepo = seedStockRepo;
@@ -100,6 +103,16 @@ namespace PlantStockManager.Pages.Production.SeedSowing
         }
 
         // ---- AJAX lookups (GET, read-only) -------------------------------
+
+        // Empty trays of the cavity in every Main Office Polyhouse this user may sow in (the same list the form
+        // offers), the chosen one's balance, and the physical trays this sowing takes (CEILING, as the save).
+        public async Task<JsonResult> OnGetTrayAvailabilityAsync(string? cavityType, int? polyhouseId, decimal quantity)
+        {
+            var eligible = (await LoadPolyhousesAsync()).Select(p => new TrayLocation(p.AreaId!.Value, p.Id)).ToList();
+            var selected = eligible.FirstOrDefault(l => l.PolyhouseId == polyhouseId);
+            return new JsonResult(await TrayAvailabilityForm.BuildAsync(_trayStockRepo, cavityType, eligible, selected,
+                DirectSowingRules.PhysicalTraysRequired(quantity, cavityType)));
+        }
 
         // Live tray calculation for the form. Uses the SAME server function as
         // the save (DirectSowingRules.CalculateTrays), so the preview and the

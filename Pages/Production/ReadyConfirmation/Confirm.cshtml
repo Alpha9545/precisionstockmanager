@@ -31,7 +31,7 @@
                     <div class="col-md-6"><strong>Sowing Date:</strong> @s.SowingDate.ToString("dd/MM/yyyy")</div>
                     <div class="col-md-6"><strong>Expected Ready Date:</strong> @(s.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</div>
                     <div class="col-md-6"><strong>Sown from:</strong> @s.SourceLabel @(s.IsCuttingSource ? "(" + s.SourceAreaName + ")" : (string.IsNullOrEmpty(s.BatchNo) ? "-" : s.BatchNo))</div>
-                    <div class="col-md-6"><strong>Assigned Supervisor:</strong> @(s.SupervisorName ?? "-")</div>
+                    <div class="col-md-6"><strong>Assigned Supervisor:</strong> @(s.SupervisorName ?? (s.IsMotherPlantDirectSowing ? "None -- approved by an Area Supervisor of " + s.AreaName : "-"))</div>
                     <div class="col-md-6"><strong>Origin:</strong> @s.OriginLabel</div>
                     @if (s.IsBedSowingSource)
                     {
@@ -59,11 +59,25 @@
                         // Bed Sowing and transplanted tray batches: approved only from their Ready Date (the same
                         // rule the server applies inside the approval transaction).
                         var (readyNow, notReadyError) = PlantStockManager.Services.BedSowingRules.ValidateApprovalReadyDate(
-                            s.SourceType, s.ExpectedReadyDate, PlantStockManager.Services.AppClock.Today);
+                            s.SourceType, s.ExpectedReadyDate, PlantStockManager.Services.AppClock.Today, Model.Approval.BedAnyDate, Model.Approval.TransplantAnyDate);
+                        // 2026-10-17: a Bed Sowing batch may be approved before its calculated Ready Date -- say so.
+                        var bedEarly = readyNow && s.IsBedSowingSource && Model.Approval.BedAnyDate
+                                       && s.ExpectedReadyDate.HasValue && PlantStockManager.Services.AppClock.Today < s.ExpectedReadyDate.Value.Date;
+                        // 2026-10-20: likewise a Mother Plant transplant batch.
+                        var transplantEarly = readyNow && s.IsTransplantSource && Model.Approval.TransplantAnyDate
+                                       && s.ExpectedReadyDate.HasValue && PlantStockManager.Services.AppClock.Today < s.ExpectedReadyDate.Value.Date;
                     }
                     @if (!readyNow)
                     {
                         <div class="col-12"><div class="alert alert-warning mb-0 mt-2" id="notReadyYet">@notReadyError</div></div>
+                    }
+                    else if (bedEarly)
+                    {
+                        <div class="col-12"><div class="alert alert-info mb-0 mt-2" id="bedAnyDate">@string.Format(PlantStockManager.Services.BedSowingRules.BedAnyDateNoteFormat, s.ExpectedReadyDate)</div></div>
+                    }
+                    else if (transplantEarly)
+                    {
+                        <div class="col-12"><div class="alert alert-info mb-0 mt-2" id="transplantAnyDate">@string.Format(PlantStockManager.Services.BedSowingRules.TransplantAnyDateNoteFormat, s.ExpectedReadyDate)</div></div>
                     }
                 </div>
             </div>
@@ -91,6 +105,11 @@
 
             <form method="post">
                 <input type="hidden" asp-for="SeedSowingId" />
+                <input type="hidden" asp-for="From" />
+                @foreach (var kv in Model.ListState.Route)
+                {
+                    <input type="hidden" name="@kv.Key" value="@kv.Value" />
+                }
 
                 <h6 class="fw-bold">Supervisor Approval</h6>
                 <div class="row g-3">
@@ -166,8 +185,8 @@
                 </div>
 
                 <div class="text-center mt-4">
-                    <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-secondary me-2">Cancel</a>
-                    @{ var approveBlocked = !PlantStockManager.Services.BedSowingRules.ValidateApprovalReadyDate(s.SourceType, s.ExpectedReadyDate, PlantStockManager.Services.AppClock.Today).Ok; }
+                    <a asp-page="@Model.ListPage" asp-all-route-data="Model.ListState.Route" class="btn btn-secondary me-2">Cancel</a>
+                    @{ var approveBlocked = !PlantStockManager.Services.BedSowingRules.ValidateApprovalReadyDate(s.SourceType, s.ExpectedReadyDate, PlantStockManager.Services.AppClock.Today, Model.Approval.BedAnyDate, Model.Approval.TransplantAnyDate).Ok; }
                     <button type="submit" class="btn btn-success" disabled="@approveBlocked">Approve &amp; Close Batch</button>
                 </div>
             </form>

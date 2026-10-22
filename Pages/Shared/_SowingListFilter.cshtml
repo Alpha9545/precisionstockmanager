@@ -1,0 +1,44 @@
+@model PlantStockManager.Services.SowingListFilterView
+@* 2026-10-22: Variety / Sowing Date filter of Bed Transplanting (choose a bed) and Sowing Approvals (Waiting for approval).
+   A GET form: the page validates the values on the server (SowingListFilter.Normalize) and applies them in its query. *@
+@{
+    var p = Model.IdPrefix;
+    var clearRoute = Model.Hidden.Where(h => !string.IsNullOrEmpty(h.Value)).ToDictionary(h => h.Key, h => h.Value!);
+}
+<form method="get" asp-page="@Model.Page" class="card card-body bg-light py-2 px-3 mb-3" id="@(p)Filters" role="search" aria-label="Filter the list">
+    @foreach (var h in Model.Hidden.Where(h => !string.IsNullOrEmpty(h.Value)))
+    {
+        <input type="hidden" name="@h.Key" value="@h.Value" />
+    }
+    <div class="row g-2 align-items-end">
+        <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+            <label class="form-label small fw-bold mb-1" for="@(p)Variety">Variety</label>
+            <select name="variety" id="@(p)Variety" class="form-select form-select-sm">
+                <option value="">All varieties</option>
+                @foreach (var v in Model.Options)
+                {
+                    <option value="@v.Id" selected="@(Model.Filter.SpeciesId == v.Id)">@v.Label</option>
+                }
+            </select>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3 col-lg-2">
+            <label class="form-label small fw-bold mb-1" for="@(p)SowingDate">Sowing Date</label>
+            <input type="date" name="sowingDate" id="@(p)SowingDate" class="form-control form-control-sm" value="@Model.Filter.SowingDateValue"
+                   min="@PlantStockManager.Services.SowingListFilter.MinDate.ToString("yyyy-MM-dd")" max="@PlantStockManager.Services.SowingListFilter.MaxDate.ToString("yyyy-MM-dd")" />
+        </div>
+        <div class="col-12 col-md-auto d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary flex-fill flex-md-grow-0" id="@(p)ApplyFilters">Apply</button>
+            <a asp-page="@Model.Page" asp-all-route-data="clearRoute" class="btn btn-sm btn-outline-secondary flex-fill flex-md-grow-0 d-inline-flex align-items-center justify-content-center" id="@(p)ClearFilters">Clear</a>
+        </div>
+        @if (Model.Filter.IsActive)
+        {
+            <div class="col-12 col-md small text-muted text-md-end" id="@(p)FilterSummary" aria-live="polite">
+                Filtered: @Model.Shown shown
+            </div>
+        }
+    </div>
+    @if (Model.Note != null)
+    {
+        <div class="small text-warning-emphasis mt-2" id="@(p)FilterNote">@Model.Note</div>
+    }
+</form>

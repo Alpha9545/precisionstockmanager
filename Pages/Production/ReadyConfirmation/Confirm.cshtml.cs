@@ -44,6 +44,8 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
         }
 
         public SeedSowingModel SeedSowing { get; set; } = new();
+        // 2026-10-17: Bed Sowing batches on any date; Transplant batches only by their Area Supervisor.
+        public ReadyConfirmationRepository.ApprovalSettings Approval { get; private set; } = ReadyConfirmationRepository.ApprovalSettings.Earlier;
 
         // Cutting Tray Sowing only: the Available Cutting Stock of the sowing's own
         // pool, in CUTTINGS (Physical - In-Transit), shown when this user may use
@@ -57,6 +59,20 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
 
         [BindProperty]
         public int SeedSowingId { get; set; }
+
+        // 2026-10-19: "mp" = opened from Mother Plant & Cutting > Sowing Approvals -- every way out returns there.
+        [BindProperty(SupportsGet = true)] public string? From { get; set; }
+        public const string FromMotherPlant = "mp";
+        public string ListPage => From == FromMotherPlant ? "/Production/MotherPlant/SowingApprovals" : "/Production/ReadyConfirmation/Index";
+        private IActionResult BackToList() => RedirectToPage(ListPage, ListState.RouteValues());
+
+        // 2026-10-22: Seed Production > Sowing Approvals' list state (workflow, Variety, Sowing Date) to return to -- navigation
+        // only (ApprovalListState): never read by the approval below; always empty when opened from Mother Plant & Cutting.
+        [BindProperty(SupportsGet = true, Name = "category")] public string? ListCategory { get; set; }
+        [BindProperty(SupportsGet = true, Name = "variety")] public int? ListVariety { get; set; }
+        [BindProperty(SupportsGet = true, Name = "sowingDate")] public DateTime? ListSowingDate { get; set; }
+        public ApprovalListState ListState => From == FromMotherPlant ? ApprovalListState.None
+            : ApprovalListState.From(ListCategory, ListVariety, ListSowingDate);
 
         // The supervisor's ONLY quantity input: complete trays actually ready.
         // Seedlings, wastage and cavity are never posted -- they are derived
@@ -80,36 +96,62 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             if (sowing == null)
             {
                 TempData["Error"] = "Seed Sowing record not found.";
-                return RedirectToPage("/Production/ReadyConfirmation/Index");
+                return BackToList();
             }
             if (!_areaAccessService.CanAccessArea(User, sowing.AreaId))
             {
                 TempData["Error"] = "You are not authorized to Ready-Confirm this Sowing.";
-                return RedirectToPage("/Production/ReadyConfirmation/Index");
+                return BackToList();
             }
             if (sowing.Status != "Sown")
             {
                 TempData["Error"] = $"This Sowing is '{sowing.Status}' and cannot be Ready-Confirmed.";
-                return RedirectToPage("/Production/ReadyConfirmation/Index");
+                return BackToList();
             }
             if (sowing.RemainingReadyQuantity <= 0)
             {
                 TempData["Error"] = "This sowing batch has already been fully approved.";
-                return RedirectToPage("/Production/ReadyConfirmation/Index");
+                return BackToList();
             }
-            // Only the supervisor assigned to this sowing (and never its creator).
-            var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
-                sowing.SupervisorId, sowing.CreatedById, sowing.CreatedBy, User.GetUserId(), User.Identity?.Name, sowing.SourceType);
+            // Only the supervisor assigned to this sowing (and never its creator); a Bed Sowing batch only the
+            // designated Bed Sowing approver (2026-10-16).
+            var (mayApprove, authorityError) = await AuthorityAsync(sowing);
             if (!mayApprove)
             {
                 TempData["Error"] = authorityError;
-                return RedirectToPage("/Production/ReadyConfirmation/Index");
+                return BackToList();
             }
 
             SeedSowing = sowing;
             SeedSowingId = sowing.Id;
             LoadCuttingStock(sowing);
             return Page();
+        }
+
+        // Only the supervisor assigned to this sowing (and never its creator); a Bed Sowing batch only the designated Bed Sowing
+        // approver (2026-10-16); a Mother Plant Area Direct Sowing (2026-10-21) and a Transplant batch only an Area Supervisor of
+        // its own Area or a System Administrator. Identity from the server-side principal; the repository re-checks under lock.
+        private async Task<(bool Ok, string? Error)> AuthorityAsync(SeedSowingModel sowing)
+        {
+            Approval = await _readyConfirmationRepo.GetApprovalSettingsAsync();
+            var me = User.GetUserId();
+            var areaApprover = sowing.IsMotherPlantDirectSowing && me.HasValue && await _readyConfirmationRepo.IsAreaApproverAsync(me.Value, sowing.AreaId);
+            var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
+                sowing.SupervisorId, sowing.CreatedById, sowing.CreatedBy, me, User.Identity?.Name, sowing.SourceType, Approval.Bed,
+                sowing.IsMotherPlantDirectSowing, areaApprover, sowing.AreaName);
+            return mayApprove ? await AreaApproverAsync(sowing) : (false, authorityError);
+        }
+
+        // 2026-10-17 (TransplantAreaScope): a Transplant tray batch only by an Area Supervisor of its own Area (or a System
+        // Administrator) -- checked here against the database, again inside the approval transaction and by the trigger.
+        private async Task<(bool Ok, string? Error)> AreaApproverAsync(SeedSowingModel sowing)
+        {
+            if (sowing.SourceType != SeedSowingModel.SourceTransplant || !Approval.TransplantAreaScope)
+                return (true, null);
+            var me = User.GetUserId();
+            return me.HasValue && await _readyConfirmationRepo.IsAreaApproverAsync(me.Value, sowing.AreaId)
+                ? (true, null)
+                : (false, string.Format(ReadyConfirmationRepository.NotAreaSupervisorMessageFormat, sowing.AreaName));
         }
 
         // Cutting sowings draw extra cuttings from the pool they were sown from --
@@ -141,21 +183,20 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             if (sowing == null)
             {
                 TempData["Error"] = "Seed Sowing record not found.";
-                return RedirectToPage("/Production/ReadyConfirmation/Index");
+                return BackToList();
             }
             if (!_areaAccessService.CanAccessArea(User, sowing.AreaId))
             {
                 TempData["Error"] = "You are not authorized to Ready-Confirm this Sowing.";
-                return RedirectToPage("/Production/ReadyConfirmation/Index");
+                return BackToList();
             }
 
             // Approval authority (the repository re-applies it under lock).
-            var (mayApprove, authorityError) = DirectSowingRules.CanApprove(
-                sowing.SupervisorId, sowing.CreatedById, sowing.CreatedBy, User.GetUserId(), User.Identity?.Name, sowing.SourceType);
+            var (mayApprove, authorityError) = await AuthorityAsync(sowing);
             if (!mayApprove)
             {
                 TempData["Error"] = authorityError;
-                return RedirectToPage("/Production/ReadyConfirmation/Index");
+                return BackToList();
             }
 
             // Same rule the repository re-applies under lock (cavity and trays
@@ -191,7 +232,7 @@ namespace PlantStockManager.Pages.Production.ReadyConfirmation
             TempData["Success"] = $"Batch {sowing.SowingCode} approved: {QuantityFormat.Qty(ActualReadyTrays)} trays x {sowing.CavityType} = {QuantityFormat.Qty(seedlings)} seedlings added to Ready Stock; wastage {QuantityFormat.Qty(wastage)} ({wastagePct:0.00}%). The sowing is now Completed."
                 + (extra > 0 ? $" {QuantityFormat.Qty(DirectSowingRules.ExtraTrays(extra, sowing.CavityType))} extra trays = {QuantityFormat.Qty(extra)} extra cuttings were taken from Cutting Stock."
                     + await _readyConfirmationRepo.GetExtraMaterialTextAsync(confirmationId) : "");
-            return RedirectToPage("/Production/ReadyConfirmation/History", new { id = sowing.Id });
+            return From == FromMotherPlant ? BackToList() : RedirectToPage("/Production/ReadyConfirmation/History", ListState.RouteWith("id", sowing.Id));
         }
 
         // Live preview for the approval form. Takes ONLY the sowing id (route)

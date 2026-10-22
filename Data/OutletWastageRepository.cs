@@ -72,7 +72,7 @@ INNER JOIN dbo.PlantTypes pt ON pt.Id = ps.PlantTypeId";
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 

@@ -25,6 +25,7 @@
             <p>Current Physical Quantity: <strong>@Qty(Model.SeedStock?.PhysicalQuantity, "")</strong> @Model.SeedStock?.Unit</p>
 
             <form method="post">
+                <input type="hidden" asp-for="SubmitToken" />
                 <div class="mb-3">
                     <label class="form-label fw-bold">Quantity to Add</label>
                     <input asp-for="Quantity" asp-format="{0:0.##}" type="number" step="1" min="1" class="form-control" />

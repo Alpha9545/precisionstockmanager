@@ -56,6 +56,7 @@
                             <td style="max-width:120px;">
                                 <form method="post" asp-page-handler="Send">
                                     <input type="hidden" name="cuttingStockId" value="@s.Id" />
+                                    <input type="hidden" name="SubmissionToken" value="@Model.SubmissionToken" />
                                     <input type="hidden" name="areaId" value="@Model.SelectedAreaId" />
                                     <input type="number" step="1" min="1" max="@QtyInput(s.AvailableQuantity)" name="quantity" class="form-control form-control-sm mb-1" required />
                                     <select name="pendingConfirmationAreaId" class="form-select form-select-sm mb-1" required>

@@ -12,10 +12,20 @@ namespace PlantStockManager.Pages.Fertilizer
     // while nothing has been issued from it (FertilizerStockRules.EditAllowed / DeletionRules
     // .FertilizerStockDependencies); a stale form, a crafted POST or a concurrent Issue all land on the same check,
     // so none of them can slip past it. Page permission (Fertilizer.View / Fertilizer.Enter) is unchanged.
+    // 2026-10-21: Save takes a one-time SubmissionTokenGuard token -- the same form sent twice (double click /
+    // browser retry / replay) used to add the purchase batch again.
     public class StockModel : PageModel
     {
+        public const string TokenScope = "FertilizerStockSave";
+
         private readonly FertilizerStockRepository _repo;
-        public StockModel(FertilizerStockRepository repo) => _repo = repo;
+        private readonly SubmissionTokenGuard _tokens;
+
+        public StockModel(FertilizerStockRepository repo, SubmissionTokenGuard tokens)
+        {
+            _repo = repo;
+            _tokens = tokens;
+        }
 
         // List
         public List<FertilizerStockRow> Stocks { get; set; } = new();
@@ -28,6 +38,9 @@ namespace PlantStockManager.Pages.Fertilizer
         [BindProperty]
         public FertilizerStock Stock { get; set; } = new();
 
+        [BindProperty]
+        public string? SubmitToken { get; set; }
+
         public async Task OnGetAsync()
         {
             await LoadAllAsync();
@@ -36,6 +49,12 @@ namespace PlantStockManager.Pages.Fertilizer
         // INSERT + UPDATE
         public async Task<IActionResult> OnPostSaveAsync()
         {
+            if (!_tokens.TryConsume(TokenScope, SubmitToken))
+            {
+                TempData["Error"] = "This stock form was already submitted. Check the list below before saving it again.";
+                return RedirectToPage();
+            }
+
             var result = Stock.StockId == 0
                 ? await _repo.InsertAsync(Stock)
                 : await _repo.UpdateAsync(Stock);
@@ -79,8 +98,11 @@ namespace PlantStockManager.Pages.Fertilizer
             return RedirectToPage();
         }
 
+        // Every render of the form (GET, Edit, a refused Save) carries a fresh one-time token.
         private async Task LoadAllAsync()
         {
+            ModelState.Remove(nameof(SubmitToken));
+            SubmitToken = SubmissionTokenGuard.NewToken();
             Stocks = await _repo.GetAllAsync();
             Fertilizers = await _repo.GetFertilizersAsync();
             Units = await _repo.GetUnitsAsync();

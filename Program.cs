@@ -131,6 +131,7 @@ builder.Services.AddScoped<ReadyStockRepository>(); // Phase 25 (Phase K)
 builder.Services.AddScoped<MotherPlantTransferRepository>(); // 2026-10-09: Main Area Ready Stock -> Mother Plant Area
 builder.Services.AddScoped<TransplantRepository>();          // 2026-10-09: transplanting in Mother Plant Areas
 builder.Services.AddScoped<ReadyConfirmationRepository>(); // Phase 25 (Phase K)
+builder.Services.AddScoped<SowingApprovalQueueRepository>(); // 2026-10-19: pending Supervisor Approvals (both Sowing Approvals pages)
 builder.Services.AddScoped<SeedlingFulfilmentRepository>(); // Phase C: Ready Stock -> booking reservation -> dispatch
 builder.Services.AddSingleton<PlantStockManager.Services.SubmissionTokenGuard>(); // one-time tokens (Allocate Batch double-submit guard)
 
@@ -224,6 +225,8 @@ builder.Services.AddRazorPages(options =>
 
 
 var app = builder.Build();
+// 2026-10-21: database errors are logged here; the user sees a safe message (Data/DbErrorMessage.cs)
+PlantStockManager.Data.DbErrorMessage.UseLoggerFactory(app.Services.GetRequiredService<ILoggerFactory>());
 app.Logger.LogInformation("Maintenance photos are stored in {PhotoRoot}", app.Services.GetRequiredService<MaintenancePhotoStore>().Root);
 app.Logger.LogInformation("Suggestion photos are stored in {PhotoRoot}", app.Services.GetRequiredService<SuggestionPhotoStore>().Root);
 

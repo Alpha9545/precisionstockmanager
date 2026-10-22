@@ -1,9 +1,17 @@
 @page
 @model PlantStockManager.Pages.Production.Cutting.IndexModel
 @inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@inject PlantStockManager.Data.AreaRepository AreaRepo
+@inject PlantStockManager.Authorization.AreaAccessService AreaAccess
 @{
     ViewData["Title"] = "Cutting Production";
     var canEnter = await FeatureAccess.CanAccessPageAsync(User, "/Production/Cutting/Create");
+    // 2026-10-14: the Area's empty pot / tray inventory (Area only), each behind its own page rule.
+    var canAddPots = await FeatureAccess.CanAccessPageAsync(User, "/Production/EmptyPotInventory/AddStock");
+    // 2026-10-16: and only when the user may stock at least one Mother Plant Area (TrayAreaScope) -- never an empty page.
+    var canAddTrays = await FeatureAccess.CanAccessPageAsync(User, "/Production/MotherPlant/AddEmptyTrays")
+        && (await new PlantStockManager.Authorization.TrayAreaScope(AreaRepo, AreaAccess).AddableAreasAsync(User))
+            .Any(a => a.AreaType == PlantStockManager.Data.MotherPlantAreaSchema.MotherPlantAreaType);
 }
 
 <div class="container-fluid mt-4">
@@ -11,6 +19,14 @@
         <h3 class="mb-0">Cutting Production</h3>
         <div class="d-flex gap-2">
             <a asp-page="/Production/CuttingStock/Index" class="btn btn-outline-secondary">Cutting Stock</a>
+            @if (canAddPots)
+            {
+                <a asp-page="/Production/EmptyPotInventory/AddStock" asp-route-section="Cutting" class="btn btn-outline-success" id="add-empty-pots">Add Empty Pots</a>
+            }
+            @if (canAddTrays)
+            {
+                <a asp-page="/Production/MotherPlant/AddEmptyTrays" asp-route-section="Cutting" class="btn btn-outline-success" id="add-empty-trays">Add Empty Trays</a>
+            }
             @if (canEnter)
             {
                 <a asp-page="/Production/Cutting/Create" class="btn btn-success">+ Record Cuttings</a>

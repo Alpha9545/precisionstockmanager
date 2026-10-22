@@ -26,4 +26,9 @@
     <ProjectReference Include="..\..\PlantStockManager.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The import tool's target rule only (pure, no database); the tool itself is an exe and is not referenced. -->
+    <Compile Include="..\..\tools\MainOfficeSowingImport\ImportTargetGuard.cs" Link="Linked\ImportTargetGuard.cs" />
+  </ItemGroup>
+
 </Project>

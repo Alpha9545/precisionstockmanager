@@ -267,7 +267,7 @@ VALUES
             catch (Exception ex)
             {
                 tx.Rollback();
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 
@@ -440,7 +440,7 @@ VALUES
             catch (Exception ex)
             {
                 tx.Rollback();
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 
@@ -484,7 +484,7 @@ VALUES
             catch (Exception ex)
             {
                 tx.Rollback();
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 

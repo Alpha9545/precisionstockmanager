@@ -26,6 +26,9 @@ namespace PlantStockManager.Models
         public int? SourcePottedPlantStockId { get; set; }
         public int? SourceCuttingStockId { get; set; }
         public int? SourceReadyStockId { get; set; }
+        // 2026-10-17: the send form's one-time token (dbo.InternalTransfers.SubmissionToken, unique) -- a repeated submit of a
+        // Ready Stock / Potted Plant transfer returns the first transfer, never a second one.
+        public Guid? SubmissionToken { get; set; }
         // Cutting deliveries created by a Cutting Entry (destination Main Office) point
         // back at that entry (dbo.CuttingProductions.Id); null for every other transfer.
         public int? SourceCuttingProductionId { get; set; }

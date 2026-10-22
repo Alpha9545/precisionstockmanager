@@ -16,8 +16,14 @@ namespace PlantStockManager.Models
         public string? SourcePolyhouseName { get; set; }
         public int DestinationAreaId { get; set; }
         public string? DestinationAreaName { get; set; }
-        public int DestinationPolyhouseId { get; set; }
+        public int? DestinationPolyhouseId { get; set; }   // 2026-10-14: none for a transfer to the Area
         public string? DestinationPolyhouseName { get; set; }
+        // 2026-10-14: MotherPlantTransferRules.PurposePotProduction / PurposeTrayTransplant; null = not recorded (older transfers).
+        public string? TransferPurpose { get; set; }
+        public string PurposeLabel => PlantStockManager.Services.MotherPlantTransferRules.PurposeLabel(TransferPurpose);
+        public bool ForTrayTransplant => TransferPurpose != PlantStockManager.Services.MotherPlantTransferRules.PurposePotProduction;
+        // 2026-10-15: received for Pot Production -> Pot Production from Ready Stock (PotBatch/CreateFromReadyStock)
+        public bool ForPotProduction => TransferPurpose == PlantStockManager.Services.MotherPlantTransferRules.PurposePotProduction;
 
         public string? SpeciesName { get; set; }
         public string? PlantTypeName { get; set; }
@@ -72,7 +78,7 @@ namespace PlantStockManager.Models
         public string? SourceCavityType { get; set; }
         public int AreaId { get; set; }                 // target Mother Plant Area
         public string? AreaName { get; set; }
-        public int PolyhouseId { get; set; }            // target Polyhouse
+        public int? PolyhouseId { get; set; }           // target Polyhouse (2026-10-14: none -- the Area's trays)
         public string? PolyhouseName { get; set; }
         public string TargetCavityType { get; set; } = string.Empty;
 
@@ -85,6 +91,10 @@ namespace PlantStockManager.Models
         public decimal SelectedQuantity { get; set; }
         public decimal TransplantedQuantity { get; set; }
         public decimal LostQuantity { get; set; }
+        // 2026-10-16 (2026-10-16_MotherPlantTransplantWaste.sql): why the untransplanted remainder / the discarded
+        // seedlings (LostQuantity) were wasted. NULL for older rows. WasteOnly: no tray batch -- all seedlings discarded.
+        public string? WasteReason { get; set; }
+        public bool WasteOnly => TransplantedQuantity == 0 && LostQuantity > 0;
         public int OutputTrays { get; set; }
         public int? TargetCavitySize => PlantStockManager.Services.DirectSowingRules.CavityCount(TargetCavityType);
         public decimal PlantsInLastTray => TargetCavitySize is > 0 && OutputTrays > 0

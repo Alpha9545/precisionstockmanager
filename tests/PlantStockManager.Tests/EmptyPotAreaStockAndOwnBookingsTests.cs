@@ -109,20 +109,27 @@ namespace PlantStockManager.Tests
             Assert.Equal("PotProduction.View|Purchase.View|MotherPlant.View", FeatureAuthorizationConventions.GetRule("/Production/EmptyPotInventory/Details").Read);
             // the permissions the retired pages used still drive their OTHER pages (nothing was removed from any role)
             Assert.Equal("Purchase.Enter", FeatureAuthorizationConventions.GetRule("/Production/PurchaseOrder/Create").Read);
-            Assert.Equal("InternalTransfer.Enter|MainOffice.Confirm", FeatureAuthorizationConventions.GetRule("/Production/ReadyStock/Move").Read);
+            // 2026-10-19: + ReadyStock.DispatchToCustomer (the Customer destination); the transfer keeps its own policy (MoveModel.TransferPolicy)
+            Assert.Equal("InternalTransfer.Enter|MainOffice.Confirm|ReadyStock.DispatchToCustomer", FeatureAuthorizationConventions.GetRule("/Production/ReadyStock/Move").Read);
         }
 
+        // 2026-10-14: Add Empty Pots moved from Pot Production to the Mother Plant & Cutting section (and the
+        // Mother Plants / Cutting Production pages); the Pot Production "Empty Pot Stock" page no longer offers it.
         [Fact]
-        public void Menu_HasAddEmptyPotStock_AndNoLongerPurchaseOrIssue()
+        public void Menu_HasAddEmptyPots_InMotherPlantAndCutting_NotInPotProduction_AndNoLongerPurchaseOrIssue()
         {
             var layout = ReadSource("Pages", "Shared", "_Layout.cshtml");
             Assert.Contains("nav-page=\"/Production/EmptyPotInventory/AddStock\"", layout);
             Assert.Contains("nav-page=\"/Production/EmptyPotInventory/Index\"", layout);
             Assert.DoesNotContain("EmptyPotInventory/Purchase", layout);
             Assert.DoesNotContain("EmptyPotInventory/Issue", layout);
+            var addAt = layout.IndexOf("nav-page=\"/Production/EmptyPotInventory/AddStock\"", StringComparison.Ordinal);
+            Assert.Equal(addAt, layout.LastIndexOf("nav-page=\"/Production/EmptyPotInventory/AddStock\"", StringComparison.Ordinal));   // once
+            Assert.True(addAt > layout.IndexOf(">Mother Plant &amp; Cutting<", StringComparison.Ordinal));
+            Assert.True(addAt < layout.IndexOf("POT PRODUCTION", StringComparison.Ordinal));
 
             var index = ReadSource("Pages", "Production", "EmptyPotInventory", "Index.cshtml");
-            Assert.Contains("/Production/EmptyPotInventory/AddStock", index);
+            Assert.DoesNotContain("/Production/EmptyPotInventory/AddStock", index);
             Assert.DoesNotContain("asp-page=\"/Production/EmptyPotInventory/Purchase\"", index);
         }
 

@@ -98,12 +98,15 @@ namespace PlantStockManager.Services
         // limit who may (see CanConfirmReady).
         public static (bool Ok, string? Error) ValidateCreate(
             decimal cuttingAllocated, decimal cuttingAvailable, DateTime startDate, DateTime expectedReadyDate,
-            int? readyConfirmerId, IReadOnlyCollection<int> eligibleReadyConfirmerIds)
+            int? readyConfirmerId, IReadOnlyCollection<int> eligibleReadyConfirmerIds, bool fromReadyStock = false)
         {
+            // 2026-10-15: fromReadyStock -- the plants are seedlings of a received Ready Stock batch.
             if (cuttingAllocated <= 0 || !DirectSowingRules.IsWholeNumber(cuttingAllocated))
-                return (false, "Cuttings allocated must be a whole number greater than zero.");
+                return (false, fromReadyStock ? "Seedlings allocated must be a whole number greater than zero." : "Cuttings allocated must be a whole number greater than zero.");
             if (cuttingAllocated > cuttingAvailable)
-                return (false, $"Only {QuantityFormat.Qty(cuttingAvailable)} cuttings are available in this Cutting Stock.");
+                return (false, fromReadyStock
+                    ? $"Only {QuantityFormat.Qty(cuttingAvailable)} seedlings of this Ready Stock batch are available."
+                    : $"Only {QuantityFormat.Qty(cuttingAvailable)} cuttings are available in this Cutting Stock.");
             if (expectedReadyDate.Date < startDate.Date)
                 return (false, "Expected Ready Date cannot be before the production start date.");
             if (!readyConfirmerId.HasValue || readyConfirmerId.Value <= 0)

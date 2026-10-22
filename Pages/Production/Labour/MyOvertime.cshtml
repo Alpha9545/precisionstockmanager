@@ -1,0 +1,80 @@
+@page
+@model PlantStockManager.Pages.Production.Labour.MyOvertimeModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "My Overtime Entries";
+}
+
+<style>
+    #myOvertimeTable .work { min-width: 12rem; max-width: 24rem; white-space: pre-wrap; word-break: break-word; }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <div>
+            <h3 class="mb-0">@ViewData["Title"]</h3>
+            <small class="text-muted">Overtime you recorded yourself. Open an entry to see its history or to correct it.</small>
+        </div>
+        <a asp-page="/Production/Labour/Overtime" class="btn btn-primary">+ Add Overtime</a>
+    </div>
+
+    @if (TempData["Error"] != null)
+    {
+        <div class="alert alert-warning" id="myOvertimeError">@TempData["Error"]</div>
+    }
+
+    <form method="get" class="row g-2 align-items-end mb-3">
+        <div class="col-6 col-md-3">
+            <label class="form-label mb-0" for="fromDate">From</label>
+            <input type="date" class="form-control" id="fromDate" name="fromDate" value="@Model.FromDate?.ToString("yyyy-MM-dd")" />
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label mb-0" for="toDate">To</label>
+            <input type="date" class="form-control" id="toDate" name="toDate" value="@Model.ToDate?.ToString("yyyy-MM-dd")" />
+        </div>
+        <div class="col-6 col-md-2"><button class="btn btn-primary w-100">Show</button></div>
+        <div class="col-6 col-md-2"><a asp-page="/Production/Labour/MyOvertime" class="btn btn-outline-secondary w-100">Clear</a></div>
+    </form>
+
+    @if (Model.MatchingEntries > Model.Entries.Count)
+    {
+        <div class="alert alert-warning py-2">Showing your latest @Model.Entries.Count of @Model.MatchingEntries entries -- narrow the dates to see the rest.</div>
+    }
+
+    <div class="table-responsive">
+        <table class="table table-bordered table-striped table-sm align-middle" id="myOvertimeTable">
+            <thead class="table-light">
+                <tr>
+                    <th>Date</th><th>Area</th><th>Polyhouse</th>
+                    <th class="text-end">Male</th><th class="text-end">Female</th>
+                    <th>Start</th><th>End</th><th class="text-end">Duration</th>
+                    <th>Work Description</th><th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var e in Model.Entries)
+                {
+                    <tr data-id="@e.Id">
+                        <td class="text-nowrap">@e.LabourDate.ToString("dd-MM-yyyy")</td>
+                        <td>@e.AreaName</td>
+                        <td>@(e.PolyhouseId.HasValue ? e.PolyhouseName : "—")</td>
+                        <td class="text-end">@e.MaleWorkers</td>
+                        <td class="text-end">@e.FemaleWorkers</td>
+                        <td class="text-nowrap">@e.StartTime.ToString("hh:mm tt")</td>
+                        <td class="text-nowrap">@e.EndTime.ToString("hh:mm tt")</td>
+                        <td class="text-end text-nowrap">@e.Duration</td>
+                        <td class="work">@e.WorkDescription</td>
+                        <td class="text-nowrap">
+                            <a asp-page="/Production/Labour/OvertimeDetails" asp-route-id="@e.Id" class="btn btn-sm btn-outline-secondary">View</a>
+                            <a asp-page="/Production/Labour/Overtime" asp-route-id="@e.Id" class="btn btn-sm btn-outline-primary">Edit</a>
+                        </td>
+                    </tr>
+                }
+                @if (!Model.Entries.Any())
+                {
+                    <tr><td colspan="10" class="text-center text-muted">You have no overtime entries between @Model.FromDate?.ToString("dd-MM-yyyy") and @Model.ToDate?.ToString("dd-MM-yyyy").</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

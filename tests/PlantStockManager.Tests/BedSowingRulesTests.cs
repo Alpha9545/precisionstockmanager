@@ -65,7 +65,7 @@ namespace PlantStockManager.Tests
 
             (ok, _, error) = BedSowingRules.ValidateTransplant(500, 250, "24 Cavity", null, Today, BedDate, Today);
             Assert.False(ok);
-            Assert.Contains("complete", error);
+            Assert.Contains("multiple of 24", error);
             Assert.Contains("240 (10 trays)", error);
 
             (ok, _, error) = BedSowingRules.ValidateTransplant(200, 240, "24 Cavity", null, Today, BedDate, Today);
@@ -140,46 +140,121 @@ namespace PlantStockManager.Tests
             Assert.True(BedSowingRules.ValidateApprovalReadyDate(SeedSowing.SourceCutting, ready, ready.AddDays(-30)).Ok);
         }
 
-        // Transplanting ALL the remaining seedlings: FullTrays = N / C, Transplanted = FullTrays x C, Waste = N - Transplanted.
+        // 2026-10-14: the Transplanter enters T; TrayCount = T / C; WasteQuantity = N - T; nothing stays in the bed.
         [Theory]
-        [InlineData(500, "150 Cavity", 3, 450, 50)]
-        [InlineData(450, "150 Cavity", 3, 450, 0)]
-        [InlineData(500, "102 Cavity", 4, 408, 92)]
-        [InlineData(100, "150 Cavity", 0, 0, 100)]
-        [InlineData(480, "24 Cavity", 20, 480, 0)]
-        public void TransplantAll_CompleteTraysAndTheRemainderAsWaste(int remaining, string cavity, int trays, int transplanted, int waste)
+        [InlineData(500, "150 Cavity", 450, 3, 50)]     // owner example 1
+        [InlineData(500, "150 Cavity", 300, 2, 200)]    // owner example 2
+        [InlineData(450, "150 Cavity", 450, 3, 0)]      // owner example 3
+        [InlineData(500, "102 Cavity", 408, 4, 92)]
+        [InlineData(480, "24 Cavity", 240, 10, 240)]
+        [InlineData(480, "24 Cavity", 480, 20, 0)]
+        public void Transplant_EnteredQuantity_CompleteTrays_RestRecordedAsWaste(int remaining, string cavity, int quantity, int trays, int waste)
         {
-            var (ok, plan, error) = BedSowingRules.PlanTransplant(remaining, remaining, cavity, null, Today, BedDate, Today);
+            var (ok, plan, error) = BedSowingRules.PlanTransplant(remaining, quantity, cavity, null, Today, BedDate, Today);
             Assert.True(ok, error);
-            Assert.Equal((trays, (decimal)transplanted, (decimal)waste), (plan!.Trays, plan.Transplanted, plan.Waste));
+            Assert.Equal((trays, (decimal)quantity, (decimal)waste), (plan!.Trays, plan.Transplanted, plan.Waste));
             Assert.Equal(remaining, plan.Transplanted + plan.Waste);                        // nothing left open, nothing invented
-            Assert.Equal(trays > 0, plan.MakesTrayBatch);
+            Assert.True(plan.MakesTrayBatch);
+            Assert.Equal(BedSowing.StatusCompleted, BedSowingRules.StatusFor(remaining, plan.Transplanted, plan.Waste));
+        }
+
+        [Theory]
+        [InlineData(500, 449)]    // not a multiple of 150
+        [InlineData(500, 451)]
+        [InlineData(500, 600)]    // more than remaining
+        [InlineData(500, 0)]      // a transplant must be positive
+        [InlineData(500, -150)]
+        [InlineData(500, 150.5)]
+        public void Transplant_EnteredQuantity_Refused(decimal remaining, decimal quantity)
+        {
+            var (ok, plan, error) = BedSowingRules.PlanTransplant(remaining, quantity, "150 Cavity", null, Today, BedDate, Today);
+            Assert.False(ok);
+            Assert.Null(plan);
+            Assert.False(string.IsNullOrWhiteSpace(error));
         }
 
         [Fact]
-        public void TransplantAll_Summary_PartOfABed_StillCompleteTraysOnly()
+        public void Transplant_NonMultiple_ExplainsTheCavity()
         {
-            Assert.Equal("450 seedlings will be transplanted into 3 150 Cavity trays, and 50 seedlings will be recorded as waste.",
-                new BedSowingRules.TransplantPlan(3, 450, 50).Summary("150 Cavity"));
-            Assert.Equal("Not enough seedlings for one 150 Cavity tray: no tray batch will be created, and 100 seedlings will be recorded as waste.",
-                new BedSowingRules.TransplantPlan(0, 0, 100).Summary("150 Cavity"));
-            Assert.Equal("450 seedlings were transplanted into 3 150 Cavity trays, and 50 seedlings were recorded as waste.",
-                new BedSowingRules.TransplantPlan(3, 450, 50).Summary("150 Cavity", done: true));
-            Assert.Equal("Not enough seedlings for one 150 Cavity tray: no tray batch was created, and 100 seedlings were recorded as waste.",
-                new BedSowingRules.TransplantPlan(0, 0, 100).Summary("150 Cavity", done: true));
-            // part of the bed: the existing complete-tray rule, unchanged
-            var (ok, _, error) = BedSowingRules.PlanTransplant(500, 250, "24 Cavity", null, Today, BedDate, Today);
+            var (_, _, error) = BedSowingRules.PlanTransplant(500, 449, "150 Cavity", null, Today, BedDate, Today);
+            Assert.Contains("multiple of 150", error);
+            Assert.Contains("300 (2 trays)", error);
+            (_, _, error) = BedSowingRules.PlanTransplant(500, 600, "150 Cavity", null, Today, BedDate, Today);
+            Assert.Contains("Only 500 seedlings remain", error);
+        }
+
+        // Owner decision 2 (2026-10-14): a waste-only closure -- ALL remaining seedlings dead / unusable -- at ANY remaining
+        // quantity, below or above one tray, only with the explicit confirmation AND a reason. No cavity, no tray batch.
+        [Theory]
+        [InlineData(100, "150 Cavity")]   // below one tray
+        [InlineData(500, "150 Cavity")]   // above one tray (3 complete trays were possible)
+        [InlineData(500, null)]           // no cavity needed
+        [InlineData(24, "24 Cavity")]     // exactly one tray
+        public void WasteOnlyClosure_AnyQuantity_ConfirmedWithAReason(int remaining, string? cavity)
+        {
+            var (ok, plan, error) = BedSowingRules.PlanTransplant(remaining, 0, cavity, null, Today, BedDate, Today, closeAsWaste: true, wasteReason: "damping off");
+            Assert.True(ok, error);
+            Assert.Equal((0, 0m, (decimal)remaining), (plan!.Trays, plan.Transplanted, plan.Waste));
+            Assert.False(plan.MakesTrayBatch);
+            Assert.Equal(BedSowing.StatusCompleted, BedSowingRules.StatusFor(remaining, plan.Transplanted, plan.Waste));
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        public void WasteOnlyClosure_WithoutAReason_IsRefused(string? reason)
+        {
+            foreach (var remaining in new decimal[] { 100, 500 })
+            {
+                var (ok, plan, error) = BedSowingRules.PlanTransplant(remaining, 0, "150 Cavity", null, Today, BedDate, Today, true, reason);
+                Assert.False(ok);
+                Assert.Null(plan);
+                Assert.Contains("reason", error);
+            }
+        }
+
+        [Fact]
+        public void WasteOnlyClosure_RefusedWithoutConfirmation_WithAQuantity_TooLongReason_OrBadDate()
+        {
+            // no confirmation: a zero quantity never closes a bed -- below one tray the message points to the confirmation
+            var (ok, _, error) = BedSowingRules.PlanTransplant(100, 0, "150 Cavity", null, Today, BedDate, Today);
             Assert.False(ok);
-            Assert.Contains("do not fill complete", error);
-            var (okPart, part, _) = BedSowingRules.PlanTransplant(500, 240, "24 Cavity", null, Today, BedDate, Today);
-            Assert.True(okPart);
-            Assert.Equal((10, 240m, 0m), (part!.Trays, part.Transplanted, part.Waste));
-            // whole bed: the posted tray count must agree; dates are still checked
-            Assert.False(BedSowingRules.PlanTransplant(500, 500, "150 Cavity", 4, Today, BedDate, Today).Ok);
-            Assert.True(BedSowingRules.PlanTransplant(500, 500, "150 Cavity", 3, Today, BedDate, Today).Ok);
-            Assert.False(BedSowingRules.PlanTransplant(500, 500, "150 Cavity", null, Today.AddDays(1), BedDate, Today).Ok);
-            Assert.False(BedSowingRules.PlanTransplant(500, 500, "25 Cavity", null, Today, BedDate, Today).Ok);
-            Assert.False(BedSowingRules.PlanTransplant(500, 501, "150 Cavity", null, Today, BedDate, Today).Ok);
+            Assert.Contains("fewer than one 150 Cavity tray", error);
+            Assert.Contains("confirm", error);
+            Assert.False(BedSowingRules.PlanTransplant(500, 0, "150 Cavity", null, Today, BedDate, Today, false, "dead").Ok);   // reason alone is not confirmation
+            // with a quantity, a too-long reason, a bad date, or an empty bed: refused
+            Assert.False(BedSowingRules.PlanTransplant(500, 150, "150 Cavity", null, Today, BedDate, Today, true, "dead").Ok);
+            Assert.False(BedSowingRules.PlanTransplant(100, 0, "150 Cavity", null, Today, BedDate, Today, true, new string('x', BedSowingRules.MaxWasteReasonLength + 1)).Ok);
+            Assert.True(BedSowingRules.PlanTransplant(100, 0, "150 Cavity", null, Today, BedDate, Today, true, new string('x', BedSowingRules.MaxWasteReasonLength)).Ok);
+            Assert.False(BedSowingRules.PlanTransplant(100, 0, "150 Cavity", null, Today.AddDays(1), BedDate, Today, true, "dead").Ok);
+            Assert.False(BedSowingRules.PlanTransplant(100, 0, "150 Cavity", null, BedDate.AddDays(-1), BedDate, Today, true, "dead").Ok);
+            Assert.False(BedSowingRules.PlanTransplant(0, 0, "150 Cavity", null, Today, BedDate, Today, true, "dead").Ok);
+            // the normal path is unchanged: a positive multiple of the cavity, the rest recorded as waste
+            Assert.True(BedSowingRules.PlanTransplant(100, 99, "9 Cavity", null, Today, BedDate, Today).Ok);
+            Assert.False(BedSowingRules.PlanTransplant(100, 98, "9 Cavity", null, Today, BedDate, Today).Ok);
+            Assert.Contains("Dead", BedSowingRules.WasteOnlyConfirmation, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void Transplant_Summary_And_PostedTraysAndDates()
+        {
+            Assert.Equal("450 seedlings will be transplanted into 3 150 Cavity trays, and the remaining 50 seedlings will be recorded as waste.",
+                new BedSowingRules.TransplantPlan(3, 450, 50).Summary("150 Cavity"));
+            Assert.Equal("450 seedlings will be transplanted into 3 150 Cavity trays.",
+                new BedSowingRules.TransplantPlan(3, 450, 0).Summary("150 Cavity"));
+            Assert.Equal("No tray batch will be created: all 100 remaining seedlings will be recorded as waste and the bed will be closed.",
+                new BedSowingRules.TransplantPlan(0, 0, 100).Summary("150 Cavity"));
+            Assert.Equal("450 seedlings were transplanted into 3 150 Cavity trays, and the remaining 50 seedlings were recorded as waste.",
+                new BedSowingRules.TransplantPlan(3, 450, 50).Summary("150 Cavity", done: true));
+            Assert.Equal("No tray batch was created: all 100 remaining seedlings were recorded as waste and the bed was closed.",
+                new BedSowingRules.TransplantPlan(0, 0, 100).Summary("150 Cavity", done: true));
+            // the posted tray count must agree; dates and the cavity are still checked
+            Assert.False(BedSowingRules.PlanTransplant(500, 450, "150 Cavity", 4, Today, BedDate, Today).Ok);
+            Assert.True(BedSowingRules.PlanTransplant(500, 450, "150 Cavity", 3, Today, BedDate, Today).Ok);
+            Assert.False(BedSowingRules.PlanTransplant(500, 450, "150 Cavity", null, Today.AddDays(1), BedDate, Today).Ok);
+            Assert.False(BedSowingRules.PlanTransplant(500, 450, "150 Cavity", null, BedDate.AddDays(-1), BedDate, Today).Ok);
+            Assert.False(BedSowingRules.PlanTransplant(500, 450, "25 Cavity", null, Today, BedDate, Today).Ok);
         }
 
         [Fact]

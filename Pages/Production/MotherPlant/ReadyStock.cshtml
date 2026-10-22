@@ -1,0 +1,171 @@
+@page
+@model PlantStockManager.Pages.Production.MotherPlant.AreaReadyStockModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Ready Stock";
+    string D(DateTime? utc) => utc.HasValue ? AppClock.ToIndiaTime(utc.Value).ToString("dd/MM/yyyy") : "-";
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+        <h2 class="mb-0">Ready Stock <span class="text-muted fs-6">&mdash; Mother Plant &amp; Cutting Areas</span></h2>
+        <a asp-page="/Production/MotherPlant/SowingApprovals" class="btn btn-outline-secondary btn-sm">Sowing Approvals</a>
+    </div>
+    <p class="text-muted small">
+        Ready trays and ready pots of your Mother Plant / Cutting Areas. A transplanted tray batch appears here only after its Area Supervisor
+        approves it in Sowing Approvals; a pot batch only after it is confirmed READY. Trays (plants in cavity trays) and pots are separate
+        stock and are never added together.
+    </p>
+
+    @if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+
+    @if (!Model.Areas.Any())
+    {
+        <div class="alert alert-warning" id="no-areas">You are not assigned to any Mother Plant / Cutting Area.</div>
+    }
+    else
+    {
+        <ul class="nav nav-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="tab-trays" data-bs-toggle="tab" data-bs-target="#pane-trays" type="button" role="tab">
+                    Ready trays <span class="badge bg-secondary">@Model.Trays.Count</span></button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-pots" data-bs-toggle="tab" data-bs-target="#pane-pots" type="button" role="tab">
+                    Ready pots <span class="badge bg-secondary">@Model.Pots.Count</span></button>
+            </li>
+        </ul>
+        <div class="tab-content border border-top-0 p-2 mb-4">
+            <div class="tab-pane fade show active" id="pane-trays" role="tabpanel">
+                <div class="small text-muted mb-2">
+                    Available plants: <strong id="trays-available">@Qty(Model.Trays.Sum(t => t.AvailableQuantity))</strong>
+                    &middot; reserved for bookings: @Qty(Model.Trays.Sum(t => t.ReservedQuantity))
+                    &middot; in transit: @Qty(Model.Trays.Sum(t => t.InTransitQuantity))
+                    @if (Model.CanBookSeedlings)
+                    {
+                        <text>&middot; customers: <a asp-page="/Bookings/Book">New Seedling Booking</a> / <a asp-page="/Bookings/Fulfilment">Fulfilment</a></text>
+                    }
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped align-middle" id="ready-trays">
+                        <thead class="table-light">
+                            <tr><th>Area</th><th>Variety</th><th>Batch / lineage</th><th>Cavity</th><th class="text-end">Plants</th><th class="text-end">Trays</th>
+                                <th class="text-end">Reserved</th><th class="text-end">In transit</th><th class="text-end">Available</th><th>Ready since</th><th>Status</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var t in Model.Trays)
+                            {
+                                var forPots = Model.PotProductionBatchIds.Contains(t.Id);
+                                <tr data-id="@t.Id">
+                                    <td>@t.AreaName</td>
+                                    <td>@t.SpeciesName?.Trim() <span class="small text-muted">(@t.PlantTypeName)</span></td>
+                                    <td>@t.BatchNo <div class="small text-muted">@t.SowingCode &middot; @t.OriginLabel &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@t.Id">lineage</a></div></td>
+                                    <td>@t.CavityType</td>
+                                    <td class="text-end">@Qty(t.PhysicalQuantity)</td>
+                                    <td class="text-end">@(t.PhysicalTrays?.ToString("0") ?? "-")</td>
+                                    <td class="text-end">@Qty(t.ReservedQuantity)</td>
+                                    <td class="text-end">@Qty(t.InTransitQuantity)</td>
+                                    <td class="text-end fw-semibold">@Qty(t.AvailableQuantity)
+                                        @if (t.CavitySize is > 0) { <div class="small text-muted fw-normal">@PlantStockManager.Services.AreaReadyStockActionRules.AvailableCompleteTrays(t) complete trays</div> }</td>
+                                    <td>@D(t.FirstConfirmationDate ?? t.CreatedDate)</td>
+                                    <td><span class="badge bg-light text-dark border">@t.Status</span>@if (forPots) {<div class="small text-muted">for Pot Production</div>}</td>
+                                    <td style="min-width: 15rem;">
+                                        @if (forPots)
+                                        {
+                                            <a asp-page="/Production/PotBatch/CreateFromReadyStock" asp-route-readyStockId="@t.Id" class="btn btn-sm btn-outline-success">Pot these seedlings</a>
+                                        }
+                                        else
+                                        {
+                                            var sell = Model.SellAction(t);
+                                            var send = Model.SendAction(t);
+                                            <div class="d-flex flex-wrap gap-1">
+                                                @if (sell.Available)
+                                                {
+                                                    <a asp-page="/Production/MotherPlant/SellTrays" asp-route-id="@t.Id" class="btn btn-sm btn-success" data-action="sell">Sell to customer</a>
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled data-action="sell" title="@sell.Reason">Sell to customer</button>
+                                                }
+                                                @if (send.Available)
+                                                {
+                                                    <a asp-page="/Production/ReadyStock/Move" asp-route-id="@t.Id" asp-route-from="mp" class="btn btn-sm btn-primary" data-action="send">Send to Outlet</a>
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled data-action="send" title="@send.Reason">Send to Outlet</button>
+                                                }
+                                            </div>
+                                            @if (!sell.Available)
+                                            {
+                                                <div class="small text-muted mt-1" data-reason="sell"><strong>Sell:</strong> @sell.Reason</div>
+                                            }
+                                            @if (!send.Available)
+                                            {
+                                                <div class="small text-muted mt-1" data-reason="send"><strong>Send:</strong> @send.Reason</div>
+                                            }
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                            @if (!Model.Trays.Any())
+                            {
+                                <tr><td colspan="12" class="text-center text-muted">No ready trays in your Mother Plant / Cutting Areas.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="tab-pane fade" id="pane-pots" role="tabpanel">
+                <div class="small text-muted mb-2">
+                    Available pots: <strong id="pots-available">@Qty(Model.Pots.Sum(p => p.AvailableQuantity))</strong>
+                    &middot; reserved for bookings: @Qty(Model.Pots.Sum(p => p.ReservedQuantity))
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped align-middle" id="ready-pots">
+                        <thead class="table-light">
+                            <tr><th>Area</th><th>Variety</th><th>Pot size</th><th class="text-end">Pots</th><th class="text-end">Reserved</th>
+                                <th class="text-end">Available</th><th>Source pot batches (READY)</th><th>Last ready</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var p in Model.Pots)
+                            {
+                                var sources = Model.PotSources[p.Id].ToList();
+                                <tr data-id="@p.Id">
+                                    <td>@p.AreaName</td>
+                                    <td>@p.SpeciesName?.Trim() <span class="small text-muted">(@p.PlantTypeName)</span></td>
+                                    <td>@p.PotSize</td>
+                                    <td class="text-end">@Qty(p.PhysicalQuantity)</td>
+                                    <td class="text-end">@Qty(p.ReservedQuantity)</td>
+                                    <td class="text-end fw-semibold">@Qty(p.AvailableQuantity)</td>
+                                    <td class="small">
+                                        @foreach (var s in sources.Take(4))
+                                        {
+                                            <a asp-page="/Production/PotBatch/Details" asp-route-id="@s.BatchId">@s.BatchCode</a><span class="text-muted"> (@Qty(s.ReadyQuantity)@(s.FromReadyStock ? ", seedlings" : ""))</span><br />
+                                        }
+                                        @if (sources.Count > 4) { <span class="text-muted">+@(sources.Count - 4) more</span> }
+                                        @if (!sources.Any()) { <span class="text-muted">-</span> }
+                                    </td>
+                                    <td>@D(sources.FirstOrDefault()?.ReadyDateUtc)</td>
+                                    <td class="text-nowrap">
+                                        @if (Model.CanMovePots && p.AvailableQuantity > 0)
+                                        {
+                                            <a asp-page="/Production/PottedPlantStock/Move" asp-route-id="@p.Id" asp-route-from="mp" class="btn btn-sm btn-outline-primary">Sell to customer / send to Outlet</a>
+                                        }
+                                        <a asp-page="/Production/PottedPlantStock/Details" asp-route-id="@p.Id" class="btn btn-sm btn-outline-secondary">History</a>
+                                    </td>
+                                </tr>
+                            }
+                            @if (!Model.Pots.Any())
+                            {
+                                <tr><td colspan="9" class="text-center text-muted">No ready pots in your Mother Plant / Cutting Areas.</td></tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>

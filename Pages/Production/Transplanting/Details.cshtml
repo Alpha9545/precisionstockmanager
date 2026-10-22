@@ -24,8 +24,12 @@
                             <tr><th class="w-50">Date</th><td>@t.TransplantDate.ToString("dd/MM/yyyy")</td></tr>
                             <tr><th>Variety</th><td>@t.SpeciesName (@t.PlantTypeName)</td></tr>
                             <tr><th>Source batch</th><td><a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@t.SourceReadyStockId">#@t.SourceReadyStockId</a> &middot; @t.BatchNo &middot; @t.SourceCavityType<div class="small text-muted">@t.SourceAreaName / @(t.SourcePolyhouseName ?? "-")</div></td></tr>
-                            <tr><th>Target</th><td>@t.AreaName / @t.PolyhouseName</td></tr>
-                            @if (t.OutputIsTrayBatch)
+                            <tr><th>Target</th><td>@t.AreaName / @(t.PolyhouseName ?? "Area trays")</td></tr>
+                            @if (t.WasteOnly)
+                            {
+                                <tr><th>Tray batch</th><td><span class="badge bg-warning text-dark" id="waste-only">None -- all seedlings recorded as waste</span></td></tr>
+                            }
+                            else if (t.OutputIsTrayBatch)
                             {
                                 <tr><th>Tray batch (Sowing Approvals)</th><td><a asp-page="/Production/SeedSowing/Details" asp-route-id="@t.OutputSeedSowingId">@t.OutputSowingCode</a> &middot; @t.TargetCavityType
                                     <div class="small text-muted">@(t.OutputSowingStatus == "Sown" ? "Growing -- waiting for approval" : t.OutputSowingStatus)</div></td></tr>
@@ -43,10 +47,17 @@
                 <div class="col-md-6">
                     <table class="table table-sm table-bordered mb-0" id="equation">
                         <tbody>
-                            <tr><th class="w-50">Seedlings selected (source consumed)</th><td class="text-end">@Qty(t.SelectedQuantity)</td></tr>
+                            <tr><th class="w-50">Seedlings processed (source consumed)</th><td class="text-end">@Qty(t.SelectedQuantity)</td></tr>
                             <tr><th>&nbsp;&nbsp;= successfully transplanted</th><td class="text-end fw-bold">@Qty(t.TransplantedQuantity)</td></tr>
-                            <tr><th>&nbsp;&nbsp;+ lost / damaged</th><td class="text-end">@Qty(t.LostQuantity)</td></tr>
-                            <tr><th>Target cavity capacity</th><td class="text-end">@t.TargetCavitySize plants / tray</td></tr>
+                            <tr><th>&nbsp;&nbsp;+ waste (lost / damaged / untransplanted remainder)</th><td class="text-end" id="waste-qty">@Qty(t.LostQuantity)</td></tr>
+                            @if (!string.IsNullOrWhiteSpace(t.WasteReason))
+                            {
+                                <tr><th>Waste reason</th><td id="waste-reason">@t.WasteReason</td></tr>
+                            }
+                            @if (!t.WasteOnly)
+                            {
+                                <tr><th>Target cavity capacity</th><td class="text-end">@t.TargetCavitySize plants / tray</td></tr>
+                            }
                             <tr><th>Output trays (empty trays used)</th><td class="text-end">@t.OutputTrays@if (t.PlantsInLastTray > 0 && t.PlantsInLastTray < t.TargetCavitySize) {<span class="small text-muted"> (last tray @Qty(t.PlantsInLastTray) plants)</span>}</td></tr>
                         </tbody>
                     </table>
@@ -92,8 +103,15 @@
                 <h6 class="text-danger">Reverse this transplanting</h6>
                 @if (Model.CanReverse)
                 {
+                    @if (t.WasteOnly)
+                    {
+                        <p class="small mb-2">Returns the @Qty(t.LostQuantity) seedlings recorded as waste to source batch #@t.SourceReadyStockId. Every step is a new ledger entry.</p>
+                    }
+                    else
+                    {
                     <p class="small mb-2">@(t.OutputIsTrayBatch ? $"Cancels tray batch {t.OutputSowingCode}" : $"Takes the {Qty(t.TransplantedQuantity)} plants back out of output batch #{t.OutputReadyStockId}"), returns @Qty(t.SelectedQuantity) plants
-                        (transplanted + lost) to source batch #@t.SourceReadyStockId and @t.OutputTrays empty trays to Tray Stock. Every step is a new ledger entry.</p>
+                        (transplanted + waste) to source batch #@t.SourceReadyStockId and @t.OutputTrays empty trays to Tray Stock. Every step is a new ledger entry.</p>
+                    }
                     <form method="post" asp-page-handler="Reverse" asp-route-id="@t.Id" class="input-group" id="reverse-form">
                         <input name="reason" class="form-control" maxlength="500" placeholder="Reason for the reversal" required />
                         <button type="submit" class="btn btn-danger">Reverse</button>

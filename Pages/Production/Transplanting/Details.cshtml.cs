@@ -64,6 +64,12 @@ namespace PlantStockManager.Pages.Production.Transplanting
             Ledger.AddRange((await _readyStockRepo.GetTransactionsAsync(t.SourceReadyStockId)).Where(Mine));
             Ledger = Ledger.OrderBy(l => l.TransactionDate).ThenBy(l => l.Id).ToList();
 
+            // 2026-10-16: a waste-only closure (no tray batch) -- reversible while Completed (the seedlings go back).
+            if (User.HasPermission(ReversePermission) && t.WasteOnly)
+            {
+                CanReverse = t.Status == TransplantRules.StatusCompleted;
+                ReverseBlockedReason = CanReverse ? null : "This transplanting is already reversed.";
+            }
             // 2026-10-13: a tray-batch output -- reversible only while the batch has no Sowing Approval.
             if (User.HasPermission(ReversePermission) && t.OutputIsTrayBatch)
             {

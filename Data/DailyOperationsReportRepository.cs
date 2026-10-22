@@ -51,7 +51,9 @@ namespace PlantStockManager.Data
 
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(await BedSowingSchema.ReadyAsync(conn) ? BatchSqlBed : BatchSqlPlain, conn);
+            var bedReady = await BedSowingSchema.ReadyAsync(conn);
+            var shape = (bedReady, await PotBatchSchema.ReadyStockSourceAsync(conn), await WorkflowCorrectionsSchema.TransplantWasteAsync(conn));
+            using var cmd = new SqlCommand(BatchSqlByShape.GetOrAdd(shape, k => BuildBatchSql(k.Item1, k.Item2, k.Item3)), conn);
             cmd.Parameters.Add("@FromDate", SqlDbType.Date).Value = from;
             cmd.Parameters.Add("@ToDateExclusive", SqlDbType.Date).Value = toExclusive;
             cmd.Parameters.Add("@FromUtc", SqlDbType.DateTime2).Value = AppClock.IndiaToUtc(from);
@@ -139,9 +141,11 @@ namespace PlantStockManager.Data
         private static string ServerLocalDay(string column) => $"CAST(DATEADD(MINUTE, @IndiaOffsetMinutes - @ServerOffset, {column}) AS date)";
 
         // 2026-10-12: two variants -- with / without the Bed Sowing tables (BedSowingSchema).
-        private static readonly string BatchSqlBed = BuildBatchSql(bedReady: true), BatchSqlPlain = BuildBatchSql(bedReady: false);
+        // one SQL text per combination of applied migrations (bed sowing; 2026-10-15 pots from Ready Stock; 2026-10-16
+        // transplant waste), built once -- the Wastage section uses exactly the Wastage page's sources.
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<(bool, bool, bool), string> BatchSqlByShape = new();
 
-        private static string BuildBatchSql(bool bedReady) => $@"
+        private static string BuildBatchSql(bool bedReady, bool potsFromReadyStock = false, bool transplantWaste = false) => $@"
 DECLARE @ServerOffset INT = {ManagementDashboardRepository.ServerOffsetSql};
 DECLARE @BookFrom DATETIME2 = DATEADD(MINUTE, @ServerOffset, @FromUtc), @BookTo DATETIME2 = DATEADD(MINUTE, @ServerOffset, @ToUtc);
 
@@ -206,7 +210,7 @@ GROUP BY fu.IssueDate, LTRIM(RTRIM(um.UnitName));
 --    one row), bucketed by India day. Seed-lot losses are in seed units, so they
 --    are reported separately (9) rather than added to plants.
 SELECT w.WDate, COUNT(*), ISNULL(SUM(w.Quantity), 0)
-FROM ({WastageRepository.SourcesSql(indiaDays: true, bedReady)}
+FROM ({WastageRepository.SourcesSql(indiaDays: true, bedReady, potsFromReadyStock, transplantWaste)}
 ) w
 WHERE w.WDate >= @FromDate AND w.WDate < @ToDateExclusive AND w.ProductionType <> N'{WastageRepository.SeedLotProductionType}'
 GROUP BY w.WDate;

@@ -1,0 +1,18 @@
+@* Empty trays available -- shared by the tray-consuming sowing pages (TrayAvailabilityForm + wwwroot/js/tray-availability.js).
+   The figures come from the server for the chosen cavity; the save re-checks them under lock. *@
+<div class="col-12" id="trayAvailabilitySection">
+    <div class="border rounded p-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-baseline gap-2">
+            <div class="fw-bold">Empty trays available <span class="text-muted fw-normal" id="taCavity"></span></div>
+            <div class="small text-muted" id="taLoading" hidden>updating&hellip;</div>
+        </div>
+        <div class="alert alert-secondary py-2 my-2 d-none" id="taSelected" aria-live="polite"></div>
+        <div class="small text-muted my-2" id="taMessage">Choose a cavity to see the empty trays available.</div>
+        <div class="table-responsive d-none" id="taTableWrap">
+            <table class="table table-sm table-bordered mb-0" id="taTable">
+                <thead class="table-light"><tr><th>Source location</th><th>Cavity</th><th class="text-end">Available empty trays</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+</div>

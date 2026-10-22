@@ -78,6 +78,9 @@ namespace PlantStockManager.Authorization
                 ["/Production/SeedStock/Create"] = R("SeedStock.Enter"),
                 ["/Production/SeedStock/AddStock"] = R("SeedStock.Enter"),
                 ["/Production/SeedStock/AddSeedStock"] = R("SeedStock.Enter"),   // simplified single-page receipt form
+                // 2026-10-20: correcting a receipt (date / quantity / notes) -- System Administrator ONLY, every verb and
+                // handler; appended to the ledger as a reversal + corrected receipt (Services/SeedStockEditRules.cs).
+                ["/Production/SeedStock/Edit"] = FullAccessOnlyRule,
 
                 // ---- Sowing / Ready stock ----------------------------------
                 ["/Production/SeedSowing/Index"] = R("Sowing.View"),
@@ -93,13 +96,17 @@ namespace PlantStockManager.Authorization
                 ["/Production/BedSowing/Details"] = R("Sowing.View|" + Services.BedSowingRules.TransplantPermission),
                 ["/Production/BedSowing/History"] = R("Sowing.View|" + Services.BedSowingRules.TransplantPermission),
                 ["/Production/BedSowing/Create"] = R("Sowing.Enter"),
+                // 2026-10-22: edit an untouched bed (same permission as Create / Cancel; Area checked in the page and repository)
+                ["/Production/BedSowing/Edit"] = R("Sowing.Enter"),
                 ["/Production/BedSowing/Transplant"] = R(Services.BedSowingRules.TransplantPermission),
                 ["/Production/ReadyAlerts/Index"] = R("ReadyStock.View|Sowing.View"),
                 ["/Production/ReadyConfirmation/Index"] = R("ReadyStock.View"),
                 ["/Production/ReadyConfirmation/History"] = R("ReadyStock.View", "ReadyStock.Confirm"),
                 ["/Production/ReadyConfirmation/Confirm"] = R("ReadyStock.Confirm"),   // Phase B: Supervisor Approval
                 ["/Production/ReadyStock/Index"] = R("ReadyStock.View"),               // Phase B: approved Ready Stock
-                ["/Production/ReadyStock/Move"] = R("InternalTransfer.Enter|MainOffice.Confirm"),   // Phase D: send trays to Main Office/Outlet
+                // Phase D: send trays to Main Office/Outlet; 2026-10-19: or dispatch them to a customer (ReadyStock.DispatchToCustomer --
+                // Office Coordinator, 2026-10-23_ReadyStockDispatchToCustomer.sql). The page checks each destination's own permission.
+                ["/Production/ReadyStock/Move"] = R("InternalTransfer.Enter|MainOffice.Confirm|ReadyStock.DispatchToCustomer"),
                 // 2026-10-09: Main Area Ready Stock -> Mother Plant Area -> transplanting. Every handler
                 // re-checks its own permission and the Area (SeedlingAreaScope); these are the page gates.
                 ["/Production/ReadyStock/TransferToMotherPlant"] = R("ReadyStock.TransferToMotherPlant"),
@@ -113,6 +120,17 @@ namespace PlantStockManager.Authorization
 
                 // ---- Mother plant / cutting --------------------------------
                 ["/Production/MotherPlant/Index"] = R("MotherPlant.View"),
+                // 2026-10-17: ready trays + ready pots of the user's own Mother Plant / Cutting Areas (read only; Area checked in the page)
+                ["/Production/MotherPlant/ReadyStock"] = R("MotherPlant.View|PotProduction.View"),
+                // 2026-10-18: direct tray sale to a customer -- the same permission as the potted-plant customer sale (Area checked in the page)
+                ["/Production/MotherPlant/SellTrays"] = R("Outlet.Sell"),
+                // 2026-10-19: Mother Plant Area transplant batches waiting for approval -- Mother Plant users (as Mother Plants);
+                // read only; Area checked in the page; approving stays /Production/ReadyConfirmation/Confirm (ReadyStock.Confirm).
+                // Everyone else with ReadyStock.View sees these batches under Seed Production > Sowing Approvals, in scope.
+                ["/Production/MotherPlant/SowingApprovals"] = R("MotherPlant.View"),
+                // 2026-10-21: Direct (seed) Sowing INTO a Mother Plant Area -- Mother Plant users for their own Areas (strict Area
+                // rule, checked in the page and in SeedSowingRepository.InsertMotherPlantDirectAsync); approved under Sowing Approvals.
+                ["/Production/MotherPlant/DirectSowing"] = R("MotherPlant.Enter"),
                 ["/Production/MotherPlant/Details"] = R("MotherPlant.View"),
                 ["/Production/MotherPlant/Create"] = R("MotherPlant.Enter"),
                 ["/Production/MotherPlant/Edit"] = R("MotherPlant.Enter"),
@@ -142,6 +160,9 @@ namespace PlantStockManager.Authorization
                 ["/Production/TrayStock/Index"] = R(MaterialStockAccess.TrayViewOwnAreas),
                 ["/Production/TrayStock/Add"] = R(MaterialStockAccess.TrayAdd),
                 ["/Production/TrayStock/Transactions"] = R(MaterialStockAccess.TrayViewOwnAreas),
+                // 2026-10-14: Add Empty Trays of the Mother Plant / Cutting sections -- a Mother Plant Area's own tray
+                // pool, no polyhouse. The existing tray-adding permissions and Area rule (TrayAreaScope); nothing widened.
+                ["/Production/MotherPlant/AddEmptyTrays"] = R(MaterialStockAccess.TrayAddAny),
 
                 // ---- Material Stock (2026-10-08): Cocopeat / Pitmos per Main Office
                 // Area + Polyhouse, used by sowings there. The Sowing Supervisor holds
@@ -165,6 +186,8 @@ namespace PlantStockManager.Authorization
                 ["/Production/PotBatch/Index"] = R("PotProduction.View|MotherPlant.View|Kiran.View"),
                 ["/Production/PotBatch/Details"] = R("PotProduction.View|MotherPlant.View|Kiran.View", "PotProduction.Enter|MotherPlant.Enter|Kiran.Enter"),
                 ["/Production/PotBatch/Create"] = R("PotProduction.Enter|MotherPlant.Enter|Kiran.Enter"),
+                // 2026-10-15: the same batch flow from Ready Stock received for Pot Production (Area checked in the page)
+                ["/Production/PotBatch/CreateFromReadyStock"] = R("PotProduction.Enter|MotherPlant.Enter|Kiran.Enter"),
                 ["/Production/EmptyPotInventory/Index"] = R("PotProduction.View|Purchase.View|MotherPlant.View"),
                 ["/Production/EmptyPotInventory/Details"] = R("PotProduction.View|Purchase.View|MotherPlant.View"),
                 ["/Production/EmptyPotInventory/AddStock"] = R("MotherPlant.Enter"),      // Mother Plant Supervisor adds pots to own Area (Area checked in the page)
@@ -224,10 +247,16 @@ namespace PlantStockManager.Authorization
                 // Since 2026-10-06 entered as 9:00 AM / 2:00 PM attendance; the manual
                 // Full/Half Day pages remain for the older records (correction: full access only, in the page).
                 ["/Production/Labour/Attendance"] = R("Labour.Enter"),
-                ["/Production/Labour/AttendanceHistory"] = R("Labour.View"),
+                // 2026-10-20: Attendance History and Overtime History are REPORTS (menu: Reports) for the System
+                // Administrator ONLY -- page, filters and exports alike. Recording is unchanged (Labour.Enter), and
+                // OvertimeDetails stays Labour.View: saving / correcting an overtime entry lands there.
+                ["/Production/Labour/AttendanceHistory"] = FullAccessOnlyRule,
                 // Overtime (2026-10-06): same permissions and Area scope as Daily Attendance.
                 ["/Production/Labour/Overtime"] = R("Labour.Enter"),
-                ["/Production/Labour/OvertimeHistory"] = R("Labour.View"),
+                ["/Production/Labour/OvertimeHistory"] = FullAccessOnlyRule,
+                // 2026-10-20: My Overtime Entries -- a recorder's OWN entries only (CreatedById = the signed-in user,
+                // in their Areas); Details / Edit re-check the same ownership (LabourOvertimeRules.MayAccessEntry).
+                ["/Production/Labour/MyOvertime"] = R("Labour.Enter"),
                 ["/Production/Labour/OvertimeDetails"] = R("Labour.View"),
                 // ---- Maintenance tickets (2026-10-06) ---------------------------
                 // Who may see a ticket / take each workflow step is decided per ticket by

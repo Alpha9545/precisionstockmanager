@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Controlled import of the Main Office Direct Seed Sowing data, 01-10-2026 .. 12-10-2026
+       (Database/DataEntry/2026-10_MainOfficeSowing). Drives the application's OWN page models and repositories;
+       never writes table rows itself. Not part of the web application (excluded in PlantStockManager.csproj). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\PlantStockManager.csproj" />
+  </ItemGroup>
+</Project>

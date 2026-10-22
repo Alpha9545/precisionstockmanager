@@ -1,13 +1,32 @@
 @page
 @model PlantStockManager.Pages.Production.MotherPlant.IndexModel
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@inject PlantStockManager.Data.AreaRepository AreaRepo
+@inject PlantStockManager.Authorization.AreaAccessService AreaAccess
 @{
     ViewData["Title"] = "Mother Plant";
+    // 2026-10-14: the Area's empty pot / tray inventory (Area only), each behind its own page rule.
+    var canAddPots = await FeatureAccess.CanAccessPageAsync(User, "/Production/EmptyPotInventory/AddStock");
+    // 2026-10-16: and only when the user may stock at least one Mother Plant Area (TrayAreaScope) -- never an empty page.
+    var canAddTrays = await FeatureAccess.CanAccessPageAsync(User, "/Production/MotherPlant/AddEmptyTrays")
+        && (await new PlantStockManager.Authorization.TrayAreaScope(AreaRepo, AreaAccess).AddableAreasAsync(User))
+            .Any(a => a.AreaType == PlantStockManager.Data.MotherPlantAreaSchema.MotherPlantAreaType);
 }
 
 <div class="container-fluid mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h2 class="mb-0">Mother Plant</h2>
-        <a asp-page="/Production/MotherPlant/Create" class="btn btn-primary">+ Add Mother Plant Batch</a>
+        <div class="d-flex gap-2 flex-wrap">
+            @if (canAddPots)
+            {
+                <a asp-page="/Production/EmptyPotInventory/AddStock" asp-route-section="MotherPlant" class="btn btn-outline-success" id="add-empty-pots">Add Empty Pots</a>
+            }
+            @if (canAddTrays)
+            {
+                <a asp-page="/Production/MotherPlant/AddEmptyTrays" asp-route-section="MotherPlant" class="btn btn-outline-success" id="add-empty-trays">Add Empty Trays</a>
+            }
+            <a asp-page="/Production/MotherPlant/Create" class="btn btn-primary">+ Add Mother Plant Batch</a>
+        </div>
     </div>
 
     @if (TempData["Success"] != null)

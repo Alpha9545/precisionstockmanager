@@ -11,23 +11,28 @@ namespace PlantStockManager.Pages.Production.OutletBooking
 {
     // A customer order across any mix of potted-plant and ready-tray items,
     // reserved against Outlet stock now and collected later (fully or
-    // partially).
+    // partially). 2026-10-21: a double click / browser retry / replay of the
+    // same form is stopped by SubmissionTokenGuard (it used to reserve the stock again).
     public class CreateModel : PageModel
     {
+        public const string TokenScope = "OutletBooking";
+
         private readonly OutletBookingRepository _bookingRepo;
         private readonly PottedPlantStockRepository _pottedRepo;
         private readonly ReadyStockRepository _readyRepo;
         private readonly AreaRepository _areaRepo;
         private readonly AreaAccessService _areaAccess;
+        private readonly SubmissionTokenGuard _tokens;
 
         public CreateModel(OutletBookingRepository bookingRepo, PottedPlantStockRepository pottedRepo, ReadyStockRepository readyRepo,
-            AreaRepository areaRepo, AreaAccessService areaAccess)
+            AreaRepository areaRepo, AreaAccessService areaAccess, SubmissionTokenGuard tokens)
         {
             _bookingRepo = bookingRepo;
             _pottedRepo = pottedRepo;
             _readyRepo = readyRepo;
             _areaRepo = areaRepo;
             _areaAccess = areaAccess;
+            _tokens = tokens;
         }
 
         public class ItemLine
@@ -44,6 +49,7 @@ namespace PlantStockManager.Pages.Production.OutletBooking
         [BindProperty] public DateTime? RequiredDate { get; set; }
         [BindProperty] public string? Remarks { get; set; }
         [BindProperty] public List<ItemLine> Items { get; set; } = new();
+        [BindProperty] public string? SubmitToken { get; set; }
 
         public List<Area> Outlets { get; set; } = new();
         public List<PottedPlantStockModel> PottedOptions { get; set; } = new();
@@ -52,6 +58,7 @@ namespace PlantStockManager.Pages.Production.OutletBooking
         public async Task OnGetAsync(int? outletAreaId)
         {
             await LoadAsync();
+            SubmitToken = SubmissionTokenGuard.NewToken();
             OutletAreaId = outletAreaId ?? (Outlets.Count == 1 ? Outlets[0].Id : 0);
             if (OutletAreaId > 0)
                 await LoadStockAsync(OutletAreaId);
@@ -88,6 +95,12 @@ namespace PlantStockManager.Pages.Production.OutletBooking
                 return Page();
             }
 
+            if (!_tokens.TryConsume(TokenScope, SubmitToken))
+            {
+                TempData["Error"] = "This booking form was already submitted. Check the bookings below before booking again.";
+                return RedirectToPage("/Production/OutletBooking/Index");
+            }
+
             var header = new PlantStockManager.Models.OutletBooking
             {
                 CustomerName = CustomerName ?? "",
@@ -102,6 +115,9 @@ namespace PlantStockManager.Pages.Production.OutletBooking
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to create the booking.");
+                // The token was used up; issue a fresh one so the corrected form can be sent again.
+                ModelState.Remove(nameof(SubmitToken));
+                SubmitToken = SubmissionTokenGuard.NewToken();
                 await LoadAsync();
                 if (OutletAreaId > 0) await LoadStockAsync(OutletAreaId);
                 return Page();

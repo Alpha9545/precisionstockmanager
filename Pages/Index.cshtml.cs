@@ -28,11 +28,13 @@ namespace PlantStockManager.Pages
         private readonly FeatureAccessService _featureAccess;
         private readonly PlantTypeRepository _plantTypeRepo;
         private readonly AreaRepository _areaRepo;
+        private readonly SowingApprovalQueueRepository _approvalQueue;
 
         public IndexModel(DatabaseHelper db, SeedSowingRepository seedSowingRepo, PotBatchRepository potBatchRepo,
             InternalTransferRepository transferRepo, AreaAccessService areaAccess, SeedlingAreaScope seedlingScope, FeatureAccessService featureAccess,
-            PlantTypeRepository plantTypeRepo, AreaRepository areaRepo)
+            PlantTypeRepository plantTypeRepo, AreaRepository areaRepo, SowingApprovalQueueRepository approvalQueue)
         {
+            _approvalQueue = approvalQueue;
             _db = db;
             _seedSowingRepo = seedSowingRepo;
             _potBatchRepo = potBatchRepo;
@@ -99,13 +101,19 @@ namespace PlantStockManager.Pages
         // "needs attention" list, unchanged.
         private async Task LoadMyWorkAsync()
         {
-            var me = User.GetUserId();
             var today = DateTime.Today;
 
             if (await _featureAccess.CanAccessPageAsync(User, "/Production/ReadyConfirmation/Index"))
             {
-                var open = (await _seedSowingRepo.GetReadyForConfirmationAsync()).Where(s => _seedlingScope.CanAccessArea(User, s.AreaId)).ToList();
-                Add("Sowings waiting for your approval", open.Count(s => me.HasValue && s.SupervisorId == me), "/Production/ReadyConfirmation/Index", "warning");
+                // 2026-10-19: the same pending list as Sowing Approvals (every batch in the user's Area scope). "Your approval"
+                // counts the batches THIS user may approve now -- not only those with the user as assigned supervisor, which
+                // left out every transplanted and Bed Sowing tray batch.
+                var canApprove = await _featureAccess.CanAccessPageAsync(User, "/Production/ReadyConfirmation/Confirm");
+                var queue = (await _approvalQueue.GetPendingAsync(
+                    Production.ReadyConfirmation.IndexModel.Viewer(User, canApprove, _seedlingScope, _areaAccess))).Items;
+                var open = queue.Select(i => i.Sowing).ToList();
+                Add("Sowings waiting for your approval", queue.Count(i => i.Eligibility.CanApprove), "/Production/ReadyConfirmation/Index", "warning");
+                Add("Sowings pending approval in your Areas", queue.Count, "/Production/ReadyConfirmation/Index", "secondary");
                 Add("Sowings overdue for approval", open.Count(s => s.ExpectedReadyDate.HasValue && s.ExpectedReadyDate.Value.Date < today), "/Production/ReadyAlerts/Index", "danger");
                 Add("Sowings ready within 3 days", open.Count(s => s.ExpectedReadyDate.HasValue && s.ExpectedReadyDate.Value.Date >= today
                                                                    && s.ExpectedReadyDate.Value.Date <= today.AddDays(SeedSowingRepository.DefaultReadySoonWindowDays)), "/Production/ReadyAlerts/Index", "info");

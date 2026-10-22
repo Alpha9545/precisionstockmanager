@@ -1,5 +1,6 @@
 @page
 @model PlantStockManager.Pages.Production.SeedSowing.CreateModel
+@inject PlantStockManager.Data.DatabaseHelper CavityDb
 @{
     ViewData["Title"] = "Direct Seed Sowing";
 }
@@ -123,7 +124,7 @@
                         <label class="form-label fw-bold">Tray Size</label>
                         <select asp-for="SeedSowing.CavityType" id="cavitySelect" class="form-select" required>
                             <option value="">-- Select --</option>
-                            @foreach (var ct in Model.CavityTypes)
+                            @foreach (var ct in (await PlantStockManager.Data.WorkflowCorrectionsSchema.SelectableCavitiesAsync(CavityDb)))
                             {
                                 <option value="@ct">@ct</option>
                             }
@@ -147,6 +148,8 @@
                     <div class="col-12">
                         <div class="text-danger small d-none" id="trayError"></div>
                     </div>
+
+                    <partial name="_TrayAvailability" />
 
                     <partial name="_GrowingMaterial" model="Model.GrowingMaterial" />
 
@@ -186,6 +189,7 @@
 
 @section Scripts {
     <script src="~/js/growing-material.js" asp-append-version="true"></script>
+    <script src="~/js/tray-availability.js" asp-append-version="true"></script>
     <script>
         $(function () {
             const handlerUrl = '@Url.Page("/Production/SeedSowing/Create")';
@@ -339,6 +343,14 @@
                 cavity: () => $('#cavitySelect').val(),
                 quantity: () => $('#quantityInput').val(),
                 triggers: '#polyhouseSelect, #cavitySelect, #quantityInput'
+            });
+            // Empty trays of the chosen cavity in every Main Office Polyhouse offered (server balances);
+            // the Seed Quantity must be corrected while the chosen Polyhouse cannot cover its trays.
+            initTrayAvailability({
+                url: handlerUrl,
+                params: () => ({ cavityType: $('#cavitySelect').val(), polyhouseId: $('#polyhouseSelect').val(), quantity: $('#quantityInput').val() || 0 }),
+                triggers: '#polyhouseSelect, #cavitySelect, #quantityInput',
+                guard: () => document.getElementById('quantityInput')
             });
             // One click only: the button is disabled once a valid form is submitted
             // (the server's one-time token is the real duplicate guard).

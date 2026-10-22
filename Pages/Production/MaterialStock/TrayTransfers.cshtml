@@ -1,5 +1,6 @@
 @page
 @model PlantStockManager.Pages.Production.MaterialStock.TrayTransfersModel
+@inject PlantStockManager.Data.DatabaseHelper CavityDb
 @using PlantStockManager.Services
 @{
     ViewData["Title"] = "Tray Transfers";
@@ -87,7 +88,7 @@
                                 <label class="form-label fw-bold" for="trCavity">Cavity</label>
                                 <select asp-for="Input.TraySize" id="trCavity" class="form-select" required>
                                     <option value="">-- Select Cavity --</option>
-                                    @foreach (var t in Model.TraySizes)
+                                    @foreach (var t in (await PlantStockManager.Data.WorkflowCorrectionsSchema.SelectableCavitiesAsync(CavityDb)))
                                     {
                                         <option value="@t" selected="@(Model.Input.TraySize == t)">@t</option>
                                     }
@@ -204,7 +205,7 @@
             document.querySelectorAll('form[method="post"]').forEach(function (f) {
                 f.addEventListener('submit', function () { f.querySelectorAll('button[type="submit"]').forEach(function (b) { b.disabled = true; }); });
             });
-            const pools = @Json.Serialize(Model.SourcePools.Select(p => new { polyhouse = p.PolyhouseId, size = p.TraySize, qty = p.PhysicalQuantity }));
+            const pools = @Json.Serialize(Model.SourcePools.Select(p => new { area = p.AreaId, polyhouse = p.PolyhouseId, size = p.TraySize, qty = p.PhysicalQuantity }));
             function link(areaId, phId) {
                 const area = document.getElementById(areaId), ph = document.getElementById(phId);
                 if (!area || !ph) return;
@@ -224,8 +225,10 @@
                 const ph = document.getElementById('srcPolyhouse'), cavity = document.getElementById('trCavity'), out = document.getElementById('srcBalance');
                 if (!ph || !cavity || !out) return;
                 if (!ph.value || !cavity.value) { out.textContent = ''; return; }
-                const p = pools.find(function (x) { return String(x.polyhouse) === ph.value && x.size === cavity.value; });
-                out.textContent = 'Available to send: ' + (p ? Number(p.qty) : 0) + ' trays';
+                const srcArea = document.getElementById('srcArea');
+                const p = pools.find(function (x) { return String(x.polyhouse) === ph.value && x.size === cavity.value; })
+                       || pools.find(function (x) { return x.polyhouse === null && srcArea && String(x.area) === srcArea.value && x.size === cavity.value; });
+                out.textContent = 'Available to send: ' + (p ? Number(p.qty) : 0) + ' trays' + (p && p.polyhouse === null ? ' (Area stock)' : '');
             }
             link('srcArea', 'srcPolyhouse');
             link('dstArea', 'dstPolyhouse');

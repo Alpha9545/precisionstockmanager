@@ -18,7 +18,7 @@ namespace PlantStockManager.Data
     public static class TrayBatchWriter
     {
         public sealed record Spec(
-            string SourceType, int? BedSowingId, int SpeciesId, int AreaId, int PolyhouseId, string BatchNo, int? SeedSourceId,
+            string SourceType, int? BedSowingId, int SpeciesId, int AreaId, int? PolyhouseId, string BatchNo, int? SeedSourceId,
             string CavityType, int Trays, decimal Quantity, DateTime OriginalSowingDate, int ReadyDays, DateTime ReadyDate,
             int? MaterialTypeId, string Remarks, string? CreatedBy, int? CreatedById);
 
@@ -52,7 +52,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             cmd.Parameters.AddWithValue("@BedId", (object?)s.BedSowingId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@SpeciesId", s.SpeciesId);
             cmd.Parameters.AddWithValue("@AreaId", s.AreaId);
-            cmd.Parameters.AddWithValue("@PolyhouseId", s.PolyhouseId);
+            cmd.Parameters.AddWithValue("@PolyhouseId", (object?)s.PolyhouseId ?? DBNull.Value);   // 2026-10-14: none for a Mother Plant Area transplant
             cmd.Parameters.AddWithValue("@BatchNo", s.BatchNo);
             cmd.Parameters.AddWithValue("@SeedSourceId", (object?)s.SeedSourceId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Cavity", s.CavityType);

@@ -1,0 +1,26 @@
+@model PlantStockManager.Pages.Production.ReadyConfirmation.ApprovalActionView
+@* 2026-10-19: one rendering of "may I approve this batch?" for both Sowing Approvals pages. Display only -- the Confirm page,
+   ReadyConfirmationRepository.ConfirmAsync and TR_ReadyConfirmations_AssignedSupervisor decide. *@
+@{
+    var e = Model.Item.Eligibility;
+    var sw = Model.Item.Sowing;
+}
+<div class="d-flex flex-wrap gap-1 align-items-start">
+    @if (e.CanApprove)
+    {
+        <a asp-page="/Production/ReadyConfirmation/Confirm" asp-all-route-data="Model.LinkRoute(withFrom: true)" class="btn btn-sm btn-success" data-approve="@sw.Id">Approve</a>
+    }
+    else if (e.WaitingForReadyDate)
+    {
+        <span class="badge bg-light text-dark border" data-wait="@sw.Id" title="@e.Reason">Approve from @e.ApproveFrom?.ToString("dd/MM/yyyy")</span>
+    }
+    else
+    {
+        <span class="badge bg-secondary" data-cannot="@sw.Id" title="@e.Reason">@(e.Reason == PlantStockManager.Services.SowingApprovalRules.NoApprovePermissionMessage ? "View only" : "Not your approval")</span>
+    }
+    <a asp-page="/Production/ReadyConfirmation/History" asp-all-route-data="Model.LinkRoute(withFrom: false)" class="btn btn-sm btn-outline-secondary">History</a>
+</div>
+@if (!e.CanApprove && !string.IsNullOrEmpty(e.Reason))
+{
+    <div class="small text-muted mt-1" style="max-width: 22rem;">@e.Reason</div>
+}

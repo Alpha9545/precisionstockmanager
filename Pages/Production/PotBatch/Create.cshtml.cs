@@ -14,6 +14,10 @@ namespace PlantStockManager.Pages.Production.PotBatch
     // cutting makes one pot. Then the expected ready date and who will
     // confirm it READY ("Ready Confirmation By": any authorized user assigned
     // to the production Area -- see PotBatchRules.CanConfirmReady).
+    // 2026-10-16 (owner): the SOURCE is chosen first -- "Cutting" (this page's form, unchanged) or "Main Office
+    // Seedlings" (eligible Ready Stock received from the Main Office for Pot Production in the user's own Mother
+    // Plant Areas; potted on CreateFromReadyStock, which re-checks everything under lock). A repeated submit of one
+    // form never starts a second batch (SubmissionToken, 2026-10-16_PotProductionSubmissionToken.sql).
     public class CreateModel : PageModel
     {
         private readonly PotBatchRepository _batchRepo;
@@ -22,10 +26,13 @@ namespace PlantStockManager.Pages.Production.PotBatch
         private readonly UserRoleRepository _userRoleRepo;
         private readonly PolyhouseRepository _polyhouseRepo;
         private readonly AreaAccessService _areaAccess;
+        private readonly DatabaseHelper _db;
 
         public CreateModel(PotBatchRepository batchRepo, CuttingStockRepository cuttingStockRepo,
-            EmptyPotInventoryRepository emptyPotRepo, UserRoleRepository userRoleRepo, PolyhouseRepository polyhouseRepo, AreaAccessService areaAccess)
+            EmptyPotInventoryRepository emptyPotRepo, UserRoleRepository userRoleRepo, PolyhouseRepository polyhouseRepo, AreaAccessService areaAccess,
+            DatabaseHelper db)
         {
+            _db = db;
             _batchRepo = batchRepo;
             _cuttingStockRepo = cuttingStockRepo;
             _emptyPotRepo = emptyPotRepo;
@@ -33,6 +40,16 @@ namespace PlantStockManager.Pages.Production.PotBatch
             _polyhouseRepo = polyhouseRepo;
             _areaAccess = areaAccess;
         }
+
+        public const string SourceCutting = "Cutting";
+        public const string SourceMainOfficeSeedlings = "MainOffice";
+
+        [BindProperty(SupportsGet = true)] public string? Source { get; set; }
+        [BindProperty] public Guid SubmissionToken { get; set; }
+        public bool IsSeedlingSource => Source == SourceMainOfficeSeedlings;
+        // Main Office Seedlings: eligible batches in the user's Areas; SeedlingsReady = 2026-10-15 migration applied.
+        public List<PotBatchRepository.SeedlingSource> SeedlingSources { get; private set; } = new();
+        public bool SeedlingsReady { get; private set; }
 
         [BindProperty] public int SourceCuttingStockId { get; set; }
         [BindProperty] public decimal CuttingAllocated { get; set; }
@@ -51,6 +68,13 @@ namespace PlantStockManager.Pages.Production.PotBatch
 
         public async Task OnGetAsync(int? cuttingStockId)
         {
+            Source = Source == SourceMainOfficeSeedlings ? SourceMainOfficeSeedlings : SourceCutting;
+            SubmissionToken = Guid.NewGuid();
+            if (IsSeedlingSource)
+            {
+                await LoadSeedlingsAsync();
+                return;
+            }
             await LoadAsync();
             if (cuttingStockId.HasValue && StockPools.Any(s => s.Id == cuttingStockId))
                 SourceCuttingStockId = cuttingStockId.Value;
@@ -84,7 +108,10 @@ namespace PlantStockManager.Pages.Production.PotBatch
 
         public async Task<IActionResult> OnPostAsync()
         {
+            Source = SourceCutting;   // this form posts the Cutting source only; seedlings are started on CreateFromReadyStock
             var me = User.GetUserId();
+            if (SubmissionToken == Guid.Empty)
+                ModelState.AddModelError(string.Empty, "This form has expired. Open it again.");
             var stock = await _cuttingStockRepo.GetByIdAsync(SourceCuttingStockId);
             if (stock == null || !CanUseSource(stock))
                 ModelState.AddModelError(string.Empty, "Choose a Cutting Stock you can use.");
@@ -119,7 +146,8 @@ namespace PlantStockManager.Pages.Production.PotBatch
                 ExpectedReadyDate = ExpectedReadyDate,
                 SupervisorId = ReadyConfirmerId,
                 Remarks = Remarks,
-                CreatedBy = User.Identity?.Name ?? "System"
+                CreatedBy = User.Identity?.Name ?? "System",
+                SubmissionToken = SubmissionToken
             };
             // Area isolation: the repository re-checks the pool's own Area under the pool's lock.
             var (success, message, id) = await _batchRepo.CreateAsync(entry, me!.Value,
@@ -130,7 +158,9 @@ namespace PlantStockManager.Pages.Production.PotBatch
                 await LoadAsync();
                 return Page();
             }
-            TempData["Success"] = $"Pot batch {entry.BatchCode} started with {QuantityFormat.Qty(CuttingAllocated)} cuttings.";
+            TempData["Success"] = message == PotBatchRepository.AlreadyStartedMessage
+                ? message
+                : $"Pot batch {entry.BatchCode} started with {QuantityFormat.Qty(CuttingAllocated)} cuttings.";
             return RedirectToPage("/Production/PotBatch/Details", new { id });
         }
 
@@ -143,6 +173,14 @@ namespace PlantStockManager.Pages.Production.PotBatch
         private bool IsProductionPool(PlantStockManager.Models.EmptyPotInventory p)
             => p.IsActive && p.AreaId.HasValue && p.AreaType != DirectSowingRules.MainOfficeAreaType
                && _areaAccess.CanAccessArea(User, p.AreaId);
+
+        // Main Office Seedlings: only batches in Areas this user works in (Mother Plant work is Area-scoped).
+        private async Task LoadSeedlingsAsync()
+        {
+            SeedlingsReady = await PotBatchSchema.ReadyStockSourceAsync(_db);
+            SeedlingSources = (await _batchRepo.GetMainOfficeSeedlingSourcesAsync(null))
+                .Where(x => _areaAccess.CanAccessArea(User, x.AreaId)).ToList();
+        }
 
         private async Task LoadAsync()
         {

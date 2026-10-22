@@ -1,126 +1,166 @@
 @page
 @model PlantStockManager.Pages.Production.ReadyConfirmation.IndexModel
-@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @using PlantStockManager.Data
+@using PlantStockManager.Services
 @{
     ViewData["Title"] = "Supervisor Approval";
-    // Same rule the server enforces (FeatureAuthorizationConventions).
-    var canApprove = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyConfirmation/Confirm");
+    // 2026-10-22: the Variety / Sowing Date filters travel with the workflow pills and the tabs (history ignores them).
+    var fVariety = Model.Variety?.ToString();
+    var fDate = Model.Filter.SowingDateValue;
 }
 
 <div class="container-fluid mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h2 class="mb-0">Supervisor Approval</h2>
         <div>
+            <a asp-page="/Production/MotherPlant/SowingApprovals" class="btn btn-outline-secondary me-2">Mother Plant Area approvals</a>
             <a asp-page="/Production/ReadyAlerts/Index" class="btn btn-outline-secondary me-2">Ready Alerts</a>
             <a asp-page="/Production/SeedSowing/Index" class="btn btn-outline-secondary">Back to Direct Sowing</a>
         </div>
     </div>
 
+    @if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+
     <div class="alert alert-info">
         A batch only enters Ready Stock when a supervisor approves it here -- reaching its Expected Ready Date never
         does this automatically. Enter the Actual Ready Quantity; the rest of the sown quantity is recorded as wastage
         (with a reason) and the batch is closed. The approver does not have to be the person who sowed.
+        @if (Model.IsAdministrator)
+        {
+            <text>Administrator view: <strong>every</strong> batch waiting for approval is listed, with <strong>Who approves</strong>; the
+            history shows every user's approvals with who approved each.</text>
+        }
+        else
+        {
+            <text>Only the batches <strong>you</strong> may approve are listed, and your history shows the batches you approved.</text>
+        }
     </div>
 
-    <div class="table-responsive">
-        <table class="table table-sm table-striped table-hover">
-            <thead class="table-light">
-                <tr>
-                    <th>Batch No.</th>
-                    <th>Origin</th>
-                    <th>Variety</th>
-                    <th>Area</th>
-                    <th>Polyhouse</th>
-                    <th>Cavity</th>
-                    <th>Sowing Date</th>
-                    <th>Expected Ready Date</th>
-                    <th>Alert</th>
-                    <th>Sown Qty</th>
-                    <th>Approved Qty</th>
-                    <th>To Approve</th>
-                    <th>Supervisor</th>
-                    <th></th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach (var sw in Model.EligibleSowings)
-                {
-                    var category = SeedSowingRepository.ClassifyReadyAlert(sw.Status, sw.ExpectedReadyDate, DateTime.Today, SeedSowingRepository.DefaultReadySoonWindowDays);
-                    var badgeClass = category switch
-                    {
-                        "Overdue" => "bg-danger",
-                        "ReadyToday" => "bg-warning text-dark",
-                        "ReadySoon" => "bg-info text-dark",
-                        _ => "bg-secondary"
-                    };
-                    var badgeText = category switch
-                    {
-                        "Overdue" => "Overdue",
-                        "ReadyToday" => "Ready Today",
-                        "ReadySoon" => "Ready Soon",
-                        _ => "Not yet due"
-                    };
+    <ul class="nav nav-tabs" id="approval-tabs">
+        <li class="nav-item">
+            <a class="nav-link @(Model.ShowHistory ? "" : "active")" asp-page="/Production/ReadyConfirmation/Index" asp-route-category="@Model.Category" asp-route-variety="@fVariety" asp-route-sowingDate="@fDate" id="tab-waiting">
+                Waiting for approval <span class="badge bg-warning text-dark">@Model.Items.Count</span></a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link @(Model.ShowHistory ? "active" : "")" asp-page="/Production/ReadyConfirmation/Index" asp-route-category="@Model.Category" asp-route-tab="@PlantStockManager.Pages.Production.ReadyConfirmation.IndexModel.TabHistory" asp-route-variety="@fVariety" asp-route-sowingDate="@fDate" id="tab-history">
+                @(Model.IsAdministrator ? "Approval history (all users)" : "Approved by me") <span class="badge bg-secondary">@Model.History.Count</span></a>
+        </li>
+    </ul>
+    <div class="border border-top-0 p-2 mb-4">
+    <ul class="nav nav-pills mb-3 flex-wrap" id="approval-categories">
+        <li class="nav-item"><a class="nav-link @(Model.Category == null ? "active" : "")" asp-page="/Production/ReadyConfirmation/Index" asp-route-tab="@Model.Tab" asp-route-variety="@fVariety" asp-route-sowingDate="@fDate">All workflows</a></li>
+        @foreach (var c in SowingApprovalRules.Categories)
+        {
+            <li class="nav-item"><a class="nav-link @(Model.Category == c ? "active" : "")" asp-page="/Production/ReadyConfirmation/Index" asp-route-category="@c" asp-route-tab="@Model.Tab" asp-route-variety="@fVariety" asp-route-sowingDate="@fDate">@SowingApprovalRules.CategoryLabel(c)</a></li>
+        }
+    </ul>
+
+    @if (Model.ShowHistory)
+    {
+        <partial name="_ApprovalHistory" model='new PlantStockManager.Pages.Production.ReadyConfirmation.ApprovalHistoryView(Model.History, Model.IsAdministrator, true, "approval-history")' />
+    }
+    else
+    {
+    <partial name="_SowingListFilter" model='new SowingListFilterView("/Production/ReadyConfirmation/Index", Model.VarietyOptions, Model.Filter, Model.FilterNote,
+        new Dictionary<string, string?> { ["category"] = Model.Category }, Model.Items.Count, "approval")' />
+
+    @foreach (var group in SowingApprovalRules.Categories.Where(c => Model.Category == null || Model.Category == c))
+    {
+        var rows = Model.Items.Where(i => i.Category == group).ToList();
+        <h5 class="mt-3" data-category="@group">@SowingApprovalRules.CategoryLabel(group) <span class="badge bg-secondary">@rows.Count</span></h5>
+        @if (group == SowingApprovalRules.CategoryMotherPlantTransplant)
+        {
+            <p class="small text-muted mb-1">Also listed under Mother Plant &amp; Cutting &gt; <a asp-page="/Production/MotherPlant/SowingApprovals" asp-route-tab="pending">Sowing Approvals</a>; approved only by an Area Supervisor of the batch's own Area (or a System Administrator), @(Model.Settings.TransplantAnyDate ? "on any date" : "from its Ready Date").</p>
+        }
+        else if (group == SowingApprovalRules.CategoryMotherPlantDirectSowing)
+        {
+            <p class="small text-muted mb-1">Direct Sowings recorded in a Mother Plant Area (Mother Plant &amp; Cutting &gt; Direct Sowing). Also listed under Mother Plant &amp; Cutting &gt; <a asp-page="/Production/MotherPlant/SowingApprovals" asp-route-tab="pending">Sowing Approvals</a>; approved only by an Area Supervisor of the batch's own Area (or a System Administrator).</p>
+        }
+        else if (group == SowingApprovalRules.CategoryBedSowing)
+        {
+            <p class="small text-muted mb-1">Approved only by the designated Bed Sowing approver@(Model.Settings.BedApprover.RuleActive && Model.Settings.BedApprover.Name != null ? " (" + Model.Settings.BedApprover.Name + ")" : "").</p>
+        }
+        <div class="table-responsive">
+            <table class="table table-sm table-striped table-hover align-middle" data-table="@group">
+                <thead class="table-light">
                     <tr>
-                        <td>@sw.SowingCode</td>
-                        <td>
-                            @sw.OriginLabel
-                            @if (sw.IsTransplantSource)
-                            {
-                                <div class="small text-muted">
-                                    <a asp-page="/Production/Transplanting/Details" asp-route-id="@sw.TransplantId">@sw.TransplantCode</a>,
-                                    transplanted @(sw.TransplantDate?.ToString("dd/MM/yyyy")): @Qty(sw.QuantitySown) in @sw.NumberOfTrays trays
-                                </div>
-                            }
-                            @if (sw.IsBedSowingSource)
-                            {
-                                <div class="small text-muted">
-                                    <a asp-page="/Production/BedSowing/Details" asp-route-id="@sw.BedSowingId">@sw.BedSowingCode</a>,
-                                    transplanted @(sw.BedTransplantDate?.ToString("dd/MM/yyyy")): @Qty(sw.QuantitySown) in @sw.NumberOfTrays trays
-                                </div>
-                            }
-                        </td>
-                        <td>@sw.SpeciesName <span class="text-muted">(@sw.PlantTypeName)</span></td>
-                        <td>@sw.AreaName</td>
-                        <td>@(sw.PolyhouseName ?? "-")</td>
-                        <td>@sw.CavityType</td>
-                        <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
-                        <td>@(sw.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</td>
-                        <td><span class="badge @badgeClass">@badgeText</span></td>
-                        <td>@Qty(sw.QuantitySown)</td>
-                        <td>@Qty(sw.ConfirmedReadyQuantity)</td>
-                        <td><strong>@Qty(sw.RemainingReadyQuantity)</strong></td>
-                        <td>@(sw.SupervisorName ?? (sw.IsTransplantedBatch ? "Any approver" : "-"))</td>
-                        <td>
-                            @{
-                                var (mayApprove, authorityError) = PlantStockManager.Services.DirectSowingRules.CanApprove(
-                                    sw.SupervisorId, sw.CreatedById, sw.CreatedBy,
-                                    PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.GetUserId(User), User.Identity?.Name, sw.SourceType);
-                            }
-                            @{
-                                var (readyOk, _) = PlantStockManager.Services.BedSowingRules.ValidateApprovalReadyDate(sw.SourceType, sw.ExpectedReadyDate, PlantStockManager.Services.AppClock.Today);
-                            }
-                            @if (canApprove && mayApprove && !readyOk)
-                            {
-                                <span class="badge bg-light text-dark border" title="Tray batches from a Bed Sowing or a transplant are approved from their Ready Date">Approve from @sw.ExpectedReadyDate?.ToString("dd/MM/yyyy")</span>
-                            }
-                            else if (canApprove && mayApprove)
-                            {
-                                <a asp-page="/Production/ReadyConfirmation/Confirm" asp-route-id="@sw.Id" class="btn btn-sm btn-success">Approve</a>
-                            }
-                            else if (canApprove)
-                            {
-                                <span class="badge bg-secondary" title="@authorityError">@(sw.IsTransplantedBatch ? "You recorded this transplant" : sw.SupervisorName == null ? "No supervisor assigned" : "Assigned to " + sw.SupervisorName)</span>
-                            }
-                            <a asp-page="/Production/ReadyConfirmation/History" asp-route-id="@sw.Id" class="btn btn-sm btn-outline-secondary">History</a>
-                        </td>
+                        <th>Batch No.</th>
+                        <th>Origin</th>
+                        <th>Variety</th>
+                        <th>Area</th>
+                        <th>Polyhouse</th>
+                        <th>Cavity</th>
+                        <th>Sowing Date</th>
+                        <th>Expected Ready Date</th>
+                        <th>Alert</th>
+                        <th>Sown Qty</th>
+                        <th>Approved Qty</th>
+                        <th>To Approve</th>
+                        <th>Who approves</th>
+                        <th></th>
                     </tr>
-                }
-                @if (!Model.EligibleSowings.Any())
-                {
-                    <tr><td colspan="14" class="text-center text-muted">No growing batch is waiting for Supervisor Approval.</td></tr>
-                }
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    @foreach (var item in rows)
+                    {
+                        var sw = item.Sowing;
+                        var category = SeedSowingRepository.ClassifyReadyAlert(sw.Status, sw.ExpectedReadyDate, DateTime.Today, SeedSowingRepository.DefaultReadySoonWindowDays);
+                        var badgeClass = category switch
+                        {
+                            "Overdue" => "bg-danger",
+                            "ReadyToday" => "bg-warning text-dark",
+                            "ReadySoon" => "bg-info text-dark",
+                            _ => "bg-secondary"
+                        };
+                        var badgeText = category switch
+                        {
+                            "Overdue" => "Overdue",
+                            "ReadyToday" => "Ready Today",
+                            "ReadySoon" => "Ready Soon",
+                            _ => "Not yet due"
+                        };
+                        <tr data-sowing="@sw.Id">
+                            <td>@sw.SowingCode</td>
+                            <td>
+                                @sw.OriginLabel
+                                @if (sw.IsTransplantSource)
+                                {
+                                    <div class="small text-muted">
+                                        <a asp-page="/Production/Transplanting/Details" asp-route-id="@sw.TransplantId">@sw.TransplantCode</a>,
+                                        transplanted @(sw.TransplantDate?.ToString("dd/MM/yyyy")): @Qty(sw.QuantitySown) in @sw.NumberOfTrays trays
+                                    </div>
+                                }
+                                @if (sw.IsBedSowingSource)
+                                {
+                                    <div class="small text-muted">
+                                        <a asp-page="/Production/BedSowing/Details" asp-route-id="@sw.BedSowingId">@sw.BedSowingCode</a>,
+                                        transplanted @(sw.BedTransplantDate?.ToString("dd/MM/yyyy")): @Qty(sw.QuantitySown) in @sw.NumberOfTrays trays
+                                    </div>
+                                }
+                            </td>
+                            <td>@sw.SpeciesName <span class="text-muted">(@sw.PlantTypeName)</span></td>
+                            <td>@sw.AreaName</td>
+                            <td>@(sw.PolyhouseName ?? "-")</td>
+                            <td>@sw.CavityType</td>
+                            <td>@sw.SowingDate.ToString("dd/MM/yyyy")</td>
+                            <td>@(sw.ExpectedReadyDate?.ToString("dd/MM/yyyy") ?? "Not estimated")</td>
+                            <td><span class="badge @badgeClass">@badgeText</span></td>
+                            <td>@Qty(sw.QuantitySown)</td>
+                            <td>@Qty(sw.ConfirmedReadyQuantity)</td>
+                            <td><strong>@Qty(sw.RemainingReadyQuantity)</strong></td>
+                            <td class="small">@item.Eligibility.Approver</td>
+                            <td><partial name="_ApprovalAction" model="new PlantStockManager.Pages.Production.ReadyConfirmation.ApprovalActionView(item, null, Model.ListState.Route)" /></td>
+                        </tr>
+                    }
+                    @if (!rows.Any())
+                    {
+                        <tr><td colspan="14" class="text-center text-muted">No @SowingApprovalRules.CategoryLabel(group).ToLowerInvariant() @(Model.IsAdministrator ? "waiting for Supervisor Approval" : "waiting for your approval")@(Model.Filter.IsActive ? " match the selected Variety / Sowing Date." : ".")</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    }
     </div>
 </div>

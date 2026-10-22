@@ -15,6 +15,8 @@ namespace PlantStockManager.Data
     //            -= shortfall ('TransferLoss') in ONE balance change; a NEW batch at the
     //            destination ('TransferIn') -- UX_ReadyStock_Origin allows only one per transfer
     //   reject / cancel   InTransit -= q ('TransferHoldRelease'); nothing else moves
+    // 2026-10-14 (MotherPlantAreaSchema): sent to the Mother Plant AREA -- no Polyhouse to send, receive or
+    // transplant -- with a recorded purpose (Pot Production / Transplant into a different cavity tray).
     public class MotherPlantTransferRepository
     {
         private readonly DatabaseHelper _dbHelper;
@@ -30,8 +32,10 @@ namespace PlantStockManager.Data
             _batchNumberRepo = batchNumberRepo;
         }
 
+        // Purpose (2026-10-14): MotherPlantTransferRules.PurposePotProduction / PurposeTrayTransplant -- required, and
+        // DestinationPolyhouseId optional, once 2026-10-14_MotherPlantAreaTraysAndTransferPurpose.sql is applied.
         public record CreateRequest(int SourceReadyStockId, decimal Quantity, int? DestinationAreaId, int? DestinationPolyhouseId,
-            DateTime TransferDate, string? Remarks, Guid SubmissionToken);
+            DateTime TransferDate, string? Remarks, Guid SubmissionToken, string? Purpose = null);
 
         // canAccessArea: may the user work with stock of this Area (AreaAccessService / SeedlingAreaScope).
         public async Task<(bool Success, string? Message, int Id, bool Duplicate)> CreateAsync(CreateRequest req, Actor actor, Func<int, bool> canAccessArea)
@@ -54,6 +58,9 @@ namespace PlantStockManager.Data
                 if (src == null) { tx.Rollback(); return (false, "Source Ready Stock batch not found.", 0, false); }
                 if (!canAccessArea(src.AreaId)) { tx.Rollback(); return (false, "You are not allowed to send stock from this Area.", 0, false); }
 
+                // 2026-10-14: to the Mother Plant AREA (no Polyhouse needed) with a recorded purpose, once migrated.
+                var areaOnly = await MotherPlantAreaSchema.ReadyAsync(conn, tx);
+
                 MotherPlantTransferRules.Destination dest = new(req.DestinationAreaId, null, false, req.DestinationPolyhouseId, null);
                 if (req.DestinationAreaId.HasValue)
                 {
@@ -69,23 +76,30 @@ FROM dbo.Area a WHERE a.Id = @A", conn, tx);
 
                 var (ok, trays, error) = MotherPlantTransferRules.ValidateCreate(
                     new MotherPlantTransferRules.SourceBatch(src.OriginType, src.AreaType, src.AreaActive, src.AreaId, src.CavityType, src.Available),
-                    dest, req.Quantity, req.TransferDate, AppClock.Today, src.SowingDate);
+                    dest, req.Quantity, req.TransferDate, AppClock.Today, src.SowingDate, areaOnly, req.Purpose);
                 if (!ok) { tx.Rollback(); return (false, error, 0, false); }
+                // 2026-10-16: a posted destination Polyhouse is never stored on a transfer to the Area (one of another
+                // Area was refused above) -- the transfer, its receipt and its transplanting use the Area only.
+                if (areaOnly)
+                    req = req with { DestinationPolyhouseId = null };
 
                 var code = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "TR", req.TransferDate.Year);
+                // TransferPurpose exists only after the migration: the column is named only then.
                 var insert = new SqlCommand(@"
 INSERT INTO dbo.InternalTransfers
 (TransferCode, StockType, SourceReadyStockId, SourceAreaId, DestinationAreaId, DestinationPolyhouseId, PendingConfirmationAreaId,
- Quantity, Status, Remarks, TransferDate, SubmissionToken, CreatedDate, CreatedBy)
+ Quantity, Status, Remarks, TransferDate, SubmissionToken, CreatedDate, CreatedBy" + (areaOnly ? ", TransferPurpose" : "") + @")
 VALUES
 (@Code, N'MotherPlantTransfer', @Source, @SourceArea, @DestArea, @DestPolyhouse, @DestArea,
- @Quantity, N'PendingConfirmation', @Remarks, @Date, @Token, SYSUTCDATETIME(), @CreatedBy);
+ @Quantity, N'PendingConfirmation', @Remarks, @Date, @Token, SYSUTCDATETIME(), @CreatedBy" + (areaOnly ? ", @Purpose" : "") + @");
 SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                 insert.Parameters.AddWithValue("@Code", code);
                 insert.Parameters.AddWithValue("@Source", req.SourceReadyStockId);
                 insert.Parameters.AddWithValue("@SourceArea", src.AreaId);
                 insert.Parameters.AddWithValue("@DestArea", req.DestinationAreaId!.Value);
-                insert.Parameters.AddWithValue("@DestPolyhouse", req.DestinationPolyhouseId!.Value);
+                insert.Parameters.AddWithValue("@DestPolyhouse", (object?)req.DestinationPolyhouseId ?? DBNull.Value);
+                if (areaOnly)
+                    insert.Parameters.AddWithValue("@Purpose", req.Purpose!);
                 insert.Parameters.AddWithValue("@Quantity", req.Quantity);
                 insert.Parameters.AddWithValue("@Remarks", string.IsNullOrWhiteSpace(req.Remarks) ? DBNull.Value : req.Remarks.Trim());
                 insert.Parameters.Add("@Date", System.Data.SqlDbType.Date).Value = req.TransferDate.Date;
@@ -101,19 +115,20 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                 if (!holdOk) { tx.Rollback(); return (false, holdError, 0, false); }
 
                 tx.Commit();
-                return (true, $"Transfer {code} created: {QuantityFormat.Qty(req.Quantity)} plants ({QuantityFormat.Qty(trays)} trays) are in transit.", id, false);
+                return (true, $"Transfer {code} created: {QuantityFormat.Qty(req.Quantity)} plants ({QuantityFormat.Qty(trays)} trays) are in transit"
+                    + (areaOnly ? $" -- purpose: {MotherPlantTransferRules.PurposeLabel(req.Purpose)}." : "."), id, false);
             }
             catch (SqlException ex) when (ex.Number is 2601 or 2627)
             {
                 // Same SubmissionToken committed by a concurrent request: that one wins.
                 SafeRollback(tx);
                 var existing = await FindByTokenAsync(req.SubmissionToken);
-                return existing.HasValue ? (true, "This transfer was already saved.", existing.Value, true) : (false, ex.Message, 0, false);
+                return existing.HasValue ? (true, "This transfer was already saved.", existing.Value, true) : (false, DbErrorMessage.For(ex), 0, false);
             }
             catch (Exception ex)
             {
                 SafeRollback(tx);
-                return (false, ex.Message, 0, false);
+                return (false, DbErrorMessage.For(ex), 0, false);
             }
         }
 
@@ -214,12 +229,12 @@ WHERE Id = @Id AND Status = N'PendingConfirmation'", conn, tx);
             {
                 SafeRollback(tx);   // a concurrent receive created the batch first
                 var batch = await FindReceivedBatchAsync(transferId);
-                return batch.HasValue ? (true, "This transfer was already received.", batch) : (false, ex.Message, null);
+                return batch.HasValue ? (true, "This transfer was already received.", batch) : (false, DbErrorMessage.For(ex), null);
             }
             catch (Exception ex)
             {
                 SafeRollback(tx);
-                return (false, ex.Message, null);
+                return (false, DbErrorMessage.For(ex), null);
             }
         }
 
@@ -269,7 +284,7 @@ WHERE Id = @Id AND Status = N'PendingConfirmation'", conn, tx);
             catch (Exception ex)
             {
                 SafeRollback(tx);
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -277,13 +292,15 @@ WHERE Id = @Id AND Status = N'PendingConfirmation'", conn, tx);
 
         // receiptColumns: InternalTransfers.ReceivedDate / ReceiptDateReason exist (2026-10-11_ReadyStockReceiptDate.sql);
         // on a database without them the list still works and shows no business receipt date.
-        private static string ListSelect(bool receiptColumns) => @"
+        // purposeColumn: InternalTransfers.TransferPurpose exists (2026-10-14 migration); otherwise NULL.
+        private static string ListSelect(bool receiptColumns, bool purposeColumn) => @"
 SELECT t.Id, t.TransferCode, t.Status, t.TransferDate, t.SourceReadyStockId, t.SourceAreaId, sa.Name, sph.Name,
        t.DestinationAreaId, da.Name, t.DestinationPolyhouseId, dph.Name, ps.Name, pt.Name, rs.BatchNo, sw.SowingCode, rs.CavityType,
        t.Quantity, t.ConfirmedQuantity, t.Remarks, t.DiscrepancyReason, t.CancelReason, t.CreatedBy, t.CreatedDate,
        cu.Name, t.ConfirmedDate, xu.Name, t.CancelledDate,
        (SELECT r2.Id FROM dbo.ReadyStock r2 WHERE r2.OriginType = N'Transfer' AND r2.OriginReferenceId = t.Id),
-       " + (receiptColumns ? "t.ReceivedDate, t.ReceiptDateReason" : "CAST(NULL AS date), CAST(NULL AS nvarchar(500))") + @"
+       " + (receiptColumns ? "t.ReceivedDate, t.ReceiptDateReason" : "CAST(NULL AS date), CAST(NULL AS nvarchar(500))") + @",
+       " + (purposeColumn ? "t.TransferPurpose" : "CAST(NULL AS nvarchar(30))") + @"
 FROM dbo.InternalTransfers t
 JOIN dbo.ReadyStock rs ON rs.Id = t.SourceReadyStockId
 JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
@@ -303,6 +320,61 @@ WHERE t.StockType = N'MotherPlantTransfer'";
             return (int)(await cmd.ExecuteScalarAsync())! == 1;
         }
 
+        private static async Task<string> ListSelectAsync(SqlConnection conn)
+            => ListSelect(await ReceiptColumnsAsync(conn), await MotherPlantAreaSchema.ReadyAsync(conn));
+
+        // 2026-10-14: the purpose recorded on the Mother Plant transfer this batch came through -- the batch itself or ANY
+        // ancestor in its lineage (ParentReadyStockId), so stock received for Pot Production stays out of the tray-transplant
+        // workflow whatever later derives from it. PotProduction wins if the chain holds both. null: no Mother Plant
+        // transfer in the lineage, older transfers without a recorded purpose, or a database without the migration.
+        // Read inside the caller's transaction.
+        private const string LineagePurposeSql = @"
+WITH chain AS (
+    SELECT Id, ParentReadyStockId, OriginType, OriginReferenceId, 0 AS Depth FROM dbo.ReadyStock WHERE Id = @R
+    UNION ALL
+    SELECT p.Id, p.ParentReadyStockId, p.OriginType, p.OriginReferenceId, c.Depth + 1
+    FROM dbo.ReadyStock p JOIN chain c ON p.Id = c.ParentReadyStockId
+    WHERE c.Depth < 20)
+SELECT MAX(CASE WHEN t.TransferPurpose = N'PotProduction' THEN N'PotProduction' END),
+       MAX(t.TransferPurpose)
+FROM chain c
+JOIN dbo.InternalTransfers t ON t.Id = c.OriginReferenceId AND t.StockType = N'MotherPlantTransfer'
+WHERE c.OriginType = N'Transfer'";
+
+        public static async Task<string?> ReceivedBatchPurposeAsync(SqlConnection conn, SqlTransaction? tx, int readyStockId)
+        {
+            if (!await MotherPlantAreaSchema.ReadyAsync(conn, tx))
+                return null;
+            using var cmd = new SqlCommand(LineagePurposeSql, conn, tx);
+            cmd.Parameters.AddWithValue("@R", readyStockId);
+            using var r = await cmd.ExecuteReaderAsync();
+            if (!await r.ReadAsync())
+                return null;
+            return r.IsDBNull(0) ? (r.IsDBNull(1) ? null : r.GetString(1)) : r.GetString(0);
+        }
+
+        // Every batch that came through a Pot Production transfer -- the received batch and anything derived from it --
+        // never offered for Transplant into Trays (TransplantRepository refuses them too, under lock).
+        public async Task<HashSet<int>> PotProductionBatchIdsAsync()
+        {
+            var ids = new HashSet<int>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            if (!await MotherPlantAreaSchema.ReadyAsync(conn))
+                return ids;
+            using var cmd = new SqlCommand(@"
+WITH pot AS (
+    SELECT rs.Id, 0 AS Depth FROM dbo.ReadyStock rs
+    JOIN dbo.InternalTransfers t ON t.Id = rs.OriginReferenceId AND t.StockType = N'MotherPlantTransfer'
+    WHERE rs.OriginType = N'Transfer' AND t.TransferPurpose = N'PotProduction'
+    UNION ALL
+    SELECT c.Id, p.Depth + 1 FROM dbo.ReadyStock c JOIN pot p ON c.ParentReadyStockId = p.Id WHERE p.Depth < 20)
+SELECT DISTINCT Id FROM pot", conn);
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync()) ids.Add(r.GetInt32(0));
+            return ids;
+        }
+
         // areaIds: null = all Areas; otherwise transfers whose source OR destination is one of them.
         public async Task<List<MotherPlantTransfer>> ListAsync(IReadOnlyCollection<int>? areaIds, string? status = null, int max = 500)
         {
@@ -310,7 +382,7 @@ WHERE t.StockType = N'MotherPlantTransfer'";
             if (areaIds != null && areaIds.Count == 0) return list;
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(ListSelect(await ReceiptColumnsAsync(conn)) + @"
+            using var cmd = new SqlCommand(await ListSelectAsync(conn) + @"
   AND (@Areas IS NULL OR t.SourceAreaId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Areas, ','))
                       OR t.DestinationAreaId IN (SELECT CAST(value AS INT) FROM STRING_SPLIT(@Areas, ',')))
   AND (@Status IS NULL OR t.Status = @Status)
@@ -328,7 +400,7 @@ OFFSET 0 ROWS FETCH NEXT @Max ROWS ONLY", conn);
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(ListSelect(await ReceiptColumnsAsync(conn)) + " AND t.Id = @Id", conn);
+            using var cmd = new SqlCommand(await ListSelectAsync(conn) + " AND t.Id = @Id", conn);
             cmd.Parameters.AddWithValue("@Id", id);
             using var r = await cmd.ExecuteReaderAsync();
             return await r.ReadAsync() ? Map(r) : null;
@@ -339,7 +411,7 @@ OFFSET 0 ROWS FETCH NEXT @Max ROWS ONLY", conn);
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(ListSelect(await ReceiptColumnsAsync(conn)) + " AND t.Id = (SELECT OriginReferenceId FROM dbo.ReadyStock WHERE Id = @R AND OriginType = N'Transfer')", conn);
+            using var cmd = new SqlCommand(await ListSelectAsync(conn) + " AND t.Id = (SELECT OriginReferenceId FROM dbo.ReadyStock WHERE Id = @R AND OriginType = N'Transfer')", conn);
             cmd.Parameters.AddWithValue("@R", readyStockId);
             using var r = await cmd.ExecuteReaderAsync();
             return await r.ReadAsync() ? Map(r) : null;
@@ -349,7 +421,7 @@ OFFSET 0 ROWS FETCH NEXT @Max ROWS ONLY", conn);
         {
             Id = r.GetInt32(0), TransferCode = r.GetString(1), Status = r.GetString(2), TransferDate = r.GetDateTime(3),
             SourceReadyStockId = r.GetInt32(4), SourceAreaId = r.GetInt32(5), SourceAreaName = r.GetString(6), SourcePolyhouseName = r.IsDBNull(7) ? null : r.GetString(7),
-            DestinationAreaId = r.GetInt32(8), DestinationAreaName = r.GetString(9), DestinationPolyhouseId = r.GetInt32(10), DestinationPolyhouseName = r.IsDBNull(11) ? null : r.GetString(11),
+            DestinationAreaId = r.GetInt32(8), DestinationAreaName = r.GetString(9), DestinationPolyhouseId = r.IsDBNull(10) ? null : r.GetInt32(10), DestinationPolyhouseName = r.IsDBNull(11) ? null : r.GetString(11),
             SpeciesName = r.GetString(12).Trim(), PlantTypeName = r.GetString(13), BatchNo = r.GetString(14), SowingCode = r.GetString(15), CavityType = r.GetString(16),
             Quantity = r.GetDecimal(17), ReceivedQuantity = r.IsDBNull(18) ? null : r.GetDecimal(18),
             Remarks = r.IsDBNull(19) ? null : r.GetString(19), DiscrepancyReason = r.IsDBNull(20) ? null : r.GetString(20), CancelReason = r.IsDBNull(21) ? null : r.GetString(21),
@@ -358,6 +430,7 @@ OFFSET 0 ROWS FETCH NEXT @Max ROWS ONLY", conn);
             CancelledByName = r.IsDBNull(26) ? null : r.GetString(26), CancelledDate = r.IsDBNull(27) ? null : r.GetDateTime(27),
             ReceivedReadyStockId = r.IsDBNull(28) ? null : r.GetInt32(28),
             ReceivedDate = r.IsDBNull(29) ? null : r.GetDateTime(29), ReceiptDateReason = r.IsDBNull(30) ? null : r.GetString(30),
+            TransferPurpose = r.IsDBNull(31) ? null : r.GetString(31),
         };
 
         // ---- helpers -----------------------------------------------------------------------------------
@@ -378,7 +451,7 @@ WHERE rs.Id = @Id", conn, tx);
             return new LockedSource(r.GetString(0), r.GetInt32(1), r.IsDBNull(2) ? null : r.GetString(2), r.GetBoolean(3), r.GetString(4), r.GetDateTime(5), r.GetDecimal(6));
         }
 
-        private sealed record LockedTransfer(string TransferCode, string Status, int SourceReadyStockId, int SourceAreaId, int DestinationAreaId, int DestinationPolyhouseId, decimal Quantity, DateTime TransferDate);
+        private sealed record LockedTransfer(string TransferCode, string Status, int SourceReadyStockId, int SourceAreaId, int DestinationAreaId, int? DestinationPolyhouseId, decimal Quantity, DateTime TransferDate);
 
         private static async Task<LockedTransfer?> LockTransferAsync(SqlConnection conn, SqlTransaction tx, int transferId)
         {
@@ -389,7 +462,7 @@ WHERE Id = @Id AND StockType = N'MotherPlantTransfer'", conn, tx);
             cmd.Parameters.AddWithValue("@Id", transferId);
             using var r = await cmd.ExecuteReaderAsync();
             if (!await r.ReadAsync()) return null;
-            return new LockedTransfer(r.GetString(0), r.GetString(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4), r.GetInt32(5), r.GetDecimal(6), r.GetDateTime(7));
+            return new LockedTransfer(r.GetString(0), r.GetString(1), r.GetInt32(2), r.GetInt32(3), r.GetInt32(4), r.IsDBNull(5) ? null : r.GetInt32(5), r.GetDecimal(6), r.GetDateTime(7));
         }
 
         private async Task<int?> FindByTokenAsync(Guid token)

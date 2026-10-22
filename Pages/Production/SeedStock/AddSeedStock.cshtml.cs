@@ -17,14 +17,19 @@ namespace PlantStockManager.Pages.Production.SeedStock
     // CuttingProductionRepository.InsertAsync already composes the same two
     // kinds of calls for Cutting Stock. Create.cshtml and AddStock/{id}.cshtml
     // are untouched and remain available for their existing narrower uses.
+    // 2026-10-21: a double click / browser retry / replay of the same form is
+    // stopped by SubmissionTokenGuard (it used to credit the lot again).
     public class AddSeedStockModel : PageModel
     {
+        public const string TokenScope = "SeedStockReceive";
+
         private readonly SeedStockRepository _seedStockRepo;
         private readonly AreaRepository _areaRepo;
         private readonly PlantTypeRepository _plantTypeRepo;
         private readonly PlantSpeciesRepository _plantSpeciesRepo;
         private readonly SeedSourcesRepository _seedSourcesRepo;
         private readonly SeedlingAreaScope _areaAccessService; // seedling-only Area scope (Authorization/SeedlingAreaScope.cs)
+        private readonly SubmissionTokenGuard _tokens;
 
         public AddSeedStockModel(
             SeedStockRepository seedStockRepo,
@@ -32,7 +37,8 @@ namespace PlantStockManager.Pages.Production.SeedStock
             PlantTypeRepository plantTypeRepo,
             PlantSpeciesRepository plantSpeciesRepo,
             SeedSourcesRepository seedSourcesRepo,
-            SeedlingAreaScope areaAccessService)
+            SeedlingAreaScope areaAccessService,
+            SubmissionTokenGuard tokens)
         {
             _seedStockRepo = seedStockRepo;
             _areaRepo = areaRepo;
@@ -40,6 +46,7 @@ namespace PlantStockManager.Pages.Production.SeedStock
             _plantSpeciesRepo = plantSpeciesRepo;
             _seedSourcesRepo = seedSourcesRepo;
             _areaAccessService = areaAccessService;
+            _tokens = tokens;
         }
 
         [BindProperty] public int PlantTypeId { get; set; }
@@ -51,6 +58,7 @@ namespace PlantStockManager.Pages.Production.SeedStock
         [BindProperty] public decimal Quantity { get; set; }
         [BindProperty] public DateTime ReceivedOn { get; set; } = DateTime.Now;
         [BindProperty] public string? Notes { get; set; }
+        [BindProperty] public string? SubmitToken { get; set; }
 
         public List<PlantType> PlantTypes { get; set; } = new();
         public List<Area> Areas { get; set; } = new();
@@ -59,6 +67,7 @@ namespace PlantStockManager.Pages.Production.SeedStock
         public async Task OnGetAsync()
         {
             ReceivedOn = DateTime.Now;
+            SubmitToken = SubmissionTokenGuard.NewToken();
             await LoadDropdownsAsync();
             // A single accessible Main Office Area is pre-selected -- most
             // deployments only have one, and Area is not a field the nursery
@@ -84,13 +93,23 @@ namespace PlantStockManager.Pages.Production.SeedStock
                 ModelState.AddModelError(nameof(Quantity), "Quantity must be greater than zero.");
             else if (!PlantStockManager.Services.DirectSowingRules.IsWholeNumber(Quantity))
                 ModelState.AddModelError(nameof(Quantity), "Quantity must be a whole number.");
+            else if (Quantity > SeedStockEditRules.MaxQuantity)
+                ModelState.AddModelError(nameof(Quantity), SeedStockEditRules.MaxQuantityMessage);
             if (ReceivedOn.Date > DateTime.Today)
                 ModelState.AddModelError(nameof(ReceivedOn), "Received On cannot be in the future.");
+            else if (ReceivedOn.Date < SeedStockEditRules.EarliestDate)
+                ModelState.AddModelError(nameof(ReceivedOn), SeedStockEditRules.EarliestDateMessage);
 
             if (!ModelState.IsValid)
             {
                 await LoadDropdownsAsync();
                 return Page();
+            }
+
+            if (!_tokens.TryConsume(TokenScope, SubmitToken))
+            {
+                TempData["Error"] = "This form was already submitted. Check Seed Stock before adding the receipt again.";
+                return RedirectToPage("/Production/SeedStock/Index");
             }
 
             var userIdClaim = User.FindFirst("UserId")?.Value;
@@ -103,6 +122,9 @@ namespace PlantStockManager.Pages.Production.SeedStock
             if (!success)
             {
                 ModelState.AddModelError(string.Empty, message ?? "Failed to add Seed Stock.");
+                // The token was used up; issue a fresh one so the corrected form can be sent again.
+                ModelState.Remove(nameof(SubmitToken));
+                SubmitToken = SubmissionTokenGuard.NewToken();
                 await LoadDropdownsAsync();
                 return Page();
             }

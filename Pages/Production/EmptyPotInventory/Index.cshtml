@@ -4,8 +4,8 @@
 @{
     ViewData["Title"] = "Empty Pot Stock";
     // Purchase / Issue are the retired Main Office workflow (System Administrator only);
-    // empty pots are now added by the Mother Plant Supervisor straight to their own Area.
-    var canAddStock = await FeatureAccess.CanAccessPageAsync(User, "/Production/EmptyPotInventory/AddStock");
+    // empty pots are now added by the Mother Plant Supervisor straight to their own Area -- 2026-10-14: from the
+    // Mother Plant / Cutting sections (Add Empty Pots); this Pot Production page no longer offers the stock entry.
     var canIssue = await FeatureAccess.CanAccessPageAsync(User, "/Production/EmptyPotInventory/Issue");
     var office = Model.EmptyPotInventories.Where(e => e.AreaType == "MainOffice").ToList();
     var areas = Model.EmptyPotInventories.Where(e => e.AreaType != "MainOffice").ToList();
@@ -14,12 +14,7 @@
 <div class="container-fluid mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h3 class="mb-0">Empty Pot Stock</h3>
-        <div class="d-flex gap-2">
-            @if (canAddStock)
-            {
-                <a asp-page="/Production/EmptyPotInventory/AddStock" class="btn btn-success">+ Add Empty Pot Stock</a>
-            }
-        </div>
+        <div class="text-muted small">Empty pots are added from Mother Plant &amp; Cutting &rarr; Add Empty Pots.</div>
     </div>
 
     @if (TempData["Success"] != null)

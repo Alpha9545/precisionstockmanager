@@ -36,13 +36,13 @@
     <ul class="small" id="downstream">
         @foreach (var t in Model.TransfersOut)
         {
-            <li>Transfer <a asp-page="/Production/MotherPlantTransfers/Index" asp-route-highlight="@t.Id">@t.TransferCode</a> &rarr; @t.DestinationAreaName / @t.DestinationPolyhouseName:
+            <li>Transfer <a asp-page="/Production/MotherPlantTransfers/Index" asp-route-highlight="@t.Id">@t.TransferCode</a> &rarr; @t.DestinationAreaName@(t.DestinationPolyhouseName != null ? " / " + t.DestinationPolyhouseName : "") (@t.PurposeLabel):
                 @Qty(t.Quantity) plants, @t.StatusLabel@if (t.ReceivedReadyStockId is int r) { <span> &rarr; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@r">batch #@r</a></span> }</li>
         }
         @foreach (var t in Model.Transplants.Where(t => t.SourceReadyStockId == b.Id))
         {
             <li>Transplanting <a asp-page="/Production/Transplanting/Details" asp-route-id="@t.Id">@t.TransplantCode</a> (@t.TransplantDate.ToString("dd/MM/yyyy"), @t.Status):
-                @Qty(t.TransplantedQuantity) into @t.TargetCavityType at @t.AreaName / @t.PolyhouseName@(t.LostQuantity > 0 ? $", {Qty(t.LostQuantity)} lost" : "")
+                @Qty(t.TransplantedQuantity) into @t.TargetCavityType at @t.AreaName / @(t.PolyhouseName ?? "Area trays")@(t.LostQuantity > 0 ? $", {Qty(t.LostQuantity)} lost" : "")
                 @if (t.OutputReadyStockId is int o) { <span> &rarr; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@o">batch #@o</a></span> }</li>
         }
     </ul>

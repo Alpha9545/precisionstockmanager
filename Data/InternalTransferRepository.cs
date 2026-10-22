@@ -284,6 +284,12 @@ ORDER BY t.CreatedDate ASC";
                     potSize = srcReader.GetString(srcReader.GetOrdinal("PotSize"));
                     var srcAreaId = srcReader.IsDBNull(srcReader.GetOrdinal("AreaId")) ? (int?)null : srcReader.GetInt32(srcReader.GetOrdinal("AreaId"));
                     srcReader.Close();
+                    if (await SentByTokenAsync(conn, tx, entry.SubmissionToken) is int sentPots)
+                    {
+                        tx.Rollback();
+                        entry.Id = sentPots;
+                        return (true, AlreadySentMessage, sentPots);
+                    }
 
                     if (srcAreaId == null)
                     {
@@ -358,6 +364,12 @@ ORDER BY t.CreatedDate ASC";
                         rsOrigin = rsReader.GetString(5);
                     }
                     entry.SourceAreaId = rsAreaId;
+                    if (await SentByTokenAsync(conn, tx, entry.SubmissionToken) is int sentTrays)
+                    {
+                        tx.Rollback();
+                        entry.Id = sentTrays;
+                        return (true, AlreadySentMessage, sentTrays);
+                    }
                     // 2026-10-09: a whole-batch move is only for a sowing batch with nothing on its way
                     // to a Mother Plant Area (a pending transfer would otherwise lose its source).
                     if (rsInTransit > 0 || rsOrigin != PlantStockManager.Models.ReadyStock.OriginSowing)
@@ -403,6 +415,16 @@ ORDER BY t.CreatedDate ASC";
                 }
                 else if (entry.StockType == "Cutting")
                 {
+                    // 2026-10-21: the Send Cuttings form's one-time token, as the pot / tray sends above -- a repeat of the
+                    // same form returns the delivery it already created (nothing reserved twice); UX_InternalTransfers_SubmissionToken
+                    // backs this up for simultaneous submits (caught below).
+                    if (await SentByTokenAsync(conn, tx, entry.SubmissionToken) is int sentCuttings)
+                    {
+                        tx.Rollback();
+                        entry.Id = sentCuttings;
+                        return (true, AlreadySentMessage, sentCuttings);
+                    }
+
                     // The reservation + pending header live in CreateCuttingDeliveryAsync
                     // (shared with the Cutting Entry, which needs them inside ITS transaction).
                     var delivery = await CreateCuttingDeliveryAsync(conn, tx, entry, userId);
@@ -429,11 +451,34 @@ ORDER BY t.CreatedDate ASC";
                     return (false, "Stock Type must be 'EmptyPot', 'PottedPlant' or 'Cutting'.", 0);
                 }
             }
+            catch (SqlException ex) when (ex.Number is 2601 or 2627 && entry.SubmissionToken.HasValue)
+            {
+                try { tx.Rollback(); } catch { }
+                // two submits of the same form at once: the unique token index let only the first one in
+                using var conn2 = _dbHelper.GetConnection();
+                await conn2.OpenAsync();
+                using var find = new SqlCommand("SELECT Id FROM dbo.InternalTransfers WHERE SubmissionToken = @T", conn2);
+                find.Parameters.AddWithValue("@T", entry.SubmissionToken.Value);
+                return await find.ExecuteScalarAsync() is int first ? (true, AlreadySentMessage, first) : (false, DbErrorMessage.For(ex), 0);
+            }
             catch (Exception ex)
             {
                 tx.Rollback();
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
+        }
+
+        public const string AlreadySentMessage = "This form was already saved -- the stock was sent once; nothing was sent twice.";
+
+        // 2026-10-17: the transfer an earlier submit of the same send form created (call AFTER the source row is locked, so two
+        // submits of one form run one after the other and the second finds the first).
+        private static async Task<int?> SentByTokenAsync(SqlConnection conn, SqlTransaction tx, Guid? token)
+        {
+            if (token is not Guid t || t == Guid.Empty)
+                return null;
+            using var cmd = new SqlCommand("SELECT Id FROM dbo.InternalTransfers WITH (UPDLOCK, HOLDLOCK) WHERE SubmissionToken = @T", conn, tx);
+            cmd.Parameters.AddWithValue("@T", t);
+            return await cmd.ExecuteScalarAsync() as int?;
         }
 
         // A Cutting delivery to Main Office, created INSIDE the caller's open transaction
@@ -481,13 +526,14 @@ ORDER BY t.CreatedDate ASC";
             // SourceCuttingProductionId is written only for a delivery created by a Cutting
             // Entry, so every other transfer uses exactly the columns it always did.
             var withProduction = entry.SourceCuttingProductionId.HasValue;
+            var withToken = entry.SubmissionToken.HasValue;   // 2026-10-17: Ready Stock / Potted Plant sends
             var insertSql = $@"
 INSERT INTO dbo.InternalTransfers
 (TransferCode, StockType, SourceEmptyPotInventoryId, SourcePottedPlantStockId, SourceCuttingStockId, SourceReadyStockId, SourceAreaId,
- DestinationAreaId, PendingConfirmationAreaId, Quantity, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy{(withProduction ? ", SourceCuttingProductionId" : "")})
+ DestinationAreaId, PendingConfirmationAreaId, Quantity, Status, ResponsiblePersonId, SupervisorId, Remarks, CreatedDate, CreatedBy{(withProduction ? ", SourceCuttingProductionId" : "")}{(withToken ? ", SubmissionToken" : "")})
 VALUES
 (@TransferCode, @StockType, @SourceEmptyPotInventoryId, @SourcePottedPlantStockId, @SourceCuttingStockId, @SourceReadyStockId, @SourceAreaId,
- @DestinationAreaId, @PendingConfirmationAreaId, @Quantity, @Status, @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy{(withProduction ? ", @SourceCuttingProductionId" : "")});
+ @DestinationAreaId, @PendingConfirmationAreaId, @Quantity, @Status, @ResponsiblePersonId, @SupervisorId, @Remarks, SYSUTCDATETIME(), @CreatedBy{(withProduction ? ", @SourceCuttingProductionId" : "")}{(withToken ? ", @SubmissionToken" : "")});
 SELECT CAST(SCOPE_IDENTITY() AS INT);";
 
             using var cmd = new SqlCommand(insertSql, conn, tx);
@@ -508,6 +554,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             cmd.Parameters.AddWithValue("@CreatedBy", (object?)entry.CreatedBy ?? DBNull.Value);
             if (withProduction)
                 cmd.Parameters.AddWithValue("@SourceCuttingProductionId", entry.SourceCuttingProductionId!.Value);
+            if (withToken)
+                cmd.Parameters.AddWithValue("@SubmissionToken", entry.SubmissionToken!.Value);
 
             var newId = (int)await cmd.ExecuteScalarAsync();
             entry.Id = newId;
@@ -659,7 +707,7 @@ WHERE Id = @Id", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, null);
+                return (false, DbErrorMessage.For(ex), null);
             }
         }
 
@@ -760,7 +808,7 @@ WHERE Id = @Id AND Status = 'PendingConfirmation'", conn, tx);
             catch (Exception ex)
             {
                 tx.Rollback();
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -796,7 +844,7 @@ WHERE Id = @Id AND Status <> 'Cancelled' AND StockType <> N'MotherPlantTransfer'
             }
             catch (Exception ex)
             {
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -1052,7 +1100,7 @@ WHERE Id = @Id AND Status <> 'Cancelled' AND StockType <> N'MotherPlantTransfer'
             catch (Exception ex)
             {
                 tx.Rollback();
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 

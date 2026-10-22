@@ -334,12 +334,12 @@ WHERE Id = @Id", conn, tx);
             {
                 // a database stock rule (CHECK constraint) refused it: nothing was changed
                 try { tx.Rollback(); } catch { }
-                return (false, "The database refused the dispatch because it would break a stock rule. Nothing was dispatched. (" + ex.Message + ")", 0);
+                return (false, DbErrorMessage.For(ex, "The database refused the dispatch because it would break a stock rule. Nothing was dispatched."), 0);
             }
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 
@@ -351,8 +351,13 @@ WHERE Id = @Id", conn, tx);
         // the caller) may sell READY stock from any active Area they have
         // access to -- only readiness (available quantity) and the Area
         // being active are checked here.
+        // submissionToken (2026-10-17_PottedDirectSaleSubmissionToken.sql): the sale form's one-time token -- a repeated submit
+        // returns the first sale's dispatch code and sells / deducts nothing twice.
+        public const string AlreadySoldMessage = "This form was already saved -- the sale was recorded once; nothing was sold twice.";
+
         public async Task<(bool Success, string? Message, string? DispatchCode)> DirectSaleAsync(
-            int pottedPlantStockId, decimal quantity, string customerName, string? contact, string? remarks, int? userId, string? createdBy)
+            int pottedPlantStockId, decimal quantity, string customerName, string? contact, string? remarks, int? userId, string? createdBy,
+            Guid? submissionToken = null)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
@@ -379,6 +384,18 @@ WHERE s.Id = @Id", conn, tx);
                     areaId = r.IsDBNull(2) ? null : r.GetInt32(2);
                     available = r.GetDecimal(3) - r.GetDecimal(4) - r.GetDecimal(5);
                     areaActive = !r.IsDBNull(7) && r.GetBoolean(7);
+                }
+                // 2026-10-17: under the stock row lock -- a second submit of the same form finds the first sale
+                var withToken = submissionToken is Guid tk && tk != Guid.Empty && await WorkflowCorrectionsSchema.PottedSaleTokenAsync(conn, tx);
+                if (withToken)
+                {
+                    using var dup = new SqlCommand("SELECT DispatchCode FROM dbo.Dispatches WITH (UPDLOCK, HOLDLOCK) WHERE SubmissionToken = @T", conn, tx);
+                    dup.Parameters.AddWithValue("@T", submissionToken!.Value);
+                    if (await dup.ExecuteScalarAsync() is string firstCode)
+                    {
+                        tx.Rollback();
+                        return (true, AlreadySoldMessage, firstCode);
+                    }
                 }
                 var (saleOk, saleError) = PlantStockManager.Services.DispatchRules.ValidateDirectSale(
                     quantity, customerName, areaId.HasValue, areaActive, available);
@@ -415,10 +432,12 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                 var dispatchCode = await _batchNumberRepo.GetNextBatchNumberAsync(conn, tx, "DIS", today.Year);
                 var dispatchCmd = new SqlCommand(@"
 INSERT INTO dbo.Dispatches
-(DispatchCode, PottedPlantBookingId, PottedPlantStockId, SpeciesId, PotSize, AreaId, Quantity, DispatchDate, Status, Remarks, CreatedDate, CreatedBy)
+(DispatchCode, PottedPlantBookingId, PottedPlantStockId, SpeciesId, PotSize, AreaId, Quantity, DispatchDate, Status, Remarks, CreatedDate, CreatedBy" + (withToken ? ", SubmissionToken" : "") + @")
 VALUES
-(@Code, @BookingId, @StockId, @SpeciesId, @PotSize, @AreaId, @Quantity, SYSUTCDATETIME(), 'Completed', @Remarks, SYSUTCDATETIME(), @CreatedBy);
+(@Code, @BookingId, @StockId, @SpeciesId, @PotSize, @AreaId, @Quantity, SYSUTCDATETIME(), 'Completed', @Remarks, SYSUTCDATETIME(), @CreatedBy" + (withToken ? ", @Token" : "") + @");
 SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
+                if (withToken)
+                    dispatchCmd.Parameters.AddWithValue("@Token", submissionToken!.Value);
                 dispatchCmd.Parameters.AddWithValue("@Code", dispatchCode);
                 dispatchCmd.Parameters.AddWithValue("@BookingId", bookingId);
                 dispatchCmd.Parameters.AddWithValue("@StockId", pottedPlantStockId);
@@ -448,7 +467,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, null);
+                return (false, DbErrorMessage.For(ex), null);
             }
         }
 
@@ -483,7 +502,7 @@ WHERE Id = @Id AND Status = 'Completed'";
             }
             catch (Exception ex)
             {
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -621,7 +640,7 @@ WHERE Id = @Id", conn, tx);
             catch (Exception ex)
             {
                 tx.Rollback();
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 

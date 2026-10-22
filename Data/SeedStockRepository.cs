@@ -146,7 +146,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             }
             catch (Exception ex)
             {
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 
@@ -179,7 +179,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             catch (Exception ex)
             {
                 tx.Rollback();
-                return (false, ex.Message);
+                return (false, DbErrorMessage.For(ex));
             }
         }
 
@@ -283,7 +283,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
             catch (Exception ex)
             {
                 try { tx.Rollback(); } catch { }
-                return (false, ex.Message, 0);
+                return (false, DbErrorMessage.For(ex), 0);
             }
         }
 
@@ -470,26 +470,200 @@ ORDER BY t.CreatedAt DESC";
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
-                list.Add(new SeedStockTransaction
-                {
-                    Id = reader.GetInt32(reader.GetOrdinal("Id")),
-                    SeedStockId = reader.GetInt32(reader.GetOrdinal("SeedStockId")),
-                    SpeciesName = reader.GetString(reader.GetOrdinal("SpeciesName")),
-                    AreaName = reader.GetString(reader.GetOrdinal("AreaName")),
-                    TransactionDate = reader.GetDateTime(reader.GetOrdinal("TransactionDate")),
-                    TransactionType = reader.GetString(reader.GetOrdinal("TransactionType")),
-                    ReferenceType = reader.IsDBNull(reader.GetOrdinal("ReferenceType")) ? null : reader.GetString(reader.GetOrdinal("ReferenceType")),
-                    ReferenceId = reader.IsDBNull(reader.GetOrdinal("ReferenceId")) ? null : reader.GetInt32(reader.GetOrdinal("ReferenceId")),
-                    Quantity = reader.GetDecimal(reader.GetOrdinal("Quantity")),
-                    BeforeQuantity = reader.GetDecimal(reader.GetOrdinal("BeforeQuantity")),
-                    AfterQuantity = reader.GetDecimal(reader.GetOrdinal("AfterQuantity")),
-                    UserId = reader.IsDBNull(reader.GetOrdinal("UserId")) ? null : reader.GetInt32(reader.GetOrdinal("UserId")),
-                    UserName = reader.IsDBNull(reader.GetOrdinal("UserName")) ? null : reader.GetString(reader.GetOrdinal("UserName")),
-                    Remarks = reader.IsDBNull(reader.GetOrdinal("Remarks")) ? null : reader.GetString(reader.GetOrdinal("Remarks")),
-                    CreatedAt = reader.GetDateTime(reader.GetOrdinal("CreatedAt"))
-                });
+                list.Add(MapTransaction(reader));
             }
             return list;
+        }
+
+        // 2026-10-20 (administrator receipt correction, Services/SeedStockEditRules.cs): a lot's receipts that can still be
+        // edited -- its positive 'StockIn' / 'SeedStock' rows that no reversal points at -- newest business date first.
+        public async Task<List<SeedStockTransaction>> GetEditableReceiptsAsync(int seedStockId)
+        {
+            var list = new List<SeedStockTransaction>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+
+            const string sql = @"
+SELECT t.Id, t.SeedStockId, ps.Name AS SpeciesName, a.Name AS AreaName, t.TransactionDate, t.TransactionType,
+       t.ReferenceType, t.ReferenceId, t.Quantity, t.BeforeQuantity, t.AfterQuantity, t.UserId, u.Name AS UserName,
+       t.Remarks, t.CreatedAt
+FROM dbo.SeedStockTransactions t
+INNER JOIN dbo.SeedStock s ON t.SeedStockId = s.Id
+INNER JOIN dbo.PlantSpecies ps ON s.SpeciesId = ps.Id
+INNER JOIN dbo.Area a ON s.AreaId = a.Id
+LEFT JOIN dbo.IMSUsers u ON t.UserId = u.Id
+WHERE t.SeedStockId = @Id" + EditableReceiptFilter + @"
+ORDER BY t.TransactionDate DESC, t.Id DESC";
+            using var cmd = new SqlCommand(sql, conn);
+            cmd.Parameters.AddWithValue("@Id", seedStockId);
+            cmd.Parameters.AddWithValue("@Receipt", SeedStockEditRules.ReceiptReference);
+            cmd.Parameters.AddWithValue("@Reversal", SeedStockEditRules.ReversalReference);
+            using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+                list.Add(MapTransaction(reader));
+            return list;
+        }
+
+        private const string EditableReceiptFilter = @"
+  AND t.TransactionType = N'StockIn' AND t.ReferenceType = @Receipt AND t.Quantity > 0
+  AND NOT EXISTS (SELECT 1 FROM dbo.SeedStockTransactions r
+                  WHERE r.SeedStockId = t.SeedStockId AND r.ReferenceType = @Reversal AND r.ReferenceId = t.Id)";
+
+        public sealed record ReceiptEdit(int SeedStockId, int ReceiptId, decimal Quantity, DateTime ReceivedOnLocal, string? Notes, string Reason);
+
+        // 2026-10-20: corrects one receipt of a lot (Received On, Quantity, Notes) WITHOUT rewriting the ledger -- appends the
+        // corrected receipt and the reversal of the original in ONE transaction under the lot lock (see SeedStockEditRules).
+        // Refused, with nothing written, when the receipt is already superseded, nothing changed, or the lot could not have
+        // supplied what was already used / is reserved for a pending Seed Issue (the history never goes negative).
+        // Authorization is the page's (FeatureAuthorizationConventions: System Administrator only).
+        public async Task<(bool Success, string? Message, bool Changed, int NewReceiptId)> EditReceiptAsync(
+            ReceiptEdit edit, int? userId, string? modifiedBy)
+        {
+            var errors = SeedStockEditRules.Validate(edit.Quantity, edit.ReceivedOnLocal, edit.Notes, edit.Reason, DateTime.Today);
+            if (errors.Count > 0)
+                return (false, errors[0].Message, false, 0);
+
+            var notes = string.IsNullOrWhiteSpace(edit.Notes) ? null : edit.Notes.Trim();
+            var newDateUtc = edit.ReceivedOnLocal.Kind == DateTimeKind.Utc ? edit.ReceivedOnLocal : edit.ReceivedOnLocal.ToUniversalTime();
+
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            using var tx = conn.BeginTransaction();
+            try
+            {
+                // the lot, locked for the whole correction (every other writer takes the same lock)
+                var lockCmd = new SqlCommand(
+                    "SELECT PhysicalQuantity, InTransitQuantity FROM dbo.SeedStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
+                lockCmd.Parameters.AddWithValue("@Id", edit.SeedStockId);
+                decimal physical, inTransit;
+                using (var r = await lockCmd.ExecuteReaderAsync())
+                {
+                    if (!await r.ReadAsync())
+                    {
+                        r.Close();
+                        tx.Rollback();
+                        return (false, "Seed Stock record not found.", false, 0);
+                    }
+                    (physical, inTransit) = (r.GetDecimal(0), r.GetDecimal(1));
+                }
+
+                // the receipt: still an editable receipt OF THIS LOT (re-read under the lock -- never from the form)
+                var receiptCmd = new SqlCommand(@"
+SELECT t.Quantity, t.TransactionDate, t.Remarks FROM dbo.SeedStockTransactions t
+WHERE t.Id = @Receipt_Id AND t.SeedStockId = @Id" + EditableReceiptFilter, conn, tx);
+                receiptCmd.Parameters.AddWithValue("@Receipt_Id", edit.ReceiptId);
+                receiptCmd.Parameters.AddWithValue("@Id", edit.SeedStockId);
+                receiptCmd.Parameters.AddWithValue("@Receipt", SeedStockEditRules.ReceiptReference);
+                receiptCmd.Parameters.AddWithValue("@Reversal", SeedStockEditRules.ReversalReference);
+                decimal oldQuantity;
+                DateTime oldDateUtc;
+                string? oldNotes;
+                using (var r = await receiptCmd.ExecuteReaderAsync())
+                {
+                    if (!await r.ReadAsync())
+                    {
+                        r.Close();
+                        tx.Rollback();
+                        return (false, SeedStockEditRules.StaleMessage, false, 0);
+                    }
+                    (oldQuantity, oldDateUtc, oldNotes) = (r.GetDecimal(0), DateTime.SpecifyKind(r.GetDateTime(1), DateTimeKind.Utc), r.IsDBNull(2) ? null : r.GetString(2));
+                }
+                var oldDateLocal = oldDateUtc.ToLocalTime();
+
+                if (SeedStockEditRules.IsUnchanged(oldQuantity, oldDateLocal, oldNotes, edit.Quantity, edit.ReceivedOnLocal, notes))
+                {
+                    tx.Rollback();
+                    return (true, SeedStockEditRules.NoChangeMessage, false, edit.ReceiptId);
+                }
+
+                // seeds reserved for a pending Seed Issue must stay covered (a negative result is the "already used" case below)
+                var physicalAfter = physical - oldQuantity + edit.Quantity;
+                if (inTransit > 0 && physicalAfter >= 0 && physicalAfter < inTransit)
+                {
+                    tx.Rollback();
+                    return (false, $"{QuantityFormat.Qty(inTransit)} seeds of this lot are reserved for a pending Seed Issue; the corrected receipt would leave only "
+                        + $"{QuantityFormat.Qty(physicalAfter)} in the lot.", false, 0);
+                }
+
+                // 1. the corrected receipt (an ordinary receipt on the new date)
+                var (inOk, inMessage) = await RecordTransactionAsync(conn, tx, edit.SeedStockId, edit.Quantity, "StockIn",
+                    SeedStockEditRules.ReceiptReference, edit.SeedStockId, userId, notes, newDateUtc);
+                if (!inOk)
+                {
+                    tx.Rollback();
+                    return (false, inMessage, false, 0);
+                }
+                // the row just written (the lot is locked, so no other writer can add one to it meanwhile)
+                var newIdCmd = new SqlCommand("SELECT MAX(Id) FROM dbo.SeedStockTransactions WHERE SeedStockId = @Id", conn, tx);
+                newIdCmd.Parameters.AddWithValue("@Id", edit.SeedStockId);
+                var newReceiptId = (int)(await newIdCmd.ExecuteScalarAsync())!;
+
+                // 2. the original must be removable on ITS date, counting every later movement (incl. the corrected receipt):
+                //    otherwise seeds already used after that date would have come from nowhere.
+                var availableThen = await AvailableFromAsync(conn, tx, edit.SeedStockId, oldDateUtc);
+                if (oldQuantity > availableThen)
+                {
+                    tx.Rollback();
+                    return (false, $"Seeds from this receipt were already used: from {oldDateLocal:dd/MM/yyyy} onward the lot would be short by "
+                        + $"{QuantityFormat.Qty(oldQuantity - Math.Max(availableThen, 0))} with the corrected receipt "
+                        + $"({QuantityFormat.Qty(edit.Quantity)} on {edit.ReceivedOnLocal:dd/MM/yyyy}). Use a larger quantity or an earlier date.", false, 0);
+                }
+
+                var audit = SeedStockEditRules.AuditRemarks(edit.ReceiptId, oldQuantity, oldDateLocal, edit.Quantity, edit.ReceivedOnLocal, edit.Reason);
+                var (outOk, outMessage) = await RecordTransactionAsync(conn, tx, edit.SeedStockId, -oldQuantity, "StockIn",
+                    SeedStockEditRules.ReversalReference, edit.ReceiptId, userId, audit, oldDateUtc);
+                if (!outOk)
+                {
+                    tx.Rollback();
+                    return (false, outMessage, false, 0);
+                }
+                // RecordTransactionAsync sends the date as SQL datetime (~3 ms), but an original receipt may carry full
+                // datetime2 precision (data-entry scripts): give the reversal EXACTLY the original's instant, so it can
+                // never sort before the receipt it reverses (a false dip in AvailableFromAsync's running balance).
+                var alignCmd = new SqlCommand(@"
+UPDATE r SET r.TransactionDate = o.TransactionDate
+FROM dbo.SeedStockTransactions r JOIN dbo.SeedStockTransactions o ON o.Id = @Receipt_Id
+WHERE r.Id = (SELECT MAX(Id) FROM dbo.SeedStockTransactions WHERE SeedStockId = @Id AND ReferenceType = @Reversal AND ReferenceId = @Receipt_Id)", conn, tx);
+                alignCmd.Parameters.AddWithValue("@Receipt_Id", edit.ReceiptId);
+                alignCmd.Parameters.AddWithValue("@Id", edit.SeedStockId);
+                alignCmd.Parameters.AddWithValue("@Reversal", SeedStockEditRules.ReversalReference);
+                await alignCmd.ExecuteNonQueryAsync();
+
+                var touch = new SqlCommand("UPDATE dbo.SeedStock SET ModifiedDate = SYSUTCDATETIME(), ModifiedBy = @By WHERE Id = @Id", conn, tx);
+                touch.Parameters.AddWithValue("@By", (object?)modifiedBy ?? DBNull.Value);
+                touch.Parameters.AddWithValue("@Id", edit.SeedStockId);
+                await touch.ExecuteNonQueryAsync();
+
+                tx.Commit();
+                return (true, null, true, newReceiptId);
+            }
+            catch (Exception ex)
+            {
+                try { tx.Rollback(); } catch { }
+                return (false, DbErrorMessage.For(ex), false, 0);
+            }
+        }
+
+        private static SeedStockTransaction MapTransaction(SqlDataReader reader)
+        {
+            return new SeedStockTransaction
+            {
+                Id = reader.GetInt32(reader.GetOrdinal("Id")),
+                SeedStockId = reader.GetInt32(reader.GetOrdinal("SeedStockId")),
+                SpeciesName = reader.GetString(reader.GetOrdinal("SpeciesName")),
+                AreaName = reader.GetString(reader.GetOrdinal("AreaName")),
+                TransactionDate = reader.GetDateTime(reader.GetOrdinal("TransactionDate")),
+                TransactionType = reader.GetString(reader.GetOrdinal("TransactionType")),
+                ReferenceType = reader.IsDBNull(reader.GetOrdinal("ReferenceType")) ? null : reader.GetString(reader.GetOrdinal("ReferenceType")),
+                ReferenceId = reader.IsDBNull(reader.GetOrdinal("ReferenceId")) ? null : reader.GetInt32(reader.GetOrdinal("ReferenceId")),
+                Quantity = reader.GetDecimal(reader.GetOrdinal("Quantity")),
+                BeforeQuantity = reader.GetDecimal(reader.GetOrdinal("BeforeQuantity")),
+                AfterQuantity = reader.GetDecimal(reader.GetOrdinal("AfterQuantity")),
+                UserId = reader.IsDBNull(reader.GetOrdinal("UserId")) ? null : reader.GetInt32(reader.GetOrdinal("UserId")),
+                UserName = reader.IsDBNull(reader.GetOrdinal("UserName")) ? null : reader.GetString(reader.GetOrdinal("UserName")),
+                Remarks = reader.IsDBNull(reader.GetOrdinal("Remarks")) ? null : reader.GetString(reader.GetOrdinal("Remarks")),
+                CreatedAt = reader.GetDateTime(reader.GetOrdinal("CreatedAt"))
+            };
         }
 
         private static SeedStock Map(SqlDataReader reader)
