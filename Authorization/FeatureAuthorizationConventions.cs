@@ -181,6 +181,9 @@ namespace PlantStockManager.Authorization
                 // Area rules are checked again on every POST and inside the repositories.
                 ["/Production/MaterialStock/TrayAdjust"] = R(MaterialStockAccess.TrayAdjust),
                 ["/Production/MaterialStock/TrayTransfers"] = R(MaterialStockAccess.TrayTransfersAny),
+                // 2026-10-23: Cocopeat / Pitmos transfers (2026-10-25_MaterialStockTransfers.sql). History for either
+                // permission; every POST needs MaterialStock.Transfer, and the source Area is checked again on save.
+                ["/Production/MaterialStock/Transfers"] = R(MaterialStockAccess.MaterialTransfersAny, MaterialStockAccess.MaterialTransfer),
 
                 // ---- Pot production (Phase D) ------------------------------
                 ["/Production/PotBatch/Index"] = R("PotProduction.View|MotherPlant.View|Kiran.View"),
@@ -246,7 +249,9 @@ namespace PlantStockManager.Authorization
                 // Daily Labour Count: headcounts only; Area scope via AreaAccessService.
                 // Since 2026-10-06 entered as 9:00 AM / 2:00 PM attendance; the manual
                 // Full/Half Day pages remain for the older records (correction: full access only, in the page).
-                ["/Production/Labour/Attendance"] = R("Labour.Enter"),
+                // 2026-10-23: + Labour.Attendance -- daily attendance ONLY, in the user's own Areas (Outlet Sales,
+                // 2026-10-26_LabourAttendanceOutlet.sql); it opens no overtime or labour-count page.
+                ["/Production/Labour/Attendance"] = R("Labour.Enter|Labour.Attendance"),
                 // 2026-10-20: Attendance History and Overtime History are REPORTS (menu: Reports) for the System
                 // Administrator ONLY -- page, filters and exports alike. Recording is unchanged (Labour.Enter), and
                 // OvertimeDetails stays Labour.View: saving / correcting an overtime entry lands there.

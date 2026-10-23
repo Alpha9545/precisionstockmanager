@@ -87,7 +87,7 @@ namespace PlantStockManager.Pages.Production.MaterialStock
 
             if (CanSeeMaterials)
             {
-                locations.AddRange(await _repo.GetLocationsAsync(a => _areaAccess.CanAccessRequiredArea(User, a)));
+                locations.AddRange(await _repo.GetLocationsAsync(a => _areaAccess.CanAccessRequiredArea(User, a), withHeldStock: true));
                 if (ShowMaterials)
                 {
                     var (materialRows, _) = await _repo.GetTransactionsAsync(new MaterialTransactionFilter
@@ -169,7 +169,7 @@ namespace PlantStockManager.Pages.Production.MaterialStock
             {
                 IsTray = false, AtUtc = t.TransactionDate, RecordedUtc = t.CreatedAt, MaterialName = t.MaterialName, Unit = unit,
                 AreaId = t.AreaId, AreaName = t.AreaName, PolyhouseId = t.PolyhouseId, PolyhouseName = t.PolyhouseName,
-                Category = t.TransactionType,
+                Category = MaterialStockRules.MaterialCategory(t.TransactionType),
                 TypeLabel = t.IsApprovalOverage
                     ? (t.TransactionType == MaterialStockRules.Consume ? "Used (extra trays at approval)" : "Returned (approval cancelled)")
                     : MaterialStockRules.TypeLabel(t.TransactionType),
@@ -177,7 +177,8 @@ namespace PlantStockManager.Pages.Production.MaterialStock
                 Detail = t.InputQuantity.HasValue ? $"{MaterialStockRules.Kg(t.InputQuantity.Value, t.Unit)} entered x {t.ConversionFactor:0.####}"
                        : t.Trays.HasValue ? $"{t.Trays} trays x {MaterialStockRules.Kg(t.QuantityPerTray ?? 0, t.Unit)}"
                        : null,
-                ReferenceText = sowingId.HasValue ? $"Sowing {t.SowingCode ?? sowingId.ToString()}" + (t.IsApprovalOverage ? " (approval)" : "") : null,
+                ReferenceText = sowingId.HasValue ? $"Sowing {t.SowingCode ?? sowingId.ToString()}" + (t.IsApprovalOverage ? " (approval)" : "")
+                    : t.ReferenceType == MaterialTransferRules.ReferenceType ? $"Transfer #{t.ReferenceId}" : null,
                 SowingId = sowingId,
                 UserName = t.CreatedByName, Remarks = t.Remarks,
             };

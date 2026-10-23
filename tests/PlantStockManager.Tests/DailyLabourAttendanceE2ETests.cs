@@ -302,6 +302,8 @@ namespace PlantStockManager.Tests
         public async Task LocationRule_PolyhouseRequiredForMainOffice_RejectedElsewhere_OutletExcluded()
         {
             var env = await OpenAsync();
+            // 2026-10-23: with 2026-10-26_LabourAttendanceOutlet.sql Outlet takes attendance (OutletAttendance_* below)
+            var outletAllowed = await env.ScalarAsync<int>(LabourAttendanceOutletSchema.ProbeSql) == 1;
             try
             {
                 var (r, page) = await PostAsync(env, SowingSup, D1, MainOffice, null, 1, 1, 1, 1);
@@ -311,8 +313,11 @@ namespace PlantStockManager.Tests
                 Assert.Contains(DailyLabourRules.PolyhouseNotAllowedMessage, Errors(page));
                 (r, page) = await PostAsync(env, SowingSup, D1, MainOffice, GreenBlessP1, 1, 1, 1, 1);
                 Assert.Contains(DailyLabourRules.PolyhouseNotInAreaMessage, Errors(page));
-                (r, page) = await PostAsync(env, Admin, D1, Outlet, null, 1, 1, 1, 1);
-                Assert.Contains(DailyLabourRules.OutletNotAllowedMessage, Errors(page));
+                if (!outletAllowed)
+                {
+                    (r, page) = await PostAsync(env, Admin, D1, Outlet, null, 1, 1, 1, 1);
+                    Assert.Contains(DailyLabourRules.OutletNotAllowedMessage, Errors(page));
+                }
                 (r, page) = await PostAsync(env, Admin, D1, 999999, null, 1, 1, 1, 1);
                 Assert.IsType<PageResult>(r);
                 (r, page) = await PostAsync(env, SowingSup, D1, MainOffice, 999999, 1, 1, 1, 1);
@@ -321,16 +326,19 @@ namespace PlantStockManager.Tests
 
                 // Dropdowns: Outlet never offered; Polyhouses only for a Main Office Area.
                 var get = await GetAsync(env, Admin, D1, null, null);
-                Assert.DoesNotContain(get.Areas, a => a.AreaType == OutletRules.AreaType);
+                Assert.Equal(outletAllowed, get.Areas.Any(a => a.AreaType == OutletRules.AreaType));
                 Assert.Contains(get.Areas, a => a.Id == MainOffice);
                 var ids = ((IEnumerable<object>)(await get.OnGetPolyhousesAsync(MainOffice)).Value!).Select(o => (int)o.GetType().GetProperty("id")!.GetValue(o)!).ToList();
                 Assert.Contains(Facility5, ids);
                 Assert.Empty((IEnumerable<object>)(await get.OnGetPolyhousesAsync(GreenBless)).Value!);
 
                 // The trigger is the final guard, whatever the caller.
-                var ex = await Assert.ThrowsAsync<SqlException>(() => env.Repo.SaveAsync(D1, Outlet, null, new[] { new DailyLabourAttendanceInput(Morning, 1, 1, null) }, Admin));
-                Assert.Equal(51714, ex.Number);
-                ex = await Assert.ThrowsAsync<SqlException>(() => env.Repo.SaveAsync(D1, MainOffice, null, new[] { new DailyLabourAttendanceInput(Morning, 1, 1, null) }, Admin));
+                if (!outletAllowed)
+                {
+                    var outletEx = await Assert.ThrowsAsync<SqlException>(() => env.Repo.SaveAsync(D1, Outlet, null, new[] { new DailyLabourAttendanceInput(Morning, 1, 1, null) }, Admin));
+                    Assert.Equal(51714, outletEx.Number);
+                }
+                var ex = await Assert.ThrowsAsync<SqlException>(() => env.Repo.SaveAsync(D1, MainOffice, null, new[] { new DailyLabourAttendanceInput(Morning, 1, 1, null) }, Admin));
                 Assert.Equal(51711, ex.Number);
             }
             finally { await env.CleanupAsync(); }
@@ -381,6 +389,59 @@ namespace PlantStockManager.Tests
                     Assert.False(p.HasPermission("Labour.View"));
                 }
                 Assert.True((await env.LoginAsync(Admin)).IsFullAccess());
+            }
+            finally { await env.CleanupAsync(); }
+        }
+
+        // ---- Outlet attendance (2026-10-26_LabourAttendanceOutlet.sql) --------------------------------
+
+        [SkippableFact]
+        public async Task OutletAttendance_OutletSalesRecordTheirOwnOutlet_AreaWise_AttendanceOnly()
+        {
+            var env = await OpenAsync();
+            Skip.If(await env.ScalarAsync<int>(LabourAttendanceOutletSchema.ProbeSql) == 0, "2026-10-26_LabourAttendanceOutlet.sql is not applied to this scratch copy.");
+            try
+            {
+                // the permission: attendance only -- not overtime, labour counts or any history page
+                var outletUser = await env.LoginAsync(OutletSales);
+                Assert.True(outletUser.HasPermission("Labour.Attendance"));
+                Assert.True(outletUser.HasPermission(FeatureAuthorizationConventions.Rules["/Production/Labour/Attendance"].Read));
+                foreach (var other in new[] { "/Production/Labour/Overtime", "/Production/Labour/MyOvertime", "/Production/Labour/Entry", "/Production/Labour/Index", "/Production/Labour/OvertimeDetails" })
+                    Assert.False(outletUser.HasPermission(FeatureAuthorizationConventions.Rules[other].Read), other);
+                Assert.False(outletUser.HasPermission("Labour.Enter"));
+
+                // the page offers exactly their own Outlet, Area-wise (no Polyhouse)
+                var get = await GetAsync(env, OutletSales, D1, null, null);
+                Assert.Equal(new[] { Outlet }, get.Areas.Select(a => a.Id));
+                Assert.Empty((IEnumerable<object>)(await get.OnGetPolyhousesAsync(Outlet)).Value!);
+
+                // saving: both times, audited like every other Area
+                var (r, page) = await PostAsync(env, OutletSales, D1, Outlet, null, 3, 2, 3, 1);
+                Assert.IsType<RedirectToPageResult>(r);
+                Assert.Equal(2, await env.RowsAsync(D1, Outlet, null));
+                Assert.Equal(2, await env.HistoryRowsAsync(D1, Outlet, "Created"));
+
+                // a Polyhouse is refused (Area-wise), another Area is refused (their Area only), and the database repeats it
+                var outletPolyhouse = await env.ScalarAsync<int>("SELECT MIN(Id) FROM dbo.Polyhouses WHERE AreaId = @A", ("@A", Outlet));
+                if (outletPolyhouse > 0)
+                {
+                    (r, page) = await PostAsync(env, OutletSales, D2, Outlet, outletPolyhouse, 1, 1, 1, 1);
+                    Assert.Contains(DailyLabourRules.PolyhouseNotAllowedMessage, Errors(page));
+                    var ex = await Assert.ThrowsAsync<SqlException>(() => env.Repo.SaveAsync(D2, Outlet, outletPolyhouse, new[] { new DailyLabourAttendanceInput(Morning, 1, 1, null) }, Admin));
+                    Assert.Equal(51712, ex.Number);
+                }
+                (r, page) = await PostAsync(env, OutletSales, D2, MainOffice, Facility5, 1, 1, 1, 1);
+                Assert.Contains(DailyLabourRules.NotAuthorizedMessage, Errors(page));
+                Assert.Equal(0, await env.ScalarAsync<int>("SELECT COUNT(*) FROM dbo.DailyLabourAttendance WHERE LabourDate = @D", ("@D", D2)));
+
+                // the administrator's Attendance History lists the Outlet day
+                var history = await HistoryAsync(env, Admin, D1, D1, Outlet);
+                Assert.Equal(Outlet, history.AreaId);
+                Assert.Single(history.Days);
+                Assert.Contains(history.AreaOptions, a => a.Id == Outlet);
+
+                // labour counts and overtime still exclude Outlet in the database
+                Assert.Equal(1, await env.ScalarAsync<int>("SELECT CASE WHEN OBJECT_DEFINITION(OBJECT_ID('dbo.TR_DailyLabourCounts_Location')) LIKE N'%51714%' AND OBJECT_DEFINITION(OBJECT_ID('dbo.TR_LabourOvertime_Location')) LIKE N'%51714%' THEN 1 ELSE 0 END"));
             }
             finally { await env.CleanupAsync(); }
         }

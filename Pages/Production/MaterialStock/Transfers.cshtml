@@ -1,0 +1,240 @@
+@page
+@model PlantStockManager.Pages.Production.MaterialStock.TransfersModel
+@using PlantStockManager.Services
+@inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
+@{
+    ViewData["Title"] = "Material Transfers";
+    var canHistory = await FeatureAccess.CanAccessPageAsync(User, "/Production/MaterialStock/History");
+    var sourceAreas = Model.SourceLocations.Select(l => (l.AreaId, l.AreaName)).Distinct().ToList();
+    var destinationAreas = Model.DestinationLocations.Select(l => (l.AreaId, l.AreaName)).Distinct().ToList();
+}
+
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h4 class="mb-0">Material Transfers <small class="text-muted fs-6">Cocopeat and Pitmos</small></h4>
+        <div class="d-flex gap-2 flex-wrap">
+            @if (canHistory) { <a asp-page="/Production/MaterialStock/History" asp-route-Type="@MaterialStockRules.Transfer" class="btn btn-sm btn-outline-secondary">Material History</a> }
+            <a asp-page="/Production/MaterialStock/Index" class="btn btn-sm btn-outline-secondary">Back to Material Stock</a>
+        </div>
+    </div>
+    @if (TempData["Success"] != null) { <div class="alert alert-success" role="status" id="transferSuccess">@TempData["Success"]</div> }
+    @if (TempData["Error"] != null) { <div class="alert alert-danger" role="alert">@TempData["Error"]</div> }
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div asp-validation-summary="All" class="alert alert-danger" role="alert"></div>
+    }
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning" role="alert">@PlantStockManager.Data.MaterialTransferSchema.MigrationMessage</div>
+        return;
+    }
+    <p class="text-muted small">
+        A transfer moves the material at once: the source Polyhouse loses it and the destination gains it in the same step.
+        Quantities are in the material's stock unit (<strong>kg</strong>, as shown on Material Stock &mdash; no conversion
+        factor is applied). Material is used only by Main Office sowings; stock sent to a Mother Plant Polyhouse is held there
+        until it is transferred again. A wrong transfer is corrected by transferring the material back.
+    </p>
+
+    @if (Model.CanTransfer)
+    {
+        <div class="card shadow-sm mb-4">
+            <div class="card-header"><h5 class="mb-0">Transfer material</h5></div>
+            <div class="card-body">
+                @if (!Model.SourceLocations.Any())
+                {
+                    <div class="alert alert-warning mb-0">You may not transfer material from any Area. Ask an administrator to assign your Area.</div>
+                }
+                else
+                {
+                    <form method="post" asp-page-handler="Send" id="transferForm">
+                        <input type="hidden" asp-for="Input.SubmissionToken" />
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold" for="mtMaterial">Material</label>
+                                <select asp-for="Input.MaterialTypeId" id="mtMaterial" class="form-select" required>
+                                    <option value="">-- Select material --</option>
+                                    @foreach (var m in Model.Materials)
+                                    {
+                                        <option value="@m.Id" data-unit="@m.Unit.ToLowerInvariant()" selected="@(Model.Input.MaterialTypeId == m.Id)">@m.Name</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold" for="mtQuantity">Quantity (kg)</label>
+                                <input type="number" step="0.001" min="0.001" asp-for="Input.Quantity" id="mtQuantity" class="form-control" required />
+                                <div class="form-text" id="mtAvailable" aria-live="polite"></div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label fw-bold" for="mtDate">Date</label>
+                                <input type="date" asp-for="Input.TransferDate" id="mtDate" asp-format="{0:yyyy-MM-dd}" max="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" required />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="srcArea">From Area</label>
+                                <select asp-for="Input.SourceAreaId" id="srcArea" class="form-select" required>
+                                    <option value="">-- Select Area --</option>
+                                    @foreach (var a in sourceAreas)
+                                    {
+                                        <option value="@a.AreaId" selected="@(Model.Input.SourceAreaId == a.AreaId)">@a.AreaName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="srcPolyhouse">From Polyhouse</label>
+                                <select asp-for="Input.SourcePolyhouseId" id="srcPolyhouse" class="form-select" required>
+                                    <option value="">-- Select Polyhouse --</option>
+                                    @foreach (var p in Model.SourceLocations)
+                                    {
+                                        <option value="@p.PolyhouseId" data-area="@p.AreaId" selected="@(Model.Input.SourcePolyhouseId == p.PolyhouseId)">@p.PolyhouseName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="dstArea">To Area</label>
+                                <select asp-for="Input.DestinationAreaId" id="dstArea" class="form-select" required>
+                                    <option value="">-- Select Area --</option>
+                                    @foreach (var a in destinationAreas)
+                                    {
+                                        <option value="@a.AreaId" selected="@(Model.Input.DestinationAreaId == a.AreaId)">@a.AreaName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold" for="dstPolyhouse">To Polyhouse</label>
+                                <select asp-for="Input.DestinationPolyhouseId" id="dstPolyhouse" class="form-select" required>
+                                    <option value="">-- Select Polyhouse --</option>
+                                    @foreach (var p in Model.DestinationLocations)
+                                    {
+                                        <option value="@p.PolyhouseId" data-area="@p.AreaId" selected="@(Model.Input.DestinationPolyhouseId == p.PolyhouseId)">@p.PolyhouseName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="mtRemarks">Remark <span class="text-muted">(optional)</span></label>
+                                <textarea asp-for="Input.Remarks" id="mtRemarks" class="form-control" rows="2" maxlength="@MaterialTransferRules.MaxRemarksLength"></textarea>
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <button type="submit" class="btn btn-success" id="transferBtn">Transfer Material</button>
+                        </div>
+                    </form>
+                }
+            </div>
+        </div>
+    }
+
+    <h5 class="mb-2">Transfer history</h5>
+    <form method="get" class="row g-2 align-items-end mb-2" id="transferFilters">
+        <div class="col-6 col-md-3">
+            <label class="form-label small mb-0" for="fMaterial">Material</label>
+            <select name="MaterialTypeId" id="fMaterial" class="form-select form-select-sm">
+                <option value="">All</option>
+                @foreach (var m in Model.Materials) { <option value="@m.Id" selected="@(Model.MaterialTypeId == m.Id)">@m.Name</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small mb-0" for="fArea">Area (from or to)</label>
+            <select name="AreaId" id="fArea" class="form-select form-select-sm">
+                <option value="">All Areas</option>
+                @foreach (var a in Model.AreaOptions) { <option value="@a.Id" selected="@(Model.AreaId == a.Id)">@a.Name</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="fFrom">From</label>
+            <input type="date" name="FromDate" id="fFrom" value="@Model.FromDate?.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small mb-0" for="fTo">To</label>
+            <input type="date" name="ToDate" id="fTo" value="@Model.ToDate?.ToString("yyyy-MM-dd")" class="form-control form-control-sm" />
+        </div>
+        <div class="col-12 col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary">Filter</button>
+            <a asp-page="/Production/MaterialStock/Transfers" class="btn btn-sm btn-outline-secondary">Clear</a>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-sm table-striped align-middle" id="materialTransfersTable">
+            <thead>
+                <tr>
+                    <th>Transfer</th>
+                    <th>Date</th>
+                    <th>Material</th>
+                    <th class="text-end">Quantity</th>
+                    <th>From (balance after)</th>
+                    <th>To (balance after)</th>
+                    <th>Recorded</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!Model.Transfers.Any())
+                {
+                    <tr><td colspan="7" class="text-center text-muted">No material transfers@(Model.MaterialTypeId.HasValue || Model.AreaId.HasValue || Model.FromDate.HasValue || Model.ToDate.HasValue ? " match these filters" : "").</td></tr>
+                }
+                @foreach (var t in Model.Transfers)
+                {
+                    <tr>
+                        <td data-label="Transfer">
+                            <strong>@t.TransferCode</strong>
+                            @if (!string.IsNullOrEmpty(t.Remarks)) { <div class="small">@t.Remarks</div> }
+                        </td>
+                        <td data-label="Date">@t.TransferDate.ToString("dd/MM/yyyy")</td>
+                        <td data-label="Material">@t.MaterialName</td>
+                        <td data-label="Quantity" class="text-end text-nowrap">@MaterialStockRules.Kg(t.Quantity, t.Unit)</td>
+                        <td data-label="From">@t.SourceAreaName / @t.SourcePolyhouseName
+                            @if (t.SourceBalanceAfter.HasValue) { <div class="small text-muted">@MaterialStockRules.Kg(t.SourceBalanceAfter.Value, t.Unit)</div> }</td>
+                        <td data-label="To">@t.DestinationAreaName / @t.DestinationPolyhouseName
+                            @if (t.DestinationBalanceAfter.HasValue) { <div class="small text-muted">@MaterialStockRules.Kg(t.DestinationBalanceAfter.Value, t.Unit)</div> }</td>
+                        <td data-label="Recorded" class="small">@t.CreatedByName<div class="text-muted">@AppClock.ToIndiaTime(t.CreatedAt).ToString("dd/MM/yyyy HH:mm")</div></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (Model.PageCount > 1)
+    {
+        <nav aria-label="Transfer history pages">
+            <ul class="pagination pagination-sm flex-wrap">
+                @for (var i = 1; i <= Model.PageCount; i++)
+                {
+                    <li class="page-item @(i == Model.PageNo ? "active" : "")"><a class="page-link" asp-all-route-data="@Model.Route(i)">@i</a></li>
+                }
+            </ul>
+        </nav>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            const form = document.getElementById('transferForm');
+            if (form) form.addEventListener('submit', function () { document.getElementById('transferBtn').disabled = true; });
+            const balances = @Json.Serialize(Model.SourceBalances.Select(b => new { material = b.MaterialTypeId, polyhouse = b.PolyhouseId, qty = b.CurrentQuantity, unit = b.Unit.ToLowerInvariant() }));
+            function link(areaId, phId) {
+                const area = document.getElementById(areaId), ph = document.getElementById(phId);
+                if (!area || !ph) return;
+                const all = Array.from(ph.querySelectorAll('option[data-area]')).map(function (o) { return o.cloneNode(true); });
+                function filter() {
+                    const keep = ph.value;
+                    ph.querySelectorAll('option[data-area]').forEach(function (o) { o.remove(); });
+                    all.filter(function (o) { return area.value && o.dataset.area === area.value; })
+                       .forEach(function (o) { const c = o.cloneNode(true); c.selected = c.value === keep; ph.appendChild(c); });
+                    showAvailable();
+                }
+                area.addEventListener('change', filter);
+                ph.addEventListener('change', showAvailable);
+                filter();
+            }
+            function showAvailable() {
+                const ph = document.getElementById('srcPolyhouse'), material = document.getElementById('mtMaterial'), out = document.getElementById('mtAvailable');
+                if (!ph || !material || !out) return;
+                if (!ph.value || !material.value) { out.textContent = ''; return; }
+                const b = balances.find(function (x) { return String(x.polyhouse) === ph.value && String(x.material) === material.value; });
+                out.textContent = 'Available in the source Polyhouse: ' + (b ? Number(b.qty).toLocaleString(undefined, { maximumFractionDigits: 3 }) : 0) + ' kg';
+            }
+            link('srcArea', 'srcPolyhouse');
+            link('dstArea', 'dstPolyhouse');
+            const mat = document.getElementById('mtMaterial');
+            if (mat) mat.addEventListener('change', showAvailable);
+        })();
+    </script>
+}

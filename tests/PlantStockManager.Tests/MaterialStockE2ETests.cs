@@ -624,13 +624,15 @@ FROM dbo.SeedSowings WHERE Id = @Id", ("@Id", sowingId)));
         public async Task Permissions_TheSowingSupervisorRoleHoldsViewAddHistory_NobodyHoldsManage()
         {
             var env = await OpenAsync();
-            Assert.Equal("MaterialStock.Add,MaterialStock.History,MaterialStock.View", await env.ScalarAsync<string>(@"
+            // 2026-10-23: + MaterialStock.Transfer once 2026-10-25_MaterialStockTransfers.sql is applied
+            var transfers = await env.ScalarAsync<int>(MaterialTransferSchema.ProbeSql) == 1;
+            Assert.Equal("MaterialStock.Add,MaterialStock.History," + (transfers ? "MaterialStock.Transfer," : "") + "MaterialStock.View", await env.ScalarAsync<string>(@"
 SELECT STRING_AGG(p.Code, ',') WITHIN GROUP (ORDER BY p.Code)
 FROM dbo.RolePermissions rp JOIN dbo.Roles r ON r.Id = rp.RoleId JOIN dbo.Permissions p ON p.Id = rp.PermissionId
 WHERE p.Code LIKE N'MaterialStock.%' AND COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) = N'Sowing Supervisor'"));
             Assert.Equal(0, await env.ScalarAsync<int>(@"
 SELECT COUNT(*) FROM dbo.RolePermissions rp JOIN dbo.Permissions p ON p.Id = rp.PermissionId WHERE p.Code = N'MaterialStock.Manage'"));
-            Assert.Equal(3, await env.ScalarAsync<int>(@"
+            Assert.Equal(transfers ? 4 : 3, await env.ScalarAsync<int>(@"
 SELECT COUNT(*) FROM dbo.RolePermissions rp JOIN dbo.Permissions p ON p.Id = rp.PermissionId WHERE p.Code LIKE N'MaterialStock.%'"));
         }
     }

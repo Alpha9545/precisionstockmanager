@@ -151,7 +151,8 @@ namespace PlantStockManager.Tests
         [Fact]
         public void Pages_UseTheExistingLabourPermissions_AndAreInTheMenu()
         {
-            Assert.Equal("Labour.Enter", FeatureAuthorizationConventions.GetRule("/Production/Labour/Attendance").Read);
+            // 2026-10-23: + Labour.Attendance (attendance only, Outlet Sales -- 2026-10-26_LabourAttendanceOutlet.sql)
+            Assert.Equal("Labour.Enter|Labour.Attendance", FeatureAuthorizationConventions.GetRule("/Production/Labour/Attendance").Read);
             // 2026-10-20: Attendance History is a System Administrator report (menu: Reports)
             Assert.Same(FeatureAuthorizationConventions.FullAccessOnlyRule, FeatureAuthorizationConventions.GetRule("/Production/Labour/AttendanceHistory"));
             var layout = ReadSource("Pages", "Shared", "_Layout.cshtml");

@@ -16,6 +16,10 @@ namespace PlantStockManager.Authorization
         public const string MaterialAdd = "MaterialStock.Add";
         public const string MaterialHistory = "MaterialStock.History";
         public const string MaterialManage = "MaterialStock.Manage";
+        // 2026-10-23: move Cocopeat / Pitmos between Polyhouses FROM an Area the user is assigned to
+        // (2026-10-25_MaterialStockTransfers.sql; Sowing Supervisor). Transfer history: this or MaterialStock.History.
+        public const string MaterialTransfer = "MaterialStock.Transfer";
+        public const string MaterialTransfersAny = MaterialTransfer + "|" + MaterialHistory;
 
         // 2026-10-11: TrayStock.ViewMotherPlant (Mother Plant Supervisor) is READ-ONLY and only for the
         // user's own Mother Plant Areas (TrayAreaScope); it opens the tray parts of Material Stock and
@@ -44,6 +48,7 @@ namespace PlantStockManager.Authorization
         public static bool CanViewMaterials(this ClaimsPrincipal user) => user.HasPermission(MaterialView);
         public static bool CanAddMaterials(this ClaimsPrincipal user) => user.HasPermission(MaterialAdd);
         public static bool CanSeeMaterialHistory(this ClaimsPrincipal user) => user.HasPermission(MaterialHistory);
+        public static bool CanTransferMaterials(this ClaimsPrincipal user) => user.HasPermission(MaterialTransfer);
         public static bool CanViewTrays(this ClaimsPrincipal user) => user.HasPermission(TrayView);
         // May add trays SOMEWHERE; which Areas exactly is TrayAreaScope's rule.
         public static bool CanAddTrays(this ClaimsPrincipal user) => user.HasPermission(TrayAddAny);

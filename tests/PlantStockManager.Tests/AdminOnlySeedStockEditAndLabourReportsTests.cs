@@ -65,7 +65,7 @@ namespace PlantStockManager.Tests
             Assert.Equal("SeedStock.Enter", FeatureAuthorizationConventions.GetRule("/Production/SeedStock/Create").Read);
             Assert.Equal("SeedStock.Enter", FeatureAuthorizationConventions.GetRule("/Production/SeedStock/AddStock").Read);
             Assert.Equal("SeedStock.Enter", FeatureAuthorizationConventions.GetRule("/Production/SeedStock/AddSeedStock").Read);
-            Assert.Equal("Labour.Enter", FeatureAuthorizationConventions.GetRule("/Production/Labour/Attendance").Read);
+            Assert.Equal("Labour.Enter|Labour.Attendance", FeatureAuthorizationConventions.GetRule("/Production/Labour/Attendance").Read);   // 2026-10-23
             Assert.Equal("Labour.Enter", FeatureAuthorizationConventions.GetRule("/Production/Labour/Overtime").Read);
             Assert.Equal("Labour.View", FeatureAuthorizationConventions.GetRule("/Production/Labour/OvertimeDetails").Read);   // saving overtime lands here
             Assert.Equal("Labour.View", FeatureAuthorizationConventions.GetRule("/Production/Labour/Index").Read);

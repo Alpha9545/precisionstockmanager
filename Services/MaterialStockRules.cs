@@ -15,7 +15,8 @@ namespace PlantStockManager.Services
         public const string Reversal = "REVERSAL";
         public const string Adjustment = "ADJUSTMENT";
         // 2026-10-10: trays moved between Polyhouses (TransferOut / TransferIn / TransferReturn).
-        // A filter category only -- growing material is never transferred.
+        // A filter category; 2026-10-23: also growing material moved between Polyhouses (ledger types
+        // TRANSFER_OUT / TRANSFER_IN, MaterialTransferRules -- 2026-10-25_MaterialStockTransfers.sql).
         public const string Transfer = "TRANSFER";
         public static readonly IReadOnlyList<string> TransactionTypes = new[] { Receive, Consume, Reversal, Adjustment, Transfer };
 
@@ -80,6 +81,8 @@ namespace PlantStockManager.Services
             Reversal => "Returned (sowing cancelled)",
             Adjustment => "Adjustment",
             Transfer => "Transfer",
+            MaterialTransferRules.TransferOut => "Transferred out",
+            MaterialTransferRules.TransferIn => "Transferred in",
             _ => type ?? string.Empty,
         };
 
@@ -89,8 +92,15 @@ namespace PlantStockManager.Services
             Consume => "bg-primary",
             Reversal => "bg-info text-dark",
             Adjustment => "bg-warning text-dark",
-            Transfer => "bg-dark",
+            Transfer or MaterialTransferRules.TransferOut or MaterialTransferRules.TransferIn => "bg-dark",
             _ => "bg-secondary",
+        };
+
+        // A material ledger type in the History page's categories (the two transfer types are one category).
+        public static string MaterialCategory(string? type) => type switch
+        {
+            MaterialTransferRules.TransferOut or MaterialTransferRules.TransferIn => Transfer,
+            _ => type ?? string.Empty,
         };
 
         public static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

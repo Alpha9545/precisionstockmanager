@@ -9,6 +9,7 @@
     var canHistory = await FeatureAccess.CanAccessPageAsync(User, "/Production/MaterialStock/History");
     var canAdjustTrays = await FeatureAccess.CanAccessPageAsync(User, "/Production/MaterialStock/TrayAdjust");
     var canTrayTransfers = await FeatureAccess.CanAccessPageAsync(User, "/Production/MaterialStock/TrayTransfers");
+    var canMaterialTransfers = Model.CanSeeMaterials && await FeatureAccess.CanAccessPageAsync(User, "/Production/MaterialStock/Transfers");
     var trays = MaterialStockRules.TraysKind;
     var tabs = new List<(string Key, string Label)> { ("", "All") };
     if (Model.CanSeeMaterials) { tabs.AddRange(Model.Materials.Where(m => m.IsActive).Select(m => (m.Code, m.Name))); }
@@ -34,9 +35,10 @@
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <div>
             <h3 class="mb-0">Material Stock</h3>
-            <div class="text-muted small">Cocopeat and Pitmos (kg, Main Office Polyhouses) and empty trays (count per cavity). Three separate stocks &mdash; a sowing uses trays and one growing material from its own Polyhouse.</div>
+            <div class="text-muted small">Cocopeat and Pitmos (kg, per Polyhouse) and empty trays (count per cavity). Three separate stocks &mdash; a sowing uses trays and one growing material from its own Polyhouse.</div>
         </div>
         <div class="d-flex gap-2 flex-wrap">
+            @if (canMaterialTransfers) { <a asp-page="/Production/MaterialStock/Transfers" class="btn btn-outline-secondary">Material Transfers</a> }
             @if (canTrayTransfers) { <a asp-page="/Production/MaterialStock/TrayTransfers" class="btn btn-outline-secondary">Tray Transfers</a> }
             @if (canAdjustTrays) { <a asp-page="/Production/MaterialStock/TrayAdjust" class="btn btn-outline-secondary">Adjust Trays</a> }
             @if (canHistory) { <a asp-page="/Production/MaterialStock/History" asp-route-Material="@(Model.Material == "" ? null : Model.Material)" class="btn btn-outline-secondary">Material History</a> }
@@ -140,7 +142,7 @@
             var rows = Model.MaterialRows.Where(r => r.MaterialTypeId == m.Id).ToList();
             <section class="ms-section mb-4" aria-label="@m.Name stock">
                 <h5 class="mb-2">@m.Name <span class="badge bg-light text-dark border">@m.Unit.ToLowerInvariant()</span>
-                    <span class="text-muted small fw-normal">Main Office Polyhouses</span></h5>
+                    <span class="text-muted small fw-normal">per Polyhouse &mdash; used by Main Office sowings</span></h5>
                 <div class="table-responsive">
                     <table class="table table-sm table-striped align-middle mb-1">
                         <thead class="table-light"><tr><th>Area</th><th>Polyhouse</th><th class="ms-num">Stock (@m.Unit.ToLowerInvariant())</th><th>Last Change</th></tr></thead>

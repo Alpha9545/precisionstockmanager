@@ -72,6 +72,7 @@ builder.Services.AddScoped<CuttingStockRepository>();
 builder.Services.AddScoped<TrayStockRepository>();
 builder.Services.AddScoped<TrayTransferRepository>(); // 2026-10-10: empty-tray transfers between Polyhouses
 builder.Services.AddScoped<MaterialStockRepository>(); // 2026-10-08: Cocopeat / Pitmos per Main Office Polyhouse (Data/MaterialStockRepository.cs)
+builder.Services.AddScoped<MaterialTransferRepository>(); // 2026-10-23: Cocopeat / Pitmos transfers between Polyhouses
 
 // Daily Labour Count (2026-10-04): daily labour headcounts per location, no worker records.
 builder.Services.AddScoped<DailyLabourCountRepository>();

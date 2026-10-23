@@ -122,6 +122,19 @@ namespace PlantStockManager.Tests
             Assert.Equal(DailyLabourRules.OutletNotAllowedMessage, DailyLabourRules.ValidateLocation(Outlet, true, null, null)!.Value.Message);
         }
 
+        // 2026-10-23: attendance (only) covers Outlet once 2026-10-26_LabourAttendanceOutlet.sql is applied -- Area-wise.
+        [Fact]
+        public void OutletAttendance_AllowedOnlyWithTheMigration_AreaWise_StillAuthorized()
+        {
+            Assert.False(DailyLabourRules.IsAttendanceArea(OutletRules.AreaType, outletAllowed: false));
+            Assert.True(DailyLabourRules.IsAttendanceArea(OutletRules.AreaType, outletAllowed: true));
+            Assert.True(DailyLabourRules.IsAttendanceArea("MotherPlant", outletAllowed: false));
+            Assert.Null(DailyLabourRules.ValidateLocation(Outlet, true, null, null, outletAllowed: true));
+            Assert.Equal(DailyLabourRules.NotAuthorizedMessage, DailyLabourRules.ValidateLocation(Outlet, false, null, null, outletAllowed: true)!.Value.Message);
+            Assert.Equal(DailyLabourRules.PolyhouseNotAllowedMessage,
+                DailyLabourRules.ValidateLocation(Outlet, true, 18, new Polyhouse { Id = 18, AreaId = 124 }, outletAllowed: true)!.Value.Message);
+        }
+
         [Theory]
         [InlineData(null, true)]
         [InlineData("", true)]

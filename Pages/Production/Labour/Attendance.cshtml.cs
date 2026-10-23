@@ -8,9 +8,9 @@ using PlantStockManager.Services;
 
 namespace PlantStockManager.Pages.Production.Labour
 {
-    // Daily Labour Attendance (Labour.Enter): the 9:00 AM and 2:00 PM headcounts
+    // Daily Labour Attendance (Labour.Enter, or Labour.Attendance -- attendance only): the 9:00 AM and 2:00 PM headcounts
     // of one location and date (Main Office Areas per Polyhouse, every other Area
-    // Area-wise, Outlet excluded -- DailyLabourRules). Choosing a date + location
+    // Area-wise; Outlet Areas only once 2026-10-26_LabourAttendanceOutlet.sql is applied -- DailyLabourRules). Choosing a date + location
     // loads what is already recorded; saving inserts a time not yet recorded and
     // CORRECTS a recorded one (every correction is kept in the audit history).
     // Today and earlier dates (India time, AppClock) can be entered or corrected;
@@ -22,9 +22,13 @@ namespace PlantStockManager.Pages.Production.Labour
         private readonly AreaRepository _areaRepo;
         private readonly PolyhouseRepository _polyhouseRepo;
         private readonly AreaAccessService _areaAccess;
+        private readonly DatabaseHelper _db;
+        private bool? _outletAllowed;
 
-        public AttendanceModel(DailyLabourAttendanceRepository attendanceRepo, AreaRepository areaRepo, PolyhouseRepository polyhouseRepo, AreaAccessService areaAccess)
+        public AttendanceModel(DailyLabourAttendanceRepository attendanceRepo, AreaRepository areaRepo, PolyhouseRepository polyhouseRepo, AreaAccessService areaAccess,
+            DatabaseHelper db)
         {
+            _db = db;
             _attendanceRepo = attendanceRepo;
             _areaRepo = areaRepo;
             _polyhouseRepo = polyhouseRepo;
@@ -172,7 +176,8 @@ namespace PlantStockManager.Pages.Production.Labour
             SelectedArea = AreaId > 0 ? await _areaRepo.GetAreaById(AreaId.Value) : null;
             SelectedPolyhouse = PolyhouseId > 0 ? await _polyhouseRepo.GetByIdAsync(PolyhouseId.Value) : null;
             var authorized = SelectedArea != null && _areaAccess.CanAccessRequiredArea(User, SelectedArea.Id);
-            if (SelectedArea != null && (!authorized || !SelectedArea.IsActive || !DailyLabourRules.IsLabourArea(SelectedArea.AreaType)) && !addErrors)
+            var outletAllowed = await OutletAllowedAsync();
+            if (SelectedArea != null && (!authorized || !SelectedArea.IsActive || !DailyLabourRules.IsAttendanceArea(SelectedArea.AreaType, outletAllowed)) && !addErrors)
             {
                 // A hand-typed URL for another Area shows nothing of that Area.
                 SelectedArea = null;
@@ -185,7 +190,7 @@ namespace PlantStockManager.Pages.Production.Labour
             }
             Polyhouses = await PolyhousesForAsync(SelectedArea?.Id);
 
-            var error = DailyLabourRules.ValidateLocation(SelectedArea, authorized, PolyhouseId, SelectedPolyhouse);
+            var error = DailyLabourRules.ValidateLocation(SelectedArea, authorized, PolyhouseId, SelectedPolyhouse, outletAllowed);
             if (error != null)
             {
                 if (addErrors)
@@ -219,12 +224,16 @@ namespace PlantStockManager.Pages.Production.Labour
             }
         }
 
-        // Active, non-Outlet Areas this user may enter labour for (a full-access
+        // 2026-10-23: Outlet Areas take attendance too once 2026-10-26_LabourAttendanceOutlet.sql is applied.
+        private async Task<bool> OutletAllowedAsync() => _outletAllowed ??= await LabourAttendanceOutletSchema.ReadyAsync(_db);
+
+        // Active Areas this user may enter labour for (Outlet only with the migration; a full-access
         // user sees every one).
         private async Task LoadAreasAsync()
         {
+            var outletAllowed = await OutletAllowedAsync();
             Areas = (await _areaRepo.GetAllAreas())
-                .Where(a => a.IsActive && DailyLabourRules.IsLabourArea(a.AreaType) && _areaAccess.CanAccessRequiredArea(User, a.Id))
+                .Where(a => a.IsActive && DailyLabourRules.IsAttendanceArea(a.AreaType, outletAllowed) && _areaAccess.CanAccessRequiredArea(User, a.Id))
                 .OrderBy(a => a.Name)
                 .ToList();
         }

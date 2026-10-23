@@ -112,6 +112,19 @@ ORDER BY p.Code", conn);
             return (int)(await cmd.ExecuteScalarAsync())! == 1;
         }
 
+        // 2026-10-23: a grant made by a migration that logs it (and whose rollback logs its removal) -- the LAST log row decides.
+        private static async Task<bool> GrantedByAsync(SqlConnection conn, string roleName, string code, string script)
+        {
+            using var cmd = new SqlCommand(@"SELECT CASE WHEN OBJECT_ID(N'dbo.RolePermissionChangeLog', N'U') IS NOT NULL
+ AND (SELECT TOP 1 Change FROM dbo.RolePermissionChangeLog WHERE RoleName = @Role AND PermissionCode = @Code
+      AND Script IN (@Script, REPLACE(@Script, N'.sql', N'_Rollback.sql')) ORDER BY Id DESC) = N'Added'
+ THEN 1 ELSE 0 END", conn);
+            cmd.Parameters.AddWithValue("@Role", roleName);
+            cmd.Parameters.AddWithValue("@Code", code);
+            cmd.Parameters.AddWithValue("@Script", script);
+            return (int)(await cmd.ExecuteScalarAsync())! == 1;
+        }
+
         private static async Task<bool> TrayTransfersAppliedAsync(SqlConnection conn)
         {
             using var cmd = new SqlCommand("SELECT CASE WHEN OBJECT_ID(N'dbo.TrayTransfers', N'U') IS NULL THEN 0 ELSE 1 END", conn);
@@ -138,6 +151,10 @@ ORDER BY p.Code", conn);
             string[] Tray1010(params string[] codes) => trayTransfers ? codes : Array.Empty<string>();
             var trayAccess = await TrayAccessAppliedAsync(conn);
             string[] Tray1011(params string[] codes) => trayAccess ? codes : Array.Empty<string>();
+            // 2026-10-25_MaterialStockTransfers.sql: MaterialStock.Transfer for the Sowing Supervisor (from own Areas);
+            // 2026-10-26_LabourAttendanceOutlet.sql: Labour.Attendance (attendance only) for Outlet Sales
+            var materialTransfer = await GrantedByAsync(conn, "Sowing Supervisor", "MaterialStock.Transfer", "2026-10-25_MaterialStockTransfers.sql");
+            var outletAttendance = await GrantedByAsync(conn, "Outlet Sales", "Labour.Attendance", "2026-10-26_LabourAttendanceOutlet.sql");
             var expected = new Dictionary<string, string[]>
             {
                 // INTENDED set (owner decision 2026-10-10): PhaseA (4) + TrayStock.EnterMotherPlant (2026-10-09).
@@ -152,7 +169,9 @@ ORDER BY p.Code", conn);
                 // + Maintenance.* / Store.* (10-06); ReadyStock.TransferToMotherPlant, TrayStock.EnterMotherPlant (10-09); TrayStock.Transfer (10-10)
                 ["Office Coordinator"] = new[] { "Booking.View", "Dashboard.View", "Dispatch.View", "Maintenance.Raise", "Maintenance.View", "ReadyStock.TransferToMotherPlant",
                     "ReadyStock.View", "Reports.View", "SeedStock.View", "Sowing.View", "Store.Request", "Store.View", "TrayStock.EnterMotherPlant" }.Concat(Tray1010("TrayStock.Transfer")).ToArray(),
-                ["Outlet Sales"] = new[] { "Dashboard.View", "Outlet.Confirm", "Outlet.Purchase", "Outlet.Sell", "Outlet.View" },   // no Labour: Outlet is excluded
+                // no Labour.View / Labour.Enter; Labour.Attendance (attendance only) with 2026-10-26_LabourAttendanceOutlet.sql
+                ["Outlet Sales"] = (outletAttendance ? new[] { "Labour.Attendance" } : Array.Empty<string>())
+                    .Concat(new[] { "Dashboard.View", "Outlet.Confirm", "Outlet.Purchase", "Outlet.Sell", "Outlet.View" }).ToArray(),
                 ["Pot Production Operator"] = new[] { "Dashboard.View", "InternalTransfer.Enter", "InternalTransfer.View", "PotProduction.Enter", "PotProduction.View" },
                 ["Purchase Officer"] = new[] { "Dashboard.View", "Purchase.Enter", "Purchase.View" },
                 // + TrayStock.Enter, Labour.* (10-04); Maintenance.* / Store.* (10-06); MaterialStock.View / Add / History (10-08);
@@ -161,7 +180,8 @@ ORDER BY p.Code", conn);
                 ["Sowing Supervisor"] = new[] { "Dashboard.View", "Labour.Enter", "Labour.View", "MainOffice.Confirm", "Maintenance.Raise", "Maintenance.View",
                     "MaterialStock.Add", "MaterialStock.History", "MaterialStock.View", "ReadyStock.Confirm", "ReadyStock.TransferToMotherPlant", "ReadyStock.View",
                     "SeedStock.View", "Sowing.View", "Store.Request", "Store.View", "TrayStock.Enter" }
-                    .Concat(Tray1010("TrayStock.Adjust", "TrayStock.Transfer")).Concat(Tray1011("TrayStock.ReceiveTransferMainArea")).ToArray(),
+                    .Concat(Tray1010("TrayStock.Adjust", "TrayStock.Transfer")).Concat(Tray1011("TrayStock.ReceiveTransferMainArea"))
+                    .Concat(materialTransfer ? new[] { "MaterialStock.Transfer" } : Array.Empty<string>()).ToArray(),
                 // + Store.Manage (10-06_StoreInventory)
                 ["Main Office Store Keeper"] = new[] { "Dashboard.View", "InternalTransfer.Enter", "InternalTransfer.View", "MainOffice.Confirm", "MainOffice.View",
                     "PotProduction.View", "Purchase.Enter", "Purchase.View", "Reports.View", "SeedStock.Enter", "SeedStock.View", "Sowing.Enter", "Sowing.View", "Store.Manage" },

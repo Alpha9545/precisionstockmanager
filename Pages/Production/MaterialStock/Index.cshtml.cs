@@ -80,7 +80,7 @@ namespace PlantStockManager.Pages.Production.MaterialStock
             if (CanSeeMaterials)
             {
                 var scope = _areaAccess.HasFullAreaAccess(User) ? null : _areaAccess.GetAccessibleAreaIds(User);
-                locations.AddRange(await _repo.GetLocationsAsync(a => _areaAccess.CanAccessRequiredArea(User, a)));
+                locations.AddRange(await _repo.GetLocationsAsync(a => _areaAccess.CanAccessRequiredArea(User, a), withHeldStock: true));
                 Kpis = await _repo.GetKpisAsync(scope, AppClock.Today);
                 if (ShowMaterials)
                     MaterialRows = await _repo.GetBalancesAsync(new MaterialStockFilter

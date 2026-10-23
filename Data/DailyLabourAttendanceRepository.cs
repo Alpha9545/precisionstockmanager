@@ -182,8 +182,10 @@ ORDER BY h.Id", conn);
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
             using var cmd = new SqlCommand { Connection = conn };
-            var whereAttendance = BuildWhere(cmd, filter, areaScope, "d");
-            var whereManual = BuildWhere(cmd, filter, areaScope, "l", addParameters: false);
+            // 2026-10-23: Outlet attendance is listed once 2026-10-26_LabourAttendanceOutlet.sql allows it (manual counts never exist there).
+            var outletAllowed = await LabourAttendanceOutletSchema.ReadyAsync(conn);
+            var whereAttendance = BuildWhere(cmd, filter, areaScope, "d", outletAllowed: outletAllowed);
+            var whereManual = BuildWhere(cmd, filter, areaScope, "l", addParameters: false, outletAllowed: outletAllowed);
             cmd.CommandText = $@"
 WITH d AS (
     SELECT LabourDate, AreaId, PolyhouseId,
@@ -324,7 +326,8 @@ ORDER BY t.AttendanceTime", conn, tx);
 
         // Same filters for both halves of the history query; alias is the
         // location/date row ("d" attendance, "l" manual), "a" is dbo.Area.
-        private static string BuildWhere(SqlCommand cmd, DailyLabourFilter filter, IReadOnlyCollection<int>? areaScope, string alias, bool addParameters = true)
+        private static string BuildWhere(SqlCommand cmd, DailyLabourFilter filter, IReadOnlyCollection<int>? areaScope, string alias, bool addParameters = true,
+            bool outletAllowed = false)
         {
             void Add(string name, object value)
             {
@@ -332,7 +335,7 @@ ORDER BY t.AttendanceTime", conn, tx);
                     cmd.Parameters.AddWithValue(name, value);
             }
 
-            var sb = new StringBuilder(" WHERE (a.AreaType IS NULL OR a.AreaType <> @OutletType)");
+            var sb = new StringBuilder(outletAllowed ? " WHERE 1 = 1" : " WHERE (a.AreaType IS NULL OR a.AreaType <> @OutletType)");
             Add("@OutletType", OutletRules.AreaType);
             if (filter.FromDate.HasValue)
             {

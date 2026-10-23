@@ -126,3 +126,25 @@ Migration `Database/Migrations/2026-10-10_TrayTransfers.sql` (not yet applied to
 * **Mother Plant Supervisor view (2026-10-11):** `TrayStock.ViewMotherPlant` shows empty-tray balances and tray
   history of the supervisor's own Mother Plant Areas only -- read-only (no add, adjust, transfer, Cocopeat or
   Pitmos).
+
+## Material transfers (2026-10-23)
+
+Migration `Database/Migrations/2026-10-25_MaterialStockTransfers.sql` (+ `_Rollback.sql`) -- **applied to local `PlantsIMS2_Test` 2026-10-23 (owner-approved), NOT on live**.
+Page: **Material Stock -> Material Transfers** (`/Production/MaterialStock/Transfers`). Code: `Data/MaterialTransferRepository.cs`,
+`Services/MaterialTransferRules.cs`, `Data/MaterialTransferSchema.cs`. Tests: `MaterialTransferRulesTests`, `MaterialTransferE2ETests`.
+
+* **One atomic move** (no in-transit step, unlike trays): in one transaction the source balance loses the quantity
+  (`TRANSFER_OUT`) and the destination gains it (`TRANSFER_IN`), both referencing the `dbo.MaterialTransfers` row
+  (material, quantity, source, destination, business date, remark, user, recorded time). Any refusal or error rolls back both.
+* **Unit:** the material's stock unit (kg, usable kg as shown on the stock page). The Add Material conversion factor is never applied.
+* **Locations:** a Polyhouse of an active Main Office or Mother Plant Area (never an Outlet). Material is used only by Main Office
+  sowings; stock at a Mother Plant Polyhouse is held there until transferred again (the database allows only transfers there).
+* **Who:** `MaterialStock.Transfer` (Sowing Supervisor) FROM an Area the user is assigned to; a non-administrator may send only to an
+  Area where an active user assigned to it holds `MaterialStock.View` (so stock is never put where nobody can see it).
+  Administrators may send between any eligible Polyhouses. History: `MaterialStock.Transfer` or `MaterialStock.History`,
+  limited to transfers touching the user's Areas.
+* **Safety:** both balances locked (sp_getapplock + UPDLOCK) in a fixed order (A->B and B->A never deadlock); never below zero, also
+  on a back-dated business date; one-time `SubmissionToken` (unique) -- a repeated submit moves nothing twice.
+* **Corrections:** transfer back. Transfers are insert-only.
+* **No opening balances** are created: a new location starts at 0 and is filled only by a transfer.
+

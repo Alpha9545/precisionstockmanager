@@ -136,15 +136,19 @@ WHERE p.Id = @P", conn, tx);
         // The Main Office Areas a user may manage material for (canAccessArea =
         // AreaAccessService.CanAccessRequiredArea) and their Polyhouses -- the form
         // dropdowns. The save re-validates everything.
-        public async Task<List<(int AreaId, string AreaName, int PolyhouseId, string PolyhouseName)>> GetLocationsAsync(Func<int, bool> canAccessArea)
+        // 2026-10-23 withHeldStock: ALSO every other Polyhouse that holds a material balance (a Mother Plant
+        // Polyhouse that received a transfer) -- for the stock / history FILTERS only, never for Add / Adjust.
+        public async Task<List<(int AreaId, string AreaName, int PolyhouseId, string PolyhouseName)>> GetLocationsAsync(Func<int, bool> canAccessArea, bool withHeldStock = false)
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
             using var cmd = new SqlCommand(@"
 SELECT a.Id, a.Name, p.Id, p.Name
 FROM dbo.Area a JOIN dbo.Polyhouses p ON p.AreaId = a.Id
-WHERE a.IsActive = 1 AND a.AreaType = N'MainOffice'
+WHERE (a.IsActive = 1 AND a.AreaType = N'MainOffice')
+   OR (@Held = 1 AND EXISTS (SELECT 1 FROM dbo.MaterialStock s WHERE s.AreaId = a.Id AND s.PolyhouseId = p.Id))
 ORDER BY a.Name, p.Name", conn);
+            cmd.Parameters.AddWithValue("@Held", withHeldStock);
             var list = new List<(int, string, int, string)>();
             using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
@@ -300,7 +304,7 @@ VALUES
             return (true, null, after);
         }
 
-        private static async Task<(bool Ok, string? Error, string Name, string Unit, decimal Factor)> GetActiveMaterialAsync(SqlConnection conn, SqlTransaction tx, int materialTypeId)
+        internal static async Task<(bool Ok, string? Error, string Name, string Unit, decimal Factor)> GetActiveMaterialAsync(SqlConnection conn, SqlTransaction tx, int materialTypeId)
         {
             using var cmd = new SqlCommand("SELECT Name, Unit, ConversionFactor, IsActive FROM dbo.MaterialTypes WHERE Id = @Id", conn, tx);
             cmd.Parameters.AddWithValue("@Id", materialTypeId);
@@ -702,7 +706,7 @@ ORDER BY m.SortOrder, m.Name";
             var scope = AreaScope(cmd, allowedAreaIds, "s.AreaId");
             var where = $@"
 WHERE (@M IS NULL OR s.MaterialTypeId = @M) AND (@A IS NULL OR s.AreaId = @A) AND (@P IS NULL OR s.PolyhouseId = @P)
-  AND (@Type IS NULL OR t.TransactionType = @Type)
+  AND (@Type IS NULL OR t.TransactionType = @Type OR (@Type = 'TRANSFER' AND t.TransactionType IN ('TRANSFER_OUT', 'TRANSFER_IN')))
   AND (@FromUtc IS NULL OR {day} >= @FromUtc) AND (@ToUtc IS NULL OR {day} < @ToUtc){scope}";
             cmd.CommandText = $@"
 SELECT COUNT(*) FROM dbo.MaterialTransactions t JOIN dbo.MaterialStock s ON s.Id = t.MaterialStockId {where};

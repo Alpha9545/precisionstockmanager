@@ -20,9 +20,12 @@ namespace PlantStockManager.Pages.Production.Labour
         private readonly AreaRepository _areaRepo;
         private readonly PolyhouseRepository _polyhouseRepo;
         private readonly AreaAccessService _areaAccess;
+        private readonly DatabaseHelper _db;
 
-        public AttendanceHistoryModel(DailyLabourAttendanceRepository attendanceRepo, AreaRepository areaRepo, PolyhouseRepository polyhouseRepo, AreaAccessService areaAccess)
+        public AttendanceHistoryModel(DailyLabourAttendanceRepository attendanceRepo, AreaRepository areaRepo, PolyhouseRepository polyhouseRepo, AreaAccessService areaAccess,
+            DatabaseHelper db)
         {
+            _db = db;
             _attendanceRepo = attendanceRepo;
             _areaRepo = areaRepo;
             _polyhouseRepo = polyhouseRepo;
@@ -64,8 +67,9 @@ namespace PlantStockManager.Pages.Production.Labour
             if (FromDate > ToDate)
                 (FromDate, ToDate) = (ToDate, FromDate);
 
+            var outletAllowed = await LabourAttendanceOutletSchema.ReadyAsync(_db);   // 2026-10-23: Outlet attendance
             AreaOptions = (await _areaRepo.GetAllAreas())
-                .Where(a => DailyLabourRules.IsLabourArea(a.AreaType) && _areaAccess.CanAccessRequiredArea(User, a.Id))
+                .Where(a => DailyLabourRules.IsAttendanceArea(a.AreaType, outletAllowed) && _areaAccess.CanAccessRequiredArea(User, a.Id))
                 .OrderBy(a => a.Name)
                 .ToList();
 
@@ -73,7 +77,7 @@ namespace PlantStockManager.Pages.Production.Labour
             if (AreaId.HasValue && !_areaAccess.CanAccessRequiredArea(User, AreaId.Value))
                 AreaId = null;
             var selectedArea = AreaId.HasValue ? await _areaRepo.GetAreaById(AreaId.Value) : null;
-            if (selectedArea != null && !DailyLabourRules.IsLabourArea(selectedArea.AreaType))
+            if (selectedArea != null && !DailyLabourRules.IsAttendanceArea(selectedArea.AreaType, outletAllowed))
             {
                 AreaId = null;
                 selectedArea = null;

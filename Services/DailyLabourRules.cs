@@ -85,6 +85,12 @@ namespace PlantStockManager.Services
         public static bool IsLabourArea(string? areaType)
             => !string.Equals(areaType, OutletRules.AreaType, StringComparison.Ordinal);
 
+        // 2026-10-23: ATTENDANCE (9:00 AM / 2:00 PM headcounts) also covers Outlet Areas, Area-wise, once
+        // 2026-10-26_LabourAttendanceOutlet.sql is applied (outletAllowed = LabourAttendanceOutletSchema). Manual
+        // labour counts and overtime keep IsLabourArea.
+        public static bool IsAttendanceArea(string? areaType, bool outletAllowed)
+            => outletAllowed || IsLabourArea(areaType);
+
         public static int TotalWorkers(int maleFull, int maleHalf, int femaleFull, int femaleHalf)
             => maleFull + maleHalf + femaleFull + femaleHalf;
 
@@ -120,13 +126,13 @@ namespace PlantStockManager.Services
         // Location check for a NEW record. area/polyhouse are what the server
         // loaded for the posted ids (null = not found); isAuthorized is
         // AreaAccessService's answer for the Area. Returns the first problem.
-        public static (string Field, string Message)? ValidateLocation(Area? area, bool isAuthorized, int? polyhouseId, Polyhouse? polyhouse)
+        public static (string Field, string Message)? ValidateLocation(Area? area, bool isAuthorized, int? polyhouseId, Polyhouse? polyhouse, bool outletAllowed = false)
         {
             if (area == null)
                 return ("AreaId", "Area is required.");
             if (!area.IsActive)
                 return ("AreaId", "The selected Area is not active.");
-            if (!IsLabourArea(area.AreaType))
+            if (!IsAttendanceArea(area.AreaType, outletAllowed))
                 return ("AreaId", OutletNotAllowedMessage);
             if (!isAuthorized)
                 return ("AreaId", NotAuthorizedMessage);

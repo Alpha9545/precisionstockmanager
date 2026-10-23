@@ -158,8 +158,12 @@ namespace PlantStockManager.Tests
                 Assert.False(p.HasPermission("Labour.View"), $"user {u} Labour.View");
             }
             Assert.True((await env.LoginAsync(Admin)).IsFullAccess());
-            // exactly two roles hold Labour permissions
-            Assert.Equal(2, await env.ScalarAsync<int>(@"SELECT COUNT(DISTINCT rp.RoleId) FROM dbo.RolePermissions rp JOIN dbo.Permissions p ON p.Id = rp.PermissionId WHERE p.Code LIKE 'Labour.%'"));
+            // exactly two roles hold Labour permissions -- plus, with 2026-10-26_LabourAttendanceOutlet.sql, Outlet Sales holding
+            // Labour.Attendance only (attendance; never Labour.View / Labour.Enter, checked above)
+            var outletAttendance = await env.ScalarAsync<int>(LabourAttendanceOutletSchema.ProbeSql) == 1;
+            Assert.Equal(outletAttendance ? 3 : 2, await env.ScalarAsync<int>(@"SELECT COUNT(DISTINCT rp.RoleId) FROM dbo.RolePermissions rp JOIN dbo.Permissions p ON p.Id = rp.PermissionId WHERE p.Code LIKE 'Labour.%'"));
+            Assert.Equal(outletAttendance ? 1 : 0, await env.ScalarAsync<int>(@"SELECT COUNT(*) FROM dbo.RolePermissions rp JOIN dbo.Permissions p ON p.Id = rp.PermissionId
+JOIN dbo.Roles r ON r.Id = rp.RoleId WHERE p.Code = 'Labour.Attendance' AND COALESCE(NULLIF(LTRIM(RTRIM(r.Name)), N''), r.RoleName) = N'Outlet Sales'"));
         }
 
         // ---- location rule (Polyhouse dropdown handler, still used by the page) ----------------------
