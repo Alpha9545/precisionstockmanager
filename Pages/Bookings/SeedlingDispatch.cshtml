@@ -56,7 +56,7 @@
                                 var a = open[i];
                                 var allowed = Model.CanUseArea(a.AreaId);
                                 <tr>
-                                    <td class="fw-bold" title="@a.BatchCode">@a.BatchNo</td>
+                                    <td class="fw-bold" title="@a.BatchCode">@a.BatchNo @PlantStockManager.Services.OvergrowthRules.Badge(a.IsOvergrowth, compact: true)</td>
                                     <td>@a.BookedSpeciesName</td>
                                     <td>@a.ActualSpeciesName</td>
                                     <td>@(a.IsSubstitution ? "Yes – " + a.SubstitutionReason : "No")</td>
@@ -162,7 +162,7 @@
                                     <input class="form-check-input" type="radio" name="AllocateReadyStockId" value="@o.ReadyStockId" id="rs-@o.ReadyStockId" required />
                                     <label class="form-check-label small" for="rs-@o.ReadyStockId">Select</label>
                                 </td>
-                                <td class="fw-bold text-nowrap" title="@o.BatchCode">@o.BatchNo</td>
+                                <td class="fw-bold text-nowrap" title="@o.BatchCode">@o.BatchNo @PlantStockManager.Services.OvergrowthRules.Badge(o.IsOvergrowth, compact: true)</td>
                                 <td>@o.SpeciesName</td>
                                 <td class="text-nowrap">@o.SowingDate.ToString("dd-MM-yyyy")</td>
                                 <td class="text-end fw-bold">@Qty(o.AvailableQuantity)</td>
@@ -217,7 +217,7 @@
                         <option value="">-- Select allocation --</option>
                         @foreach (var a in open.Where(x => Model.CanUseArea(x.AreaId)))
                         {
-                            <option value="@a.Id">@a.BatchNo · @a.ActualSpeciesName · @a.AreaName/@(a.PolyhouseName ?? "-") · Sowing #@a.SeedSowingId · open @Qty(a.OpenQuantity)</option>
+                            <option value="@a.Id">@a.BatchNo@(a.IsOvergrowth ? " " + PlantStockManager.Services.OvergrowthRules.ShortLabel : "") · @a.ActualSpeciesName · @a.AreaName/@(a.PolyhouseName ?? "-") · Sowing #@a.SeedSowingId · open @Qty(a.OpenQuantity)</option>
                         }
                     </select>
                 </div>

@@ -202,7 +202,7 @@
                 @foreach (var a in Model.Allocations)
                 {
                     <tr>
-                        <td><a asp-page="/Production/SeedSowing/Details" asp-route-id="@a.SeedSowingId" title="@a.BatchCode (Sowing #@a.SeedSowingId)" class="fw-bold">@a.BatchNo</a></td>
+                        <td><a asp-page="/Production/SeedSowing/Details" asp-route-id="@a.SeedSowingId" title="@a.BatchCode (Sowing #@a.SeedSowingId)" class="fw-bold">@a.BatchNo</a> @PlantStockManager.Services.OvergrowthRules.Badge(a.IsOvergrowth, compact: true)</td>
                         <td>@a.BookedSpeciesName</td>
                         <td>@a.ActualSpeciesName</td>
                         <td>@(a.IsSubstitution ? "Yes – " + a.SubstitutionReason : "No")</td>
@@ -238,7 +238,7 @@
                         <tr>
                             <td>@d.DispatchCode</td>
                             <td>@d.DispatchDate.ToString("dd-MM-yyyy")</td>
-                            <td title="@l.BatchCode (Sowing #@l.SeedSowingId)" class="fw-bold">@l.BatchNo</td>
+                            <td title="@l.BatchCode (Sowing #@l.SeedSowingId)" class="fw-bold">@l.BatchNo @PlantStockManager.Services.OvergrowthRules.Badge(l.IsOvergrowth, compact: true)</td>
                             <td>@l.BookedSpeciesName</td>
                             <td>@l.ActualSpeciesName</td>
                             <td>@(l.IsSubstitution ? "Yes – " + l.SubstitutionReason : "No")</td>

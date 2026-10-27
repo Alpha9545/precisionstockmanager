@@ -101,7 +101,13 @@ ORDER BY p.Code", conn);
             // never: adjusting or sending trays, trays for every Mother Plant Area, or growing material
             foreach (var p in new[] { "TrayStock.Transfer", "TrayStock.Adjust", "TrayStock.EnterMotherPlant", "MaterialStock.Add", "MaterialStock.View" })
                 Assert.DoesNotContain(p, permissions);
-            Assert.Equal(18 + (trayTransfers ? 1 : 0) + (alignment ? 1 : 0) + (trayEnter ? 1 : 0), permissions.Count);
+            // (+ ReadyStock.Overgrowth, 2026-10-24_ReadyStockOvergrowth.sql: mark / unmark Overgrowth batches in his own Area)
+            var overgrowth = await OvergrowthGrantedAsync(conn, "Mother Plant Supervisor");
+            if (overgrowth)
+                Assert.Contains("ReadyStock.Overgrowth", permissions);
+            else
+                Assert.DoesNotContain("ReadyStock.Overgrowth", permissions);
+            Assert.Equal(18 + (trayTransfers ? 1 : 0) + (alignment ? 1 : 0) + (trayEnter ? 1 : 0) + (overgrowth ? 1 : 0), permissions.Count);
         }
 
         private static async Task<bool> TrayEnterGrantedAsync(SqlConnection conn)
@@ -109,6 +115,17 @@ ORDER BY p.Code", conn);
             using var cmd = new SqlCommand(@"SELECT CASE WHEN OBJECT_ID(N'dbo.RolePermissionChangeLog', N'U') IS NOT NULL
  AND EXISTS (SELECT 1 FROM dbo.RolePermissionChangeLog WHERE Script = N'2026-10-16_MotherPlantSupervisorTrayEnter.sql' AND Change = N'Added')
  THEN 1 ELSE 0 END", conn);
+            return (int)(await cmd.ExecuteScalarAsync())! == 1;
+        }
+
+        // 2026-10-24_ReadyStockOvergrowth.sql granted ReadyStock.Overgrowth to this role (its own 'Added' row, not since removed).
+        private static async Task<bool> OvergrowthGrantedAsync(SqlConnection conn, string roleName)
+        {
+            using var cmd = new SqlCommand(@"SELECT CASE WHEN OBJECT_ID(N'dbo.RolePermissionChangeLog', N'U') IS NOT NULL
+ AND (SELECT TOP 1 Change FROM dbo.RolePermissionChangeLog WHERE RoleName = @Role AND PermissionCode = N'ReadyStock.Overgrowth'
+      AND Script IN (N'2026-10-24_ReadyStockOvergrowth.sql', N'2026-10-24_ReadyStockOvergrowth_Rollback.sql') ORDER BY Id DESC) = N'Added'
+ THEN 1 ELSE 0 END", conn);
+            cmd.Parameters.AddWithValue("@Role", roleName);
             return (int)(await cmd.ExecuteScalarAsync())! == 1;
         }
 
@@ -151,6 +168,9 @@ ORDER BY p.Code", conn);
             string[] Tray1010(params string[] codes) => trayTransfers ? codes : Array.Empty<string>();
             var trayAccess = await TrayAccessAppliedAsync(conn);
             string[] Tray1011(params string[] codes) => trayAccess ? codes : Array.Empty<string>();
+            // 2026-10-24_ReadyStockOvergrowth.sql: ReadyStock.Overgrowth for the Sowing Supervisor (Ready Stock approver, own Areas)
+            var overgrowth = await OvergrowthGrantedAsync(conn, "Sowing Supervisor");
+            string[] Og1024(params string[] codes) => overgrowth ? codes : Array.Empty<string>();
             // 2026-10-25_MaterialStockTransfers.sql: MaterialStock.Transfer for the Sowing Supervisor (from own Areas);
             // 2026-10-26_LabourAttendanceOutlet.sql: Labour.Attendance (attendance only) for Outlet Sales
             var materialTransfer = await GrantedByAsync(conn, "Sowing Supervisor", "MaterialStock.Transfer", "2026-10-25_MaterialStockTransfers.sql");
@@ -181,7 +201,7 @@ ORDER BY p.Code", conn);
                     "MaterialStock.Add", "MaterialStock.History", "MaterialStock.View", "ReadyStock.Confirm", "ReadyStock.TransferToMotherPlant", "ReadyStock.View",
                     "SeedStock.View", "Sowing.View", "Store.Request", "Store.View", "TrayStock.Enter" }
                     .Concat(Tray1010("TrayStock.Adjust", "TrayStock.Transfer")).Concat(Tray1011("TrayStock.ReceiveTransferMainArea"))
-                    .Concat(materialTransfer ? new[] { "MaterialStock.Transfer" } : Array.Empty<string>()).ToArray(),
+                    .Concat(Og1024("ReadyStock.Overgrowth")).Concat(materialTransfer ? new[] { "MaterialStock.Transfer" } : Array.Empty<string>()).ToArray(),
                 // + Store.Manage (10-06_StoreInventory)
                 ["Main Office Store Keeper"] = new[] { "Dashboard.View", "InternalTransfer.Enter", "InternalTransfer.View", "MainOffice.Confirm", "MainOffice.View",
                     "PotProduction.View", "Purchase.Enter", "Purchase.View", "Reports.View", "SeedStock.Enter", "SeedStock.View", "Sowing.Enter", "Sowing.View", "Store.Manage" },

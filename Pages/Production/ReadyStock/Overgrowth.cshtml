@@ -1,0 +1,99 @@
+@page "{id:int}"
+@model PlantStockManager.Pages.Production.ReadyStock.OvergrowthModel
+@using PlantStockManager.Services
+@{
+    ViewData["Title"] = "Overgrowth — batch #" + Model.Batch.Id;
+    var b = Model.Batch;
+}
+
+<div class="container mt-4" style="max-width: 60rem;">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <h3 class="mb-0">Overgrowth &middot; batch #@b.Id @OvergrowthRules.Badge(b.IsOvergrowth)</h3>
+        <div class="d-flex gap-2">
+            <a asp-page="/Production/ReadyStock/Lineage" asp-all-route-data="@Model.ListRoute" asp-route-id="@b.Id" class="btn btn-sm btn-outline-secondary">Trace batch</a>
+            <a asp-page="/Production/ReadyStock/Index" asp-all-route-data="@Model.ListRoute" class="btn btn-sm btn-outline-secondary" id="backToReadyStock">Ready Stock</a>
+        </div>
+    </div>
+
+    @if (TempData["Success"] != null) { <div class="alert alert-success" id="ogSuccess">@TempData["Success"]</div> }
+    @if (Model.Error != null) { <div class="alert alert-danger" id="ogError">@Model.Error</div> }
+
+    <div class="card shadow-sm mb-3">
+        <div class="card-body py-2">
+            <dl class="row small mb-0">
+                <dt class="col-6 col-md-3">Batch</dt><dd class="col-6 col-md-3">@b.SowingCode</dd>
+                <dt class="col-6 col-md-3">Variety</dt><dd class="col-6 col-md-3">@b.SpeciesName?.Trim() <span class="text-muted">(@b.PlantTypeName)</span></dd>
+                <dt class="col-6 col-md-3">Area / Polyhouse</dt><dd class="col-6 col-md-3">@b.AreaName / @(b.PolyhouseName ?? "-")</dd>
+                <dt class="col-6 col-md-3">Cavity</dt><dd class="col-6 col-md-3">@b.CavityType</dd>
+                <dt class="col-6 col-md-3">Physical</dt><dd class="col-6 col-md-3 fw-semibold">@Qty(b.PhysicalQuantity)</dd>
+                <dt class="col-6 col-md-3">Available</dt><dd class="col-6 col-md-3">@Qty(b.AvailableQuantity) <span class="text-muted">(reserved @Qty(b.ReservedQuantity))</span></dd>
+            </dl>
+        </div>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning" id="ogNotApplied">@PlantStockManager.Data.ReadyStockOvergrowthSchema.MigrationMessage</div>
+    }
+    else
+    {
+        @if (b.IsOvergrowth)
+        {
+            <div class="alert alert-warning py-2" id="ogCurrent">
+                <strong>@OvergrowthRules.Label</strong> since @(b.OvergrowthMarkedAt is DateTime at ? AppClock.ToIndiaTime(at).ToString("dd/MM/yyyy HH:mm") : "-")
+                @(b.OvergrowthMarkedByName != null ? "by " + b.OvergrowthMarkedByName : "") &mdash; @b.OvergrowthReason
+                <div class="small mt-1">The batch stays available for booking and dispatch; the marker goes with it to every booking, dispatch and Mother Plant receipt.</div>
+            </div>
+        }
+        else
+        {
+            <p class="text-muted" id="ogNormal">This batch is normal Ready Stock (not marked as Overgrowth).</p>
+        }
+
+        @if (!Model.CanChange)
+        {
+            <div class="alert alert-secondary small" id="ogViewOnly">@OvergrowthRules.NotAuthorisedMessage</div>
+        }
+        else if (!b.IsOvergrowth)
+        {
+            <form method="post" asp-page-handler="Mark" asp-all-route-data="@Model.ListRoute" asp-route-id="@b.Id" class="card card-body mb-3" id="markForm">
+                <label class="form-label fw-bold" for="reason">Why are these seedlings overgrown?</label>
+                <textarea id="reason" name="Reason" class="form-control" rows="2" required maxlength="@OvergrowthRules.MaxReasonLength"
+                          placeholder="e.g. past the ideal transplant size, leggy, roots circling">@Model.Reason</textarea>
+                <div class="form-text">Marks the whole batch (@Qty(b.PhysicalQuantity) plants). Nothing is moved or removed.</div>
+                <div class="mt-2"><button type="submit" class="btn btn-warning" id="markButton">Mark as @OvergrowthRules.Label</button></div>
+            </form>
+        }
+        else
+        {
+            <form method="post" asp-page-handler="Unmark" asp-all-route-data="@Model.ListRoute" asp-route-id="@b.Id" class="card card-body mb-3" id="unmarkForm">
+                <label class="form-label fw-bold" for="reason">Note (optional)</label>
+                <input type="text" id="reason" name="Reason" class="form-control" maxlength="@OvergrowthRules.MaxReasonLength" value="@Model.Reason"
+                       placeholder="e.g. marked by mistake" />
+                <div class="mt-2"><button type="submit" class="btn btn-outline-secondary" id="unmarkButton">Remove the Overgrowth marker</button></div>
+            </form>
+        }
+
+        <h5>History</h5>
+        <div class="table-responsive">
+            <table class="table table-sm" id="ogHistory">
+                <thead class="table-light"><tr><th>When (IST)</th><th>Action</th><th>By</th><th>Reason / note</th></tr></thead>
+                <tbody>
+                    @foreach (var h in Model.History)
+                    {
+                        <tr>
+                            <td>@AppClock.ToIndiaTime(h.CreatedAt).ToString("dd/MM/yyyy HH:mm")</td>
+                            <td>@h.Action@(h.SourceReadyStockId is int src ? $" from batch #{src}" : "")</td>
+                            <td>@(h.UserName ?? "-")</td>
+                            <td>@h.Reason</td>
+                        </tr>
+                    }
+                    @if (!Model.History.Any())
+                    {
+                        <tr><td colspan="4" class="text-center text-muted">Never marked as Overgrowth.</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

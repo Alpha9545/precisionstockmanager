@@ -27,11 +27,51 @@
         <div class="alert alert-danger">@TempData["Error"]</div>
     }
 
+    @* 2026-10-27: Category (Plant Type) / Source filters -- a GET form; the page validates both on the server. *@
+    <form method="get" asp-page="/Production/SeedSowing/Index" class="card card-body bg-light py-2 px-3 mb-3" id="sowingFilters" role="search" aria-label="Filter the list">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+                <label class="form-label small fw-bold mb-1" for="sowingCategory">Category</label>
+                <select name="category" id="sowingCategory" class="form-select form-select-sm">
+                    <option value="">All categories</option>
+                    @foreach (var c in Model.Categories)
+                    {
+                        <option value="@c.Id" selected="@(Model.Filter.PlantTypeId == c.Id)">@c.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+                <label class="form-label small fw-bold mb-1" for="sowingSource">Source</label>
+                <select name="source" id="sowingSource" class="form-select form-select-sm">
+                    <option value="">All sources</option>
+                    @foreach (var s in PlantStockManager.Services.SeedSowingListFilter.SourceOptions)
+                    {
+                        <option value="@s.Value" selected="@(Model.Filter.SourceType == s.Value)">@s.Label</option>
+                    }
+                </select>
+            </div>
+            <div class="col-12 col-md-auto d-flex gap-2">
+                <button type="submit" class="btn btn-sm btn-primary flex-fill flex-md-grow-0" id="sowingApplyFilters">Apply</button>
+                <a asp-page="/Production/SeedSowing/Index" class="btn btn-sm btn-outline-secondary flex-fill flex-md-grow-0 d-inline-flex align-items-center justify-content-center" id="sowingClearFilters">Clear</a>
+            </div>
+            @if (Model.Filter.IsActive)
+            {
+                <div class="col-12 col-md small text-muted text-md-end" id="sowingFilterSummary" aria-live="polite">
+                    Filtered: @Model.Sowings.Count shown
+                </div>
+            }
+        </div>
+        @if (Model.FilterNote != null)
+        {
+            <div class="small text-warning-emphasis mt-2" id="sowingFilterNote">@Model.FilterNote</div>
+        }
+    </form>
+
     <div class="row g-3 mb-4">
         <div class="col-md-4">
             <div class="card text-center shadow-sm">
                 <div class="card-body">
-                    <div class="text-muted small">Total Sown (excl. Cancelled)</div>
+                    <div class="text-muted small">Total Sown (excl. Cancelled)@(Model.Filter.IsActive ? ", rows shown" : "")</div>
                     <div class="fs-3 fw-bold">@Qty(Model.TotalSown)</div>
                 </div>
             </div>

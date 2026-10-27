@@ -169,15 +169,23 @@ LEFT JOIN dbo.ReadyStockTransplants rt ON rt.OutputSeedSowingId = sw.Id";
             => BaseSelectFor(await BedSowingSchema.ReadyAsync(conn), await BedSowingSchema.TraysToApprovalsAsync(conn),
                 await WorkflowCorrectionsSchema.MotherPlantDirectSowingAsync(conn));
 
-        public async Task<List<SeedSowing>> GetAllAsync(string? status = null)
+        // 2026-10-27: plantTypeId / sourceType are the Sowings list's Category (dbo.PlantTypes.Id via the variety) and Source
+        // (sw.SourceType) filters -- parameterized, AND-ed on; null = no restriction. Callers validate them first
+        // (SeedSowingListFilter.Normalize). Area scope stays with the caller.
+        public async Task<List<SeedSowing>> GetAllAsync(string? status = null, int? plantTypeId = null, string? sourceType = null)
         {
             var list = new List<SeedSowing>();
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
-            var sql = await BaseSelectAsync(conn) + " WHERE (@Status IS NULL OR sw.Status = @Status) ORDER BY sw.CreatedDate DESC";
+            var sql = await BaseSelectAsync(conn) + @" WHERE (@Status IS NULL OR sw.Status = @Status)
+  AND (@PlantTypeId IS NULL OR ps.PlantTypeId = @PlantTypeId)
+  AND (@SourceType IS NULL OR sw.SourceType = @SourceType)
+ORDER BY sw.CreatedDate DESC";
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@Status", (object?)status ?? DBNull.Value);
+            cmd.Parameters.Add("@PlantTypeId", System.Data.SqlDbType.Int).Value = (object?)plantTypeId ?? DBNull.Value;
+            cmd.Parameters.Add("@SourceType", System.Data.SqlDbType.NVarChar, 20).Value = (object?)sourceType ?? DBNull.Value;
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {

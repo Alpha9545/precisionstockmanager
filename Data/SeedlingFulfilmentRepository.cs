@@ -676,7 +676,11 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                         dispatchDate.Date, line.LastReservedUtc);
                     if (!ok) return (false, msg);
 
-                    var ins = new SqlCommand(@"
+                    // 2026-10-22: + whether the batch is Overgrowth now (its row is locked by RecordDispatchAsync above).
+                    var ins = new SqlCommand(await ReadyStockOvergrowthSchema.ReadyAsync(conn, tx) ? @"
+INSERT INTO dbo.SeedlingDispatchLines
+(SeedlingDispatchId, BookingBatchAllocationId, ReadyStockId, BookedSpeciesId, ActualSpeciesId, IsSubstitution, SubstitutionReason, Quantity, IsOvergrowth)
+SELECT @D, @A, @R, @BS, @AS, @Sub, @Reason, @Q, rs.IsOvergrowth FROM dbo.ReadyStock rs WHERE rs.Id = @R;" : @"
 INSERT INTO dbo.SeedlingDispatchLines
 (SeedlingDispatchId, BookingBatchAllocationId, ReadyStockId, BookedSpeciesId, ActualSpeciesId, IsSubstitution, SubstitutionReason, Quantity)
 VALUES (@D, @A, @R, @BS, @AS, @Sub, @Reason, @Q);", conn, tx);
@@ -875,10 +879,14 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                     "SeedlingDispatch", dispatchId, actor.UserId, $"{code} {label.ToLowerInvariant()} to {customer} (booking {bookingId})", "Dispatch",
                     today, reservedAtUtc);
                 if (!disOk) { tx.Rollback(); return (false, disMsg, null); }
-                var line = new SqlCommand(@"
+                // 2026-10-22: + whether the batch is Overgrowth now (its row is locked by RecordDispatchAsync above).
+                var line = new SqlCommand((await ReadyStockOvergrowthSchema.ReadyAsync(conn, tx) ? @"
+INSERT INTO dbo.SeedlingDispatchLines
+(SeedlingDispatchId, BookingBatchAllocationId, ReadyStockId, BookedSpeciesId, ActualSpeciesId, IsSubstitution, SubstitutionReason, Quantity, IsOvergrowth)
+SELECT @D, @A, @R, @S, @S, 0, NULL, @Q, rs.IsOvergrowth FROM dbo.ReadyStock rs WHERE rs.Id = @R;" : @"
 INSERT INTO dbo.SeedlingDispatchLines
 (SeedlingDispatchId, BookingBatchAllocationId, ReadyStockId, BookedSpeciesId, ActualSpeciesId, IsSubstitution, SubstitutionReason, Quantity)
-VALUES (@D, @A, @R, @S, @S, 0, NULL, @Q);
+VALUES (@D, @A, @R, @S, @S, 0, NULL, @Q);") + @"
 UPDATE dbo.BookingBatchAllocations
 SET DispatchedQuantity = DispatchedQuantity + @Q, Status = 'Closed', ModifiedBy = @By, ModifiedDate = SYSUTCDATETIME()
 WHERE Id = @A;", conn, tx);
@@ -1032,12 +1040,14 @@ ORDER BY b.DeliveryDate DESC, ISNULL(b.OrderBookingId, b.Id) DESC, b.Id", conn);
             return list;
         }
 
-        private const string AllocationSelect = @"
+        // 2026-10-22: + the allocated batch's Overgrowth marker (now).
+        private static string AllocationSelect(bool overgrowth) => @"
 SELECT a.Id, a.BookingId, a.ReadyStockId, a.BookedSpeciesId, a.ActualSpeciesId, a.IsSubstitution, a.SubstitutionReason,
        a.Quantity, a.DispatchedQuantity, a.ReleasedQuantity, a.Status, a.CreatedBy, a.CreatedDate, a.ModifiedBy, a.ModifiedDate,
        bps.Name AS BookedSpeciesName, aps.Name AS ActualSpeciesName,
        sw.Id AS SeedSowingId, sw.SowingCode, sw.SowingDate, rs.CavityType, rs.BatchNo AS SeedLot, rs.AreaId, ar.Name AS AreaName,
-       COALESCE(rph.Name, sph.Name) AS PolyhouseName, sup.Name AS SupervisorName, appr.ApprovedByName
+       COALESCE(rph.Name, sph.Name) AS PolyhouseName, sup.Name AS SupervisorName, appr.ApprovedByName,
+       " + ReadyStockOvergrowthSchema.Flag(overgrowth) + @" AS IsOvergrowth
 FROM dbo.BookingBatchAllocations a
 INNER JOIN dbo.ReadyStock rs ON rs.Id = a.ReadyStockId
 INNER JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
@@ -1055,7 +1065,7 @@ OUTER APPLY (SELECT TOP 1 u.Name AS ApprovedByName FROM dbo.ReadyConfirmations r
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            var cmd = new SqlCommand(AllocationSelect + " WHERE a.BookingId = @B ORDER BY a.Id", conn);
+            var cmd = new SqlCommand(AllocationSelect(await ReadyStockOvergrowthSchema.ReadyAsync(conn)) + " WHERE a.BookingId = @B ORDER BY a.Id", conn);
             cmd.Parameters.AddWithValue("@B", bookingId);
             var list = new List<BookingBatchAllocation>();
             using var r = await cmd.ExecuteReaderAsync();
@@ -1074,7 +1084,8 @@ OUTER APPLY (SELECT TOP 1 u.Name AS ApprovedByName FROM dbo.ReadyConfirmations r
                     SeedSowingId = r.GetInt32(r.GetOrdinal("SeedSowingId")), BatchCode = S("SowingCode"),
                     SowingDate = r.GetDateTime(r.GetOrdinal("SowingDate")), CavityType = S("CavityType"), SeedLot = S("SeedLot"),
                     AreaId = r.GetInt32(r.GetOrdinal("AreaId")), AreaName = S("AreaName"), PolyhouseName = S("PolyhouseName"),
-                    SupervisorName = S("SupervisorName"), ApprovedByName = S("ApprovedByName")
+                    SupervisorName = S("SupervisorName"), ApprovedByName = S("ApprovedByName"),
+                    IsOvergrowth = r.GetBoolean(r.GetOrdinal("IsOvergrowth"))
                 });
             }
             return list;
@@ -1113,12 +1124,13 @@ WHERE r.BookingId = @B ORDER BY r.RevisionNo", conn);
             return list;
         }
 
-        private const string DispatchLineSelect = @"
+        // 2026-10-22: + IsOvergrowth = the batch's marker AT DISPATCH (the line's own snapshot).
+        private static string DispatchLineSelect(bool overgrowth) => @"
 SELECT l.Id, l.SeedlingDispatchId, l.BookingBatchAllocationId, l.ReadyStockId, l.BookedSpeciesId, l.ActualSpeciesId,
        l.IsSubstitution, l.SubstitutionReason, l.Quantity, bps.Name AS BookedSpeciesName, aps.Name AS ActualSpeciesName,
        sw.SowingCode, ar.Name AS AreaName, COALESCE(rph.Name, sph.Name) AS PolyhouseName, sw.SowingDate,
        d.DispatchCode, d.DispatchDate, d.BookingId, d.CustomerName, d.CreatedBy, sw.Id AS SeedSowingId,
-       ISNULL(obk.OrderBookingId, d.BookingId) AS OrderId
+       ISNULL(obk.OrderBookingId, d.BookingId) AS OrderId, " + ReadyStockOvergrowthSchema.Flag(overgrowth, "l") + @" AS IsOvergrowth
 FROM dbo.SeedlingDispatchLines l
 INNER JOIN dbo.SeedlingDispatches d ON d.Id = l.SeedlingDispatchId
 LEFT JOIN dbo.Bookings obk ON obk.Id = d.BookingId
@@ -1141,7 +1153,7 @@ LEFT JOIN dbo.Polyhouses sph ON sph.Id = sw.PolyhouseId";
                 BookedSpeciesName = S(9)?.Trim(), ActualSpeciesName = S(10)?.Trim(), BatchCode = S(11), AreaName = S(12),
                 PolyhouseName = S(13), SowingDate = r.GetDateTime(14), DispatchCode = S(15), DispatchDate = r.GetDateTime(16),
                 BookingId = r.GetInt32(17), CustomerName = S(18), DispatchedBy = S(19), SeedSowingId = r.GetInt32(20),
-                OrderId = r.GetInt32(21)
+                OrderId = r.GetInt32(21), IsOvergrowth = r.GetBoolean(22)
             };
         }
 
@@ -1172,7 +1184,7 @@ WHERE d.BookingId = @B ORDER BY d.Id", conn);
             }
             if (dispatches.Count == 0) return dispatches;
 
-            var lineCmd = new SqlCommand(DispatchLineSelect + " WHERE d.BookingId = @B ORDER BY l.Id", conn);
+            var lineCmd = new SqlCommand(DispatchLineSelect(await ReadyStockOvergrowthSchema.ReadyAsync(conn)) + " WHERE d.BookingId = @B ORDER BY l.Id", conn);
             lineCmd.Parameters.AddWithValue("@B", bookingId);
             var byId = dispatches.ToDictionary(d => d.Id);
             using (var r = await lineCmd.ExecuteReaderAsync())
@@ -1192,7 +1204,7 @@ WHERE d.BookingId = @B ORDER BY d.Id", conn);
         {
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            var cmd = new SqlCommand(DispatchLineSelect + @"
+            var cmd = new SqlCommand(DispatchLineSelect(await ReadyStockOvergrowthSchema.ReadyAsync(conn)) + @"
 WHERE d.DispatchDate >= @From AND d.DispatchDate <= @To
   AND (@Search IS NULL
        OR (@BatchMonth IS NOT NULL AND MONTH(sw.SowingDate) = @BatchMonth AND DAY(sw.SowingDate) = @BatchDay)
@@ -1261,7 +1273,8 @@ FROM dbo.ReadyStock WHERE SpeciesId = @S", conn);
             await conn.OpenAsync();
             var cmd = new SqlCommand(@"
 SELECT rs.Id, rs.SpeciesId, ps.Name, ps.PlantTypeId, sw.SowingCode, rs.SowingDate, rs.FirstConfirmationDate, rs.CavityType,
-       rs.AreaId, ar.Name, COALESCE(rph.Name, sph.Name), rs.Quantity, rs.ReservedQuantity, rs.DispatchedQuantity, rs.InTransitQuantity
+       rs.AreaId, ar.Name, COALESCE(rph.Name, sph.Name), rs.Quantity, rs.ReservedQuantity, rs.DispatchedQuantity, rs.InTransitQuantity,
+       " + ReadyStockOvergrowthSchema.Flag(await ReadyStockOvergrowthSchema.ReadyAsync(conn)) + @"
 FROM dbo.ReadyStock rs
 INNER JOIN dbo.PlantSpecies ps ON ps.Id = rs.SpeciesId
 INNER JOIN dbo.SeedSowings sw ON sw.Id = rs.SeedSowingId
@@ -1281,7 +1294,8 @@ ORDER BY rs.SowingDate, rs.FirstConfirmationDate, rs.Id", conn);
                     ReadyStockId = r.GetInt32(0), SpeciesId = r.GetInt32(1), SpeciesName = r.GetString(2).Trim(), PlantTypeId = r.GetInt32(3),
                     BatchCode = r.GetString(4), SowingDate = r.GetDateTime(5), FirstConfirmationDate = r.IsDBNull(6) ? null : r.GetDateTime(6),
                     CavityType = r.GetString(7), AreaId = r.GetInt32(8), AreaName = r.GetString(9), PolyhouseName = r.IsDBNull(10) ? null : r.GetString(10),
-                    Quantity = q, ReservedQuantity = res, DispatchedQuantity = dis, AvailableQuantity = q - res - dis - transit
+                    Quantity = q, ReservedQuantity = res, DispatchedQuantity = dis, AvailableQuantity = q - res - dis - transit,
+                    IsOvergrowth = r.GetBoolean(15)
                 });
             }
             return list;
@@ -1323,7 +1337,7 @@ WHERE ps.PlantTypeId = @P AND rs.Quantity - rs.ReservedQuantity - rs.DispatchedQ
             var cmd = new SqlCommand(@"
 SELECT rs.Id, rs.SpeciesId, ps.Name, ps.PlantTypeId, sw.SowingCode, sw.SowingDate, rs.FirstConfirmationDate, rs.CavityType,
        rs.AreaId, ar.Name, COALESCE(rph.Name, sph.Name), rs.Quantity, rs.ReservedQuantity, rs.DispatchedQuantity, sw.Id,
-       COUNT(*) OVER () AS TotalRows, rs.InTransitQuantity" + BatchSearchFrom + @"
+       COUNT(*) OVER () AS TotalRows, rs.InTransitQuantity, " + ReadyStockOvergrowthSchema.Flag(await ReadyStockOvergrowthSchema.ReadyAsync(conn)) + BatchSearchFrom + @"
   AND (@Date IS NULL OR CAST(sw.SowingDate AS date) = @Date)
   AND (@AreaId IS NULL OR rs.AreaId = @AreaId)
   AND (@PolyhouseId IS NULL OR COALESCE(rs.PolyhouseId, sw.PolyhouseId) = @PolyhouseId)
@@ -1360,7 +1374,7 @@ OFFSET @Skip ROWS FETCH NEXT @Take ROWS ONLY", conn);
                     BatchCode = r.GetString(4), SowingDate = r.GetDateTime(5), FirstConfirmationDate = r.IsDBNull(6) ? null : r.GetDateTime(6),
                     CavityType = r.GetString(7), AreaId = r.GetInt32(8), AreaName = r.GetString(9), PolyhouseName = r.IsDBNull(10) ? null : r.GetString(10),
                     Quantity = q, ReservedQuantity = res, DispatchedQuantity = dis, AvailableQuantity = q - res - dis - transit,
-                    SeedSowingId = r.GetInt32(14)
+                    SeedSowingId = r.GetInt32(14), IsOvergrowth = r.GetBoolean(17)
                 });
                 result.Total = r.GetInt32(15);
             }

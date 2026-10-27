@@ -60,7 +60,7 @@
                                 <tr data-id="@t.Id">
                                     <td>@t.AreaName</td>
                                     <td>@t.SpeciesName?.Trim() <span class="small text-muted">(@t.PlantTypeName)</span></td>
-                                    <td>@t.BatchNo <div class="small text-muted">@t.SowingCode &middot; @t.OriginLabel &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@t.Id">lineage</a></div></td>
+                                    <td>@t.BatchNo @OvergrowthRules.Badge(t.IsOvergrowth, compact: true) <div class="small text-muted">@t.SowingCode &middot; @t.OriginLabel &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@t.Id">lineage</a></div></td>
                                     <td>@t.CavityType</td>
                                     <td class="text-end">@Qty(t.PhysicalQuantity)</td>
                                     <td class="text-end">@(t.PhysicalTrays?.ToString("0") ?? "-")</td>

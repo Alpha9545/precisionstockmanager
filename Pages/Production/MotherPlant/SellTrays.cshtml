@@ -28,7 +28,7 @@
                 <tbody>
                     <tr><th class="w-50">Area</th><td>@b.AreaName</td></tr>
                     <tr><th>Variety</th><td>@b.SpeciesName?.Trim() (@b.PlantTypeName)</td></tr>
-                    <tr><th>Batch</th><td>@b.BatchNo &middot; @b.SowingCode &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@b.Id">lineage</a></td></tr>
+                    <tr><th>Batch</th><td>@b.BatchNo &middot; @b.SowingCode &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@b.Id">lineage</a> @PlantStockManager.Services.OvergrowthRules.Badge(b.IsOvergrowth)</td></tr>
                     <tr><th>Tray cavity</th><td>@b.CavityType</td></tr>
                     <tr><th>Available</th><td class="fw-bold" id="available" data-trays="@Model.AvailableTrays" data-cavity="@(b.CavitySize ?? 0)">
                         @Model.AvailableTrays complete trays (@Qty(b.AvailableQuantity) plants)</td></tr>

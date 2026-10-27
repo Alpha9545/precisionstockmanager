@@ -34,7 +34,8 @@
                     <tbody>
                         <tr><th class="w-50">Mother Plant Area</th><td>@s.AreaName</td></tr>
                         <tr><th>Variety</th><td>@s.SpeciesName?.Trim() (@s.PlantTypeName)</td></tr>
-                        <tr><th>Batch</th><td>@s.BatchNo &middot; @s.SowingCode &middot; @s.CavityType <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@s.Id" class="small">lineage</a></td></tr>
+                        <tr><th>Batch</th><td>@s.BatchNo &middot; @s.SowingCode &middot; @s.CavityType <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@s.Id" class="small">lineage</a> @OvergrowthRules.Badge(s.IsOvergrowth)
+                            @if (s.IsOvergrowth) { <div class="small text-muted" id="ogTransplantNote">Transplanting puts these seedlings into new trays: the new tray batch starts as normal stock (not Overgrowth). What stays in this batch keeps the marker.</div> }</td></tr>
                         <tr><th>Available to transplant</th><td class="fw-bold" id="available" data-value="@((int)s.AvailableQuantity)">@Qty(s.AvailableQuantity) plants</td></tr>
                     </tbody>
                 </table>

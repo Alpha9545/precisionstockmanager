@@ -2,6 +2,7 @@
 @model PlantStockManager.Pages.Production.ReadyStock.IndexModel
 @inject PlantStockManager.Authorization.FeatureAccessService FeatureAccess
 @using Microsoft.AspNetCore.Authorization
+@using PlantStockManager.Services
 @inject IAuthorizationService Authz
 @inject PlantStockManager.Authorization.AreaAccessService StrictArea
 @{
@@ -18,19 +19,22 @@
     var canTransferMp = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyStock/TransferToMotherPlant");
     var canTransplant = await FeatureAccess.CanAccessPageAsync(User, "/Production/Transplanting/Create");
     var canTrace = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyStock/Lineage");
+    // 2026-10-22: the Overgrowth page (ReadyStock.Overgrowth); the page and the save check the batch's own Area again.
+    var canOvergrowth = await FeatureAccess.CanAccessPageAsync(User, "/Production/ReadyStock/Overgrowth");
+    var og = Model.OvergrowthTotals;
+    var normal = Model.NormalTotals;
     var dash = "–";
 }
 
 <div class="container-fluid mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <h2 class="mb-0">Ready Stock <small class="text-muted fs-6">(supervisor-approved batches)</small></h2>
-        <div>
-            <a asp-page="/Production/ReadyStock/Index" asp-page-handler="ExportPdf"
-               asp-route-Search="@Model.Search" asp-route-IncludeEmpty="@Model.IncludeEmpty"
-               class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener">Print</a>
-            <a asp-page="/Production/ReadyStock/Index" asp-page-handler="ExportExcel"
-               asp-route-Search="@Model.Search" asp-route-IncludeEmpty="@Model.IncludeEmpty"
-               class="btn btn-outline-secondary btn-sm">Export Excel</a>
+        <div class="d-flex flex-wrap gap-1">
+            @* 2026-10-27: exports carry the whole list state (ListRoute), so they hold exactly the rows shown. *@
+            <a asp-page="/Production/ReadyStock/Index" asp-page-handler="ExportPdf" asp-all-route-data="@Model.ListRoute"
+               class="btn btn-outline-secondary btn-sm" target="_blank" rel="noopener" id="exportPdf">Print</a>
+            <a asp-page="/Production/ReadyStock/Index" asp-page-handler="ExportExcel" asp-all-route-data="@Model.ListRoute"
+               class="btn btn-outline-secondary btn-sm" id="exportExcel">Export Excel</a>
             @if (canSeeApproval)
             {
                 <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-outline-secondary">Supervisor Approval</a>
@@ -41,20 +45,73 @@
     @if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
     @if (TempData["Error"] != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
 
-    <form method="get" class="row g-2 mb-3">
-        <div class="col-md-4">
+    <form method="get" class="row g-2 mb-3" id="readyStockFilters" role="search" aria-label="Filter Ready Stock">
+        <div class="col-12 col-md-6 col-lg-4">
             <input type="text" name="Search" value="@Model.Search" class="form-control" placeholder="Batch, species, variety, area or polyhouse" />
         </div>
-        <div class="col-md-3 d-flex align-items-center">
+        <div class="col-12 col-sm-6 col-md-3 col-lg-2">
+            <select name="Stock" class="form-select" id="stockFilter" aria-label="Overgrowth">
+                <option value="" selected="@(Model.Stock != PlantStockManager.Pages.Production.ReadyStock.IndexModel.StockOvergrowth && Model.Stock != PlantStockManager.Pages.Production.ReadyStock.IndexModel.StockNormal)">All stock</option>
+                <option value="@PlantStockManager.Pages.Production.ReadyStock.IndexModel.StockOvergrowth" selected="@(Model.Stock == PlantStockManager.Pages.Production.ReadyStock.IndexModel.StockOvergrowth)">@OvergrowthRules.Label only</option>
+                <option value="@PlantStockManager.Pages.Production.ReadyStock.IndexModel.StockNormal" selected="@(Model.Stock == PlantStockManager.Pages.Production.ReadyStock.IndexModel.StockNormal)">Normal stock only</option>
+            </select>
+        </div>
+        <div class="col-12 col-sm-6 col-md-3 col-lg-4 d-flex align-items-center">
             <div class="form-check">
                 <input class="form-check-input" type="checkbox" name="IncludeEmpty" value="true" id="includeEmpty" @(Model.IncludeEmpty ? "checked" : "") />
                 <label class="form-check-label" for="includeEmpty">Include batches with no plants left</label>
             </div>
         </div>
-        <div class="col-md-2">
-            <button type="submit" class="btn btn-primary">Filter</button>
+        @* 2026-10-27: option lists built from the batches this user may see (Services/ReadyStockListFilter.cs).
+           Their own line: 2 per line on phones, 3 on tablets, 6 on desktops. *@
+        <div class="w-100 m-0"></div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <label class="form-label small fw-bold mb-1" for="speciesFilter">Species</label>
+            <select name="@ReadyStockListFilter.SpeciesKey" class="form-select form-select-sm" id="speciesFilter">
+                <option value="">All species</option>
+                @foreach (var o in Model.Options.Species) { <option value="@o" selected="@(Model.Filter.Species == o)">@o</option> }
+            </select>
         </div>
-        <div class="col-md-3 text-end align-self-center">
+        <div class="col-6 col-md-4 col-lg-2">
+            <label class="form-label small fw-bold mb-1" for="varietyFilter">Variety</label>
+            <select name="@ReadyStockListFilter.VarietyKey" class="form-select form-select-sm" id="varietyFilter">
+                <option value="">All varieties</option>
+                @foreach (var o in Model.Options.Varieties) { <option value="@o.Id" selected="@(Model.Filter.VarietyId == o.Id)">@o.Label</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <label class="form-label small fw-bold mb-1" for="areaFilter">Area</label>
+            <select name="@ReadyStockListFilter.AreaKey" class="form-select form-select-sm" id="areaFilter">
+                <option value="">All Areas</option>
+                @foreach (var o in Model.Options.Areas) { <option value="@o.Id" selected="@(Model.Filter.AreaId == o.Id)">@o.Label</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <label class="form-label small fw-bold mb-1" for="polyhouseFilter">Polyhouse</label>
+            <select name="@ReadyStockListFilter.PolyhouseKey" class="form-select form-select-sm" id="polyhouseFilter">
+                <option value="">All Polyhouses</option>
+                @foreach (var o in Model.Options.Polyhouses) { <option value="@o.Id" selected="@(Model.Filter.PolyhouseId == o.Id)">@o.Label</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <label class="form-label small fw-bold mb-1" for="originFilter">Origin</label>
+            <select name="@ReadyStockListFilter.OriginKey" class="form-select form-select-sm" id="originFilter">
+                <option value="">All origins</option>
+                @foreach (var o in Model.Options.Origins) { <option value="@o" selected="@(Model.Filter.Origin == o)">@ReadyStockListFilter.OriginLabel(o)</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-4 col-lg-2">
+            <label class="form-label small fw-bold mb-1" for="statusFilter">Status</label>
+            <select name="@ReadyStockListFilter.StatusKey" class="form-select form-select-sm" id="statusFilter">
+                <option value="">All statuses</option>
+                @foreach (var o in Model.Options.Statuses) { <option value="@o" selected="@(Model.Filter.Status == o)">@o</option> }
+            </select>
+        </div>
+        <div class="col-12 col-sm-auto d-flex gap-2">
+            <button type="submit" class="btn btn-primary flex-fill flex-sm-grow-0" id="applyFilters">Filter</button>
+            <a asp-page="/Production/ReadyStock/Index" class="btn btn-outline-secondary flex-fill flex-sm-grow-0" id="clearFilters">Clear</a>
+        </div>
+        <div class="col-12 col-sm text-sm-end align-self-center small" id="readyStockTotals">
             @* 2026-10-10 standard definitions (docs/STOCK_DEFINITIONS.md) *@
             <strong>Available for booking/dispatch:</strong> @Qty(Model.Items.Sum(i => i.AvailableQuantity)) &middot;
             Physical: @Qty(Model.TotalQuantity) &middot;
@@ -65,6 +122,25 @@
             }
         </div>
     </form>
+
+    @if (Model.FilterNote != null)
+    {
+        <div class="small text-warning-emphasis mb-2" id="readyStockFilterNote">@Model.FilterNote</div>
+    }
+
+    @* 2026-10-22: Overgrowth monitored separately from normal Ready Stock (same Search / empty-batch / option-list filters). *@
+    @if (og.Batches > 0 || Model.Stock == PlantStockManager.Pages.Production.ReadyStock.IndexModel.StockOvergrowth)
+    {
+        <div class="d-flex flex-wrap gap-3 small border rounded px-3 py-2 mb-3 bg-light" id="overgrowthSummary">
+            <span>@OvergrowthRules.Badge(true) <strong>@og.Batches</strong> batch@(og.Batches == 1 ? "" : "es") &middot;
+                physical <strong id="ogPhysical">@Qty(og.Physical)</strong> &middot; available <strong id="ogAvailable">@Qty(og.Available)</strong> &middot; reserved @Qty(og.Reserved)</span>
+            <span class="text-muted">Normal stock: @normal.Batches batch@(normal.Batches == 1 ? "" : "es") &middot; physical <span id="normalPhysical">@Qty(normal.Physical)</span> &middot; available <span id="normalAvailable">@Qty(normal.Available)</span></span>
+            @if (Model.Stock != PlantStockManager.Pages.Production.ReadyStock.IndexModel.StockOvergrowth)
+            {
+                <a asp-page="/Production/ReadyStock/Index" asp-all-route-data="@Model.ListRouteWithStock(PlantStockManager.Pages.Production.ReadyStock.IndexModel.StockOvergrowth)" id="showOvergrowthOnly">Show Overgrowth only</a>
+            }
+        </div>
+    }
 
     <div class="table-responsive">
         <table class="table table-sm table-striped table-hover">
@@ -106,6 +182,10 @@
                             else
                             {
                                 @r.SowingCode
+                            }
+                            @if (r.IsOvergrowth)
+                            {
+                                <div>@OvergrowthRules.Badge(true)</div>
                             }
                         </td>
                         <td>
@@ -150,16 +230,21 @@
                             {
                                 <a asp-page="/Production/Transplanting/Create" asp-route-id="@r.Id" class="btn btn-sm btn-success">Transplant</a>
                             }
+                            @if (canOvergrowth && StrictArea.CanAccessArea(User, r.AreaId) && (r.IsOvergrowth || r.PhysicalQuantity > 0))
+                            {
+                                <a asp-page="/Production/ReadyStock/Overgrowth" asp-all-route-data="@Model.ListRoute" asp-route-id="@r.Id" class="btn btn-sm btn-outline-warning" data-og-action="@r.Id"
+                                   title="@(r.IsOvergrowth ? "Overgrowth since " + r.OvergrowthMarkedAt?.ToString("dd/MM/yyyy") + ": " + r.OvergrowthReason : "Mark this batch as Overgrowth")">@(r.IsOvergrowth ? "OG…" : "Mark OG")</a>
+                            }
                             @if (canTrace && (!r.IsSowingBatch || r.Quantity != r.ApprovedReadyQuantity))
                             {
-                                <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@r.Id" class="btn btn-sm btn-link">Trace</a>
+                                <a asp-page="/Production/ReadyStock/Lineage" asp-all-route-data="@Model.ListRoute" asp-route-id="@r.Id" class="btn btn-sm btn-link">Trace</a>
                             }
                         </td>
                     </tr>
                 }
                 @if (!Model.Items.Any())
                 {
-                    <tr><td colspan="22" class="text-center text-muted">No approved Ready Stock found.</td></tr>
+                    <tr><td colspan="22" class="text-center text-muted">@(Model.Stock == PlantStockManager.Pages.Production.ReadyStock.IndexModel.StockOvergrowth ? "No Ready Stock batch is marked as Overgrowth." : Model.Filter.IsActive || !string.IsNullOrWhiteSpace(Model.Search) ? "No Ready Stock matches the selected filters." : "No approved Ready Stock found.")</td></tr>
                 }
             </tbody>
         </table>

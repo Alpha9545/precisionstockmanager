@@ -31,7 +31,8 @@
                     <tbody>
                         <tr><th class="w-50">Source Area / Polyhouse</th><td>@b.AreaName / @(b.PolyhouseName ?? "-")</td></tr>
                         <tr><th>Variety</th><td>@b.SpeciesName?.Trim() (@b.PlantTypeName)</td></tr>
-                        <tr><th>Batch / Sowing</th><td>@b.BatchNo &middot; @b.SowingCode (sown @b.SowingDate.ToString("dd/MM/yyyy"))</td></tr>
+                        <tr><th>Batch / Sowing</th><td>@b.BatchNo &middot; @b.SowingCode (sown @b.SowingDate.ToString("dd/MM/yyyy")) @PlantStockManager.Services.OvergrowthRules.Badge(b.IsOvergrowth)
+                            @if (b.IsOvergrowth) { <div class="small text-muted" id="ogCarries">The batch received in the Mother Plant Area keeps the Overgrowth marker.</div> }</td></tr>
                         <tr><th>Tray cavity</th><td>@b.CavityType</td></tr>
                         <tr><th>Ready plants (batch)</th><td>@Qty(b.Quantity)</td></tr>
                         <tr><th>Reserved / Dispatched / In transit</th><td>@Qty(b.ReservedQuantity) / @Qty(b.DispatchedQuantity) / @Qty(b.InTransitQuantity)</td></tr>

@@ -8,8 +8,14 @@
 
 <div class="container mt-4">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-        <h3 class="mb-0">Batch #@b.Id &middot; @b.SpeciesName?.Trim()</h3>
-        <a asp-page="/Production/ReadyStock/Index" class="btn btn-sm btn-outline-secondary">Ready Stock</a>
+        <h3 class="mb-0">Batch #@b.Id &middot; @b.SpeciesName?.Trim() @PlantStockManager.Services.OvergrowthRules.Badge(b.IsOvergrowth)</h3>
+        <div class="d-flex gap-2">
+            @if (Model.CanOpenOvergrowth)
+            {
+                <a asp-page="/Production/ReadyStock/Overgrowth" asp-all-route-data="@Model.ListRoute" asp-route-id="@b.Id" class="btn btn-sm btn-outline-warning" id="overgrowthLink">Overgrowth</a>
+            }
+            <a asp-page="/Production/ReadyStock/Index" asp-all-route-data="@Model.ListRoute" class="btn btn-sm btn-outline-secondary" id="backToReadyStock">Ready Stock</a>
+        </div>
     </div>
     <div class="row g-2 mb-3 small" id="balances">
         <div class="col-6 col-md-2"><div class="border rounded p-2 bg-white">Location<br /><strong>@b.AreaName / @(b.PolyhouseName ?? "-")</strong></div></div>
@@ -19,6 +25,13 @@
         <div class="col-6 col-md-2"><div class="border rounded p-2 bg-white">In transit<br /><strong>@Qty(b.InTransitQuantity)</strong></div></div>
         <div class="col-6 col-md-2"><div class="border rounded p-2 bg-white">Dispatched<br /><strong>@Qty(b.DispatchedQuantity)</strong></div></div>
     </div>
+
+    @if (b.IsOvergrowth)
+    {
+        <div class="alert alert-warning py-2 small" id="overgrowthNote">@PlantStockManager.Services.OvergrowthRules.Label since
+            @(b.OvergrowthMarkedAt is DateTime ogAt ? AppClock.ToIndiaTime(ogAt).ToString("dd/MM/yyyy") : "-")@(b.OvergrowthMarkedByName != null ? " (" + b.OvergrowthMarkedByName + ")" : ""): @b.OvergrowthReason.
+            Still available for booking and dispatch.</div>
+    }
 
     <h5>Where it came from</h5>
     <partial name="/Pages/Production/ReadyStock/_LineageChain.cshtml" model="Model.Lineage" />

@@ -17,10 +17,14 @@ namespace PlantStockManager.Pages.Production.ReadyStock
         private readonly MotherPlantTransferRepository _transferRepo;
         private readonly TransplantRepository _transplantRepo;
         private readonly SeedlingAreaScope _areaAccess;
+        private readonly FeatureAccessService _featureAccess;
+        private readonly AreaAccessService _strictArea;
 
         public LineageModel(ReadyStockRepository readyStockRepo, MotherPlantTransferRepository transferRepo,
-            TransplantRepository transplantRepo, SeedlingAreaScope areaAccess)
+            TransplantRepository transplantRepo, SeedlingAreaScope areaAccess, FeatureAccessService featureAccess, AreaAccessService strictArea)
         {
+            _featureAccess = featureAccess;
+            _strictArea = strictArea;
             _readyStockRepo = readyStockRepo;
             _transferRepo = transferRepo;
             _transplantRepo = transplantRepo;
@@ -34,6 +38,15 @@ namespace PlantStockManager.Pages.Production.ReadyStock
         public List<MotherPlantTransfer> TransfersOut { get; private set; } = new();
         public List<ReadyStockTransplant> Transplants { get; private set; } = new();
         public List<ReadyStockTransaction> Ledger { get; private set; } = new();
+        // 2026-10-22: the Overgrowth page link (its permission + this batch's Area; the page and the save check again).
+        public bool CanOpenOvergrowth { get; private set; }
+        // 2026-10-23: the Ready Stock list's filters, only carried back to it (IndexModel.ListRouteFor re-validates them).
+        [BindProperty(SupportsGet = true)] public string? Stock { get; set; }
+        [BindProperty(SupportsGet = true)] public string? Search { get; set; }
+        [BindProperty(SupportsGet = true)] public bool IncludeEmpty { get; set; }
+        // 2026-10-27: the list's option-list filters too (read from the query string, shape-checked only; never bound).
+        public Services.ReadyStockListFilter ListFilter => Services.ReadyStockListFilter.FromQuery(Request.Query);
+        public Dictionary<string, string?> ListRoute => IndexModel.ListRouteFor(Stock, Search, IncludeEmpty, ListFilter);
 
         public async Task<IActionResult> OnGetAsync(int id)
         {
@@ -50,6 +63,8 @@ namespace PlantStockManager.Pages.Production.ReadyStock
             TransfersOut = (await _transferRepo.ListAsync(new[] { batch.AreaId })).Where(t => t.SourceReadyStockId == id).ToList();
             Transplants = await _transplantRepo.GetByBatchAsync(id);
             Ledger = (await _readyStockRepo.GetTransactionsAsync(id)).OrderBy(l => l.TransactionDate).ThenBy(l => l.Id).ToList();
+            CanOpenOvergrowth = _strictArea.CanAccessArea(User, batch.AreaId)
+                && await _featureAccess.CanAccessPageAsync(User, "/Production/ReadyStock/Overgrowth");
             return Page();
         }
     }

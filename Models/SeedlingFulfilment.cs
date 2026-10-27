@@ -63,6 +63,8 @@ namespace PlantStockManager.Models
         public int Id { get; set; }
         public int BookingId { get; set; }
         public int ReadyStockId { get; set; }
+        // 2026-10-22: the allocated batch is marked Overgrowth NOW (dbo.ReadyStock.IsOvergrowth).
+        public bool IsOvergrowth { get; set; }
         public int? BookedSpeciesId { get; set; }
         public int ActualSpeciesId { get; set; }
         public bool IsSubstitution { get; set; }
@@ -141,6 +143,8 @@ namespace PlantStockManager.Models
         public int SeedlingDispatchId { get; set; }
         public int BookingBatchAllocationId { get; set; }
         public int ReadyStockId { get; set; }
+        // 2026-10-22: the batch was Overgrowth WHEN DISPATCHED (dbo.SeedlingDispatchLines.IsOvergrowth, a snapshot).
+        public bool IsOvergrowth { get; set; }
         public int? BookedSpeciesId { get; set; }
         public int ActualSpeciesId { get; set; }
         public bool IsSubstitution { get; set; }
@@ -170,6 +174,8 @@ namespace PlantStockManager.Models
     // A Ready Stock batch offered for reservation / allocation.
     public class ReadyBatchOption
     {
+        // 2026-10-22: the batch is marked Overgrowth (still selectable -- display only).
+        public bool IsOvergrowth { get; set; }
         // The allocation source is ALWAYS this Ready Stock row's own Id --
         // never the batch number, which several batches can share.
         public int ReadyStockId { get; set; }

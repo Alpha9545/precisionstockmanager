@@ -61,6 +61,13 @@ namespace PlantStockManager.Models
         // still part of Quantity, but neither physically here nor available.
         public decimal InTransitQuantity { get; set; }
         public decimal PhysicalQuantity => Quantity - DispatchedQuantity - InTransitQuantity;
+
+        // 2026-10-22 Overgrowth (2026-10-24_ReadyStockOvergrowth.sql; Services/OvergrowthRules.cs): a deliberate, audited mark on
+        // THIS batch row. All false / null without the migration.
+        public bool IsOvergrowth { get; set; }
+        public DateTime? OvergrowthMarkedAt { get; set; }      // UTC
+        public string? OvergrowthMarkedByName { get; set; }
+        public string? OvergrowthReason { get; set; }
         public decimal AvailableQuantity => Quantity - ReservedQuantity - DispatchedQuantity - InTransitQuantity;
 
         // 2026-10-09 lineage (Database/Migrations/2026-10-09_ReadyStockTransplanting.sql):

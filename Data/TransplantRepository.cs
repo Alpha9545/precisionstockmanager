@@ -81,6 +81,8 @@ WHERE rs.Id = @Id", conn, tx);
                     availableFromUtc = r.GetDateTime(7); speciesId = r.GetInt32(8); sourceSowingDate = r.GetDateTime(9);
                 }
                 if (!canAccessArea(sourceAreaId)) { tx.Rollback(); return (false, "You are not allowed to transplant stock of this Area.", 0, false); }
+                // 2026-10-22: the source's Overgrowth marker AT THIS MOMENT (its row is locked above) -- kept in the trace below.
+                var sourceOvergrowth = await SourceOvergrowthAsync(conn, tx, req.SourceReadyStockId);
                 // 2026-10-14: the Mother Plant Area only (its tray pool); a Polyhouse is optional and, if named, must be the Area's.
                 var areaOnly = await MotherPlantAreaSchema.ReadyAsync(conn, tx);
                 if (req.TargetAreaId is not > 0 || (req.TargetPolyhouseId is not > 0 && !areaOnly)) { tx.Rollback(); return (false, "Choose the target Mother Plant Area and Polyhouse.", 0, false); }
@@ -114,7 +116,7 @@ WHERE rs.Id = @Id", conn, tx);
 
                 var wholeTrayCavity = originType == ReadyStock.OriginSowing ? DirectSowingRules.CavityCount(sourceCavity) : null;
                 if (!await BedSowingSchema.TraysToApprovalsAsync(conn, tx))
-                    return await CreateLegacyAsync(conn, tx, req, actor, available, wholeTrayCavity, batchNo, sourceCavity);
+                    return await CreateLegacyAsync(conn, tx, req, actor, available, wholeTrayCavity, batchNo, sourceCavity, sourceOvergrowth);
 
                 // 2026-10-16: the seedlings PROCESSED -> complete trays + waste (the untransplanted remainder), re-planned
                 // here under the source lock from the batch's own available quantity -- never the browser's numbers.
@@ -192,7 +194,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                 var (srcOk, srcError) = await _readyStockRepo.RecordMovementsAsync(conn, tx, req.SourceReadyStockId,
                     new List<(string, decimal, string?)>
                     {
-                        ("TransplantOut", -plan.Transplanted, $"{code}: transplanted into {req.TargetCavityType} trays"),
+                        ("TransplantOut", -plan.Transplanted, $"{code}: transplanted into {req.TargetCavityType} trays"
+                            + (sourceOvergrowth.Marked ? OvergrowthRules.TransplantSourceLedgerNote(sourceOvergrowth.Reason) : "")),
                         ("TransplantLoss", -plan.Waste, plan.Waste > 0 ? $"{code}: waste -- {wasteReason}" : null),
                     }, TransplantRules.ReferenceType, id, actor.UserId, req.TransplantDate.Date);
                 if (!srcOk) { tx.Rollback(); return (false, srcError, 0, false); }
@@ -207,6 +210,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
                         SeedSowing.SourceTransplant, null, speciesId, req.TargetAreaId.Value, req.TargetPolyhouseId, batchNo, null,
                         req.TargetCavityType!, plan.Trays, plan.Transplanted, sourceSowingDate, readyDays!.Value, readyDate!.Value, null,
                         $"Transplanted from Ready Stock batch {batchNo} ({sourceCavity}) on {req.TransplantDate:dd/MM/yyyy} ({code})"
+                            + (sourceOvergrowth.Marked ? " " + OvergrowthRules.TransplantOutputNote : "")   // before the notes: never truncated
                             + (notes == null ? "" : ": " + notes),
                         actor.UserName, actor.UserId));
                     var linkSowing = new SqlCommand("UPDATE dbo.ReadyStockTransplants SET OutputSeedSowingId = @O WHERE Id = @Id", conn, tx);
@@ -242,8 +246,20 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
         // Before 2026-10-13_TraysToSowingApprovals.sql: the output is a NEW Ready Stock batch with exact plant counts
         // (the last tray may be partly filled) and the user enters transplanted + lost -- unchanged behaviour.
         // Runs inside CreateAsync's transaction (source batch locked); commits or rolls back that transaction.
+        // 2026-10-22: is the (locked) source batch marked Overgrowth, and why -- (false, null) without the Overgrowth migration.
+        private static async Task<(bool Marked, string? Reason)> SourceOvergrowthAsync(SqlConnection conn, SqlTransaction tx, int readyStockId)
+        {
+            if (!await ReadyStockOvergrowthSchema.ReadyAsync(conn, tx))
+                return (false, null);
+            using var cmd = new SqlCommand("SELECT IsOvergrowth, OvergrowthReason FROM dbo.ReadyStock WHERE Id = @Id", conn, tx);
+            cmd.Parameters.AddWithValue("@Id", readyStockId);
+            using var r = await cmd.ExecuteReaderAsync();
+            return await r.ReadAsync() && r.GetBoolean(0) ? (true, r.IsDBNull(1) ? null : r.GetString(1)) : (false, null);
+        }
+
         private async Task<(bool Success, string? Message, int Id, bool Duplicate)> CreateLegacyAsync(SqlConnection conn, SqlTransaction tx,
-            CreateRequest req, MotherPlantTransferRepository.Actor actor, decimal available, int? wholeTrayCavity, string batchNo, string sourceCavity)
+            CreateRequest req, MotherPlantTransferRepository.Actor actor, decimal available, int? wholeTrayCavity, string batchNo, string sourceCavity,
+            (bool Marked, string? Reason) sourceOvergrowth = default)
         {
             var (planOk, plan, planError) = TransplantRules.PlanTransplant(req.SelectedQuantity, req.TransplantedQuantity, req.LostQuantity,
                 available, req.TargetCavityType, wholeTrayCavity);
@@ -287,7 +303,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             var (srcOk, srcError) = await _readyStockRepo.RecordMovementsAsync(conn, tx, req.SourceReadyStockId,
                 new List<(string, decimal, string?)>
                 {
-                    ("TransplantOut", -req.TransplantedQuantity, $"{code}: transplanted into {req.TargetCavityType} trays"),
+                    ("TransplantOut", -req.TransplantedQuantity, $"{code}: transplanted into {req.TargetCavityType} trays"
+                        + (sourceOvergrowth.Marked ? OvergrowthRules.TransplantSourceLedgerNote(sourceOvergrowth.Reason) : "")),
                     ("TransplantLoss", -req.LostQuantity, req.LostQuantity > 0 ? $"{code}: lost / damaged while transplanting" : null),
                 }, TransplantRules.ReferenceType, id, actor.UserId, req.TransplantDate.Date);
             if (!srcOk) { tx.Rollback(); return (false, srcError, 0, false); }
@@ -295,7 +312,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             var outputId = await _readyStockRepo.CreateDerivedBatchAsync(conn, tx, req.SourceReadyStockId, ReadyStock.OriginTransplant, id,
                 req.TargetAreaId.Value, req.TargetPolyhouseId, req.TargetCavityType!, actor.UserName);
             var (outOk, outError) = await _readyStockRepo.RecordTransactionAsync(conn, tx, outputId, req.TransplantedQuantity, "TransplantIn",
-                TransplantRules.ReferenceType, id, actor.UserId, $"{code}: from batch {batchNo} ({sourceCavity})", req.TransplantDate.Date);
+                TransplantRules.ReferenceType, id, actor.UserId, $"{code}: from batch {batchNo} ({sourceCavity})"
+                    + (sourceOvergrowth.Marked ? " " + OvergrowthRules.TransplantOutputNote : ""), req.TransplantDate.Date);
             if (!outOk) { tx.Rollback(); return (false, outError, 0, false); }
             var link = new SqlCommand("UPDATE dbo.ReadyStockTransplants SET OutputReadyStockId = @O WHERE Id = @Id", conn, tx);
             link.Parameters.AddWithValue("@O", outputId);

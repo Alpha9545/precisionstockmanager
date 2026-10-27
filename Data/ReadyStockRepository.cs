@@ -22,7 +22,8 @@ namespace PlantStockManager.Data
             _dbHelper = dbHelper;
         }
 
-        private const string BaseSelect = @"
+        // 2026-10-22: + the batch's Overgrowth columns (ReadyStockOvergrowthSchema: constants without the migration).
+        private static string BaseSelectFor(bool overgrowth) => @"
 SELECT
     rs.Id, rs.SeedSowingId, sw.SowingCode, rs.SpeciesId, ps.Name AS SpeciesName, pt.Name AS PlantTypeName,
     rs.AreaId, a.Name AS AreaName, a.AreaType, rs.PolyhouseId, rph.Name AS PolyhouseName,   -- only the Polyhouse actually recorded (optional)
@@ -30,13 +31,13 @@ SELECT
     rs.ReservedQuantity, rs.DispatchedQuantity, rs.InTransitQuantity, rs.OriginType, rs.ParentReadyStockId, rs.OriginReferenceId,
     sw.QuantitySown, sw.ConfirmedReadyQuantity, sw.WastageQuantity, sw.Status AS SowingStatus,
     appr.ApprovedByName, appr.ApprovalDate,
-    rs.CreatedDate, rs.CreatedBy, rs.ModifiedDate, rs.ModifiedBy
+    rs.CreatedDate, rs.CreatedBy, rs.ModifiedDate, rs.ModifiedBy, " + ReadyStockOvergrowthSchema.Columns(overgrowth) + @"
 FROM dbo.ReadyStock rs
 INNER JOIN dbo.SeedSowings sw ON rs.SeedSowingId = sw.Id
 INNER JOIN dbo.PlantSpecies ps ON rs.SpeciesId = ps.Id
 INNER JOIN dbo.PlantTypes pt ON ps.PlantTypeId = pt.Id
 INNER JOIN dbo.Area a ON rs.AreaId = a.Id
-LEFT JOIN dbo.Polyhouses rph ON rs.PolyhouseId = rph.Id
+LEFT JOIN dbo.Polyhouses rph ON rs.PolyhouseId = rph.Id" + ReadyStockOvergrowthSchema.Join(overgrowth) + @"
 OUTER APPLY (
     SELECT TOP 1 u.Name AS ApprovedByName, rc.ConfirmationDate AS ApprovalDate, rc.ActualTrayQuantity AS ReadyTrays
     FROM dbo.ReadyConfirmations rc
@@ -45,13 +46,15 @@ OUTER APPLY (
     ORDER BY rc.ConfirmationDate DESC
 ) appr";   // one Confirmed approval per sowing (UX_ReadyConfirmations_OneConfirmedPerSowing)
 
+        private static async Task<string> BaseSelectAsync(SqlConnection conn) => BaseSelectFor(await ReadyStockOvergrowthSchema.ReadyAsync(conn));
+
         public async Task<List<ReadyStock>> GetAllAsync()
         {
             var list = new List<ReadyStock>();
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
-            var sql = BaseSelect + " ORDER BY rs.CreatedDate DESC";
+            var sql = await BaseSelectAsync(conn) + " ORDER BY rs.CreatedDate DESC";
             using var cmd = new SqlCommand(sql, conn);
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -66,7 +69,7 @@ OUTER APPLY (
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
 
-            var sql = BaseSelect + " WHERE rs.Id = @Id";
+            var sql = await BaseSelectAsync(conn) + " WHERE rs.Id = @Id";
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@Id", id);
             using var reader = await cmd.ExecuteReaderAsync();
@@ -83,7 +86,7 @@ OUTER APPLY (
             await conn.OpenAsync();
 
             // The SOWING batch of this sowing (received / transplanted batches share the sowing reference).
-            var sql = BaseSelect + " WHERE rs.SeedSowingId = @SeedSowingId AND rs.OriginType = N'Sowing'";
+            var sql = await BaseSelectAsync(conn) + " WHERE rs.SeedSowingId = @SeedSowingId AND rs.OriginType = N'Sowing'";
             using var cmd = new SqlCommand(sql, conn);
             cmd.Parameters.AddWithValue("@SeedSowingId", seedSowingId);
             using var reader = await cmd.ExecuteReaderAsync();
@@ -405,7 +408,137 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             var id = await cmd.ExecuteScalarAsync();
             if (id == null || id == DBNull.Value)
                 throw new InvalidOperationException("The parent Ready Stock batch was not found.");
+            // 2026-10-22: plants RECEIVED from an Overgrowth batch are the same plants -- the new batch carries the marker
+            // (same reason, time and marking user) and its history says where it came from. A transplanted output is new
+            // trays and starts unmarked.
+            if (originType == ReadyStock.OriginTransfer && await ReadyStockOvergrowthSchema.ReadyAsync(conn, tx))
+                await InheritOvergrowthAsync(conn, tx, parentReadyStockId, (int)id, createdBy);
             return (int)id;
+        }
+
+        private static async Task InheritOvergrowthAsync(SqlConnection conn, SqlTransaction tx, int parentId, int childId, string? createdBy)
+        {
+            var copy = new SqlCommand(@"
+UPDATE c SET IsOvergrowth = 1, OvergrowthMarkedAt = p.OvergrowthMarkedAt, OvergrowthMarkedById = p.OvergrowthMarkedById,
+             OvergrowthReason = p.OvergrowthReason
+FROM dbo.ReadyStock c JOIN dbo.ReadyStock p ON p.Id = @Parent
+WHERE c.Id = @Child AND p.IsOvergrowth = 1;
+IF @@ROWCOUNT = 1
+    INSERT INTO dbo.ReadyStockOvergrowthLog (ReadyStockId, Action, Reason, SourceReadyStockId, UserId, UserName)
+    SELECT @Child, N'Inherited', p.OvergrowthReason, @Parent, NULL, @By FROM dbo.ReadyStock p WHERE p.Id = @Parent;", conn, tx);
+            copy.Parameters.AddWithValue("@Parent", parentId);
+            copy.Parameters.AddWithValue("@Child", childId);
+            copy.Parameters.AddWithValue("@By", (object?)createdBy ?? DBNull.Value);
+            await copy.ExecuteNonQueryAsync();
+        }
+
+        // ---- Overgrowth (2026-10-22, Services/OvergrowthRules.cs) ------------------------------------------------------------
+        public sealed record OvergrowthActor(int? UserId, string? UserName, bool IsFullAccess);
+
+        // Mark (mark = true) or unmark ONE batch. One transaction, the batch row locked first; then, under the lock:
+        //   * the migration is applied;            * the batch exists;
+        //   * the user holds ReadyStock.Overgrowth through a role assignment IN THIS BATCH'S AREA (or is full access) --
+        //     identity and Area from the server side (the caller's principal and the locked row), never the request;
+        //   * OvergrowthRules.Validate (a reason to mark, plants left to mark, a mark to remove).
+        // The same state again is a no-op (Success, Changed = false) -- a repeated submit changes nothing. Quantities,
+        // reservations and dispatches are never touched. Each change writes one dbo.ReadyStockOvergrowthLog row.
+        public async Task<(bool Success, string Message, bool Changed)> SetOvergrowthAsync(int readyStockId, bool mark, string? reason, OvergrowthActor actor)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            if (!await ReadyStockOvergrowthSchema.ReadyAsync(conn))
+                return (false, ReadyStockOvergrowthSchema.MigrationMessage, false);
+            using var tx = conn.BeginTransaction();
+            var lockCmd = new SqlCommand(@"SELECT AreaId, IsOvergrowth, Quantity - DispatchedQuantity - InTransitQuantity
+FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
+            lockCmd.Parameters.AddWithValue("@Id", readyStockId);
+            int areaId; bool marked; decimal physical;
+            using (var r = await lockCmd.ExecuteReaderAsync())
+            {
+                if (!await r.ReadAsync())
+                    return (false, OvergrowthRules.NotFoundMessage, false);    // disposing the open transaction rolls it back
+                areaId = r.GetInt32(0); marked = r.GetBoolean(1); physical = r.GetDecimal(2);
+            }
+            if (!actor.IsFullAccess && !await HoldsInAreaAsync(conn, tx, actor.UserId, areaId, OvergrowthRules.Permission))
+                return (false, OvergrowthRules.NotAuthorisedMessage, false);
+            if (mark == marked)
+                return (true, mark ? OvergrowthRules.AlreadyMarkedMessage : OvergrowthRules.NotMarkedMessage, false);
+            var error = OvergrowthRules.Validate(mark, marked, physical, reason);
+            if (error != null)
+                return (false, error, false);
+
+            var text = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
+            var update = new SqlCommand(mark
+                ? @"UPDATE dbo.ReadyStock SET IsOvergrowth = 1, OvergrowthMarkedAt = SYSUTCDATETIME(), OvergrowthMarkedById = @User,
+       OvergrowthReason = @Reason, ModifiedBy = @By, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id AND IsOvergrowth = 0"
+                : @"UPDATE dbo.ReadyStock SET IsOvergrowth = 0, OvergrowthMarkedAt = NULL, OvergrowthMarkedById = NULL,
+       OvergrowthReason = NULL, ModifiedBy = @By, ModifiedDate = SYSUTCDATETIME() WHERE Id = @Id AND IsOvergrowth = 1", conn, tx);
+            update.Parameters.AddWithValue("@Id", readyStockId);
+            update.Parameters.AddWithValue("@User", (object?)actor.UserId ?? DBNull.Value);
+            update.Parameters.AddWithValue("@Reason", (object?)text ?? DBNull.Value);
+            update.Parameters.AddWithValue("@By", (object?)actor.UserName ?? DBNull.Value);
+            if (await update.ExecuteNonQueryAsync() != 1)
+                throw new InvalidOperationException("The Overgrowth marker changed while it was being saved.");
+            var log = new SqlCommand(@"INSERT INTO dbo.ReadyStockOvergrowthLog (ReadyStockId, Action, Reason, UserId, UserName)
+VALUES (@Id, @Action, @Reason, @User, @By)", conn, tx);
+            log.Parameters.AddWithValue("@Id", readyStockId);
+            log.Parameters.AddWithValue("@Action", mark ? OvergrowthRules.ActionMarked : OvergrowthRules.ActionUnmarked);
+            log.Parameters.AddWithValue("@Reason", (object?)text ?? DBNull.Value);
+            log.Parameters.AddWithValue("@User", (object?)actor.UserId ?? DBNull.Value);
+            log.Parameters.AddWithValue("@By", (object?)actor.UserName ?? DBNull.Value);
+            await log.ExecuteNonQueryAsync();
+            tx.Commit();
+            return (true, mark ? OvergrowthRules.MarkedMessage : OvergrowthRules.UnmarkedMessage, true);
+        }
+
+        // The user holds the permission through a role assignment in THIS Area (dbo.UserRoles.AreaId) -- an active user only.
+        public static async Task<bool> HoldsInAreaAsync(SqlConnection conn, SqlTransaction? tx, int? userId, int areaId, string permissionCode)
+        {
+            if (userId is not > 0)
+                return false;
+            var cmd = new SqlCommand(@"
+SELECT CASE WHEN EXISTS (
+    SELECT 1 FROM dbo.UserRoles ur
+    JOIN dbo.IMSUsers u ON u.Id = ur.UserId AND ISNULL(u.IsActive, 0) = 1
+    JOIN dbo.RolePermissions rp ON rp.RoleId = ur.RoleId
+    JOIN dbo.Permissions p ON p.Id = rp.PermissionId AND p.Code = @Code
+    WHERE ur.UserId = @U AND ur.AreaId = @A) THEN 1 ELSE 0 END", conn, tx);
+            cmd.Parameters.AddWithValue("@Code", permissionCode);
+            cmd.Parameters.AddWithValue("@U", userId.Value);
+            cmd.Parameters.AddWithValue("@A", areaId);
+            return (int)(await cmd.ExecuteScalarAsync())! == 1;
+        }
+
+        // May this user change the marker of a batch in this Area? (Display; SetOvergrowthAsync re-checks under the lock.)
+        public async Task<bool> CanMarkOvergrowthAsync(int? userId, bool isFullAccess, int areaId)
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            if (!await ReadyStockOvergrowthSchema.ReadyAsync(conn))
+                return false;
+            return isFullAccess || await HoldsInAreaAsync(conn, null, userId, areaId, OvergrowthRules.Permission);
+        }
+
+        // The batch's Overgrowth history, newest first (empty without the migration).
+        public async Task<List<ReadyStockOvergrowthEntry>> GetOvergrowthLogAsync(int readyStockId)
+        {
+            var list = new List<ReadyStockOvergrowthEntry>();
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            if (!await ReadyStockOvergrowthSchema.ReadyAsync(conn))
+                return list;
+            var cmd = new SqlCommand(@"SELECT Id, ReadyStockId, Action, Reason, SourceReadyStockId, UserId, UserName, CreatedAt
+FROM dbo.ReadyStockOvergrowthLog WHERE ReadyStockId = @Id ORDER BY CreatedAt DESC, Id DESC", conn);
+            cmd.Parameters.AddWithValue("@Id", readyStockId);
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                list.Add(new ReadyStockOvergrowthEntry
+                {
+                    Id = r.GetInt32(0), ReadyStockId = r.GetInt32(1), Action = r.GetString(2), Reason = r.IsDBNull(3) ? null : r.GetString(3),
+                    SourceReadyStockId = r.IsDBNull(4) ? null : r.GetInt32(4), UserId = r.IsDBNull(5) ? null : r.GetInt32(5),
+                    UserName = r.IsDBNull(6) ? null : r.GetString(6), CreatedAt = r.GetDateTime(7)
+                });
+            return list;
         }
 
         // The lineage of a batch: itself and every ancestor, oldest (the sowing batch) first.
@@ -443,7 +576,7 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             var list = new List<ReadyStock>();
             using var conn = _dbHelper.GetConnection();
             await conn.OpenAsync();
-            using var cmd = new SqlCommand(BaseSelect + " WHERE rs.ParentReadyStockId = @Id ORDER BY rs.Id", conn);
+            using var cmd = new SqlCommand(await BaseSelectAsync(conn) + " WHERE rs.ParentReadyStockId = @Id ORDER BY rs.Id", conn);
             cmd.Parameters.AddWithValue("@Id", readyStockId);
             using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
@@ -553,7 +686,11 @@ ORDER BY t.CreatedAt DESC";
                 CreatedDate = reader.GetDateTime(reader.GetOrdinal("CreatedDate")),
                 CreatedBy = reader.IsDBNull(reader.GetOrdinal("CreatedBy")) ? null : reader.GetString(reader.GetOrdinal("CreatedBy")),
                 ModifiedDate = reader.IsDBNull(reader.GetOrdinal("ModifiedDate")) ? null : reader.GetDateTime(reader.GetOrdinal("ModifiedDate")),
-                ModifiedBy = reader.IsDBNull(reader.GetOrdinal("ModifiedBy")) ? null : reader.GetString(reader.GetOrdinal("ModifiedBy"))
+                ModifiedBy = reader.IsDBNull(reader.GetOrdinal("ModifiedBy")) ? null : reader.GetString(reader.GetOrdinal("ModifiedBy")),
+                IsOvergrowth = reader.GetBoolean(reader.GetOrdinal("IsOvergrowth")),
+                OvergrowthMarkedAt = reader.IsDBNull(reader.GetOrdinal("OvergrowthMarkedAt")) ? null : reader.GetDateTime(reader.GetOrdinal("OvergrowthMarkedAt")),
+                OvergrowthMarkedByName = reader.IsDBNull(reader.GetOrdinal("OvergrowthMarkedByName")) ? null : reader.GetString(reader.GetOrdinal("OvergrowthMarkedByName")),
+                OvergrowthReason = reader.IsDBNull(reader.GetOrdinal("OvergrowthReason")) ? null : reader.GetString(reader.GetOrdinal("OvergrowthReason"))
             };
         }
     }

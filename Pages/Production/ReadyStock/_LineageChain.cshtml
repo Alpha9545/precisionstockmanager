@@ -11,7 +11,7 @@
                     @(b.OriginType switch { ReadyStock.OriginTransfer => "Received in Mother Plant Area", ReadyStock.OriginTransplant => "Transplanted", _ => "Original sowing batch" })
                     &middot; <a asp-page="/Production/ReadyStock/Lineage" asp-route-id="@b.Id">batch #@b.Id</a>
                 </div>
-                <div class="small">@b.AreaName / @(b.PolyhouseName ?? "-") &middot; @b.CavityType &middot; @b.SpeciesName?.Trim() &middot; @b.BatchNo (@b.SowingCode, sown @b.SowingDate.ToString("dd/MM/yyyy"))</div>
+                <div class="small">@b.AreaName / @(b.PolyhouseName ?? "-") &middot; @b.CavityType &middot; @b.SpeciesName?.Trim() &middot; @b.BatchNo (@b.SowingCode, sown @b.SowingDate.ToString("dd/MM/yyyy")) @PlantStockManager.Services.OvergrowthRules.Badge(b.IsOvergrowth, compact: true)</div>
             </div>
             <span class="small text-nowrap">now @Qty(b.PhysicalQuantity) plants@(b.InTransitQuantity > 0 ? $", {Qty(b.InTransitQuantity)} in transit" : "")</span>
         </li>

@@ -31,7 +31,7 @@
             <div class="table-responsive">
             <table class="table table-sm table-bordered">
                 <tbody>
-                    <tr><th class="w-50">Source batch</th><td>@b.BatchNo <span class="small text-muted">(@b.SowingCode)</span></td></tr>
+                    <tr><th class="w-50">Source batch</th><td>@b.BatchNo <span class="small text-muted">(@b.SowingCode)</span> @PlantStockManager.Services.OvergrowthRules.Badge(b.IsOvergrowth)</td></tr>
                     <tr><th>Variety</th><td>@b.SpeciesName?.Trim() (@b.PlantTypeName)</td></tr>
                     <tr><th>Cavity</th><td>@b.CavityType</td></tr>
                     <tr><th>From Area</th><td>@b.AreaName</td></tr>

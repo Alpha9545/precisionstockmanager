@@ -111,6 +111,9 @@ namespace PlantStockManager.Authorization
                 // re-checks its own permission and the Area (SeedlingAreaScope); these are the page gates.
                 ["/Production/ReadyStock/TransferToMotherPlant"] = R("ReadyStock.TransferToMotherPlant"),
                 ["/Production/ReadyStock/Lineage"] = R("ReadyStock.View|Transplant.View"),
+                // 2026-10-22: mark / unmark a batch as Overgrowth (2026-10-24_ReadyStockOvergrowth.sql: Sowing / Mother Plant Supervisor).
+                // ReadyStockRepository.SetOvergrowthAsync re-checks the permission in the batch's own Area under the batch's lock.
+                ["/Production/ReadyStock/Overgrowth"] = R("ReadyStock.Overgrowth"),
                 ["/Production/MotherPlantTransfers/Index"] = R("ReadyStock.TransferToMotherPlant|ReadyStock.ReceiveTransfer",
                                                                "ReadyStock.TransferToMotherPlant|ReadyStock.ReceiveTransfer"),
                 ["/Production/Transplanting/Index"] = R("Transplant.Enter"),
