@@ -34,7 +34,7 @@ namespace PlantStockManager.Pages.Production.MotherPlant
 
         public ReadyBatch Batch { get; private set; } = new();
         public bool SchemaReady { get; private set; }
-        public int AvailableTrays => Batch.CavitySize is > 0 ? (int)decimal.Floor(Math.Max(Batch.AvailableQuantity, 0) / Batch.CavitySize.Value) : 0;
+        public int AvailableTrays => AreaReadyStockActionRules.AvailableCompleteTrays(Batch);   // a partial-tray batch: 1 tray = its whole quantity (2026-10-31)
 
         [BindProperty] public int Trays { get; set; }
         [BindProperty] public string? CustomerName { get; set; }

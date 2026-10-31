@@ -491,6 +491,19 @@ VALUES (@Id, @Action, @Reason, @User, @By)", conn, tx);
             return (true, mark ? OvergrowthRules.MarkedMessage : OvergrowthRules.UnmarkedMessage, true);
         }
 
+        // 2026-10-31: plants in ONE tray of a batch counted in trays, read under its row lock: the cavity, or a partial-tray
+        // batch's whole quantity (PartialTrayRules -- it moves only as a whole). Null when the batch or its cavity is unknown.
+        public static async Task<int?> LockedTraySizeAsync(SqlConnection conn, SqlTransaction tx, int readyStockId)
+        {
+            using var cmd = new SqlCommand(
+                "SELECT OriginType, Quantity, CavityType FROM dbo.ReadyStock WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conn, tx);
+            cmd.Parameters.AddWithValue("@Id", readyStockId);
+            using var r = await cmd.ExecuteReaderAsync();
+            if (!await r.ReadAsync() || r.IsDBNull(2))
+                return null;
+            return PartialTrayRules.TraySize(r.GetString(0), r.GetDecimal(1), r.GetString(2));
+        }
+
         // The user holds the permission through a role assignment in THIS Area (dbo.UserRoles.AreaId) -- an active user only.
         public static async Task<bool> HoldsInAreaAsync(SqlConnection conn, SqlTransaction? tx, int? userId, int areaId, string permissionCode)
         {

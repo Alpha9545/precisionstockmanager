@@ -74,7 +74,7 @@ namespace PlantStockManager.Pages.Production.OutletBooking
                 .Select(s => new { id = s.Id, label = $"{s.SpeciesName?.Trim()}{(string.IsNullOrEmpty(s.SpeciesColor) ? "" : " (" + s.SpeciesColor + ")")} - {s.PotSize} - available {QuantityFormat.Qty(s.AvailableQuantity - s.InTransitQuantity)}", available = s.AvailableQuantity - s.InTransitQuantity });
             var trays = (await _readyRepo.GetAllAsync())
                 .Where(s => s.AreaId == outletAreaId)
-                .Select(s => new { s, cavity = DirectSowingRules.CavityCount(s.CavityType) })
+                .Select(s => new { s, cavity = s.TraySize })   // a partial-tray batch: 1 tray = its whole quantity (2026-10-31)
                 .Where(x => x.cavity is > 0 && x.s.AvailableQuantity > 0)
                 .Select(x => new { id = x.s.Id, label = $"{x.s.SpeciesName?.Trim()} - {x.s.CavityType} - available {(x.s.AvailableQuantity / x.cavity!.Value):N0} trays", available = Math.Floor(x.s.AvailableQuantity / x.cavity!.Value) })
                 .OrderBy(o => o.label);

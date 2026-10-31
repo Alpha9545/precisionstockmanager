@@ -22,12 +22,17 @@ namespace PlantStockManager.Services
 
         public record Plan(int OutputTrays, int FullTrays, decimal PlantsInLastTray, int Cavity);
 
+        private static string PartialTrayMessage(int batchQuantity, string action)
+            => $"This batch is one partial tray of {QuantityFormat.Qty(batchQuantity)} seedlings and is taken only as a whole: {action} ({QuantityFormat.Qty(batchQuantity)}).";
+
         // sourceWholeTrayCavity: set when the SOURCE is a sowing batch (whole trays only -- e.g. a
         // Mother Plant Area's own cutting sowing): the plants taken (selected) must then be whole
         // source trays. NULL for a received / transplanted batch (exact plant counts).
+        // sourcePartialTray (2026-10-31): the source is a partial-tray batch (PartialTrayRules) and sourceWholeTrayCavity is its
+        // whole quantity -- it is taken only as a whole.
         public static (bool Ok, Plan? Plan, string? Error) PlanTransplant(
             decimal selected, decimal transplanted, decimal lost, decimal sourceAvailable, string? targetCavityType,
-            int? sourceWholeTrayCavity = null)
+            int? sourceWholeTrayCavity = null, bool sourcePartialTray = false)
         {
             var cavity = DirectSowingRules.CavityCount(targetCavityType);
             if (cavity is null or <= 0)
@@ -43,7 +48,9 @@ namespace PlantStockManager.Services
             if (selected > sourceAvailable)
                 return (false, null, $"Only {QuantityFormat.Qty(sourceAvailable)} plants of this batch are available.");
             if (sourceWholeTrayCavity is > 0 && selected % sourceWholeTrayCavity.Value != 0)
-                return (false, null, $"This batch is a sowing batch kept in whole {sourceWholeTrayCavity.Value}-cavity trays: select a multiple of {sourceWholeTrayCavity.Value} plants (transplanted + lost).");
+                return (false, null, sourcePartialTray
+                    ? PartialTrayMessage(sourceWholeTrayCavity.Value, "select all of them (transplanted + lost)")
+                    : $"This batch is a sowing batch kept in whole {sourceWholeTrayCavity.Value}-cavity trays: select a multiple of {sourceWholeTrayCavity.Value} plants (transplanted + lost).");
             var trays = (int)Math.Ceiling(transplanted / cavity.Value);
             var full = (int)Math.Floor(transplanted / cavity.Value);
             return (true, new Plan(trays, full, transplanted - full * cavity.Value, cavity.Value), null);
@@ -75,16 +82,19 @@ namespace PlantStockManager.Services
         }
 
         // sourceWholeTrayCavity: the source is a sowing batch kept in whole trays -- Q must be whole source trays.
+        // sourcePartialTray: as PlanTransplant -- a partial-tray batch is processed only as a whole.
         public static (bool Ok, ProcessPlan? Plan, string? Error) PlanProcessing(
             decimal available, decimal processQuantity, string? targetCavityType, bool discardAll, string? wasteReason,
-            int? sourceWholeTrayCavity = null)
+            int? sourceWholeTrayCavity = null, bool sourcePartialTray = false)
         {
             if (processQuantity <= 0 || !DirectSowingRules.IsWholeNumber(processQuantity))
                 return (false, null, "Seedlings to process must be a whole number greater than zero.");
             if (processQuantity > available)
                 return (false, null, $"Only {QuantityFormat.Qty(Math.Max(available, 0))} seedlings of this batch are available.");
             if (sourceWholeTrayCavity is > 0 && processQuantity % sourceWholeTrayCavity.Value != 0)
-                return (false, null, $"This batch is a sowing batch kept in whole {sourceWholeTrayCavity.Value}-cavity trays: process a multiple of {sourceWholeTrayCavity.Value} seedlings.");
+                return (false, null, sourcePartialTray
+                    ? PartialTrayMessage(sourceWholeTrayCavity.Value, "process all of them")
+                    : $"This batch is a sowing batch kept in whole {sourceWholeTrayCavity.Value}-cavity trays: process a multiple of {sourceWholeTrayCavity.Value} seedlings.");
             var reason = wasteReason?.Trim();
             if (reason?.Length > MaxWasteReasonLength)
                 return (false, null, $"The waste reason is too long ({MaxWasteReasonLength} characters at most).");

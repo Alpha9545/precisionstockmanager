@@ -120,6 +120,9 @@ THEN 1 ELSE 0 END", conn, tx);
             return await IsAreaApproverAsync(conn, null, userId, areaId);
         }
 
+        // 2026-10-31: whether "All Seedlings Damaged" may be offered (2026-10-31_AllSeedlingsDamagedApproval.sql applied).
+        public Task<bool> AllSeedlingsDamagedAvailableAsync() => WorkflowCorrectionsSchema.AllSeedlingsDamagedAsync(_dbHelper);
+
         public async Task<DirectSowingRules.BedApprover> GetBedApproverAsync()
         {
             using var conn = _dbHelper.GetConnection();
@@ -257,11 +260,25 @@ WHERE t.ReferenceType = @RT AND t.ReferenceId = @Id AND t.TransactionType = 'CON
         // number of CUTTINGS) referencing this approval.
         // canUseSourceArea: may this user use cuttings held in the pool's Area
         // (same rule as recording the sowing); only consulted when there IS an extra.
+        //
+        // 2026-10-31 allDamaged = "All Seedlings Damaged" (AllSeedlingsDamagedRules): every seedling the sowing still expects was damaged.
+        // actualReadyTrays must be 0; damageReason is required. Same locks, eligibility and authority checks as above; then
+        // 0 trays / 0 seedlings, Wastage = the still-expected quantity with reason 'Damaged plants', no Ready Stock ledger
+        // row, no extra cuttings / trays / material, and the sowing closes. Refused without
+        // 2026-10-31_AllSeedlingsDamagedApproval.sql (checked under the lock; the CHECK and trigger repeat it).
         public async Task<(bool Success, string? Message, int Id)> ConfirmAsync(
             int seedSowingId, decimal actualReadyTrays, string? wastageReason, int? responsiblePersonId,
-            string? remarks, string? createdBy, int? userId, Func<int, bool>? canUseSourceArea = null)
+            string? remarks, string? createdBy, int? userId, Func<int, bool>? canUseSourceArea = null,
+            bool allDamaged = false, string? damageReason = null)
         {
-            if (actualReadyTrays <= 0 || !DirectSowingRules.IsWholeNumber(actualReadyTrays))
+            if (allDamaged)
+            {
+                if (actualReadyTrays != 0)
+                    return (false, "With All Seedlings Damaged the Actual Ready Trays must be 0.", 0);
+                if (string.IsNullOrWhiteSpace(damageReason))
+                    return (false, AllSeedlingsDamagedRules.ReasonRequiredMessage, 0);
+            }
+            else if (actualReadyTrays <= 0 || !DirectSowingRules.IsWholeNumber(actualReadyTrays))
                 return (false, "Actual Ready Trays must be a whole number of at least 1.", 0);
 
             using var conn = _dbHelper.GetConnection();
@@ -368,14 +385,47 @@ WHERE t.ReferenceType = @RT AND t.ReferenceId = @Id AND t.TransactionType = 'CON
 
                 // 3) Tray arithmetic (under the lock), always with the SOWING's
                 //    cavity and tray count -- never a value from the browser.
-                var (ok, actualTrays, readyQuantity, wastage, _, error) = DirectSowingRules.ComputeTrayApproval(
-                    quantitySown, sowingTrays, cavityType, confirmedSoFar, wastedSoFar, actualReadyTrays, wastageReason);
-                if (!ok)
+                //    2026-10-31: a partial-tray cutting sowing (PartialTrayRules) = exactly 1 tray of its own cuttings.
+                var partialTraySowing = PartialTrayRules.IsPartialTraySowing(sowingSourceType, quantitySown, cavityType);
+                int actualTrays;
+                decimal readyQuantity, wastage;
+                string? reasonToStore, remarksToStore = remarks;
+                if (allDamaged)
                 {
-                    tx.Rollback();
-                    return (false, error, 0);
+                    // 2026-10-31: 0 trays / 0 seedlings, wastage = everything still expected, reason 'Damaged plants'.
+                    if (!await WorkflowCorrectionsSchema.AllSeedlingsDamagedAsync(conn, tx))
+                    {
+                        tx.Rollback();
+                        return (false, AllSeedlingsDamagedRules.NotAvailableMessage, 0);
+                    }
+                    if (!sowingTrays.HasValue || DirectSowingRules.CavityCount(cavityType) == null)
+                    {
+                        tx.Rollback();
+                        return (false, "The sowing has no tray quantity or cavity recorded; it cannot be approved by trays.", 0);
+                    }
+                    var (damagedOk, damagedWastage, _, damagedRemarks, damagedError) = AllSeedlingsDamagedRules.Compute(
+                        quantitySown, confirmedSoFar, wastedSoFar, damageReason, remarks);
+                    if (!damagedOk)
+                    {
+                        tx.Rollback();
+                        return (false, damagedError, 0);
+                    }
+                    (actualTrays, readyQuantity, wastage) = (0, 0m, damagedWastage);
+                    reasonToStore = AllSeedlingsDamagedRules.WastageReason;
+                    remarksToStore = damagedRemarks;
                 }
-                var reasonToStore = wastage > 0 ? wastageReason : null;
+                else
+                {
+                    var (ok, trays, seedlings, trayWastage, _, error) = DirectSowingRules.ComputeTrayApproval(
+                        quantitySown, sowingTrays, cavityType, confirmedSoFar, wastedSoFar, actualReadyTrays, wastageReason, sowingSourceType);
+                    if (!ok)
+                    {
+                        tx.Rollback();
+                        return (false, error, 0);
+                    }
+                    (actualTrays, readyQuantity, wastage) = (trays, seedlings, trayWastage);
+                    reasonToStore = wastage > 0 ? wastageReason : null;
+                }
 
                 // 3a) A tray batch transplanted from a Bed Sowing holds exactly the seedlings
                 //     counted into its trays at transplanting: approving MORE would create Ready
@@ -392,7 +442,7 @@ WHERE t.ReferenceType = @RT AND t.ReferenceId = @Id AND t.TransactionType = 'CON
                 //     lock the sowing's own Cutting Stock pool and check the extra
                 //     against its AVAILABLE quantity, before anything is written.
                 var extraCuttings = DirectSowingRules.ExtraCuttingsNeeded(
-                    sowingSourceType, actualTrays, cavityType, quantitySown - confirmedSoFar - wastedSoFar);
+                    sowingSourceType, actualTrays, cavityType, quantitySown - confirmedSoFar - wastedSoFar, partialTraySowing);
                 if (extraCuttings > 0)
                 {
                     if (!sourceCuttingStockId.HasValue)
@@ -453,13 +503,13 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);";
                 cmd.Parameters.AddWithValue("@SeedSowingId", seedSowingId);
                 cmd.Parameters.AddWithValue("@ReadyStockId", readyStockId);
                 cmd.Parameters.AddWithValue("@ActualTrayQuantity", actualTrays);
-                cmd.Parameters.AddWithValue("@ConfirmedQuantity", readyQuantity);   // = actualTrays x sowing cavity
+                cmd.Parameters.AddWithValue("@ConfirmedQuantity", readyQuantity);   // = actualTrays x sowing cavity (a partial tray: its own cuttings)
                 cmd.Parameters.AddWithValue("@WastageQuantity", wastage);
                 cmd.Parameters.AddWithValue("@WastageReason", (object?)reasonToStore ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ApprovedById", (object?)userId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@ResponsiblePersonId", (object?)responsiblePersonId ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@SupervisorId", (object?)assignedSupervisorId ?? DBNull.Value);   // the sowing's assigned supervisor
-                cmd.Parameters.AddWithValue("@Remarks", (object?)remarks ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Remarks", (object?)remarksToStore ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@CreatedBy", (object?)createdBy ?? DBNull.Value);
                 var newId = (int)(await cmd.ExecuteScalarAsync())!;
 

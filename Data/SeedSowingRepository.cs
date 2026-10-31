@@ -877,6 +877,11 @@ WHERE Id = @Id AND Status <> 'Cancelled'";
         // filed under a Main Office-type Area is a valid destination (only
         // that Area's own Cutting Stock depot concept is excluded, never its
         // named physical Polyhouses).
+        // 2026-10-31: a Cutting Quantity under one complete tray is ONE partial tray (PartialTrayRules) once
+        // 2026-10-31_CuttingPartialTraySowing.sql is applied: NumberOfTrays 1, QuantitySown = the cuttings, no 'Wastage'
+        // row, 1 physical tray. The pages ask CuttingPartialTrayAvailableAsync to show the (non-blocking) warning.
+        public Task<bool> CuttingPartialTrayAvailableAsync() => WorkflowCorrectionsSchema.CuttingPartialTrayAsync(_dbHelper);
+
         public async Task<(bool Success, string? Message, int Id)> InsertFromCuttingAsync(SeedSowing entry, int? userId, Func<int, bool>? canAccessArea = null, Func<int, bool>? canUseSourceArea = null, int? transferId = null)
         {
             entry.SourceType = SeedSowing.SourceCutting;
@@ -997,8 +1002,11 @@ WHERE Id = @TransferId", conn, tx);
 
                 // Under the stock lock: whole number, complete trays, quantity
                 // available; used = cuttings placed in complete trays.
+                // 2026-10-31: under one complete tray -> ONE partial tray (trays 1, used = the cuttings themselves, nothing
+                // wasted), once 2026-10-31_CuttingPartialTraySowing.sql is applied (PartialTrayRules); refused as before otherwise.
                 var (planOk, trays, used, _, _, planError) = DirectSowingRules.PlanSowing(
-                    cuttingQuantity, entry.CavityType, physical, inTransit, DirectSowingRules.CuttingQuantityLabel, "Cutting Stock");
+                    cuttingQuantity, entry.CavityType, physical, inTransit, DirectSowingRules.CuttingQuantityLabel, "Cutting Stock",
+                    allowPartialTray: await WorkflowCorrectionsSchema.CuttingPartialTrayAsync(conn, tx));
                 if (!planOk)
                 {
                     tx.Rollback();

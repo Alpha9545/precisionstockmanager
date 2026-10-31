@@ -192,12 +192,14 @@ namespace PlantStockManager.Tests
 
 
         [Theory]
-        [InlineData(480, 24, 20)]
-        [InlineData(47, 24, 1)]
-        [InlineData(23, 24, 0)]
-        public void CustomerDispatch_OffersWholeTraysOnly(decimal available, int cavity, int trays)
+        [InlineData(480, 24, 20, ReadyStock.OriginSowing)]
+        [InlineData(47, 24, 1, ReadyStock.OriginSowing)]
+        [InlineData(23, 24, 0, ReadyStock.OriginTransfer)]
+        // 2026-10-31: a SOWING batch under one tray can only be a partial-tray cutting sowing -- one tray of its whole quantity
+        [InlineData(23, 24, 1, ReadyStock.OriginSowing)]
+        public void CustomerDispatch_OffersWholeTraysOnly(decimal available, int cavity, int trays, string origin)
         {
-            var b = new ReadyStock { Quantity = available, CavityType = $"{cavity} Cavity" };
+            var b = new ReadyStock { Quantity = available, CavityType = $"{cavity} Cavity", OriginType = origin };
             Assert.Equal(trays, AreaReadyStockActionRules.AvailableCompleteTrays(b));
             Assert.Equal(trays > 0, AreaReadyStockActionRules.SellToCustomer(b, true, false, true).Available);
         }

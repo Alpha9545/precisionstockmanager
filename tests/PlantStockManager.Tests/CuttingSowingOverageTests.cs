@@ -363,7 +363,8 @@ namespace PlantStockManager.Tests
             Assert.DoesNotContain("asp-for=\"Extra", view);
             var page = Repo("Pages", "Production", "ReadyConfirmation", "Confirm.cshtml.cs");
             var bound = Regex.Matches(page, @"\[BindProperty\][^;{]*?public\s+\S+\s+(\w+)").Select(m => m.Groups[1].Value).OrderBy(n => n).ToArray();
-            Assert.Equal(new[] { "ActualReadyTrays", "Remarks", "SeedSowingId", "WastageReason" }, bound);
+            // 2026-10-31: + AllSeedlingsDamaged (bool) and DamageReason (text) -- neither is a quantity (TrayApprovalTests).
+            Assert.Equal(new[] { "ActualReadyTrays", "AllSeedlingsDamaged", "DamageReason", "Remarks", "SeedSowingId", "WastageReason" }, bound);
         }
 
         [Fact]

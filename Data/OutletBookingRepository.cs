@@ -206,7 +206,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             }
             var (ownOk, ownError) = OutletStockOwnershipRules.ValidateSameArea(areaId ?? -1, outletAreaId);
             if (!ownOk) return (false, ownError);
-            var cavitySize = DirectSowingRules.CavityCount(cavityType);
+            // 2026-10-31: plants per tray -- a partial-tray batch's tray is its whole quantity (PartialTrayRules).
+            var cavitySize = await ReadyStockRepository.LockedTraySizeAsync(conn, tx, line.StockId);
             if (cavitySize is null or <= 0)
                 return (false, "This batch's cavity is not recognised.");
 
@@ -280,7 +281,7 @@ WHERE i.Id = @Id", conn, tx);
                 }
                 else
                 {
-                    var cavitySize = DirectSowingRules.CavityCount(cavityType)!.Value;
+                    var cavitySize = (await ReadyStockRepository.LockedTraySizeAsync(conn, tx, readyId!.Value))!.Value;   // = at booking
                     var (dispOk, dispMessage) = await _readyStockRepo.RecordDispatchAsync(
                         conn, tx, readyId!.Value, quantity * cavitySize, "OutletBookingItem", bookingItemId, userId, $"Collected: booking {code} ({customer})", "Dispatch");
                     if (!dispOk) { tx.Rollback(); return (false, dispMessage); }
@@ -362,7 +363,7 @@ WHERE i.Id = @Id", conn, tx);
                     }
                     else
                     {
-                        var cavitySize = DirectSowingRules.CavityCount(cavity)!.Value;
+                        var cavitySize = (await ReadyStockRepository.LockedTraySizeAsync(conn, tx, readyId!.Value))!.Value;   // = at booking
                         var (relOk, relMessage) = await _readyStockRepo.RecordReservationAsync(
                             conn, tx, readyId!.Value, -openQty * cavitySize, "OutletBookingItem", itemId, userId, $"Booking {code} cancelled: {reason.Trim()}");
                         if (!relOk) { tx.Rollback(); return (false, relMessage); }

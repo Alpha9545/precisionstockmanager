@@ -114,6 +114,12 @@
                         <div class="form-text">Any cutting not used for sowing is recorded as waste automatically -- it is never left in Cutting Stock.</div>
                     </div>
                     <div class="col-12"><div class="text-danger small d-none" id="trayError"></div></div>
+                    @* 2026-10-31: under one complete tray -- informational only, never blocks the confirmation (PartialTrayRules). *@
+                    <div class="col-12">
+                        <div class="alert alert-warning py-2 mb-0 small @(Model.PartialTrayWarningText == null ? "d-none" : "")" id="trayWarning" role="status">
+                            <span aria-hidden="true">&#9888;</span> <span id="trayWarningText">@Model.PartialTrayWarningText</span>
+                        </div>
+                    </div>
 
                     <partial name="_TrayAvailability" />
 
@@ -200,11 +206,13 @@
                 const q = $('#qty').val(), c = $('#cavity').val();
                 $('#trays, #used, #remaining').val('');
                 $('#trayError').addClass('d-none').text('');
+                $('#trayWarning').addClass('d-none'); $('#trayWarningText').text('');
                 if (!q || !c) return;
                 $.getJSON(url, { handler: 'TrayCalculation', quantity: q, cavityType: c }, function (r) {
                     if (r.ok) { $('#trays').val(r.trays); $('#used').val(r.used); $('#remaining').val(r.remaining); }
                     const msg = !r.wholeNumber ? 'Cutting Quantity must be a whole number.' : (r.ok ? '' : r.error);
                     if (msg) $('#trayError').removeClass('d-none').text(msg);
+                    if (!msg && r.warning) { $('#trayWarningText').text(r.warning); $('#trayWarning').removeClass('d-none'); }
                 });
             }
             $('#stock').on('change', function () { syncQuantityFromStock(); calc(); });

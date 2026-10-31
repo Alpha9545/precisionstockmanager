@@ -67,18 +67,18 @@ namespace PlantStockManager.Data
                 var srcCmd = new SqlCommand(@"
 SELECT rs.OriginType, rs.AreaId, a.AreaType, a.IsActive, rs.CavityType, rs.BatchNo,
        rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity,
-       ISNULL(rs.FirstConfirmationDate, rs.CreatedDate), rs.SpeciesId, rs.SowingDate
+       ISNULL(rs.FirstConfirmationDate, rs.CreatedDate), rs.SpeciesId, rs.SowingDate, rs.Quantity
 FROM dbo.ReadyStock rs WITH (UPDLOCK, HOLDLOCK)
 JOIN dbo.Area a ON a.Id = rs.AreaId
 WHERE rs.Id = @Id", conn, tx);
                 srcCmd.Parameters.AddWithValue("@Id", req.SourceReadyStockId);
-                string originType, sourceCavity, batchNo; int sourceAreaId, speciesId; string? sourceAreaType; bool sourceActive; decimal available; DateTime availableFromUtc, sourceSowingDate;
+                string originType, sourceCavity, batchNo; int sourceAreaId, speciesId; string? sourceAreaType; bool sourceActive; decimal available, batchQuantity; DateTime availableFromUtc, sourceSowingDate;
                 using (var r = await srcCmd.ExecuteReaderAsync())
                 {
                     if (!await r.ReadAsync()) { r.Close(); tx.Rollback(); return (false, "Source Ready Stock batch not found.", 0, false); }
                     originType = r.GetString(0); sourceAreaId = r.GetInt32(1); sourceAreaType = r.IsDBNull(2) ? null : r.GetString(2);
                     sourceActive = r.GetBoolean(3); sourceCavity = r.GetString(4); batchNo = r.GetString(5); available = r.GetDecimal(6);
-                    availableFromUtc = r.GetDateTime(7); speciesId = r.GetInt32(8); sourceSowingDate = r.GetDateTime(9);
+                    availableFromUtc = r.GetDateTime(7); speciesId = r.GetInt32(8); sourceSowingDate = r.GetDateTime(9); batchQuantity = r.GetDecimal(10);
                 }
                 if (!canAccessArea(sourceAreaId)) { tx.Rollback(); return (false, "You are not allowed to transplant stock of this Area.", 0, false); }
                 // 2026-10-22: the source's Overgrowth marker AT THIS MOMENT (its row is locked above) -- kept in the trace below.
@@ -114,15 +114,17 @@ WHERE rs.Id = @Id", conn, tx);
                 var (dateOk, dateError) = TransplantRules.ValidateDate(req.TransplantDate, AppClock.Today, AppClock.ToIndiaTime(availableFromUtc));
                 if (!dateOk) { tx.Rollback(); return (false, dateError, 0, false); }
 
-                var wholeTrayCavity = originType == ReadyStock.OriginSowing ? DirectSowingRules.CavityCount(sourceCavity) : null;
+                // 2026-10-31: one tray of a partial-tray sowing batch = its whole quantity (PartialTrayRules) -- taken only as a whole.
+                var wholeTrayCavity = originType == ReadyStock.OriginSowing ? PartialTrayRules.TraySize(originType, batchQuantity, sourceCavity) : null;
+                var partialTraySource = PartialTrayRules.IsPartialTrayBatch(originType, batchQuantity, sourceCavity);
                 if (!await BedSowingSchema.TraysToApprovalsAsync(conn, tx))
-                    return await CreateLegacyAsync(conn, tx, req, actor, available, wholeTrayCavity, batchNo, sourceCavity, sourceOvergrowth);
+                    return await CreateLegacyAsync(conn, tx, req, actor, available, wholeTrayCavity, batchNo, sourceCavity, sourceOvergrowth, partialTraySource);
 
                 // 2026-10-16: the seedlings PROCESSED -> complete trays + waste (the untransplanted remainder), re-planned
                 // here under the source lock from the batch's own available quantity -- never the browser's numbers.
                 var wasteSchema = await WorkflowCorrectionsSchema.TransplantWasteAsync(conn, tx);
                 var (planOk, plan, planError) = TransplantRules.PlanProcessing(available, req.SelectedQuantity, req.TargetCavityType,
-                    req.DiscardAll, req.WasteReason, wholeTrayCavity);
+                    req.DiscardAll, req.WasteReason, wholeTrayCavity, partialTraySource);
                 if (!planOk) { tx.Rollback(); return (false, planError, 0, false); }
                 if (req.TransplantedQuantity != plan!.Transplanted || req.LostQuantity != plan.Waste)
                 {
@@ -259,10 +261,10 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
 
         private async Task<(bool Success, string? Message, int Id, bool Duplicate)> CreateLegacyAsync(SqlConnection conn, SqlTransaction tx,
             CreateRequest req, MotherPlantTransferRepository.Actor actor, decimal available, int? wholeTrayCavity, string batchNo, string sourceCavity,
-            (bool Marked, string? Reason) sourceOvergrowth = default)
+            (bool Marked, string? Reason) sourceOvergrowth = default, bool partialTraySource = false)
         {
             var (planOk, plan, planError) = TransplantRules.PlanTransplant(req.SelectedQuantity, req.TransplantedQuantity, req.LostQuantity,
-                available, req.TargetCavityType, wholeTrayCavity);
+                available, req.TargetCavityType, wholeTrayCavity, partialTraySource);
             if (!planOk) { tx.Rollback(); return (false, planError, 0, false); }
 
             var (trayLocOk, trayLocError) = await TrayStockRepository.ValidateLocationAsync(conn, tx, req.TargetAreaId!.Value, req.TargetPolyhouseId);

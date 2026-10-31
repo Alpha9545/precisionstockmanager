@@ -23,6 +23,9 @@ namespace PlantStockManager.Pages.Production.SeedSowing
     //   Used Cutting    = Complete Trays x Cavity   (leaves Cutting Stock, 'Sown')
     //   Remaining       = the rest                   (wasted automatically, 'Wastage' --
     //                                                  never left in or returned to Cutting Stock)
+    // 2026-10-31: a Cutting Quantity under one complete tray (e.g. 62 at 150 Cavity) is ONE partial tray once
+    // 2026-10-31_CuttingPartialTraySowing.sql is applied: a yellow warning, never an error -- 1 tray deducted, the
+    // cuttings recorded as sown exactly (never rounded up), nothing wasted (PartialTrayRules).
     public class CreateFromCuttingModel : PageModel
     {
         private readonly SeedSowingRepository _seedSowingRepo;
@@ -196,12 +199,19 @@ namespace PlantStockManager.Pages.Production.SeedSowing
                 DirectSowingRules.PhysicalTraysRequired(quantity, cavityType)));
         }
 
-        // Live preview -- the same function the save uses.
-        public JsonResult OnGetTrayCalculation(decimal quantity, string? cavityType)
+        // Live preview -- the same function the save uses. warning: the partial-tray notice (informational only).
+        public async Task<JsonResult> OnGetTrayCalculationAsync(decimal quantity, string? cavityType)
         {
-            var (ok, trays, used, remaining, error) = DirectSowingRules.CalculateTrays(quantity, cavityType, DirectSowingRules.CuttingQuantityLabel);
-            return new JsonResult(new { ok, trays, used, remaining, wholeNumber = DirectSowingRules.IsWholeNumber(quantity), error });
+            var allowPartial = await _seedSowingRepo.CuttingPartialTrayAvailableAsync();
+            var (ok, trays, used, remaining, error) = DirectSowingRules.CalculateTrays(quantity, cavityType, DirectSowingRules.CuttingQuantityLabel, allowPartial);
+            return new JsonResult(new { ok, trays, used, remaining, wholeNumber = DirectSowingRules.IsWholeNumber(quantity), error,
+                warning = ok ? PartialTrayWarning(quantity, cavityType) : null });
         }
+
+        // The yellow notice for a quantity under one complete tray (null otherwise), shown again after a refused POST.
+        public string? PartialTrayWarningText { get; private set; }
+        private static string? PartialTrayWarning(decimal quantity, string? cavityType)
+            => PartialTrayRules.IsUnderOneTray(quantity, cavityType) ? PartialTrayRules.SowingWarning(quantity, cavityType) : null;
 
         public async Task<IActionResult> OnPostAsync()
         {
@@ -244,9 +254,11 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             else if (stock != null)
             {
                 var (ok, _, _, _, _, error) = DirectSowingRules.PlanSowing(CuttingQuantity, CavityType, stock.PhysicalQuantity, stock.InTransitQuantity,
-                    DirectSowingRules.CuttingQuantityLabel, "Cutting Stock");
+                    DirectSowingRules.CuttingQuantityLabel, "Cutting Stock", await _seedSowingRepo.CuttingPartialTrayAvailableAsync());
                 if (!ok)
                     ModelState.AddModelError(string.Empty, error!);
+                else
+                    PartialTrayWarningText = PartialTrayWarning(CuttingQuantity, CavityType);
             }
 
             // Destination: a required, real growing Polyhouse (never Main Office / Outlet),
@@ -318,7 +330,11 @@ namespace PlantStockManager.Pages.Production.SeedSowing
             }
 
             var cuttingRemainder = sowing.SeedQuantity - sowing.QuantitySown;
-            TempData["Success"] = $"Tray sowing {sowing.SowingCode} recorded: {QuantityFormat.Qty(sowing.NumberOfTrays)} complete trays, {QuantityFormat.Qty(sowing.QuantitySown)} cuttings used"
+            var partialTray = PartialTrayRules.IsPartialTraySowing(SeedSowingModel.SourceCutting, sowing.QuantitySown, sowing.CavityType);
+            TempData["Success"] = $"Tray sowing {sowing.SowingCode} recorded: "
+                + (partialTray
+                    ? $"1 partial {sowing.CavityType} tray (less than one complete tray), {QuantityFormat.Qty(sowing.QuantitySown)} cuttings recorded as sown"
+                    : $"{QuantityFormat.Qty(sowing.NumberOfTrays)} complete trays, {QuantityFormat.Qty(sowing.QuantitySown)} cuttings used")
                 + (cuttingRemainder > 0 ? $"; {QuantityFormat.Qty(cuttingRemainder)} remaining cuttings recorded as waste (never returned to Cutting Stock)." : ".")
                 + $" Expected ready: {sowing.ExpectedReadyDate:dd-MM-yyyy}."
                 + await CreateModel.MaterialUsedTextAsync(_materialRepo, sowing.Id);

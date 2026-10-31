@@ -48,7 +48,8 @@ namespace PlantStockManager.Pages.Production.Transplanting
         public List<Polyhouse> TargetPolyhouses { get; private set; } = new();
         // Empty trays in Tray Stock per "polyhouseId|cavity" (shown live; re-checked on save).
         public Dictionary<string, decimal> TrayBalances { get; private set; } = new();
-        public int? SourceWholeTrayCavity => Source.IsSowingBatch ? Source.CavitySize : null;
+        // Plants in one source tray: the cavity, or a partial-tray batch's whole quantity (2026-10-31, PartialTrayRules).
+        public int? SourceWholeTrayCavity => Source.IsSowingBatch ? Source.TraySize : null;
         // The output goes to Sowing Approvals (complete trays, Ready Date) -- 2026-10-13 migration applied.
         public bool ToSowingApprovals { get; private set; }
         public int? ReadyDays { get; private set; }
@@ -106,7 +107,7 @@ namespace PlantStockManager.Pages.Production.Transplanting
                 if (DiscardAll)
                     ModelState.Remove(nameof(TargetCavityType));      // a waste-only closure needs no cavity
                 var (planOk, plan, planError) = TransplantRules.PlanProcessing(Source.AvailableQuantity, ProcessQuantity ?? 0,
-                    TargetCavityType, DiscardAll, WasteReason, SourceWholeTrayCavity);
+                    TargetCavityType, DiscardAll, WasteReason, SourceWholeTrayCavity, Source.IsPartialTrayBatch);
                 if (!planOk)
                     ModelState.AddModelError(nameof(ProcessQuantity), planError!);
                 else if (!plan!.MakesTrayBatch && !WasteOnlyAvailable)
@@ -125,7 +126,9 @@ namespace PlantStockManager.Pages.Production.Transplanting
                     if (selected > Source.AvailableQuantity)
                         ModelState.AddModelError(nameof(TransplantedQuantity), $"Only {QuantityFormat.Qty(Source.AvailableQuantity)} plants of this batch are available.");
                     else if (SourceWholeTrayCavity is > 0 && selected % SourceWholeTrayCavity.Value != 0)
-                        ModelState.AddModelError(nameof(TransplantedQuantity), $"This sowing batch is kept in whole {Source.CavityType} trays: transplanted + lost must be a multiple of {SourceWholeTrayCavity.Value}.");
+                        ModelState.AddModelError(nameof(TransplantedQuantity), Source.IsPartialTrayBatch
+                            ? PartialTrayRules.WholeBatchMessage(Source.Quantity, Source.CavityType)
+                            : $"This sowing batch is kept in whole {Source.CavityType} trays: transplanted + lost must be a multiple of {SourceWholeTrayCavity.Value}.");
                 }
                 if (!ModelState.IsValid) return Page();
                 request = new TransplantRepository.CreateRequest(id, Source.AreaId, TargetPolyhouseId, TargetCavityType,

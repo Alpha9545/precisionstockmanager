@@ -73,7 +73,13 @@
                     <tr>
                         <td>@rc.ConfirmationCode</td>
                         <td>@rc.ConfirmationDate.ToString("dd/MM/yyyy HH:mm")</td>
-                        <td>@(Qty(rc.ActualTrayQuantity, "–"))</td>
+                        <td>
+                            @(Qty(rc.ActualTrayQuantity, "–"))
+                            @if (PlantStockManager.Services.AllSeedlingsDamagedRules.IsAllDamagedApproval(rc.ActualTrayQuantity))
+                            {
+                                <span class="badge bg-warning text-dark">All seedlings damaged</span>
+                            }
+                        </td>
                         <td>@Qty(rc.ConfirmedQuantity)</td>
                         <td>@Qty(rc.WastageQuantity)</td>
                         <td>@rc.WastagePercent.ToString("0.00")%</td>

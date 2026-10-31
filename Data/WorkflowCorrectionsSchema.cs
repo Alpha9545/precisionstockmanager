@@ -123,6 +123,35 @@ namespace PlantStockManager.Data
         public static async Task<string?> CavityNotSupportedAsync(SqlConnection conn, SqlTransaction? tx, string? cavityType)
             => cavityType == Services.DirectSowingRules.Cavity70 && !await Cavity70Async(conn, tx) ? Cavity70MigrationMessage : null;
 
+        // 2026-10-31_CuttingPartialTraySowing.sql: a cutting tray sowing under one complete tray is recorded as ONE partial
+        // tray (Services/PartialTrayRules.cs) -- the two SeedSowings tray CHECKs, the approval trigger and the Ready Stock
+        // whole-tray trigger accept it. Without it such a sowing is refused, exactly as before.
+        public const string CuttingPartialTrayProbeSql =
+            "SELECT CASE WHEN OBJECT_DEFINITION(OBJECT_ID('dbo.CK_SeedSowings_TrayCount')) LIKE N'%Cutting%'"
+            + " AND OBJECT_DEFINITION(OBJECT_ID('dbo.CK_SeedSowings_SeedQuantity')) LIKE N'%Cutting%'"
+            + " AND OBJECT_DEFINITION(OBJECT_ID('dbo.TR_ReadyConfirmations_TrayQuantity')) LIKE N'%CuttingPartialTray%'"
+            + " AND OBJECT_DEFINITION(OBJECT_ID('dbo.TR_ReadyStock_WholeTrays')) LIKE N'%CuttingPartialTray%' THEN 1 ELSE 0 END";
+        public static Task<bool> CuttingPartialTrayAsync(SqlConnection conn, SqlTransaction? tx = null) => ProbeAsync(conn, tx, CuttingPartialTrayProbeSql);
+        public static async Task<bool> CuttingPartialTrayAsync(DatabaseHelper db)
+        {
+            using var conn = db.GetConnection();
+            await conn.OpenAsync();
+            return await CuttingPartialTrayAsync(conn);
+        }
+
+        // 2026-10-31_AllSeedlingsDamagedApproval.sql: an approval may record 0 Actual Ready Trays -- ONLY with 0 seedlings and the
+        // reason 'Damaged plants' (Services/AllSeedlingsDamagedRules.cs). Without it the option is not offered and is refused.
+        public const string AllSeedlingsDamagedProbeSql =
+            "SELECT CASE WHEN OBJECT_DEFINITION(OBJECT_ID('dbo.CK_ReadyConfirmations_ActualTrays')) LIKE N'%Damaged plants%'"
+            + " AND OBJECT_DEFINITION(OBJECT_ID('dbo.TR_ReadyConfirmations_TrayQuantity')) LIKE N'%AllSeedlingsDamaged%' THEN 1 ELSE 0 END";
+        public static Task<bool> AllSeedlingsDamagedAsync(SqlConnection conn, SqlTransaction? tx = null) => ProbeAsync(conn, tx, AllSeedlingsDamagedProbeSql);
+        public static async Task<bool> AllSeedlingsDamagedAsync(DatabaseHelper db)
+        {
+            using var conn = db.GetConnection();
+            await conn.OpenAsync();
+            return await AllSeedlingsDamagedAsync(conn);
+        }
+
         public static async Task<bool> TransplantWasteAsync(DatabaseHelper db)
         {
             using var conn = db.GetConnection();

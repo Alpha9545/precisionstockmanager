@@ -130,7 +130,7 @@
                                 <div class="col-md-4">
                                     <label class="form-label fw-bold" for="traysInput">Trays to dispatch</label>
                                     <input type="number" asp-for="Trays" id="traysInput" class="form-control cust-req" min="1" max="@Model.AvailableTrays" step="1"
-                                           data-cavity="@(b.CavitySize ?? 0)" value="@(Model.Trays > 0 ? Model.Trays.ToString() : "")" />
+                                           data-cavity="@(b.TraySize ?? 0)" value="@(Model.Trays > 0 ? Model.Trays.ToString() : "")" />
                                     <div class="form-text">Whole @b.CavityType trays; at most @Model.AvailableTrays (@Qty(b.AvailableQuantity) plants available).</div>
                                 </div>
                                 <div class="col-md-8 d-flex align-items-end">

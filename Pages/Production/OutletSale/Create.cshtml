@@ -88,8 +88,8 @@
             })));
             let trays = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.TrayOptions.Select(s => new {
                 id = s.Id,
-                label = $"{s.SpeciesName?.Trim()} - {s.CavityType} - available {Math.Floor(s.AvailableQuantity / (PlantStockManager.Services.DirectSowingRules.CavityCount(s.CavityType) ?? 1)):N0} trays",
-                available = Math.Floor(s.AvailableQuantity / (PlantStockManager.Services.DirectSowingRules.CavityCount(s.CavityType) ?? 1))
+                label = $"{s.SpeciesName?.Trim()} - {s.CavityType} - available {Math.Floor(s.AvailableQuantity / (s.TraySize ?? 1)):N0} trays",
+                available = Math.Floor(s.AvailableQuantity / (s.TraySize ?? 1))
             })));
             let rowIndex = 0;
 

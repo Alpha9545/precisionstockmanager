@@ -60,7 +60,9 @@ namespace PlantStockManager.Services
             _ => status
         };
 
-        public record SourceBatch(string OriginType, string? AreaType, bool AreaActive, int AreaId, string CavityType, decimal Available);
+        // BatchQuantity (2026-10-31): the batch's Quantity, so a partial-tray batch (PartialTrayRules) moves only as a whole.
+        public record SourceBatch(string OriginType, string? AreaType, bool AreaActive, int AreaId, string CavityType, decimal Available,
+            decimal? BatchQuantity = null);
         public record Destination(int? AreaId, string? AreaType, bool AreaActive, int? PolyhouseId, int? PolyhouseAreaId);
 
         // Everything about a NEW transfer. quantity = plants.
@@ -78,10 +80,17 @@ namespace PlantStockManager.Services
                 return (false, 0, "This batch's cavity is not recognised.");
             if (quantity <= 0 || !DirectSowingRules.IsWholeNumber(quantity))
                 return (false, 0, "Quantity to transfer must be a whole number of plants greater than zero.");
-            if (quantity % cavity.Value != 0)
-                return (false, 0, $"Main Area stock moves in whole trays: the quantity must be a multiple of {cavity.Value} ({source.CavityType}).");
+            // 2026-10-31: one tray of a partial-tray batch = its whole quantity, so it moves only as a whole.
+            var partialTray = source.BatchQuantity is { } batchQuantity && PartialTrayRules.IsPartialTrayBatch(source.OriginType, batchQuantity, source.CavityType);
+            var traySize = partialTray ? (int)source.BatchQuantity!.Value : cavity.Value;
+            if (quantity % traySize != 0)
+                return (false, 0, partialTray
+                    ? PartialTrayRules.WholeBatchMessage(source.BatchQuantity!.Value, source.CavityType)
+                    : $"Main Area stock moves in whole trays: the quantity must be a multiple of {cavity.Value} ({source.CavityType}).");
             if (quantity > source.Available)
-                return (false, 0, $"Only {QuantityFormat.Qty(source.Available)} plants of this batch are available (not reserved, dispatched or already in transit).");
+                return (false, 0, partialTray
+                    ? PartialTrayRules.WholeBatchMessage(source.BatchQuantity!.Value, source.CavityType)
+                    : $"Only {QuantityFormat.Qty(source.Available)} plants of this batch are available (not reserved, dispatched or already in transit).");
             if (destination.AreaId is null)
                 return (false, 0, "Choose the destination Mother Plant Area.");
             if (destination.AreaType != MotherPlantAreaType || !destination.AreaActive)
@@ -98,7 +107,7 @@ namespace PlantStockManager.Services
                 return (false, 0, "The transfer date cannot be in the future.");
             if (transferDate.Date < sowingDate.Date)
                 return (false, 0, "The transfer date cannot be before the batch was sown.");
-            return (true, quantity / cavity.Value, null);
+            return (true, quantity / traySize, null);
         }
 
         // Receiving: received <= sent; a shortfall is recorded as loss in transit and needs a reason.

@@ -182,7 +182,7 @@ namespace PlantStockManager.Pages.Production.ReadyStock
             TempData["Success"] = msg == SeedlingFulfilmentRepository.AlreadySoldMessage
                 ? $"{msg} (Dispatch {code})"
                 : $"Dispatched to customer {CustomerName!.Trim()} ({CustomerContact!.Trim()}): {Trays} x {Batch.CavityType} trays "
-                  + $"({QuantityFormat.Qty(Trays * (decimal)Batch.CavitySize!.Value)} plants) of {Batch.SpeciesName?.Trim()}, batch {Batch.BatchNo} ({Batch.SowingCode}). "
+                  + $"({QuantityFormat.Qty(Trays * (decimal)Batch.TraySize!.Value)} plants) of {Batch.SpeciesName?.Trim()}, batch {Batch.BatchNo} ({Batch.SowingCode}). "
                   + $"Dispatch reference {code}.";
             return FromMotherPlant ? RedirectToPage("/Production/MotherPlant/ReadyStock") : RedirectToPage("/Production/ReadyStock/Index");
         }

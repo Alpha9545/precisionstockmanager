@@ -270,7 +270,10 @@ namespace PlantStockManager.Tests
             Assert.Contains("2026-10-18_SeedlingDirectSaleSubmissionToken", AreaReadyStockActionRules.SellToCustomer(Batch(), true, false, false).Reason);
             Assert.Equal(10, AreaReadyStockActionRules.AvailableCompleteTrays(Batch()));
             Assert.Equal(2, AreaReadyStockActionRules.AvailableCompleteTrays(Batch(qty: 150, cavity: "70 Cavity")));               // 150 plants at 70 -> 2 trays
-            Assert.Equal(0, AreaReadyStockActionRules.AvailableCompleteTrays(Batch(qty: 69, cavity: "70 Cavity")));
+            // 2026-10-31: a received batch under one tray has no complete tray; a SOWING batch under one tray can only be a
+            // partial-tray cutting sowing (TR_ReadyStock_WholeTrays), which is one tray of its whole quantity (PartialTrayRules).
+            Assert.Equal(0, AreaReadyStockActionRules.AvailableCompleteTrays(Batch(qty: 69, cavity: "70 Cavity", origin: ReadyStock.OriginTransfer)));
+            Assert.Equal(1, AreaReadyStockActionRules.AvailableCompleteTrays(Batch(qty: 69, cavity: "70 Cavity")));
         }
     }
 }

@@ -148,7 +148,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             }
             var (ownOk, ownError) = OutletStockOwnershipRules.ValidateSameArea(areaId ?? -1, outletAreaId);
             if (!ownOk) { tx.Rollback(); return (false, ownError, 0); }
-            var cavitySize = DirectSowingRules.CavityCount(cavityType);
+            // 2026-10-31: plants per tray -- a partial-tray batch's tray is its whole quantity (PartialTrayRules).
+            var cavitySize = await ReadyStockRepository.LockedTraySizeAsync(conn, tx, stockId);
             if (cavitySize is null or <= 0) { tx.Rollback(); return (false, "This batch's cavity is not recognised.", 0); }
             var availableTrays = (readyQty - reserved - dispatched) / cavitySize.Value;
             var (ok, error) = OutletWastageRules.Validate(quantity, availableTrays, reason);

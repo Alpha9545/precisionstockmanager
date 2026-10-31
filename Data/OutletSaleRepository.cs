@@ -253,7 +253,8 @@ SELECT CAST(SCOPE_IDENTITY() AS INT);", conn, tx);
             var (ownOk, ownError) = OutletStockOwnershipRules.ValidateSameArea(areaId ?? -1, outletAreaId);
             if (!ownOk) return (false, ownError);
 
-            var cavitySize = DirectSowingRules.CavityCount(cavityType);
+            // 2026-10-31: plants per tray -- a partial-tray batch's tray is its whole quantity (PartialTrayRules).
+            var cavitySize = await ReadyStockRepository.LockedTraySizeAsync(conn, tx, line.StockId);
             if (cavitySize is null or <= 0)
                 return (false, "This batch's cavity is not recognised.");
             var availableTrays = (readyQty - reserved - dispatched) / cavitySize.Value;

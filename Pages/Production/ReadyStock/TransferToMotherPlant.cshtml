@@ -37,6 +37,10 @@
                         <tr><th>Ready plants (batch)</th><td>@Qty(b.Quantity)</td></tr>
                         <tr><th>Reserved / Dispatched / In transit</th><td>@Qty(b.ReservedQuantity) / @Qty(b.DispatchedQuantity) / @Qty(b.InTransitQuantity)</td></tr>
                         <tr><th>Available now</th><td class="fw-bold">@Qty(b.AvailableQuantity) plants = @Qty(Model.AvailableTrays) full trays</td></tr>
+                        @if (b.IsPartialTrayBatch)
+                        {
+                            <tr><td colspan="2" class="table-warning small"><span aria-hidden="true">&#9888;</span> @PlantStockManager.Services.PartialTrayRules.WholeBatchMessage(b.Quantity, b.CavityType)</td></tr>
+                        }
                     </tbody>
                 </table>
             </div>

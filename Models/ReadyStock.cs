@@ -96,6 +96,10 @@ namespace PlantStockManager.Models
         // 'Sowing'/'Transfer' batches (FK_ReadyStock_SowingCavity), the target cavity
         // for a 'Transplant' output.
         public int? CavitySize => PlantStockManager.Services.DirectSowingRules.CavityCount(CavityType);
+        // 2026-10-31: a sowing batch holding fewer plants than one tray (a partial-tray cutting sowing) is ONE tray of its
+        // whole quantity and moves only as a whole; TraySize = plants per tray wherever the batch is counted in trays.
+        public bool IsPartialTrayBatch => PlantStockManager.Services.PartialTrayRules.IsPartialTrayBatch(OriginType, Quantity, CavityType);
+        public int? TraySize => PlantStockManager.Services.PartialTrayRules.TraySize(OriginType, Quantity, CavityType);
         public int? SowingTrays { get; set; }
         // Actual Ready Trays from the tray-based approval (NULL for Ready Stock
         // approved before the tray rule, e.g. by seedling count).

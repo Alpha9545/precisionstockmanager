@@ -98,7 +98,7 @@ namespace PlantStockManager.Pages.Production.ReadyStock
             if (batch == null || !_areaAccess.CanAccessArea(User, batch.AreaId))
                 return false;
             Batch = batch;
-            Cavity = batch.CavitySize ?? 0;
+            Cavity = batch.TraySize ?? 0;   // plants per tray: the cavity, or a partial-tray batch's whole quantity (2026-10-31)
             MotherPlantAreas = (await _areaRepo.GetAllAreas())
                 .Where(a => a.IsActive && a.AreaType == MotherPlantTransferRules.MotherPlantAreaType && a.Id != batch.AreaId)
                 .OrderBy(a => a.Name).ToList();

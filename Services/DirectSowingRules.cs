@@ -67,8 +67,12 @@ namespace PlantStockManager.Services
         // sent by the browser is ignored.
         // The same rule serves cutting tray sowing (quantityLabel "Cutting
         // Quantity"): only complete trays are produced from either material.
+        // 2026-10-31: allowPartialTray (cutting tray sowing only, once 2026-10-31_CuttingPartialTraySowing.sql is applied):
+        // a whole-number quantity under one complete tray is ONE partial tray -- Trays 1, SeedsUsed = the quantity itself
+        // (never rounded up to the cavity), RemainingSeeds 0. PartialTrayRules.SowingWarning is the (non-blocking) message.
+        // Quantities of one tray or more are unchanged.
         public static (bool Ok, int Trays, decimal SeedsUsed, decimal RemainingSeeds, string? Error) CalculateTrays(
-            decimal seedQuantity, string? cavityType, string quantityLabel = SeedQuantityLabel)
+            decimal seedQuantity, string? cavityType, string quantityLabel = SeedQuantityLabel, bool allowPartialTray = false)
         {
             var cavity = CavityCount(cavityType);
             if (cavity == null)
@@ -76,6 +80,8 @@ namespace PlantStockManager.Services
             if (seedQuantity <= 0)
                 return (false, 0, 0, 0, $"{quantityLabel} must be greater than zero.");
             var trays = decimal.Floor(seedQuantity / cavity.Value);
+            if (trays < 1 && allowPartialTray && PartialTrayRules.IsUnderOneTray(seedQuantity, cavityType))
+                return (true, 1, seedQuantity, 0, null);
             if (trays < 1)
                 return (false, 0, 0, seedQuantity, $"{quantityLabel} ({QuantityFormat.Qty(seedQuantity)}) is less than one complete {cavity.Value}-cavity tray.");
             if (trays > int.MaxValue)
@@ -98,14 +104,14 @@ namespace PlantStockManager.Services
 
         public static (bool Ok, int Trays, decimal SeedsUsed, decimal RemainingSeeds, decimal AvailableAfter, string? Error) PlanSowing(
             decimal seedQuantity, string? cavityType, decimal physical, decimal inTransit,
-            string quantityLabel = SeedQuantityLabel, string stockLabel = "Main Office seed stock")
+            string quantityLabel = SeedQuantityLabel, string stockLabel = "Main Office seed stock", bool allowPartialTray = false)
         {
             var available = physical - inTransit;
             if (seedQuantity <= 0)
                 return (false, 0, 0, 0, available, $"{quantityLabel} must be greater than zero.");
             if (!IsWholeNumber(seedQuantity))
                 return (false, 0, 0, 0, available, $"{quantityLabel} must be a whole number.");
-            var (traysOk, trays, seedsUsed, remaining, trayError) = CalculateTrays(seedQuantity, cavityType, quantityLabel);
+            var (traysOk, trays, seedsUsed, remaining, trayError) = CalculateTrays(seedQuantity, cavityType, quantityLabel, allowPartialTray);
             if (!traysOk)
                 return (false, 0, 0, 0, available, trayError);
             var (enough, _, stockError) = CheckSeedAvailability(physical, inTransit, seedQuantity, quantityLabel, stockLabel);
@@ -341,11 +347,22 @@ namespace PlantStockManager.Services
         // no fixed wastage percentage: it is always the recorded difference.
         public static (bool Ok, int ActualTrays, decimal ActualSeedlings, decimal Wastage, decimal WastagePercent, string? Error) ComputeTrayApproval(
             decimal seedsUsed, int? sowingTrays, string? cavityType, decimal alreadyReady, decimal alreadyWasted,
-            decimal actualTrays, string? wastageReason)
+            decimal actualTrays, string? wastageReason, string? sourceType = null)
         {
             var cavity = CavityCount(cavityType);
             if (cavity == null)
                 return (false, 0, 0, 0, 0, "The sowing has no valid tray cavity; it cannot be approved by trays.");
+            // 2026-10-31: a cutting sowing recorded as ONE partial tray (PartialTrayRules) -- exactly 1 Actual Ready Tray,
+            // which holds the sowing's still-expected cuttings (never trays x cavity). TR_ReadyConfirmations_TrayQuantity
+            // repeats it once 2026-10-31_CuttingPartialTraySowing.sql is applied.
+            if (PartialTrayRules.IsPartialTraySowing(sourceType, seedsUsed, cavityType) && sowingTrays == 1)
+            {
+                if (actualTrays != 1)
+                    return (false, 0, 0, 0, 0, PartialTrayRules.ApprovalTrayMessage(seedsUsed, cavityType));
+                var partialSeedlings = seedsUsed - alreadyReady - alreadyWasted;
+                var (partialOk, partialWastage, partialError) = ComputeApproval(seedsUsed, alreadyReady, alreadyWasted, partialSeedlings, wastageReason);
+                return (partialOk, 1, partialSeedlings, partialWastage, WastagePercent(partialWastage, seedsUsed), partialError);
+            }
             if (actualTrays <= 0)
                 return (false, 0, 0, 0, 0, "Actual Ready Trays must be at least 1 complete tray.");
             if (!IsWholeNumber(actualTrays))
@@ -386,9 +403,12 @@ namespace PlantStockManager.Services
         // ActualReadyTrays <= SownTrays: nothing extra, no stock check.
         // Seed sowings (and any other source) never take anything extra: 0.
         // stillExpectedCuttings = QuantitySown - ConfirmedReadyQuantity - WastageQuantity (cuttings).
-        public static decimal ExtraCuttingsNeeded(string? sourceType, decimal actualReadyTrays, string? cavityType, decimal stillExpectedCuttings)
+        // 2026-10-31: a partial-tray cutting sowing (PartialTrayRules.IsPartialTraySowing) takes no extra: its one tray holds
+        // only the sowing's own cuttings (ComputeTrayApproval).
+        public static decimal ExtraCuttingsNeeded(string? sourceType, decimal actualReadyTrays, string? cavityType, decimal stillExpectedCuttings,
+            bool partialTraySowing = false)
         {
-            if (sourceType != Models.SeedSowing.SourceCutting || actualReadyTrays <= 0)
+            if (sourceType != Models.SeedSowing.SourceCutting || actualReadyTrays <= 0 || partialTraySowing)
                 return 0;
             var cavity = CavityCount(cavityType);
             if (cavity == null)

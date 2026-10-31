@@ -214,7 +214,7 @@
                         <td>@(r.IsSowingBatch ? r.ApprovalDate?.ToString("dd/MM/yyyy") ?? "-" : dash)</td>
                         <td class="text-nowrap">
                             @if ((canTransferStock && r.IsSowingBatch && r.AvailableQuantity > 0 && r.ReservedQuantity == 0 && r.DispatchedQuantity == 0 && r.InTransitQuantity == 0)
-                                 || (canCustomerDispatch && (r.InMainArea || r.InMotherPlantArea) && StrictArea.CanAccessArea(User, r.AreaId) && r.CavitySize is > 0 && r.AvailableQuantity >= r.CavitySize))
+                                 || (canCustomerDispatch && (r.InMainArea || r.InMotherPlantArea) && StrictArea.CanAccessArea(User, r.AreaId) && r.TraySize is > 0 && r.AvailableQuantity >= r.TraySize))
                             {
                                 <a asp-page="/Production/ReadyStock/Move" asp-route-id="@r.Id" class="btn btn-sm btn-outline-primary">Send</a>
                             }
@@ -222,7 +222,7 @@
                             {
                                 <a asp-page="/Bookings/SeedlingDispatch" class="btn btn-sm btn-outline-secondary" title="Option A: book and dispatch to a customer (existing booking / dispatch workflow)">Dispatch to Customer</a>
                             }
-                            @if (canTransferMp && r.IsSowingBatch && r.InMainArea && r.CavitySize is > 0 && r.AvailableQuantity >= r.CavitySize)
+                            @if (canTransferMp && r.IsSowingBatch && r.InMainArea && r.TraySize is > 0 && r.AvailableQuantity >= r.TraySize)
                             {
                                 <a asp-page="/Production/ReadyStock/TransferToMotherPlant" asp-route-id="@r.Id" class="btn btn-sm btn-outline-success" title="Option B: send to a Mother Plant Area for transplanting">Transfer to Mother Plant</a>
                             }

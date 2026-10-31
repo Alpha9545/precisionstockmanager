@@ -75,7 +75,7 @@ FROM dbo.Area a WHERE a.Id = @A", conn, tx);
                 }
 
                 var (ok, trays, error) = MotherPlantTransferRules.ValidateCreate(
-                    new MotherPlantTransferRules.SourceBatch(src.OriginType, src.AreaType, src.AreaActive, src.AreaId, src.CavityType, src.Available),
+                    new MotherPlantTransferRules.SourceBatch(src.OriginType, src.AreaType, src.AreaActive, src.AreaId, src.CavityType, src.Available, src.Quantity),
                     dest, req.Quantity, req.TransferDate, AppClock.Today, src.SowingDate, areaOnly, req.Purpose);
                 if (!ok) { tx.Rollback(); return (false, error, 0, false); }
                 // 2026-10-16: a posted destination Polyhouse is never stored on a transfer to the Area (one of another
@@ -435,20 +435,22 @@ OFFSET 0 ROWS FETCH NEXT @Max ROWS ONLY", conn);
 
         // ---- helpers -----------------------------------------------------------------------------------
 
-        private sealed record LockedSource(string OriginType, int AreaId, string? AreaType, bool AreaActive, string CavityType, DateTime SowingDate, decimal Available);
+        private sealed record LockedSource(string OriginType, int AreaId, string? AreaType, bool AreaActive, string CavityType, DateTime SowingDate, decimal Available,
+            decimal Quantity);
 
         private static async Task<LockedSource?> LockSourceAsync(SqlConnection conn, SqlTransaction tx, int readyStockId)
         {
             var cmd = new SqlCommand(@"
 SELECT rs.OriginType, rs.AreaId, a.AreaType, a.IsActive, rs.CavityType, rs.SowingDate,
-       rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity
+       rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity, rs.Quantity
 FROM dbo.ReadyStock rs WITH (UPDLOCK, HOLDLOCK)
 JOIN dbo.Area a ON a.Id = rs.AreaId
 WHERE rs.Id = @Id", conn, tx);
             cmd.Parameters.AddWithValue("@Id", readyStockId);
             using var r = await cmd.ExecuteReaderAsync();
             if (!await r.ReadAsync()) return null;
-            return new LockedSource(r.GetString(0), r.GetInt32(1), r.IsDBNull(2) ? null : r.GetString(2), r.GetBoolean(3), r.GetString(4), r.GetDateTime(5), r.GetDecimal(6));
+            return new LockedSource(r.GetString(0), r.GetInt32(1), r.IsDBNull(2) ? null : r.GetString(2), r.GetBoolean(3), r.GetString(4), r.GetDateTime(5), r.GetDecimal(6),
+                r.GetDecimal(7));
         }
 
         private sealed record LockedTransfer(string TransferCode, string Status, int SourceReadyStockId, int SourceAreaId, int DestinationAreaId, int? DestinationPolyhouseId, decimal Quantity, DateTime TransferDate);

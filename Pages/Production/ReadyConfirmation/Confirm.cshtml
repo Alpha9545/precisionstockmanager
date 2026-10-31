@@ -4,6 +4,8 @@
     ViewData["Title"] = "Supervisor Approval";
     var s = Model.SeedSowing;
     var cavity = PlantStockManager.Services.DirectSowingRules.CavityCount(s.CavityType);
+    // 2026-10-31: a cutting sowing recorded as ONE partial tray (fewer cuttings than one tray) -- 1 tray = its own cuttings.
+    var partialTray = PlantStockManager.Services.PartialTrayRules.IsPartialTraySowing(s.SourceType, s.QuantitySown, s.CavityType);
 }
 
 <div class="container mt-4">
@@ -120,7 +122,16 @@
                             @* Cutting Tray Sowing: more trays than were sown are allowed (no browser maximum). *@
                             <input type="number" step="1" min="1" asp-for="ActualReadyTrays" asp-format="{0:0.##}"
                                    id="actualTrays" class="form-control" required />
-                            <div class="form-text">
+                            @* 2026-10-31: one partial tray -- exactly 1 (the server refuses any other number; the database repeats it). *@
+                            @if (partialTray)
+                            {
+                                <div class="alert alert-warning py-2 mt-2 mb-0 small" role="status" id="partialTrayNotice">
+                                    <span aria-hidden="true">&#9888;</span>
+                                    This sowing is <strong>one partial @s.CavityType tray</strong> of @Qty(s.QuantitySown) cuttings (less than one complete tray).
+                                    Enter 1: the tray's @Qty(s.QuantitySown) cuttings become Ready Stock. No extra cuttings are taken.
+                                </div>
+                            }
+                            <div class="form-text @(partialTray ? "d-none" : "")">
                                 Enter <strong>TRAYS</strong>, not cuttings: whole trays, at least 1. One tray = @(cavity?.ToString() ?? "?") cuttings.
                                 This sowing has @(Qty(s.NumberOfTrays)) trays (@Qty(s.QuantitySown) cuttings).
                                 You may enter more trays than that: each extra tray takes @(cavity?.ToString() ?? "?") cuttings from Cutting Stock automatically
@@ -147,7 +158,7 @@
                         <div class="table-responsive">
                         <table class="table table-sm table-bordered mb-0">
                             <tbody>
-                                <tr><th class="w-50">Actual Ready Seedlings <span class="text-muted fw-normal">= trays &times; @(cavity?.ToString() ?? "?")</span></th><td id="outSeedlings">&ndash;</td></tr>
+                                <tr><th class="w-50">Actual Ready Seedlings <span class="text-muted fw-normal">@(partialTray ? "= the partial tray's " + Qty(s.QuantitySown) + " cuttings" : "= trays × " + (cavity?.ToString() ?? "?"))</span></th><td id="outSeedlings">&ndash;</td></tr>
                                 <tr><th>Wastage <span class="text-muted fw-normal">= @s.UnitName.ToLower() used &minus; ready seedlings</span></th><td id="outWastage">&ndash;</td></tr>
                                 <tr><th>Wastage %</th><td id="outWastagePct">&ndash;</td></tr>
                                 @if (s.IsCuttingSource)
@@ -161,7 +172,35 @@
                         <div class="text-danger small d-none" id="previewError"></div>
                     </div>
 
-                    <div class="col-md-4">
+                    @* 2026-10-31: every seedling still expected was damaged -- approved with 0 ready seedlings. The server decides the
+                       numbers (0 ready, wastage = the still-expected quantity, reason 'Damaged plants'); the form posts only the choice
+                       and the reason. Offered only once 2026-10-31_AllSeedlingsDamagedApproval.sql is applied. *@
+                    @if (Model.AllSeedlingsDamagedAvailable)
+                    {
+                        <div class="col-12">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" asp-for="AllSeedlingsDamaged" id="allDamaged" />
+                                <label class="form-check-label fw-bold" for="allDamaged">All Seedlings Damaged &mdash; Approve with 0 Ready Seedlings</label>
+                            </div>
+                            <div class="d-none mt-2" id="damagePanel"
+                                 data-remaining="@s.RemainingReadyQuantity.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                                 data-sown="@s.QuantitySown.ToString(System.Globalization.CultureInfo.InvariantCulture)">
+                                <div class="alert alert-warning py-2 mb-2" role="alert" id="damageWarning">
+                                    <span aria-hidden="true">&#9888;</span> @PlantStockManager.Services.AllSeedlingsDamagedRules.Warning
+                                    <div class="small mt-1">
+                                        Ready Stock receives nothing. All @Qty(s.RemainingReadyQuantity) @s.UnitName.ToLower() still expected are recorded as
+                                        wastage with the reason &ldquo;@PlantStockManager.Services.AllSeedlingsDamagedRules.WastageReason&rdquo;. No trays,
+                                        @(s.IsCuttingSource ? "cuttings, " : "")or growing material are taken or returned.
+                                    </div>
+                                </div>
+                                <label class="form-label fw-bold" for="damageReason">Reason for the damage <span class="text-danger">*</span></label>
+                                <textarea asp-for="DamageReason" id="damageReason" class="form-control" rows="2"
+                                          maxlength="@PlantStockManager.Services.AllSeedlingsDamagedRules.MaxReasonLength"></textarea>
+                            </div>
+                        </div>
+                    }
+
+                    <div class="col-md-4" id="wastageReasonGroup">
                         <label class="form-label fw-bold">Wastage Reason <span class="text-danger">*</span></label>
                         <select asp-for="WastageReason" id="wastageReason" class="form-select">
                             <option value="">-- Select --</option>
@@ -187,7 +226,7 @@
                 <div class="text-center mt-4">
                     <a asp-page="@Model.ListPage" asp-all-route-data="Model.ListState.Route" class="btn btn-secondary me-2">Cancel</a>
                     @{ var approveBlocked = !PlantStockManager.Services.BedSowingRules.ValidateApprovalReadyDate(s.SourceType, s.ExpectedReadyDate, PlantStockManager.Services.AppClock.Today, Model.Approval.BedAnyDate, Model.Approval.TransplantAnyDate).Ok; }
-                    <button type="submit" class="btn btn-success" disabled="@approveBlocked">Approve &amp; Close Batch</button>
+                    <button type="submit" class="btn btn-success" id="approveButton" disabled="@approveBlocked">Approve &amp; Close Batch</button>
                 </div>
             </form>
         </div>
@@ -202,13 +241,45 @@
             const err = document.getElementById('previewError');
             const url = '@Url.Page("/Production/ReadyConfirmation/Confirm", "TrayPreview", new { id = Model.SeedSowing.Id })';
             function fmt(n) { return formatQuantity(n); }
+            // 2026-10-31: All Seedlings Damaged -- the trays input and the wastage reason are disabled (not posted), the damage
+            // reason becomes required; unchecking restores the ordinary form. Display only: the server decides the numbers.
+            const damaged = document.getElementById('allDamaged');
+            const panel = document.getElementById('damagePanel');
+            const damageReason = document.getElementById('damageReason');
+            const approveButton = document.getElementById('approveButton');
+            function isDamaged() { return damaged && damaged.checked; }
+            function applyDamaged() {
+                if (!damaged) return;
+                const on = damaged.checked;
+                panel.classList.toggle('d-none', !on);
+                damageReason.required = on;
+                trays.disabled = on;
+                trays.required = !on;
+                reason.disabled = on;
+                document.getElementById('wastageReasonGroup').classList.toggle('d-none', on);
+                approveButton.textContent = on ? 'Approve with 0 Ready Seedlings' : 'Approve & Close Batch';
+                preview();
+            }
             function preview() {
                 ['outSeedlings', 'outWastage', 'outWastagePct', 'outExtraTrays', 'outExtra'].forEach(i => { const e = document.getElementById(i); if (e) e.textContent = '–'; });
                 err.classList.add('d-none');
+                if (isDamaged()) {
+                    const remaining = Number(panel.dataset.remaining), sown = Number(panel.dataset.sown);
+                    document.getElementById('outSeedlings').textContent = fmt(0);
+                    document.getElementById('outWastage').textContent = fmt(remaining) + ' (all damaged)';
+                    document.getElementById('outWastagePct').textContent = (sown > 0 ? remaining / sown * 100 : 0).toFixed(2) + '%';
+                    const extraTrays = document.getElementById('outExtraTrays');
+                    if (extraTrays) extraTrays.textContent = fmt(0) + ' trays';
+                    const extra = document.getElementById('outExtra');
+                    if (extra) extra.textContent = fmt(0) + ' cuttings';
+                    reason.required = false;
+                    return;
+                }
                 if (!trays.value) { reason.required = false; return; }
                 fetch(url + '&trays=' + encodeURIComponent(trays.value), { headers: { 'Accept': 'application/json' } })
                     .then(r => r.json())
                     .then(r => {
+                        if (isDamaged()) return;   // switched while the request was running
                         if (r.seedlings !== null) {
                             document.getElementById('outSeedlings').textContent = fmt(r.seedlings);
                             document.getElementById('outWastage').textContent = fmt(r.wastage);
@@ -223,7 +294,8 @@
                     });
             }
             trays.addEventListener('input', preview);
-            preview();
+            if (damaged) { damaged.addEventListener('change', applyDamaged); applyDamaged(); }
+            else preview();
         })();
     </script>
 }

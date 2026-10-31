@@ -49,15 +49,18 @@ namespace PlantStockManager.Services
                 return Availability.No(PotProductionMessage);
             if (!saleSchemaReady)
                 return Availability.No("Direct tray sales need the database update 2026-10-18_SeedlingDirectSaleSubmissionToken.sql.");
-            if (b.CavitySize is not > 0)
+            if (b.TraySize is not > 0)
                 return Availability.No("The batch's tray cavity is not known, so trays cannot be counted.");
-            if (b.AvailableQuantity < b.CavitySize.Value)
-                return Availability.No($"Less than one complete {b.CavityType} tray available ({QuantityFormat.Qty(Math.Max(b.AvailableQuantity, 0))} plants).");
+            if (b.AvailableQuantity < b.TraySize.Value)
+                return Availability.No(b.IsPartialTrayBatch
+                    ? PartialTrayRules.WholeBatchMessage(b.Quantity, b.CavityType)
+                    : $"Less than one complete {b.CavityType} tray available ({QuantityFormat.Qty(Math.Max(b.AvailableQuantity, 0))} plants).");
             return Availability.Yes;
         }
 
         // Complete trays that can be sold now: floor(available plants / cavity).
+        // 2026-10-31: a partial-tray batch (PartialTrayRules) is one tray of its whole quantity -- 1 while none of it is used.
         public static int AvailableCompleteTrays(ReadyStock b)
-            => b.CavitySize is > 0 ? (int)decimal.Floor(Math.Max(b.AvailableQuantity, 0) / b.CavitySize.Value) : 0;
+            => b.TraySize is > 0 ? (int)decimal.Floor(Math.Max(b.AvailableQuantity, 0) / b.TraySize.Value) : 0;
     }
 }

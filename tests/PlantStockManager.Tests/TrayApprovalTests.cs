@@ -182,7 +182,11 @@ namespace PlantStockManager.Tests
             // 2026-10-19: + From, a return-navigation hint only ("mp" = back to Mother Plant & Cutting > Sowing Approvals) --
             // never a quantity, person or Area. 2026-10-22: + the Sowing Approvals list state (workflow, Variety, Sowing Date) to
             // return to -- navigation only, never read by the approval (ApprovalListState).
-            Assert.Equal(new[] { "ActualReadyTrays", "From", "ListCategory", "ListSowingDate", "ListVariety", "Remarks", "SeedSowingId", "WastageReason" }, bound);
+            // 2026-10-31: + AllSeedlingsDamaged (a yes/no choice) and DamageReason (text) -- never a quantity: the server sets
+            // 0 trays / 0 seedlings / wastage itself (AllSeedlingsDamagedRules, under the repository's lock).
+            Assert.Equal(new[] { "ActualReadyTrays", "AllSeedlingsDamaged", "DamageReason", "From", "ListCategory", "ListSowingDate", "ListVariety", "Remarks", "SeedSowingId", "WastageReason" }, bound);
+            Assert.Equal((typeof(bool), typeof(string)), (typeof(ConfirmModel).GetProperty("AllSeedlingsDamaged")!.PropertyType,
+                typeof(ConfirmModel).GetProperty("DamageReason")!.PropertyType));
             Assert.Equal((typeof(string), typeof(int?), typeof(DateTime?)), (typeof(ConfirmModel).GetProperty("ListCategory")!.PropertyType,
                 typeof(ConfirmModel).GetProperty("ListVariety")!.PropertyType, typeof(ConfirmModel).GetProperty("ListSowingDate")!.PropertyType));
             Assert.Equal("/Production/MotherPlant/SowingApprovals", new ConfirmModel(null!, null!, null!, null!) { From = "mp" }.ListPage);

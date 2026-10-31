@@ -777,18 +777,19 @@ WHERE Id = @Id", conn, tx);
                 // 1) the batch, locked (the sale's single serialisation point)
                 var rsCmd = new SqlCommand(@"
 SELECT rs.SpeciesId, ps.PlantTypeId, rs.AreaId, a.AreaType, a.IsActive, rs.CavityType, rs.BatchNo,
-       rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity
+       rs.Quantity - rs.ReservedQuantity - rs.DispatchedQuantity - rs.InTransitQuantity, rs.OriginType, rs.Quantity
 FROM dbo.ReadyStock rs WITH (UPDLOCK, HOLDLOCK)
 JOIN dbo.Area a ON a.Id = rs.AreaId
 JOIN dbo.PlantSpecies ps ON ps.Id = rs.SpeciesId
 WHERE rs.Id = @Id", conn, tx);
                 rsCmd.Parameters.AddWithValue("@Id", req.ReadyStockId);
-                int speciesId, plantTypeId, areaId; string? areaType; bool areaActive; string cavityType, batchNo; decimal available;
+                int speciesId, plantTypeId, areaId; string? areaType; bool areaActive; string cavityType, batchNo, originType; decimal available, batchQuantity;
                 using (var r = await rsCmd.ExecuteReaderAsync())
                 {
                     if (!await r.ReadAsync()) { r.Close(); tx.Rollback(); return (false, "Ready Stock batch not found.", null); }
                     speciesId = r.GetInt32(0); plantTypeId = r.GetInt32(1); areaId = r.GetInt32(2); areaType = r.IsDBNull(3) ? null : r.GetString(3);
                     areaActive = r.GetBoolean(4); cavityType = r.GetString(5); batchNo = r.GetString(6); available = r.GetDecimal(7);
+                    originType = r.GetString(8); batchQuantity = r.GetDecimal(9);
                 }
 
                 // 2) the same form again: the first sale
@@ -812,13 +813,16 @@ WHERE rs.Id = @Id", conn, tx);
                 var label = req.FromReadySeedlingStock ? DirectCustomerDispatchLabel : "Direct tray sale";
                 if (await MotherPlantTransferRepository.ReceivedBatchPurposeAsync(conn, tx, req.ReadyStockId) == MotherPlantTransferRules.PurposePotProduction)
                 { tx.Rollback(); return (false, "This stock was received for Pot Production; it is potted, not sold as trays.", null); }
-                var cavity = DirectSowingRules.CavityCount(cavityType);
+                // 2026-10-31: one tray of a partial-tray batch = its whole quantity (PartialTrayRules) -- sold only as a whole.
+                var cavity = PartialTrayRules.TraySize(originType, batchQuantity, cavityType);
                 if (cavity is not > 0) { tx.Rollback(); return (false, "The batch's tray cavity is not known, so trays cannot be counted.", null); }
                 var plants = req.Trays * (decimal)cavity.Value;
                 if (plants > available)
                 {
                     tx.Rollback();
-                    return (false, $"Only {QuantityFormat.Qty(Math.Max(available, 0))} plants ({QuantityFormat.Qty(decimal.Floor(Math.Max(available, 0) / cavity.Value))} complete {cavityType} trays) of this batch are available.", null);
+                    return (false, PartialTrayRules.IsPartialTrayBatch(originType, batchQuantity, cavityType)
+                        ? PartialTrayRules.WholeBatchMessage(batchQuantity, cavityType)
+                        : $"Only {QuantityFormat.Qty(Math.Max(available, 0))} plants ({QuantityFormat.Qty(decimal.Floor(Math.Max(available, 0) / cavity.Value))} complete {cavityType} trays) of this batch are available.", null);
                 }
                 var today = AppClock.Today;
 
