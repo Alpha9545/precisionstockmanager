@@ -80,7 +80,7 @@
                 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
                     <div>
                         <a asp-page="/FieldWork/DayDetails" asp-route-id="@d.Id" class="fw-step-title mb-0 d-inline-block">@d.EmployeeName</a>
-                        <div class="small text-muted">@d.WorkDate.ToString("ddd, dd MMM yyyy") · @FieldDayRules.VehicleLabel(d.VehicleType)</div>
+                        <div class="small text-muted">@d.WorkDate.ToString("ddd, dd MMM yyyy")@(d.VehicleType != null ? " · " + FieldDayRules.VehicleLabel(d.VehicleType) : "")</div>
                     </div>
                     <div class="text-end">
                         <span class="badge bg-light text-dark border">@FieldDayRules.StatusLabel(d.Status)</span>

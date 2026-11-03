@@ -16,7 +16,14 @@
             {
                 <a asp-page="/FieldWork/Customers/Reassign" class="btn btn-sm btn-outline-secondary">Reassign customers</a>
             }
-            <a asp-page="/FieldWork/Customers/Create" class="btn btn-sm btn-success">+ Add customer</a>
+            @if (Model.CanManage)
+            {
+                <a asp-page="/FieldWork/Customers/Create" class="btn btn-sm btn-success">+ Add customer</a>
+            }
+            else
+            {
+                <a asp-page="/FieldWork/Visits/New" class="btn btn-sm btn-success">+ New visit</a>
+            }
         </div>
     </div>
 

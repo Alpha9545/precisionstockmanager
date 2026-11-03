@@ -70,7 +70,7 @@ ORDER BY 2;";
                     day = new FieldDay
                     {
                         Id = r.GetInt32(3), UserId = r.GetInt32(0), EmployeeName = r.GetString(1), WorkDate = workDate.Date, Status = r.GetString(4),
-                        VehicleType = r.GetString(5), StartedAtUtc = r.GetDateTime(6), StartLatitude = Dec(r, 7), StartLongitude = Dec(r, 8),
+                        VehicleType = r.IsDBNull(5) ? null : r.GetString(5), StartedAtUtc = r.GetDateTime(6), StartLatitude = Dec(r, 7), StartLongitude = Dec(r, 8),
                         StartAccuracyM = Dec(r, 9), StartKm = r.GetDecimal(10), StartExceptionReason = Str(r, 11), EndedAtUtc = Dt(r, 12),
                         EndLatitude = Dec(r, 13), EndLongitude = Dec(r, 14), EndAccuracyM = Dec(r, 15), EndKm = Dec(r, 16),
                         EndExceptionReason = Str(r, 17), AutoClosedAtUtc = Dt(r, 18), ReviewStatus = r.GetString(19),

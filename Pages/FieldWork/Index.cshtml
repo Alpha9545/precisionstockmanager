@@ -42,7 +42,7 @@
                 </div>
                 <dl class="fw-kv">
                     <dt>Started</dt><dd>@FieldWorkReadingPageModel.Ist(t.StartedAtUtc, "hh:mm tt") at @t.StartKm.ToString("0.0") km</dd>
-                    <dt>Vehicle</dt><dd>@FieldDayRules.VehicleLabel(t.VehicleType)</dd>
+                    @if (t.VehicleType != null) { <dt>Vehicle</dt><dd>@FieldDayRules.VehicleLabel(t.VehicleType)</dd> }
                     @if (t.EndedAtUtc.HasValue)
                     {
                         <dt>Ended</dt><dd>@FieldWorkReadingPageModel.Ist(t.EndedAtUtc, "hh:mm tt") at @t.EndKm?.ToString("0.0") km</dd>
@@ -78,7 +78,7 @@
             </div>
             <div class="d-flex gap-2 mb-2">
                 <a asp-page="/FieldWork/Customers/Index" class="btn btn-outline-primary fw-btn">My customers</a>
-                <a asp-page="/FieldWork/Customers/Create" class="btn btn-outline-success fw-btn">+ Add customer</a>
+                <a asp-page="/FieldWork/Visits/New" class="btn btn-outline-success fw-btn">+ New visit</a>
             </div>
         }
 

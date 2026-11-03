@@ -81,6 +81,9 @@
     }
 
     function startCamera() {
+        // the "take the customer's permission" reminder appears when the camera is opened
+        var consent = $('fpConsent');
+        if (consent) consent.classList.remove('d-none');
         if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             setCameraStatus('The camera needs a secure (https://) connection and a current browser.', 'text-danger');
             return;
@@ -229,6 +232,7 @@
     var phone = document.getElementById('fcPhone'), alt = document.getElementById('fcAltPhone'), box = document.getElementById('fcDupWarning');
     if (!phone || !box) return;
     var url = box.getAttribute('data-check-url');
+    if (!url) return;   // a form with its own duplicate check (New Visit: fieldwork-newvisit.js)
     var timer = null;
     function check() {
         var p = phone.value.trim(), a = alt ? alt.value.trim() : '';

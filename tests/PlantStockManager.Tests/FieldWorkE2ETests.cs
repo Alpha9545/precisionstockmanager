@@ -104,7 +104,10 @@ DELETE FROM dbo.FieldWorkConsents WHERE UserId IN (@A, @B, @C);";
             await s.RecordConsentAsync(env.Employee);
             await s.RecordConsentAsync(env.Employee);   // twice is harmless
 
-            Assert.False((await s.StartDayAsync(env.Employee, "Rocket", Reading(1000m))).Ok);
+            // an unknown vehicle is refused only where Start Day still asks for one (2026-11-03_FieldWorkVehicleOptional.sql missing);
+            // with the migration the vehicle is not asked and is ignored (FieldVehicleOptionalE2ETests)
+            if (await s.VehicleRequiredAsync())
+                Assert.False((await s.StartDayAsync(env.Employee, "Rocket", Reading(1000m))).Ok);
             Assert.False((await s.StartDayAsync(env.Employee, "OwnBike", Reading(1000m, acc: 500m))).Ok);   // poor GPS, no reason
 
             var token = Guid.NewGuid().ToString();

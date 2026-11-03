@@ -44,6 +44,9 @@ namespace PlantStockManager.Services.FieldWork
 
         public Task<bool> SchemaReadyAsync() => _repo.SchemaReadyAsync();
 
+        // false on a database without 2026-11-03_FieldWorkVehicleOptional.sql: Start Day must still ask for the vehicle
+        public async Task<bool> VehicleRequiredAsync() => !await _repo.VehicleOptionalAsync();
+
         public Task<bool> HasConsentAsync(int userId) => _repo.HasConsentAsync(userId, _options.ConsentVersion);
 
         public Task RecordConsentAsync(int userId) => _repo.RecordConsentAsync(userId, _options.ConsentVersion);
@@ -90,7 +93,11 @@ namespace PlantStockManager.Services.FieldWork
                 new FieldDayRules.ReadingInput(request.Km, request.Latitude, request.Longitude, request.AccuracyM, hasPhoto, request.ExceptionReason),
                 _options.MaxGpsAccuracyMeters, "Start");
             var errors = check.Errors.ToList();
-            if (FieldDayRules.ValidateVehicleType(vehicleType) is { } vehicleError)
+            // 2026-11-03: Start Day no longer asks for the vehicle. Only a database WITHOUT
+            // 2026-11-03_FieldWorkVehicleOptional.sql still needs one (no invented default is written); otherwise it is ignored.
+            if (await _repo.VehicleOptionalAsync())
+                vehicleType = null;
+            else if (FieldDayRules.ValidateVehicleType(vehicleType) is { } vehicleError)
                 errors.Insert(0, vehicleError);
             if (hasPhoto && _photos.Validate(request.Photo) is { } photoError)
                 errors.Add(photoError);
@@ -103,7 +110,7 @@ namespace PlantStockManager.Services.FieldWork
             try
             {
                 var dayId = await _repo.StartDayAsync(new FieldDayRepository.StartDayCommand(
-                    userId, AppClock.Today, vehicleType!, check.Km, check.Position, check.Reason, FieldDayRules.JoinFlags(check.Flags), photo, token.Value));
+                    userId, AppClock.Today, vehicleType, check.Km, check.Position, check.Reason, FieldDayRules.JoinFlags(check.Flags), photo, token.Value));
                 return Result.Success(dayId);
             }
             catch (Exception ex)

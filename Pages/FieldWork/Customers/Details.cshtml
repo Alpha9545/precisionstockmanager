@@ -47,7 +47,7 @@
         @if (Model.CanWork)
         {
             <div class="d-flex gap-2 flex-wrap mb-3">
-                <a asp-page="/FieldWork/Visits/Create" asp-route-customerId="@c.Id" class="btn btn-success fw-btn">Log visit</a>
+                <a asp-page="/FieldWork/Visits/New" asp-route-customerId="@c.Id" class="btn btn-success fw-btn">Log visit</a>
                 <a asp-page="/FieldWork/Customers/Note" asp-route-customerId="@c.Id" class="btn btn-outline-primary fw-btn">Call / Note</a>
                 @if (Model.CanEdit) { <a asp-page="/FieldWork/Customers/Edit" asp-route-id="@c.Id" class="btn btn-outline-secondary fw-btn">Edit</a> }
             </div>

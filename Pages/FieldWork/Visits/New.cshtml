@@ -1,0 +1,140 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Visits.NewModel
+@using PlantStockManager.Services
+@using PlantStockManager.Services.FieldWork
+@using PlantStockManager.Pages.FieldWork.Customers
+@{
+    ViewData["Title"] = "New Visit";
+    var today = AppClock.Today;
+    var isNew = Model.Mode != FieldVisitService.ModeExisting;
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2">
+        <h4 class="mb-0">New visit</h4>
+        <a asp-page="/FieldWork/Index" class="btn btn-sm btn-outline-secondary">My Day</a>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldCustomerSchema.MigrationMessage</div>
+    }
+    else if (Model.DayMessage != null)
+    {
+        <div class="alert alert-warning">
+            <strong>@Model.DayMessage</strong>
+            @if (Model.DayMessage == FieldVisitService.NoOpenDayMessage) { <div class="mt-2"><a asp-page="/FieldWork/StartDay" class="btn btn-sm btn-success">Start Day</a></div> }
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-danger @(Model.Errors.Any() && !Model.Duplicates.Any() ? "" : "d-none")">
+            <ul class="mb-0" id="fpClientErrors">@if (!Model.Duplicates.Any()) { foreach (var e in Model.Errors) { <li>@e</li> } }</ul>
+        </div>
+        @if (Model.Errors.Any())
+        {
+            <div class="alert alert-warning small">For safety the photos are not kept after an error. Take them again if needed.</div>
+        }
+
+        <form method="post" enctype="multipart/form-data" id="fpForm" novalidate
+              data-max-accuracy="@Model.MaxAccuracyMeters.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+              data-max-bytes="@Model.MaxPhotoBytes" data-max-photos="@Model.MaxPhotos" data-gps-required="true"
+              data-search-url="@Url.Page("/FieldWork/Visits/New", "Search")" data-check-url="@Url.Page("/FieldWork/Visits/New", "CheckPhone")">
+            <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
+            <input type="hidden" name="CustomerId" id="nvCustomerId" value="@Model.CustomerId" />
+
+            <div class="fw-step">
+                <div class="btn-group w-100" role="group" aria-label="Customer">
+                    <input type="radio" class="btn-check" name="Mode" id="nvModeNew" value="@FieldVisitService.ModeNew" checked="@isNew" />
+                    <label class="btn btn-outline-primary" for="nvModeNew">New customer</label>
+                    <input type="radio" class="btn-check" name="Mode" id="nvModeExisting" value="@FieldVisitService.ModeExisting" checked="@(!isNew)" />
+                    <label class="btn btn-outline-primary" for="nvModeExisting">Existing customer</label>
+                </div>
+            </div>
+
+            @if (Model.Duplicates.Any())
+            {
+                <div class="alert alert-warning" id="nvServerDup">
+                    <strong>Possible duplicate.</strong> @Model.Errors.FirstOrDefault()
+                    <div class="d-flex gap-2 mt-2 flex-wrap">
+                        @foreach (var m in Model.Duplicates.Where(Model.IsUsable))
+                        {
+                            <button type="button" class="btn btn-sm btn-primary" data-use-customer="@m.CustomerId" data-name="@m.Name" data-village="@m.VillageCity">
+                                Use this existing customer instead: @m.Name
+                            </button>
+                        }
+                        <button type="submit" name="ConfirmDuplicate" value="true" class="btn btn-sm btn-warning">Save anyway (different customer)</button>
+                    </div>
+                </div>
+            }
+
+            @* ---- existing customer ---- *@
+            <div class="fw-step @(isNew ? "d-none" : "")" id="nvExisting">
+                <div class="fw-step-title">Customer</div>
+                <div id="nvSelected" class="@(Model.Selected == null ? "d-none" : "") d-flex justify-content-between align-items-center gap-2">
+                    <div>
+                        <strong id="nvSelectedName">@Model.Selected?.Name</strong>
+                        <div class="small text-muted" id="nvSelectedInfo">@(Model.Selected == null ? "" : Model.Selected.VillageCity + " · " + FieldCustomerRules.LeadLabel(Model.Selected.LeadStatus))</div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="nvChange">Change</button>
+                </div>
+                <div id="nvSearchBox" class="@(Model.Selected == null ? "" : "d-none")">
+                    <input type="search" id="nvSearch" class="form-control" placeholder="Search my customers: name, phone or village" autocomplete="off" aria-label="Search customers" />
+                    <div class="list-group mt-2" id="nvResults" aria-live="polite"></div>
+                </div>
+            </div>
+
+            @* ---- new customer ---- *@
+            <div class="fw-step @(isNew ? "" : "d-none")" id="nvNew">
+                <div class="fw-step-title">New customer</div>
+                <partial name="/Pages/FieldWork/Customers/_CustomerFields.cshtml" model="@(new CustomerFieldsModel(Model.Name, Model.ContactPerson, Model.Phone, Model.AlternatePhone,
+                    Model.CustomerType, Model.VillageCity, Model.District, Model.Address, Model.DistrictSuggestions, null))" />
+                <div class="alert alert-warning py-2 small mt-2 d-none" id="nvDup" aria-live="polite">
+                    <div data-dup-text></div>
+                    <div class="d-flex gap-2 mt-2 flex-wrap" data-dup-actions></div>
+                </div>
+            </div>
+
+            <div class="fw-step">
+                <label class="fw-step-title form-label" for="vDiscussed">What was discussed</label>
+                <textarea id="vDiscussed" name="Discussed" class="form-control" rows="3" maxlength="1000" required>@Model.Discussed</textarea>
+                <label class="form-label small mt-2 mb-0" for="vNotes">Visit notes (optional)</label>
+                <textarea id="vNotes" name="Notes" class="form-control" rows="2" maxlength="2000">@Model.Notes</textarea>
+            </div>
+
+            <div class="fw-step">
+                <div class="fw-step-title">Items given (optional)</div>
+                <partial name="/Pages/FieldWork/Visits/_ItemRows.cshtml" model="((IReadOnlyList<string?>)Model.ItemText, (IReadOnlyList<string?>)Model.ItemQty)" />
+            </div>
+
+            <partial name="/Pages/FieldWork/_PhotosCapture.cshtml" model="Model.Capture" />
+
+            <div class="fw-step">
+                <label class="fw-step-title form-label" for="vStatus">Lead status after this visit</label>
+                <select id="vStatus" name="NewLeadStatus" class="form-select">
+                    <option value="">Keep the current status (a new customer starts as New)</option>
+                    @foreach (var s in FieldCustomerRules.LeadStatuses)
+                    {
+                        <option value="@s.Key" selected="@(Model.NewLeadStatus == s.Key)">@s.Value</option>
+                    }
+                </select>
+            </div>
+
+            <div class="fw-step">
+                <div class="fw-step-title">Next follow-up (optional)</div>
+                <div class="small text-muted mb-2">For an existing customer, this visit completes its pending follow-up.</div>
+                <input type="date" name="NextFollowUpDate" value="@Model.NextFollowUpDate?.ToString("yyyy-MM-dd")" class="form-control mb-2"
+                       min="@today.ToString("yyyy-MM-dd")" max="@today.AddDays(FieldCustomerRules.MaxFollowUpDaysAhead).ToString("yyyy-MM-dd")" aria-label="Next follow-up date" />
+                <input name="NextFollowUpNote" value="@Model.NextFollowUpNote" class="form-control form-control-sm" maxlength="500" placeholder="Follow-up note (optional)" />
+            </div>
+
+            <button type="submit" class="btn btn-success w-100 fw-submit" id="fpSubmit">Save visit</button>
+        </form>
+    }
+</div>
+
+@section Scripts {
+    <script src="~/js/fieldwork-photos.js" asp-append-version="true"></script>
+    <script src="~/js/fieldwork-newvisit.js" asp-append-version="true"></script>
+}

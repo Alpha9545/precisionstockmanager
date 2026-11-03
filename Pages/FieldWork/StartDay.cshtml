@@ -50,6 +50,9 @@
         <form method="post" enctype="multipart/form-data" id="fwReadingForm" novalidate
               data-max-accuracy="@Model.MaxAccuracyMeters.ToString(System.Globalization.CultureInfo.InvariantCulture)"
               data-max-bytes="@Model.MaxPhotoBytes">
+            @if (Model.VehicleRequired)
+            {
+            @* only on a database without 2026-11-03_FieldWorkVehicleOptional.sql *@
             <div class="fw-step fw-vehicle">
                 <div class="fw-step-title">Vehicle</div>
                 <div class="btn-group w-100" role="group" aria-label="Vehicle type">
@@ -62,6 +65,7 @@
                     }
                 </div>
             </div>
+            }
 
             <partial name="_ReadingCapture" model="Model" />
 
@@ -81,6 +85,7 @@
         (function () {
             var form = document.getElementById('fwReadingForm');
             if (!form) return;
+            if (!form.querySelector('input[name="VehicleType"]')) return;   // vehicle not asked
             form.addEventListener('submit', function (e) {
                 if (!form.querySelector('input[name="VehicleType"]:checked')) {
                     e.preventDefault();

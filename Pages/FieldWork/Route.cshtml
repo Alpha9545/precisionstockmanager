@@ -55,7 +55,7 @@
             var d = Model.View.Day;
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
                 <div>
-                    <strong>@d.EmployeeName</strong> · @d.WorkDate.ToString("ddd, dd MMM yyyy") · @FieldDayRules.VehicleLabel(d.VehicleType)
+                    <strong>@d.EmployeeName</strong> · @d.WorkDate.ToString("ddd, dd MMM yyyy")@(d.VehicleType != null ? " · " + FieldDayRules.VehicleLabel(d.VehicleType) : "")
                     <span class="badge bg-light text-dark border">@FieldDayRules.StatusLabel(d.Status)</span>
                 </div>
                 <a asp-page="/FieldWork/DayDetails" asp-route-id="@d.Id" class="btn btn-sm btn-outline-secondary">Day details</a>

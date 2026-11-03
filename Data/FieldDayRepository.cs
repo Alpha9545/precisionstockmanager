@@ -17,6 +17,9 @@ namespace PlantStockManager.Data
 
         public Task<bool> SchemaReadyAsync() => FieldWorkSchema.ReadyAsync(_db);
 
+        // true once 2026-11-03_FieldWorkVehicleOptional.sql is applied (Start Day without a vehicle type)
+        public Task<bool> VehicleOptionalAsync() => FieldDayVehicleSchema.OptionalAsync(_db);
+
         private const string DaySelect = @"
 SELECT d.Id, d.UserId, ISNULL(NULLIF(LTRIM(RTRIM(u.Name)), N''), u.Username) AS EmployeeName, d.WorkDate, d.Status, d.VehicleType,
        d.StartedAtUtc, d.StartLatitude, d.StartLongitude, d.StartAccuracyM, d.StartKm, d.StartPhotoId, d.StartExceptionReason, d.StartFlagReasons,
@@ -36,7 +39,7 @@ LEFT JOIN dbo.IMSUsers rv ON rv.Id = d.ReviewedByUserId";
             return new FieldDay
             {
                 Id = r.GetInt32(0), UserId = r.GetInt32(1), EmployeeName = r.GetString(2), WorkDate = r.GetDateTime(3),
-                Status = r.GetString(4), VehicleType = r.GetString(5),
+                Status = r.GetString(4), VehicleType = r.IsDBNull(5) ? null : r.GetString(5),
                 StartedAtUtc = r.GetDateTime(6), StartLatitude = Dec(7), StartLongitude = Dec(8), StartAccuracyM = Dec(9),
                 StartKm = r.GetDecimal(10), StartPhotoId = Int(11), StartExceptionReason = Str(12), StartFlagReasons = Str(13),
                 EndedAtUtc = Dt(14), EndLatitude = Dec(15), EndLongitude = Dec(16), EndAccuracyM = Dec(17), EndKm = Dec(18),
@@ -202,7 +205,7 @@ ORDER BY Name;";
 
         public sealed record PhotoInput(string StoredFileName, int SizeBytes);
 
-        public sealed record StartDayCommand(int UserId, DateTime WorkDate, string VehicleType, decimal Km, FieldDayRules.Position? Position,
+        public sealed record StartDayCommand(int UserId, DateTime WorkDate, string? VehicleType, decimal Km, FieldDayRules.Position? Position,
             string? ExceptionReason, string? FlagReasons, PhotoInput? Photo, Guid Token);
 
         // Returns the day id; a replay of the same submission returns the day it already created.
@@ -257,7 +260,7 @@ SELECT Id FROM @New;";
                 {
                     cmd.Parameters.Add("@U", SqlDbType.Int).Value = c.UserId;
                     cmd.Parameters.Add("@D", SqlDbType.Date).Value = c.WorkDate.Date;
-                    cmd.Parameters.Add("@Vehicle", SqlDbType.VarChar, 20).Value = c.VehicleType;
+                    cmd.Parameters.Add("@Vehicle", SqlDbType.VarChar, 20).Value = (object?)c.VehicleType ?? DBNull.Value;
                     cmd.Parameters.Add(Decimal("@Lat", c.Position?.Latitude, 9, 6));
                     cmd.Parameters.Add(Decimal("@Lng", c.Position?.Longitude, 9, 6));
                     cmd.Parameters.Add(Decimal("@Acc", c.Position?.AccuracyM, 9, 1));
@@ -271,7 +274,7 @@ SELECT Id FROM @New;";
                 }
 
                 await InsertEventAsync(conn, tx, dayId, "Started", c.UserId,
-                    $"Start {c.Km:0.0} km, {FieldDayRules.VehicleLabel(c.VehicleType)}" + (c.FlagReasons != null ? $"; flagged: {c.FlagReasons}" : ""));
+                    $"Start {c.Km:0.0} km" + (c.VehicleType != null ? $", {FieldDayRules.VehicleLabel(c.VehicleType)}" : "") + (c.FlagReasons != null ? $"; flagged: {c.FlagReasons}" : ""));
                 await tx.CommitAsync();
                 return dayId;
             }

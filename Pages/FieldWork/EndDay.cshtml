@@ -23,7 +23,7 @@
             <dl class="fw-kv mb-0">
                 <dt>Started</dt><dd>@PlantStockManager.Pages.FieldWork.FieldWorkReadingPageModel.Ist(Model.Today.StartedAtUtc, "hh:mm tt")</dd>
                 <dt>Start reading</dt><dd><strong>@Model.Today.StartKm.ToString("0.0") km</strong></dd>
-                <dt>Vehicle</dt><dd>@FieldDayRules.VehicleLabel(Model.Today.VehicleType)</dd>
+                @if (Model.Today.VehicleType != null) { <dt>Vehicle</dt><dd>@FieldDayRules.VehicleLabel(Model.Today.VehicleType)</dd> }
             </dl>
         </div>
 

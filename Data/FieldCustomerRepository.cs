@@ -169,7 +169,7 @@ ORDER BY c.District;";
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
             var sql = $@"
-SELECT TOP 10 c.Id, c.Name, c.VillageCity, {NameOf("a")}, c.IsActive
+SELECT TOP 10 c.Id, c.Name, c.VillageCity, {NameOf("a")}, c.IsActive, c.AssignedUserId
 FROM dbo.FieldCustomers c JOIN dbo.IMSUsers a ON a.Id = c.AssignedUserId
 WHERE (c.PhoneKey IN (SELECT value FROM STRING_SPLIT(@Keys, ',')) OR c.AlternatePhoneKey IN (SELECT value FROM STRING_SPLIT(@Keys, ',')))
   AND (@Ex IS NULL OR c.Id <> @Ex)
@@ -179,7 +179,7 @@ ORDER BY c.IsActive DESC, c.Id;";
             cmd.Parameters.Add(Int("@Ex", excludeCustomerId));
             using var r = await cmd.ExecuteReaderAsync();
             while (await r.ReadAsync())
-                list.Add(new FieldCustomerRules.DuplicateMatch(r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetBoolean(4)));
+                list.Add(new FieldCustomerRules.DuplicateMatch(r.GetInt32(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetBoolean(4), r.GetInt32(5)));
             return list;
         }
 
@@ -409,44 +409,7 @@ WHERE p.Id = @P AND (
                     }
                 }
 
-                int? photoId = null;
-                if (c.Photo != null)
-                    photoId = await InsertPhotoAsync(conn, tx, c.CreatedByUserId, "CustomerPhoto", c.Photo.StoredFileName, c.Photo.SizeBytes,
-                        c.Position?.Latitude, c.Position?.Longitude, c.Position?.AccuracyM, c.Photo.ConsentReminderVersion);
-
-                const string insert = @"
-DECLARE @New TABLE (Id INT);
-INSERT INTO dbo.FieldCustomers (Name, ContactPerson, Phone, AlternatePhone, CustomerType, VillageCity, District, Address,
-       Latitude, Longitude, AccuracyM, GpsExceptionReason, FlagReasons, PhotoId, LeadStatus, AssignedUserId, CreatedByUserId, SubmissionToken)
-OUTPUT inserted.Id INTO @New (Id)
-VALUES (@Name, @Contact, @Phone, @Alt, @Type, @Village, @District, @Address, @Lat, @Lng, @Acc, @Reason, @Flags, @Photo, 'New', @Assigned, @By, @T);
-SELECT Id FROM @New;";
-                int newId;
-                using (var cmd = new SqlCommand(insert, conn, tx))
-                {
-                    var x = c.Customer;
-                    cmd.Parameters.Add(NText("@Name", x.Name, 150));
-                    cmd.Parameters.Add(NText("@Contact", x.ContactPerson, 150));
-                    cmd.Parameters.Add(Text("@Phone", x.Phone, 15));
-                    cmd.Parameters.Add(Text("@Alt", x.AlternatePhone, 15));
-                    cmd.Parameters.Add(Text("@Type", x.CustomerType, 15));
-                    cmd.Parameters.Add(NText("@Village", x.VillageCity, 100));
-                    cmd.Parameters.Add(NText("@District", x.District, 100));
-                    cmd.Parameters.Add(NText("@Address", x.Address, 400));
-                    cmd.Parameters.Add(Decimal("@Lat", c.Position?.Latitude, 9, 6));
-                    cmd.Parameters.Add(Decimal("@Lng", c.Position?.Longitude, 9, 6));
-                    cmd.Parameters.Add(Decimal("@Acc", c.Position?.AccuracyM, 9, 1));
-                    cmd.Parameters.Add(NText("@Reason", c.GpsExceptionReason, 300));
-                    cmd.Parameters.Add(NText("@Flags", c.FlagReasons, 500));
-                    cmd.Parameters.Add(Int("@Photo", photoId));
-                    cmd.Parameters.Add(Int("@Assigned", c.AssignedUserId));
-                    cmd.Parameters.Add(Int("@By", c.CreatedByUserId));
-                    cmd.Parameters.Add("@T", SqlDbType.UniqueIdentifier).Value = c.Token;
-                    newId = (int)(await cmd.ExecuteScalarAsync())!;
-                }
-                await InsertEventAsync(conn, tx, newId, "Created", c.CreatedByUserId,
-                    $"{c.Customer.Name}, {c.Customer.VillageCity}" + (c.FlagReasons != null ? $"; flagged: {c.FlagReasons}" : ""),
-                    toStatus: "New", toUserId: c.AssignedUserId);
+                var newId = await InsertCustomerAsync(conn, tx, c);
                 await tx.CommitAsync();
                 return (newId, false);
             }
@@ -460,6 +423,84 @@ SELECT Id FROM @New;";
                 await SafeRollbackAsync(tx);
                 throw;
             }
+        }
+
+        // Inserts the customer (its photo first, when given) and its 'Created' event inside the caller's transaction. Shared
+        // by Add Customer and the one-step New Visit (FieldVisitRepository.CreateWithNewCustomerAsync).
+        internal static async Task<int> InsertCustomerAsync(SqlConnection conn, SqlTransaction tx, CreateCommand c)
+        {
+            int? photoId = null;
+            if (c.Photo != null)
+                photoId = await InsertPhotoAsync(conn, tx, c.CreatedByUserId, "CustomerPhoto", c.Photo.StoredFileName, c.Photo.SizeBytes,
+                    c.Position?.Latitude, c.Position?.Longitude, c.Position?.AccuracyM, c.Photo.ConsentReminderVersion);
+
+            const string insert = @"
+DECLARE @New TABLE (Id INT);
+INSERT INTO dbo.FieldCustomers (Name, ContactPerson, Phone, AlternatePhone, CustomerType, VillageCity, District, Address,
+       Latitude, Longitude, AccuracyM, GpsExceptionReason, FlagReasons, PhotoId, LeadStatus, AssignedUserId, CreatedByUserId, SubmissionToken)
+OUTPUT inserted.Id INTO @New (Id)
+VALUES (@Name, @Contact, @Phone, @Alt, @Type, @Village, @District, @Address, @Lat, @Lng, @Acc, @Reason, @Flags, @Photo, 'New', @Assigned, @By, @T);
+SELECT Id FROM @New;";
+            int newId;
+            using (var cmd = new SqlCommand(insert, conn, tx))
+            {
+                var x = c.Customer;
+                cmd.Parameters.Add(NText("@Name", x.Name, 150));
+                cmd.Parameters.Add(NText("@Contact", x.ContactPerson, 150));
+                cmd.Parameters.Add(Text("@Phone", x.Phone, 15));
+                cmd.Parameters.Add(Text("@Alt", x.AlternatePhone, 15));
+                cmd.Parameters.Add(Text("@Type", x.CustomerType, 15));
+                cmd.Parameters.Add(NText("@Village", x.VillageCity, 100));
+                cmd.Parameters.Add(NText("@District", x.District, 100));
+                cmd.Parameters.Add(NText("@Address", x.Address, 400));
+                cmd.Parameters.Add(Decimal("@Lat", c.Position?.Latitude, 9, 6));
+                cmd.Parameters.Add(Decimal("@Lng", c.Position?.Longitude, 9, 6));
+                cmd.Parameters.Add(Decimal("@Acc", c.Position?.AccuracyM, 9, 1));
+                cmd.Parameters.Add(NText("@Reason", c.GpsExceptionReason, 300));
+                cmd.Parameters.Add(NText("@Flags", c.FlagReasons, 500));
+                cmd.Parameters.Add(Int("@Photo", photoId));
+                cmd.Parameters.Add(Int("@Assigned", c.AssignedUserId));
+                cmd.Parameters.Add(Int("@By", c.CreatedByUserId));
+                cmd.Parameters.Add("@T", SqlDbType.UniqueIdentifier).Value = c.Token;
+                newId = (int)(await cmd.ExecuteScalarAsync())!;
+            }
+            await InsertEventAsync(conn, tx, newId, "Created", c.CreatedByUserId,
+                $"{c.Customer.Name}, {c.Customer.VillageCity}" + (c.FlagReasons != null ? $"; flagged: {c.FlagReasons}" : ""),
+                toStatus: "New", toUserId: c.AssignedUserId);
+            return newId;
+        }
+
+        // Active customers ASSIGNED to this user (the ones they may log a visit for), matching name / village / contact or
+        // phone digits -- the New Visit form's "Existing customer" search.
+        public async Task<List<FieldCustomerListRow>> SearchWorkableAsync(int userId, string? search, int max)
+        {
+            var q = FieldCustomerRules.Clean(search);
+            using var conn = _db.GetConnection();
+            await conn.OpenAsync();
+            var sql = $@"
+SELECT TOP (@Max) c.Id, c.Name, c.ContactPerson, c.Phone, c.CustomerType, c.VillageCity, c.District, c.LeadStatus, fu.DueDate
+FROM dbo.FieldCustomers c
+LEFT JOIN dbo.FieldFollowUps fu ON fu.CustomerId = c.Id AND fu.Status = 'Pending'
+WHERE c.IsActive = 1 AND c.AssignedUserId = @U
+  AND (@Q IS NULL OR c.Name LIKE @Q ESCAPE '\' OR c.VillageCity LIKE @Q ESCAPE '\' OR c.ContactPerson LIKE @Q ESCAPE '\'
+       OR (@QDigits IS NOT NULL AND (c.Phone LIKE @QDigits OR c.AlternatePhone LIKE @QDigits)))
+ORDER BY c.Name, c.Id;";
+            using var cmd = new SqlCommand(sql, conn);
+            var digits = q == null ? "" : new string(q.Where(char.IsAsciiDigit).ToArray());
+            cmd.Parameters.Add(Int("@Max", max));
+            cmd.Parameters.Add(Int("@U", userId));
+            cmd.Parameters.Add(NText("@Q", q == null ? null : "%" + EscapeLike(q) + "%", 210));
+            cmd.Parameters.Add(Text("@QDigits", digits.Length >= 3 ? "%" + digits + "%" : null, 20));
+            var list = new List<FieldCustomerListRow>();
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                list.Add(new FieldCustomerListRow
+                {
+                    Id = r.GetInt32(0), Name = r.GetString(1), ContactPerson = Str(r, 2), PhoneShown = r.GetString(3), CustomerType = r.GetString(4),
+                    VillageCity = r.GetString(5), District = Str(r, 6), LeadStatus = r.GetString(7), PendingFollowUpDate = Dt(r, 8),
+                    AssignedUserId = userId, IsActive = true, AssignedUserActive = true,
+                });
+            return list;
         }
 
         // Runs act on the LOCKED customer after check(customer) returned null (else that refusal is thrown).

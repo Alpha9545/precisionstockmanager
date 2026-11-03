@@ -5,12 +5,15 @@ using PlantStockManager.Services.FieldWork;
 
 namespace PlantStockManager.Pages.FieldWork
 {
-    // Start Day: live meter photo, GPS, km, vehicle type. The day's date and time are the server's (IST date, UTC time).
+    // Start Day: live meter photo, GPS, km (and the vehicle type only on a database without
+    // 2026-11-03_FieldWorkVehicleOptional.sql). The day's date and time are the server's (IST date, UTC time).
     public class StartDayModel : FieldWorkReadingPageModel
     {
         public StartDayModel(FieldDayService service) : base(service) { }
 
+        // only asked on a database without 2026-11-03_FieldWorkVehicleOptional.sql
         [BindProperty] public string? VehicleType { get; set; }
+        public bool VehicleRequired { get; private set; }
 
         // today's day when it is already closed (then no new start is offered -- one day per date)
         public FieldDay? ClosedToday { get; private set; }
@@ -23,6 +26,7 @@ namespace PlantStockManager.Pages.FieldWork
             SchemaReady = await Service.SchemaReadyAsync();
             if (!SchemaReady)
                 return Page();
+            VehicleRequired = await Service.VehicleRequiredAsync();
             if (!await Service.HasConsentAsync(userId.Value))
                 return RedirectToPage("/FieldWork/Consent");
             var today = await Service.GetTodayAsync(userId.Value);
@@ -41,6 +45,7 @@ namespace PlantStockManager.Pages.FieldWork
             SchemaReady = await Service.SchemaReadyAsync();
             if (!SchemaReady)
                 return Page();
+            VehicleRequired = await Service.VehicleRequiredAsync();
 
             var request = await ReadRequestAsync();
             if (Errors.Count == 0)

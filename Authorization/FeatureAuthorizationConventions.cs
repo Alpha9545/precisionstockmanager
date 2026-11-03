@@ -289,12 +289,14 @@ namespace PlantStockManager.Authorization
                 // them; managers all), whose phone they see, and every action are decided per record by FieldCustomerService
                 // (404 otherwise). Manager-only actions on Details (status / reassign / archive) are re-checked there.
                 ["/FieldWork/Customers/Index"] = R("FieldWork.Day|FieldWork.Manage"),
-                ["/FieldWork/Customers/Create"] = R("FieldWork.Day|FieldWork.Manage"),
+                // 2026-11-03: Add Customer (no visit) is for managers adding from the office; field employees use New Visit
+                ["/FieldWork/Customers/Create"] = R("FieldWork.Manage"),
                 ["/FieldWork/Customers/Details"] = R("FieldWork.Day|FieldWork.Manage"),
                 ["/FieldWork/Customers/Edit"] = R("FieldWork.Day|FieldWork.Manage"),
                 ["/FieldWork/Customers/Note"] = R("FieldWork.Day|FieldWork.Manage"),
                 ["/FieldWork/Customers/Reassign"] = R("FieldWork.Manage"),
-                ["/FieldWork/Visits/Create"] = R("FieldWork.Day"),
+                ["/FieldWork/Visits/Create"] = R("FieldWork.Day"),                    // 2026-11-03: redirects to Visits/New
+                ["/FieldWork/Visits/New"] = R("FieldWork.Day"),                       // one-step New Visit (new or existing customer)
                 ["/FieldWork/Visits/Edit"] = R("FieldWork.Manage"),
                 ["/FieldWork/FollowUps/Index"] = R("FieldWork.Day|FieldWork.Manage"),
                 // Phase 3 (2026-11-03): routes. An employee sees only their own days (FieldRouteService -> 404 otherwise).

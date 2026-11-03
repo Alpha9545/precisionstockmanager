@@ -75,6 +75,48 @@ namespace PlantStockManager.Services.FieldWork
             return errors;
         }
 
+        // Saves the live photos (and, when asked, a COPY of the first one for the customer's profile -- its own file, because a
+        // customer photo is a separate dbo.FieldPhotos row). Returns everything written so the caller can delete it on failure.
+        private async Task<(List<FieldVisitRepository.PhotoInput> Photos, FieldVisitRepository.PhotoInput? Profile, List<string> Stored)> SavePhotosAsync(
+            IReadOnlyList<byte[]> photos, bool wantProfile)
+        {
+            var stored = new List<string>();
+            var list = new List<FieldVisitRepository.PhotoInput>();
+            FieldVisitRepository.PhotoInput? profile = null;
+            try
+            {
+                foreach (var p in photos)
+                {
+                    var name = await _photos.SaveAsync(p);
+                    stored.Add(name);
+                    list.Add(new FieldVisitRepository.PhotoInput(name, p.Length));
+                }
+                if (wantProfile && photos.Count > 0)
+                {
+                    var copy = await _photos.SaveAsync(photos[0]);
+                    stored.Add(copy);
+                    profile = new FieldVisitRepository.PhotoInput(copy, photos[0].Length);
+                }
+                return (list, profile, stored);
+            }
+            catch
+            {
+                foreach (var s in stored) _photos.DeleteQuietly(s);
+                throw;
+            }
+        }
+
+        private FieldVisitRepository.CreateCommand Command(VisitRequest req, int userId, DateTime today, FieldCustomerRules.PositionCheck pos,
+            IReadOnlyList<FieldCustomerRules.Item> items, List<FieldVisitRepository.PhotoInput> photos, FieldVisitRepository.PhotoInput? profile, Guid token)
+        {
+            var next = req.NextFollowUpDate;
+            return new FieldVisitRepository.CreateCommand(req.CustomerId, userId, today, pos.Position,
+                pos.Position == null || pos.Flags.Count > 0 ? pos.Reason : null, FieldDayRules.JoinFlags(pos.Flags),
+                FieldCustomerRules.Clean(req.Discussed)!, FieldCustomerRules.Clean(req.Notes), items, photos, _options.CustomerPhotoConsentVersion,
+                FieldCustomerRules.Clean(req.NewLeadStatus), next, next.HasValue ? FieldCustomerRules.Clean(req.NextFollowUpNote) : null, token, profile);
+        }
+
+        // A visit for an EXISTING customer (also the "Existing customer" mode of New Visit).
         public async Task<FieldCustomerService.Outcome> CreateAsync(ClaimsPrincipal user, VisitRequest req)
         {
             var userId = user.GetUserId();
@@ -96,26 +138,93 @@ namespace PlantStockManager.Services.FieldWork
             var stored = new List<string>();
             try
             {
-                var photos = new List<FieldVisitRepository.PhotoInput>();
-                foreach (var p in req.Photos)
-                {
-                    var name = await _photos.SaveAsync(p);
-                    stored.Add(name);
-                    photos.Add(new FieldVisitRepository.PhotoInput(name, p.Length));
-                }
+                var saved = await SavePhotosAsync(req.Photos, FieldCustomerRules.UseFirstPhotoAsProfile(req.Photos.Count, customer.PhotoId.HasValue));
+                stored = saved.Stored;
                 var manage = FieldCustomerService.MayManage(user);
-                var next = req.NextFollowUpDate;
-                var result = await _visits.CreateAsync(new FieldVisitRepository.CreateCommand(req.CustomerId, userId.Value, today, pos.Position,
-                        pos.Position == null || pos.Flags.Count > 0 ? pos.Reason : null, FieldDayRules.JoinFlags(pos.Flags),
-                        FieldCustomerRules.Clean(req.Discussed)!, FieldCustomerRules.Clean(req.Notes), items, photos, _options.CustomerPhotoConsentVersion,
-                        FieldCustomerRules.Clean(req.NewLeadStatus), next, next.HasValue ? FieldCustomerRules.Clean(req.NextFollowUpNote) : null, token),
+                var result = await _visits.CreateAsync(Command(req, userId.Value, today, pos, items, saved.Photos, saved.Profile, token),
                     (locked, pending) => FieldCustomerRules.MayWork(locked.AssignedUserId, userId, manage, locked.IsActive)
                         ? null
                         : "The customer was reassigned or archived meanwhile.");
                 if (result.Replay)
                     foreach (var s in stored) _photos.DeleteQuietly(s);
-                return new FieldCustomerService.Outcome(true, Array.Empty<string>(), result.Id,
-                    AskNextDate: !result.Replay && FieldCustomerRules.AskForNextDate(result.CompletedFollowUp, next), Replay: result.Replay);
+                else if (!result.ProfilePhotoUsed && saved.Profile != null)
+                    _photos.DeleteQuietly(saved.Profile.StoredFileName);   // the customer got a photo meanwhile
+                return new FieldCustomerService.Outcome(true, Array.Empty<string>(), result.VisitId,
+                    AskNextDate: !result.Replay && FieldCustomerRules.AskForNextDate(result.CompletedFollowUp, req.NextFollowUpDate), Replay: result.Replay,
+                    CustomerId: result.CustomerId);
+            }
+            catch (Exception ex)
+            {
+                foreach (var s in stored) _photos.DeleteQuietly(s);
+                return FieldCustomerService.Outcome.Fail(DbErrorMessage.For(ex));
+            }
+        }
+
+        // ---- one-step New Visit (2026-11-03) ----------------------------------------------------------------------------
+
+        public const string ModeNew = "new";
+        public const string ModeExisting = "existing";
+
+        public sealed record NewVisitRequest(string? Mode, int? CustomerId, FieldCustomerRules.CustomerInput? Customer, bool ConfirmDuplicate,
+            VisitRequest Visit);
+
+        // null = the mode and its customer choice are complete, else the message.
+        public static string? CheckMode(string? mode, int? customerId)
+            => mode == ModeExisting ? (customerId is > 0 ? null : "Choose the existing customer (search by name, phone or village).")
+               : mode == ModeNew ? null
+               : "Choose \"New customer\" or \"Existing customer\".";
+
+        public Task<List<FieldCustomerListRow>> SearchMyCustomersAsync(ClaimsPrincipal user, string? search) => _customers.SearchMyCustomersAsync(user, search);
+
+        // New Visit: an existing customer goes through CreateAsync (unchanged behaviour); a NEW customer is created together with
+        // the visit, photos, follow-up and events in ONE transaction (FieldVisitRepository.CreateWithNewCustomerAsync). The GPS
+        // reading is used for both. One submission token covers the whole save.
+        public async Task<FieldCustomerService.Outcome> SaveVisitAsync(ClaimsPrincipal user, NewVisitRequest req)
+        {
+            if (CheckMode(req.Mode, req.CustomerId) is { } modeError)
+                return FieldCustomerService.Outcome.Fail(modeError);
+            if (req.Mode == ModeExisting)
+                return await CreateAsync(user, req.Visit with { CustomerId = req.CustomerId!.Value });
+
+            var userId = user.GetUserId();
+            if (userId == null || !Guid.TryParse(req.Visit.SubmitToken, out var token) || token == Guid.Empty)
+                return FieldCustomerService.Outcome.Fail("This form has expired. Open New Visit again.");
+            if (!FieldDayService.IsFieldEmployee(user))
+                return FieldCustomerService.Outcome.Fail("Only field employees log visits.");
+            // a repeated submit of a form that already saved: the same visit (before the duplicate-phone check, which would
+            // otherwise find the customer this very form created)
+            if (await _visits.FindByTokenAsync(token) is { } earlier)
+                return earlier.UserId == userId
+                    ? new FieldCustomerService.Outcome(true, Array.Empty<string>(), earlier.VisitId, Replay: true, CustomerId: earlier.CustomerId)
+                    : FieldCustomerService.Outcome.Fail("This form was already used. Open New Visit again.");
+            if (await CheckOpenDayAsync(user) is { } dayError)
+                return FieldCustomerService.Outcome.Fail(dayError);
+
+            var today = AppClock.Today;
+            var errors = new List<string>();
+            var (clean, customerErrors) = FieldCustomerRules.ValidateCustomer(req.Customer ?? new FieldCustomerRules.CustomerInput(null, null, null, null, null, null, null, null),
+                await _customers.AllDistrictsAsync());
+            errors.AddRange(customerErrors);
+            errors.AddRange(Validate(req.Visit, _options, _photos, today, out var pos, out var items));
+            if (errors.Count > 0)
+                return FieldCustomerService.Outcome.Fail(errors);
+
+            var duplicates = await _customers.FindDuplicatesAsync(clean!.Phone, clean.AlternatePhone, null);
+            if (duplicates.Count > 0 && !req.ConfirmDuplicate)
+                return new FieldCustomerService.Outcome(false, new[] { FieldCustomerRules.DuplicateWarning(duplicates) }, Duplicates: duplicates);
+
+            var stored = new List<string>();
+            try
+            {
+                var saved = await SavePhotosAsync(req.Visit.Photos, FieldCustomerRules.UseFirstPhotoAsProfile(req.Visit.Photos.Count, customerHasPhoto: false));
+                stored = saved.Stored;
+                var customer = new FieldCustomerRepository.CreateCommand(clean, userId.Value, userId.Value, pos.Position,
+                    pos.Position == null || pos.Flags.Count > 0 ? pos.Reason : null, FieldDayRules.JoinFlags(pos.Flags), null, token);
+                var result = await _visits.CreateWithNewCustomerAsync(customer, Command(req.Visit, userId.Value, today, pos, items, saved.Photos, saved.Profile, token));
+                if (result.Replay)
+                    foreach (var s in stored) _photos.DeleteQuietly(s);
+                return new FieldCustomerService.Outcome(true, Array.Empty<string>(), result.VisitId,
+                    AskNextDate: false, Replay: result.Replay, CustomerId: result.CustomerId);
             }
             catch (Exception ex)
             {

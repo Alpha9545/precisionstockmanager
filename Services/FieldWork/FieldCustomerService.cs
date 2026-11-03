@@ -25,7 +25,7 @@ namespace PlantStockManager.Services.FieldWork
         public FieldWorkOptions Options => _options;
 
         public sealed record Outcome(bool Ok, IReadOnlyList<string> Errors, int? Id = null, bool AskNextDate = false,
-            IReadOnlyList<FieldCustomerRules.DuplicateMatch>? Duplicates = null, bool Replay = false)
+            IReadOnlyList<FieldCustomerRules.DuplicateMatch>? Duplicates = null, bool Replay = false, int? CustomerId = null)
         {
             public static Outcome Fail(params string[] errors) => new(false, errors);
             public static Outcome Fail(IEnumerable<string> errors) => new(false, errors.ToList());
@@ -111,6 +111,10 @@ namespace PlantStockManager.Services.FieldWork
                 null, false, false, "Active", 1, MaxBulkRows));
             return rows;
         }
+
+        // New Visit "Existing customer" search: only the active customers this user may log a visit for (assigned to them).
+        public Task<List<FieldCustomerListRow>> SearchMyCustomersAsync(ClaimsPrincipal user, string? search)
+            => user.GetUserId() is { } id ? _repo.SearchWorkableAsync(id, search, 20) : Task.FromResult(new List<FieldCustomerListRow>());
 
         public Task<List<string>> VisibleDistrictsAsync(ClaimsPrincipal user) => _repo.VisibleDistrictsAsync(user.GetUserId() ?? 0, MayManage(user));
         public Task<List<string>> AllDistrictsAsync() => _repo.AllDistrictsAsync();

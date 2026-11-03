@@ -30,7 +30,8 @@
 {
     <div class="fw-step">
         <div class="fw-step-title">@Model.PhotoLabel (optional)</div>
-        <div class="alert alert-warning py-2 small mb-2" role="note">
+        @* shown only once the camera is opened (fieldwork-photos.js) *@
+        <div class="alert alert-warning py-2 small mb-2 d-none" role="note" id="fpConsent">
             <strong>Take the customer's permission before taking a photo.</strong>
             Photos are for work records only.
         </div>

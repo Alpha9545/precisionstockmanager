@@ -177,7 +177,12 @@ namespace PlantStockManager.Services.FieldWork
                 : (new CleanCustomer(name!, contact, phone!, alt, type!, village!, district, address), errors);
         }
 
-        public sealed record DuplicateMatch(int CustomerId, string Name, string VillageCity, string AssignedName, bool IsActive);
+        // AssignedUserId (2026-11-03 New Visit): lets the form offer "Use this existing customer instead" only for a customer
+        // the user may log a visit for.
+        public sealed record DuplicateMatch(int CustomerId, string Name, string VillageCity, string AssignedName, bool IsActive, int AssignedUserId = 0);
+
+        // "Use this existing customer instead": only an ACTIVE customer assigned to this user (anyone else's would be 404).
+        public static bool DuplicateUsable(DuplicateMatch m, int? userId) => m.IsActive && userId.HasValue && m.AssignedUserId == userId.Value;
 
         public static string DuplicateWarning(IReadOnlyList<DuplicateMatch> matches)
             => "This phone number is already saved: " + string.Join("; ", matches.Select(m =>
@@ -243,6 +248,9 @@ namespace PlantStockManager.Services.FieldWork
                 errors.Add($"At most {MaxItems} items can be recorded per visit.");
             return (items, errors);
         }
+
+        // The visit's first photo becomes the customer's profile photo only when a photo was taken and the customer has none.
+        public static bool UseFirstPhotoAsProfile(int photoCount, bool customerHasPhoto) => photoCount > 0 && !customerHasPhoto;
 
         public static string ItemLabel(string text, decimal? qty) => qty.HasValue ? $"{text} × {qty.Value:0.##}" : text;
 

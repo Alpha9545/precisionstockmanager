@@ -9,7 +9,8 @@ namespace PlantStockManager.Models
         public string EmployeeName { get; set; } = "";
         public DateTime WorkDate { get; set; }
         public string Status { get; set; } = "";
-        public string VehicleType { get; set; } = "";
+        // null = not recorded (Start Day no longer asks, 2026-11-03_FieldWorkVehicleOptional.sql); older days keep theirs
+        public string? VehicleType { get; set; }
 
         public DateTime StartedAtUtc { get; set; }
         public decimal? StartLatitude { get; set; }
