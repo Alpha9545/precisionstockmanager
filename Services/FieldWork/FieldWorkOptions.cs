@@ -56,6 +56,14 @@ namespace PlantStockManager.Services.FieldWork
         public string MapAttribution { get; set; } = "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors";
         public int MapMaxZoom { get; set; } = 19;
 
+        // ---- Phase 4 (expenses) --------------------------------------------------------------------------------------
+        // An expense may be dated today or up to this many days back (7 = today and the 7 dates before it). Never future.
+        public int ExpenseBackdateDays { get; set; } = 7;
+
+        // Version of the "Photograph only the bill, no people or card numbers" reminder shown when the camera opens on Add
+        // Expense; stored on each bill photo (dbo.FieldPhotos.ConsentReminderVersion). Raise when the text changes.
+        public int ExpenseBillReminderVersion { get; set; } = 1;
+
         public string ResolvePhotoRoot()
             => Path.GetFullPath(!string.IsNullOrWhiteSpace(PhotoRoot)
                 ? PhotoRoot

@@ -20,7 +20,7 @@ namespace PlantStockManager.Tests
 
         // Phase 2 rows of the test users (@A, @B, @C); a no-op on a copy without the Phase 2 migration. Also used by
         // FieldWorkE2ETests before it deletes Field Days (visits reference them).
-        public const string Phase2CleanupSql = @"
+        public const string Phase2CleanupSql = FieldExpenseE2ETests.ExpenseCleanupSql + @"
 IF OBJECT_ID('dbo.FieldCustomers', 'U') IS NOT NULL
 BEGIN
     DECLARE @Cs TABLE (Id INT PRIMARY KEY);

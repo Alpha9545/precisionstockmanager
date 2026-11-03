@@ -302,6 +302,13 @@ namespace PlantStockManager.Authorization
                 // Phase 3 (2026-11-03): routes. An employee sees only their own days (FieldRouteService -> 404 otherwise).
                 ["/FieldWork/Route"] = R("FieldWork.Day|FieldWork.Manage"),
                 ["/FieldWork/Manage/Team"] = R("FieldWork.Manage"),
+                // Phase 4 (2026-11-03): expenses. An employee sees only their own (FieldExpenseService -> 404 otherwise); these
+                // three also open without an Open day (FieldDayRules.GateAfterConsentPages). Approve / reject are re-checked in
+                // the service (FieldWork.Manage, never one's own expense unless an administrator).
+                ["/FieldWork/Expenses/Index"] = R("FieldWork.Day"),
+                ["/FieldWork/Expenses/Create"] = R("FieldWork.Day"),
+                ["/FieldWork/Expenses/Details"] = R("FieldWork.Day|FieldWork.Manage"),
+                ["/FieldWork/Expenses/Manage/Index"] = R("FieldWork.Manage"),
                 // ---- Inventory Store (2026-10-06) -------------------------------
                 // Area scope and each workflow step are decided by StoreAuthorization
                 // (Store.Manage = the central store: every Area, inside the Store module only).

@@ -192,6 +192,13 @@ namespace PlantStockManager.Services.FieldWork
             "/FieldWork/StartDay", "/FieldWork/Consent", "/Account/Logout", "/Account/Login", "/Account/AccessDenied", "/Error",
         };
 
+        // Phase 4 (2026-11-03): an employee's own expense pages open without an Open day (a bill is often added after End Day
+        // or on a day off) -- but only after the consent notice. Not the manager pages (Expenses/Manage/*).
+        public static readonly IReadOnlySet<string> GateAfterConsentPages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "/FieldWork/Expenses/Index", "/FieldWork/Expenses/Create", "/FieldWork/Expenses/Details",
+        };
+
         // isFieldEmployee: holds FieldWork.Day itself (an administrator's implicit access does not count).
         public static GateResult Gate(bool isFieldEmployee, string pagePath, bool hasConsent, string? todayStatus, bool mayOpenDashboard)
         {
@@ -199,6 +206,8 @@ namespace PlantStockManager.Services.FieldWork
                 return GateResult.Allow;
             if (!hasConsent)
                 return GateResult.Consent;
+            if (GateAfterConsentPages.Contains(pagePath))
+                return GateResult.Allow;
             if (todayStatus != StatusOpen)
                 return GateResult.StartDay;
             if (string.Equals(pagePath, "/Index", StringComparison.OrdinalIgnoreCase) && !mayOpenDashboard)

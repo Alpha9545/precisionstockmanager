@@ -1,0 +1,9 @@
+@model string
+@using PlantStockManager.Services.FieldWork
+@{
+    var cls = Model == FieldExpenseRules.StatusApproved ? "bg-success"
+            : Model == FieldExpenseRules.StatusRejected ? "bg-danger"
+            : Model == FieldExpenseRules.StatusCancelled ? "bg-secondary"
+            : "bg-warning text-dark";
+}
+<span class="badge @cls">@FieldExpenseRules.StatusLabel(Model)</span>

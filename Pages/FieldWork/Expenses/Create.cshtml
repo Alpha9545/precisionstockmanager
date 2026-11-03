@@ -1,0 +1,93 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Expenses.CreateModel
+@using PlantStockManager.Services.FieldWork
+@{
+    ViewData["Title"] = "Add Expense";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2">
+        <h4 class="mb-0">Add expense</h4>
+        <a asp-page="/FieldWork/Expenses/Index" class="btn btn-sm btn-outline-secondary">My expenses</a>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldExpenseSchema.MigrationMessage</div>
+    }
+    else if (!Model.MayAdd)
+    {
+        <div class="alert alert-warning">Only field employees add expenses.</div>
+    }
+    else
+    {
+        <div class="alert alert-danger @(Model.Errors.Any() ? "" : "d-none")" id="efErrorBox">
+            <ul class="mb-0" id="efErrors">@foreach (var e in Model.Errors) { <li>@e</li> }</ul>
+        </div>
+        @if (Model.Errors.Any())
+        {
+            <div class="alert alert-warning small">For safety the bill photo is not kept after an error. Take it again.</div>
+        }
+
+        <form method="post" enctype="multipart/form-data" id="efForm" novalidate data-max-bytes="@Model.MaxPhotoBytes">
+            <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
+            <input type="hidden" name="ReminderVersion" value="@Model.CurrentReminderVersion" />
+            <input type="file" name="Photo" id="efPhotoInput" class="d-none" tabindex="-1" aria-hidden="true" />
+
+            <div class="fw-step">
+                <label class="fw-step-title" for="efCategory">Category</label>
+                <select name="Category" id="efCategory" class="form-select form-select-lg" required>
+                    <option value="">Choose…</option>
+                    @foreach (var c in FieldExpenseRules.Categories)
+                    {
+                        <option value="@c" selected="@(Model.Category == c)">@c</option>
+                    }
+                </select>
+            </div>
+
+            <div class="fw-step">
+                <label class="fw-step-title" for="efAmount">Amount (Rs)</label>
+                <input name="Amount" id="efAmount" value="@Model.Amount" class="form-control form-control-lg" inputmode="decimal" autocomplete="off"
+                       maxlength="12" placeholder="e.g. 250" required />
+            </div>
+
+            <div class="fw-step">
+                <label class="fw-step-title" for="efDate">Date</label>
+                <input type="date" name="ExpenseDate" id="efDate" class="form-control" value="@Model.ExpenseDate?.ToString("yyyy-MM-dd")"
+                       min="@Model.Earliest.ToString("yyyy-MM-dd")" max="@Model.Today.ToString("yyyy-MM-dd")" />
+                <div class="form-text">Today, or up to @Model.Earliest.ToString("dd MMM") at the earliest.</div>
+            </div>
+
+            <div class="fw-step">
+                <label class="fw-step-title" for="efNote">Note <span class="fw-normal text-muted small" id="efNoteHint">(optional; required for Other)</span></label>
+                <textarea name="Note" id="efNote" class="form-control" rows="2" maxlength="@FieldExpenseRules.MaxNoteLength">@Model.Note</textarea>
+            </div>
+
+            <div class="fw-step">
+                <div class="fw-step-title">Bill photo (required)</div>
+                @* shown only once the camera is opened (fieldwork-expense.js) *@
+                <div class="alert alert-warning py-2 small mb-2 d-none" role="note" id="efReminder">
+                    <strong>Photograph only the bill, no people or card numbers.</strong>
+                </div>
+                <div class="fw-camera d-none mb-2" id="efCamera">
+                    <video id="efVideo" playsinline muted autoplay></video>
+                    <canvas id="efCanvas" class="d-none"></canvas>
+                </div>
+                <img id="efPreview" class="fw-photo-full d-none mb-2" alt="Bill photo" />
+                <div class="d-flex gap-2 flex-wrap">
+                    <button type="button" class="btn btn-outline-primary fw-btn" id="efStartCamera">Open camera</button>
+                    <button type="button" class="btn btn-primary fw-btn d-none" id="efTakePhoto">Take photo</button>
+                    <button type="button" class="btn btn-outline-secondary fw-btn d-none" id="efRetake">Retake</button>
+                </div>
+                <div class="small mt-1" id="efCameraStatus" role="status"></div>
+            </div>
+
+            <button type="submit" class="btn btn-success w-100 fw-submit" id="efSubmit">Save expense</button>
+        </form>
+    }
+</div>
+
+@section Scripts {
+    <script src="~/js/fieldwork-expense.js" asp-append-version="true"></script>
+}

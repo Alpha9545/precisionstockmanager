@@ -1,0 +1,70 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Expenses.IndexModel
+@using PlantStockManager.Services
+@using PlantStockManager.Services.FieldWork
+@{
+    ViewData["Title"] = "My Expenses";
+    var s = Model.Summary;
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2 gap-2">
+        <h4 class="mb-0">My expenses</h4>
+        <a asp-page="/FieldWork/Index" class="btn btn-sm btn-outline-secondary">My Day</a>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldExpenseSchema.MigrationMessage</div>
+    }
+    else if (s != null)
+    {
+        @if (Model.Message != null) { <div class="alert alert-success">@Model.Message</div> }
+
+        @if (Model.MayAdd)
+        {
+            <a asp-page="/FieldWork/Expenses/Create" class="btn btn-success w-100 fw-submit mb-3">+ Add expense</a>
+        }
+
+        <form method="get" class="fw-step d-flex gap-2 align-items-end">
+            <div class="flex-grow-1">
+                <label class="form-label small mb-0" for="month">Month</label>
+                <input type="month" id="month" name="Month" class="form-control" value="@s.From.ToString("yyyy-MM")" max="@AppClock.Today.ToString("yyyy-MM")" />
+            </div>
+            <button type="submit" class="btn btn-primary">Show</button>
+        </form>
+
+        <div class="fw-step">
+            <div class="fw-step-title">@s.From.ToString("MMMM yyyy")</div>
+            <dl class="fw-kv mb-0">
+                <dt>Approved</dt><dd><strong>Rs @s.TotalByStatus[FieldExpenseRules.StatusApproved].ToString("#,0.00")</strong></dd>
+                <dt>Pending</dt><dd>Rs @s.TotalByStatus[FieldExpenseRules.StatusSubmitted].ToString("#,0.00")</dd>
+                <dt>Rejected</dt><dd>Rs @s.TotalByStatus[FieldExpenseRules.StatusRejected].ToString("#,0.00")</dd>
+                <dt>Cancelled</dt><dd class="text-muted">Rs @s.TotalByStatus[FieldExpenseRules.StatusCancelled].ToString("#,0.00")</dd>
+            </dl>
+        </div>
+
+        @if (!s.Expenses.Any())
+        {
+            <p class="text-muted">No expenses in @s.From.ToString("MMMM yyyy").</p>
+        }
+        @foreach (var e in s.Expenses)
+        {
+            <a asp-page="/FieldWork/Expenses/Details" asp-route-id="@e.Id" class="fw-day-card d-block text-decoration-none text-body">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div>
+                        <div class="fw-step-title mb-0">@e.Category · Rs @e.Amount.ToString("#,0.00")</div>
+                        <div class="small text-muted">@e.ExpenseDate.ToString("ddd, dd MMM yyyy")</div>
+                        @if (e.Note != null) { <div class="small text-break">@e.Note</div> }
+                    </div>
+                    <partial name="_ExpenseStatusBadge" model="e.Status" />
+                </div>
+            </a>
+        }
+        @if (s.Expenses.Count >= FieldExpenseService.MaxListRows)
+        {
+            <div class="small text-muted">The first @FieldExpenseService.MaxListRows expenses are shown.</div>
+        }
+    }
+</div>

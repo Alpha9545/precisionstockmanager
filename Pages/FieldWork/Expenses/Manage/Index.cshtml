@@ -1,0 +1,147 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Expenses.Manage.IndexModel
+@using PlantStockManager.Authorization
+@using PlantStockManager.Services.FieldWork
+@{
+    ViewData["Title"] = "Expenses";
+    var v = Model.View;
+    var me = User.GetUserId();
+    var full = User.IsFullAccess();
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page-wide">
+    <h4 class="mt-2">Expenses</h4>
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldExpenseSchema.MigrationMessage</div>
+    }
+    else if (v != null)
+    {
+        @if (Model.Message != null) { <div class="alert alert-success">@Model.Message</div> }
+        @if (Model.Error != null) { <div class="alert alert-danger">@Model.Error</div> }
+
+        <form method="get" class="fw-step">
+            <div class="row g-2 align-items-end">
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="from">From</label>
+                    <input type="date" id="from" name="From" class="form-control form-control-sm" value="@v.Filter.From.ToString("yyyy-MM-dd")" />
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="to">To</label>
+                    <input type="date" id="to" name="To" class="form-control form-control-sm" value="@v.Filter.To.ToString("yyyy-MM-dd")" />
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label small mb-0" for="emp">Employee</label>
+                    <select id="emp" name="EmployeeId" class="form-select form-select-sm">
+                        <option value="">All employees</option>
+                        @foreach (var e in Model.Employees)
+                        {
+                            <option value="@e.UserId" selected="@(v.Filter.UserId == e.UserId)">@e.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="cat">Category</label>
+                    <select id="cat" name="Category" class="form-select form-select-sm">
+                        <option value="">All</option>
+                        @foreach (var c in FieldExpenseRules.Categories)
+                        {
+                            <option value="@c" selected="@(v.Filter.Category == c)">@c</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="status">Status</label>
+                    <select id="status" name="Status" class="form-select form-select-sm">
+                        <option value="">All</option>
+                        @foreach (var s in FieldExpenseRules.Statuses)
+                        {
+                            <option value="@s" selected="@(v.Filter.Status == s)">@FieldExpenseRules.StatusLabel(s)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12 col-md-1 d-grid">
+                    <button type="submit" class="btn btn-sm btn-primary">Show</button>
+                </div>
+            </div>
+        </form>
+
+        <div class="fw-step">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                <div class="fw-step-title mb-0">Totals per employee · @v.Filter.From.ToString("dd MMM yyyy") – @v.Filter.To.ToString("dd MMM yyyy")</div>
+                <a asp-page-handler="ExportExcel" asp-all-route-data="Model.RouteFilter" class="btn btn-sm btn-outline-success">Export to Excel</a>
+            </div>
+            @if (!v.Totals.Any())
+            {
+                <div class="small text-muted">No approved or pending expenses for this filter.</div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm mb-0 align-middle">
+                        <thead><tr><th>Employee</th><th class="text-end">Approved (Rs)</th><th class="text-end">Pending (Rs)</th></tr></thead>
+                        <tbody>
+                            @foreach (var t in v.Totals)
+                            {
+                                <tr>
+                                    <td>@t.EmployeeName</td>
+                                    <td class="text-end">@t.Approved.ToString("#,0.00") <span class="small text-muted">(@t.ApprovedCount)</span></td>
+                                    <td class="text-end">@t.Pending.ToString("#,0.00") <span class="small text-muted">(@t.PendingCount)</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-bold">
+                                <td>Total</td>
+                                <td class="text-end">@v.Totals.Sum(t => t.Approved).ToString("#,0.00")</td>
+                                <td class="text-end">@v.Totals.Sum(t => t.Pending).ToString("#,0.00")</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <div class="small text-muted mt-1">Totals follow the employee, date and category filters (not the status filter).</div>
+            }
+        </div>
+
+        <div class="small text-muted mb-2">@v.Expenses.Count expense(s)@(v.Truncated ? " (first " + FieldExpenseService.MaxListRows + " shown and exported; narrow the filter)" : "")</div>
+
+        @if (!v.Expenses.Any())
+        {
+            <p class="text-muted">No expenses match the filter.</p>
+        }
+        @foreach (var e in v.Expenses)
+        {
+            var mayApprove = e.Status == FieldExpenseRules.StatusSubmitted && (e.UserId != me || full);
+            <div class="fw-day-card">
+                <div class="d-flex gap-2 align-items-start">
+                    <a asp-page="/FieldWork/Expenses/Details" asp-route-id="@e.Id">
+                        <img loading="lazy" class="fw-thumb" alt="Bill photo" src="@Url.Page("/FieldWork/Expenses/Details", "Photo", new { id = e.Id })" />
+                    </a>
+                    <div class="flex-grow-1">
+                        <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+                            <div>
+                                <a asp-page="/FieldWork/Expenses/Details" asp-route-id="@e.Id" class="fw-step-title mb-0 d-inline-block">@e.Category · Rs @e.Amount.ToString("#,0.00")</a>
+                                <div class="small text-muted">@e.EmployeeName · @e.ExpenseDate.ToString("ddd, dd MMM yyyy")</div>
+                                @if (e.Note != null) { <div class="small text-break">@e.Note</div> }
+                            </div>
+                            <partial name="_ExpenseStatusBadge" model="e.Status" />
+                        </div>
+                        <div class="d-flex gap-2 mt-2 flex-wrap">
+                            @if (mayApprove)
+                            {
+                                <form method="post" asp-page-handler="Approve" asp-all-route-data="Model.RouteFilter">
+                                    <input type="hidden" name="ExpenseId" value="@e.Id" />
+                                    <button type="submit" class="btn btn-sm btn-success">Approve</button>
+                                </form>
+                            }
+                            <a asp-page="/FieldWork/Expenses/Details" asp-route-id="@e.Id" class="btn btn-sm btn-outline-secondary">
+                                @(mayApprove ? "Details / Reject" : "Details")
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>

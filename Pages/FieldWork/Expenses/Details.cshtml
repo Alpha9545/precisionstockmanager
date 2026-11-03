@@ -1,0 +1,112 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Expenses.DetailsModel
+@using PlantStockManager.Services.FieldWork
+@using PlantStockManager.Pages.FieldWork
+@{
+    ViewData["Title"] = "Expense";
+    var e = Model.Expense;
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2 gap-2">
+        <h4 class="mb-0">Expense</h4>
+        @if (Model.IsManager && !Model.IsOwn)
+        {
+            <a asp-page="/FieldWork/Expenses/Manage/Index" class="btn btn-sm btn-outline-secondary">All expenses</a>
+        }
+        else
+        {
+            <a asp-page="/FieldWork/Expenses/Index" asp-route-month="@e.ExpenseDate.ToString("yyyy-MM")" class="btn btn-sm btn-outline-secondary">My expenses</a>
+        }
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldExpenseSchema.MigrationMessage</div>
+    }
+    else
+    {
+        @if (Model.Message != null) { <div class="alert alert-success">@Model.Message</div> }
+        @if (Model.Errors.Any())
+        {
+            <div class="alert alert-danger"><ul class="mb-0">@foreach (var err in Model.Errors) { <li>@err</li> }</ul></div>
+        }
+
+        <div class="fw-step">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+                <div class="fw-step-title mb-1">@e.Category · Rs @e.Amount.ToString("#,0.00")</div>
+                <partial name="_ExpenseStatusBadge" model="e.Status" />
+            </div>
+            <dl class="fw-kv mb-0">
+                <dt>Employee</dt><dd>@e.EmployeeName</dd>
+                <dt>Date</dt><dd>@e.ExpenseDate.ToString("ddd, dd MMM yyyy")</dd>
+                <dt>Note</dt><dd>@(e.Note ?? "—")</dd>
+                <dt>Added</dt><dd>@FieldWorkReadingPageModel.Ist(e.CreatedAtUtc, "dd MMM yyyy, hh:mm tt")</dd>
+                @if (e.DecidedAtUtc.HasValue)
+                {
+                    <dt>@FieldExpenseRules.StatusLabel(e.Status) by</dt><dd>@e.DecidedByName, @FieldWorkReadingPageModel.Ist(e.DecidedAtUtc, "dd MMM yyyy, hh:mm tt")</dd>
+                    @if (e.DecisionComment != null) { <dt>Comment</dt><dd>@e.DecisionComment</dd> }
+                }
+                @if (e.CancelledAtUtc.HasValue)
+                {
+                    <dt>Cancelled</dt><dd>@FieldWorkReadingPageModel.Ist(e.CancelledAtUtc, "dd MMM yyyy, hh:mm tt")</dd>
+                    <dt>Reason</dt><dd>@e.CancelReason</dd>
+                }
+            </dl>
+        </div>
+
+        <div class="fw-step">
+            <div class="fw-step-title">Bill photo</div>
+            <a href="@Url.Page("/FieldWork/Expenses/Details", "Photo", new { id = e.Id })" target="_blank" rel="noopener">
+                <img class="fw-photo-full" alt="Bill photo" src="@Url.Page("/FieldWork/Expenses/Details", "Photo", new { id = e.Id })" />
+            </a>
+        </div>
+
+        @if (Model.CanDecide)
+        {
+            <div class="fw-step">
+                <div class="fw-step-title">Decision</div>
+                <form method="post" class="mb-2">
+                    <label class="form-label small mb-1" for="comment">Comment (required to reject)</label>
+                    <textarea name="Comment" id="comment" class="form-control mb-2" rows="2" maxlength="@FieldExpenseRules.MaxCommentLength">@Model.Comment</textarea>
+                    <div class="d-flex gap-2">
+                        <button type="submit" asp-page-handler="Approve" class="btn btn-success fw-btn">Approve</button>
+                        <button type="submit" asp-page-handler="Reject" class="btn btn-outline-danger fw-btn">Reject</button>
+                    </div>
+                </form>
+            </div>
+        }
+        else if (Model.IsManager && Model.IsOwn && e.Status == FieldExpenseRules.StatusSubmitted)
+        {
+            <div class="alert alert-info small">This is your own expense: another manager or an administrator approves it.</div>
+        }
+
+        @if (Model.CanCancel)
+        {
+            <details class="fw-step">
+                <summary class="fw-step-title mb-0">Cancel this expense</summary>
+                <form method="post" asp-page-handler="Cancel" class="mt-2">
+                    <div class="small text-muted mb-1">An expense cannot be edited. If it is wrong, cancel it and add it again.</div>
+                    <label class="form-label small mb-1" for="reason">Reason (required)</label>
+                    <input name="Reason" id="reason" value="@Model.Reason" class="form-control mb-2" maxlength="@FieldExpenseRules.MaxReasonLength" required />
+                    <button type="submit" class="btn btn-outline-danger w-100">Cancel expense</button>
+                </form>
+            </details>
+        }
+
+        <div class="fw-step">
+            <div class="fw-step-title">History</div>
+            <ul class="list-unstyled mb-0 small">
+                @foreach (var ev in Model.Events)
+                {
+                    <li class="mb-1">
+                        <strong>@(ev.Action == FieldExpenseRules.StatusSubmitted ? "Added" : ev.Action)</strong>
+                        by @ev.ByName · @FieldWorkReadingPageModel.Ist(ev.AtUtc, "dd MMM yyyy, hh:mm tt")
+                        @if (ev.Comment != null) { <div class="text-break text-muted">@ev.Comment</div> }
+                    </li>
+                }
+            </ul>
+        </div>
+    }
+</div>
