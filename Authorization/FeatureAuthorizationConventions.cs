@@ -309,6 +309,11 @@ namespace PlantStockManager.Authorization
                 ["/FieldWork/Expenses/Create"] = R("FieldWork.Day"),
                 ["/FieldWork/Expenses/Details"] = R("FieldWork.Day|FieldWork.Manage"),
                 ["/FieldWork/Expenses/Manage/Index"] = R("FieldWork.Manage"),
+                // Phase 5 (2026-11-03): dashboard and reports for managers; My Summary is the employee's own numbers only
+                // (FieldReportService reads the signed-in user; it also opens without an Open day, after consent).
+                ["/FieldWork/Manage/Dashboard"] = R("FieldWork.Manage"),
+                ["/FieldWork/Manage/Reports"] = R("FieldWork.Manage"),
+                ["/FieldWork/MySummary"] = R("FieldWork.Day"),
                 // ---- Inventory Store (2026-10-06) -------------------------------
                 // Area scope and each workflow step are decided by StoreAuthorization
                 // (Store.Manage = the central store: every Area, inside the Store module only).

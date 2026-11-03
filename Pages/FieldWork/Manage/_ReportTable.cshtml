@@ -1,0 +1,54 @@
+@model PlantStockManager.Pages.FieldWork.Manage.ReportsModel.ReportTable
+@using System.Globalization
+@* One report table: a table on wide screens, one card per row on phones. Values come from the same rows as the Excel export. *@
+@functions {
+    static string Show(object? v) => v switch
+    {
+        null => "—",
+        DateTime d => d.ToString("ddd, dd MMM yyyy", CultureInfo.InvariantCulture),
+        decimal m => m.ToString("#,0.##", CultureInfo.InvariantCulture),
+        int i => i.ToString(CultureInfo.InvariantCulture),
+        _ => v.ToString() is { Length: > 0 } s ? s : "—",
+    };
+}
+<div class="fw-step">
+    @if (Model.Title != null) { <div class="fw-step-title">@Model.Title</div> }
+    @if (!Model.Rows.Any())
+    {
+        <div class="small text-muted">No data for this filter.</div>
+    }
+    else
+    {
+        <div class="table-responsive d-none d-md-block">
+            <table class="table table-sm table-striped mb-0 align-middle">
+                <thead><tr>@foreach (var h in Model.Headers) { <th class="small">@h</th> }</tr></thead>
+                <tbody>
+                    @foreach (var row in Model.Rows)
+                    {
+                        <tr>
+                            @for (var i = 0; i < Model.Headers.Count; i++)
+                            {
+                                var v = i < row.Count ? row[i] : null;
+                                <td class="@(v is decimal or int ? "text-end" : "")">@Show(v)</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        <div class="d-md-none">
+            @foreach (var row in Model.Rows)
+            {
+                <div class="fw-day-card">
+                    <div class="fw-step-title mb-1">@Show(row.Count > 0 ? row[0] : null)</div>
+                    <dl class="fw-kv mb-0 small">
+                        @for (var i = 1; i < Model.Headers.Count; i++)
+                        {
+                            <dt>@Model.Headers[i]</dt><dd>@Show(i < row.Count ? row[i] : null)</dd>
+                        }
+                    </dl>
+                </div>
+            }
+        </div>
+    }
+</div>

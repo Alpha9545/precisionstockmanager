@@ -1,0 +1,79 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Manage.ReportsModel
+@using PlantStockManager.Services.FieldWork
+@{
+    ViewData["Title"] = "Field Reports";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page-wide">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2 mb-2">
+        <h4 class="mb-0">Field reports</h4>
+        <a asp-page="/FieldWork/Manage/Dashboard" class="btn btn-sm btn-outline-secondary">Dashboard</a>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldCustomerSchema.MigrationMessage</div>
+    }
+    else if (Model.Filter != null)
+    {
+        var f = Model.Filter;
+        <ul class="nav nav-pills flex-nowrap overflow-auto mb-2 small">
+            @foreach (var r in FieldReportExport.Reports)
+            {
+                <li class="nav-item text-nowrap">
+                    <a class="nav-link @(Model.Selected == r ? "active" : "")" asp-page="/FieldWork/Manage/Reports" asp-all-route-data="Model.RouteFor(r)">@FieldReportExport.Title(r)</a>
+                </li>
+            }
+        </ul>
+
+        <form method="get" class="fw-step">
+            <input type="hidden" name="Report" value="@Model.Selected" />
+            <div class="row g-2 align-items-end">
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="from">From</label>
+                    <input type="date" id="from" name="From" class="form-control form-control-sm" value="@f.Range.From.ToString("yyyy-MM-dd")" />
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="to">To</label>
+                    <input type="date" id="to" name="To" class="form-control form-control-sm" value="@f.Range.To.ToString("yyyy-MM-dd")" />
+                </div>
+                <div class="col-12 col-md-4">
+                    <label class="form-label small mb-0" for="emp">Employee</label>
+                    <select id="emp" name="EmployeeId" class="form-select form-select-sm">
+                        <option value="">All employees</option>
+                        @foreach (var e in Model.Employees)
+                        {
+                            <option value="@e.UserId" selected="@(f.UserId == e.UserId)">@e.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-2 d-grid">
+                    <button type="submit" class="btn btn-sm btn-primary">Show</button>
+                </div>
+                <div class="col-6 col-md-2 d-grid">
+                    <a asp-page-handler="ExportExcel" asp-all-route-data="Model.RouteFor(Model.Selected)" class="btn btn-sm btn-outline-success">Export to Excel</a>
+                </div>
+            </div>
+        </form>
+
+        <div class="small text-muted mb-2">
+            <strong>@FieldReportExport.Title(Model.Selected)</strong> · @f.Range.From.ToString("dd MMM yyyy") – @f.Range.To.ToString("dd MMM yyyy").
+            @Model.Note Archived customers and cancelled / rejected expenses are not counted. Dates are India dates.
+        </div>
+        @if (Model.Truncated)
+        {
+            <div class="alert alert-warning py-2 small">@FieldReportExport.CappedNote</div>
+        }
+        @if (!Model.ExpensesAvailable)
+        {
+            <div class="alert alert-info py-2 small">Expense columns are empty: @PlantStockManager.Data.FieldExpenseSchema.MigrationMessage</div>
+        }
+
+        @foreach (var t in Model.Tables)
+        {
+            <partial name="_ReportTable" model="t" />
+        }
+    }
+</div>

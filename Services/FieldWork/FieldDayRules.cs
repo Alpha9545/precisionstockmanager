@@ -197,6 +197,7 @@ namespace PlantStockManager.Services.FieldWork
         public static readonly IReadOnlySet<string> GateAfterConsentPages = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "/FieldWork/Expenses/Index", "/FieldWork/Expenses/Create", "/FieldWork/Expenses/Details",
+            "/FieldWork/MySummary",   // Phase 5: the employee's own month numbers
         };
 
         // isFieldEmployee: holds FieldWork.Day itself (an administrator's implicit access does not count).

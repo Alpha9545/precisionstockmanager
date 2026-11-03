@@ -1,0 +1,125 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Manage.DashboardModel
+@using PlantStockManager.Services
+@using PlantStockManager.Services.FieldWork
+@using PlantStockManager.Pages.FieldWork
+@{
+    ViewData["Title"] = "Field Dashboard";
+    var v = Model.View;
+    var today = AppClock.Today;
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page-wide">
+    <div class="d-flex justify-content-between align-items-end flex-wrap gap-2 mt-2 mb-2">
+        <h4 class="mb-0">Field dashboard</h4>
+        @if (v != null)
+        {
+            <form method="get" class="d-flex gap-2 align-items-end">
+                <div>
+                    <label class="form-label small mb-0" for="date">Date</label>
+                    <input type="date" id="date" name="Date" class="form-control form-control-sm" value="@v.Date.ToString("yyyy-MM-dd")" max="@today.ToString("yyyy-MM-dd")" />
+                </div>
+                <button type="submit" class="btn btn-sm btn-primary">Show</button>
+                <a asp-page="/FieldWork/Manage/Reports" class="btn btn-sm btn-outline-secondary">Reports</a>
+            </form>
+        }
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldCustomerSchema.MigrationMessage</div>
+    }
+    else if (v != null)
+    {
+        var dateText = v.Date.ToString("yyyy-MM-dd");
+        <div class="row g-2 mb-3">
+            <div class="col-6 col-md-2">
+                <div class="fw-step h-100 mb-0"><div class="small text-muted">Started</div><div class="fs-4 fw-bold">@v.Started</div></div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="fw-step h-100 mb-0"><div class="small text-muted">Not started</div><div class="fs-4 fw-bold @(v.NotStarted > 0 ? "text-danger" : "")">@v.NotStarted</div></div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="fw-step h-100 mb-0"><div class="small text-muted">Ended</div><div class="fs-4 fw-bold">@v.Ended</div></div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="fw-step h-100 mb-0"><div class="small text-muted">Visits</div><div class="fs-4 fw-bold">@v.Visits</div></div>
+            </div>
+            <div class="col-6 col-md-2">
+                <div class="fw-step h-100 mb-0"><div class="small text-muted">New customers</div><div class="fs-4 fw-bold">@v.NewCustomers</div></div>
+            </div>
+            <div class="col-6 col-md-2">
+                <a class="fw-step h-100 mb-0 d-block text-decoration-none text-body" asp-page="/FieldWork/Manage/Days" asp-route-From="@dateText" asp-route-To="@dateText">
+                    <div class="small text-muted">Flagged days</div><div class="fs-4 fw-bold @(v.FlaggedDays > 0 ? "text-danger" : "")">@v.FlaggedDays</div>
+                </a>
+            </div>
+            <div class="col-12 col-md-6">
+                <a class="fw-step h-100 mb-0 d-block text-decoration-none text-body" asp-page="/FieldWork/FollowUps/Index" asp-route-AllPending="true">
+                    <div class="small text-muted">Follow-ups (active customers)</div>
+                    <div><span class="fs-5 fw-bold">@v.FollowUpsDue</span> due on @v.Date.ToString("dd MMM") ·
+                        <span class="fs-5 fw-bold @(v.FollowUpsOverdue > 0 ? "text-danger" : "")">@v.FollowUpsOverdue</span> overdue</div>
+                </a>
+            </div>
+            <div class="col-12 col-md-6">
+                @if (v.ExpensesAvailable)
+                {
+                    <a class="fw-step h-100 mb-0 d-block text-decoration-none text-body" asp-page="/FieldWork/Expenses/Manage/Index"
+                       asp-route-Status="@FieldExpenseRules.StatusSubmitted" asp-route-From="@today.AddDays(-FieldExpenseRules.MaxRangeDays).ToString("yyyy-MM-dd")" asp-route-To="@today.ToString("yyyy-MM-dd")">
+                        <div class="small text-muted">Expenses waiting for approval (all dates)</div>
+                        <div><span class="fs-5 fw-bold">@v.PendingExpenses</span> · Rs @v.PendingAmount.ToString("#,0.00")
+                            <span class="small text-muted">(@v.PendingExpensesForDate dated @v.Date.ToString("dd MMM"))</span></div>
+                    </a>
+                }
+                else
+                {
+                    <div class="fw-step h-100 mb-0 small text-muted">Expenses: @PlantStockManager.Data.FieldExpenseSchema.MigrationMessage</div>
+                }
+            </div>
+        </div>
+
+        <div class="fw-step">
+            <div class="fw-step-title">Employees on @v.Date.ToString("ddd, dd MMM yyyy")</div>
+            @if (!v.Employees.Any())
+            {
+                <div class="small text-muted">No active field employees.</div>
+            }
+            <div class="row g-2">
+                @foreach (var e in v.Employees)
+                {
+                    <div class="col-12 col-md-6 col-lg-4">
+                        <div class="fw-day-card mb-0 h-100">
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <div>
+                                    <div class="fw-step-title mb-0">@e.Name</div>
+                                    <div class="small text-muted">
+                                        @if (e.Status == null) { <span>Not started</span> }
+                                        else
+                                        {
+                                            <span>Start @FieldWorkReadingPageModel.Ist(e.StartedAtUtc, "hh:mm tt")</span>
+                                            @if (e.EndedAtUtc.HasValue) { <span> · End @FieldWorkReadingPageModel.Ist(e.EndedAtUtc, "hh:mm tt")</span> }
+                                        }
+                                    </div>
+                                </div>
+                                <div class="text-end">
+                                    <span class="badge @(e.Status == null ? "bg-danger" : e.Status == FieldDayRules.StatusOpen ? "bg-success" : "bg-secondary")">
+                                        @(e.Status == null ? "Not started" : FieldDayRules.StatusLabel(e.Status))
+                                    </span>
+                                    <div class="small mt-1">@e.Visits visit(s)</div>
+                                </div>
+                            </div>
+                            @if (e.DayId > 0)
+                            {
+                                <a asp-page="/FieldWork/DayDetails" asp-route-id="@e.DayId" class="small">Day details / route</a>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+        <div class="small text-muted">
+            Flagged = an automatic flag or a manager's "Flagged" review, not approved since. New customers and follow-ups leave out archived
+            customers; visits count every check-in. Cancelled and rejected expenses are not counted.
+        </div>
+    }
+</div>

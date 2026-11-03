@@ -1,0 +1,78 @@
+@page
+@model PlantStockManager.Pages.FieldWork.MySummaryModel
+@using PlantStockManager.Services
+@using PlantStockManager.Services.FieldWork
+@{
+    ViewData["Title"] = "My Summary";
+    var v = Model.View;
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2 gap-2">
+        <h4 class="mb-0">My summary</h4>
+        <a asp-page="/FieldWork/Index" class="btn btn-sm btn-outline-secondary">My Day</a>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldCustomerSchema.MigrationMessage</div>
+    }
+    else if (v != null)
+    {
+        var t = v.Totals;
+        <form method="get" class="fw-step d-flex gap-2 align-items-end">
+            <div class="flex-grow-1">
+                <label class="form-label small mb-0" for="month">Month</label>
+                <input type="month" id="month" name="Month" class="form-control" value="@v.Range.From.ToString("yyyy-MM")" max="@AppClock.Today.ToString("yyyy-MM")" />
+            </div>
+            <button type="submit" class="btn btn-primary">Show</button>
+        </form>
+
+        <div class="fw-step">
+            <div class="fw-step-title">@v.Range.From.ToString("MMMM yyyy") <span class="small text-muted fw-normal">(@v.Range.From.ToString("dd MMM") – @v.Range.To.ToString("dd MMM"))</span></div>
+            <dl class="fw-kv mb-0">
+                <dt>Days worked</dt><dd><strong>@t.DaysWorked</strong>@(t.AutoClosedDays > 0 ? $" ({t.AutoClosedDays} closed automatically)" : "")</dd>
+                <dt>Visits</dt><dd>@t.Visits</dd>
+                <dt>New customers</dt><dd>@t.NewCustomers</dd>
+                <dt>Odometer km</dt><dd>@t.OdometerKm.ToString("#,0.0")</dd>
+                <dt>Route km</dt><dd>@t.RouteKm.ToString("#,0.0")</dd>
+                <dt>Flagged days</dt><dd>@t.FlaggedDays</dd>
+                @if (v.ExpensesAvailable)
+                {
+                    <dt>Expenses approved</dt><dd>Rs @t.ExpensesApproved.ToString("#,0.00")</dd>
+                    <dt>Expenses pending</dt><dd>Rs @t.ExpensesPending.ToString("#,0.00")</dd>
+                }
+            </dl>
+            <div class="small text-muted mt-2">
+                Days worked = days you started. Odometer km only from days with an end reading. Archived customers and cancelled /
+                rejected expenses are not counted.
+                @if (v.ExpensesAvailable) { <a asp-page="/FieldWork/Expenses/Index" asp-route-Month="@v.Range.From.ToString("yyyy-MM")">My expenses</a> }
+            </div>
+        </div>
+
+        @foreach (var d in v.Days)
+        {
+            <div class="fw-day-card">
+                <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div>
+                        <div class="fw-step-title mb-0">@d.Date.ToString("ddd, dd MMM")</div>
+                        <div class="small text-muted">
+                            @FieldWorkReadingPageModel.Ist(d.StartedAtUtc, "hh:mm tt")@(d.EndedAtUtc.HasValue ? " – " + FieldWorkReadingPageModel.Ist(d.EndedAtUtc, "hh:mm tt") : "")
+                            · @d.Visits visit(s) · @d.NewCustomers new
+                        </div>
+                    </div>
+                    <div class="text-end small">
+                        <div>@(d.OdometerKm?.ToString("0.0") ?? "—") km</div>
+                        <div class="text-muted">route @d.RouteKm.ToString("0.0") km</div>
+                        @if (d.Flagged) { <span class="badge bg-danger">Flagged</span> }
+                    </div>
+                </div>
+            </div>
+        }
+        @if (!v.Days.Any())
+        {
+            <p class="text-muted">No field days in this month.</p>
+        }
+    }
+</div>

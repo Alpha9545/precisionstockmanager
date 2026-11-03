@@ -116,6 +116,9 @@ builder.Services.AddScoped<PlantStockManager.Services.FieldWork.FieldRouteServic
 // Field Work Phase 4 (2026-11-03): expenses with a bill photo, manager approval.
 builder.Services.AddScoped<FieldExpenseRepository>();
 builder.Services.AddScoped<PlantStockManager.Services.FieldWork.FieldExpenseService>();
+// Field Work Phase 5 (2026-11-03): manager dashboard, reports and My Summary (read-only, no table of its own).
+builder.Services.AddScoped<FieldReportRepository>();
+builder.Services.AddScoped<PlantStockManager.Services.FieldWork.FieldReportService>();
 // Field employees (FieldWork.Day) can open only Start Day / Consent / Logout until today's day is started.
 builder.Services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(o => o.Filters.Add(new FieldDayGateFilter()));
 
