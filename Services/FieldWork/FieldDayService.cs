@@ -141,7 +141,7 @@ namespace PlantStockManager.Services.FieldWork
             {
                 var outcome = await _repo.EndDayAsync(
                     new FieldDayRepository.EndDayCommand(userId, today.Id, check.Km, check.Position, check.Reason, photo, token.Value),
-                    locked =>
+                    (locked, visits) =>
                     {
                         // re-checked on the LOCKED row: the start reading the decision is based on cannot have changed
                         if (FieldDayRules.ValidateEndKm(locked.StartKm, check.Km) is { } lockedKmError)
@@ -149,8 +149,17 @@ namespace PlantStockManager.Services.FieldWork
                         var start = locked.StartLatitude.HasValue && locked.StartLongitude.HasValue && locked.StartAccuracyM.HasValue
                             ? new FieldDayRules.Position(locked.StartLatitude.Value, locked.StartLongitude.Value, locked.StartAccuracyM.Value)
                             : null;
+                        // GpsDistanceKm stays the straight start -> end line (Phase 1); the 2 km slack rule is judged on the
+                        // whole route start -> each visit -> end (Phase 3), so a round trip with far visits is caught too.
                         var gpsKm = FieldDayRules.GpsDistanceKm(start, check.Position);
-                        var mismatch = FieldDayRules.DistanceMismatchFlag(gpsKm, check.Km - locked.StartKm, _options.DistanceMismatchSlackKm);
+                        string? mismatch = null;
+                        if (start != null && check.Position != null)
+                        {
+                            var routeKm = FieldRouteRules.RouteKm(visits
+                                .Append(new FieldRouteRules.PointInput(FieldRouteRules.PointKind.Start, locked.StartedAtUtc, start.Latitude, start.Longitude, start.AccuracyM, null))
+                                .Append(new FieldRouteRules.PointInput(FieldRouteRules.PointKind.End, DateTime.UtcNow, check.Position.Latitude, check.Position.Longitude, check.Position.AccuracyM, null)));
+                            mismatch = FieldRouteRules.RouteMismatchFlag(routeKm, check.Km - locked.StartKm, _options.DistanceMismatchSlackKm);
+                        }
                         return new FieldDayRepository.EndDecision(null, gpsKm, FieldDayRules.JoinFlags(check.Flags.Append(mismatch)));
                     });
                 if (outcome == FieldDayRepository.EndOutcome.AlreadyEnded)

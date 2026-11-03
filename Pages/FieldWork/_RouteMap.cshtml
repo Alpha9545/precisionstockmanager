@@ -1,0 +1,99 @@
+@model PlantStockManager.Pages.FieldWork.RouteMapModel
+@using PlantStockManager.Services.FieldWork
+@using PlantStockManager.Pages.FieldWork
+@* Field Work Phase 3: one day's route -- km summary, flags, warnings, skipped points, Leaflet map, legs (table on desktop,
+   cards on phones). Map data is JSON (System.Text.Json escapes <, >, &); wwwroot/js/fieldwork-route.js builds the map
+   with text nodes only. Include ~/lib/leaflet + the script once on the page. *@
+@{
+    var r = Model.View.Route;
+    var json = System.Text.Json.JsonSerializer.Serialize(FieldRouteService.MapData(r, id => Url.Page("/FieldWork/Customers/Details", new { id })));
+    string Label(int n)
+    {
+        var p = r.Points.FirstOrDefault(x => x.Number == n);
+        return p == null ? n.ToString() : p.Kind == FieldRouteRules.PointKind.Start ? "Start" : p.Kind == FieldRouteRules.PointKind.End ? "End" : (p.CustomerName ?? "Visit");
+    }
+    string Time(DateTime utc) => FieldWorkReadingPageModel.Ist(utc, "hh:mm tt");
+    string MinText(decimal? m) => m == null ? "—" : m < 1 ? "<1" : m.Value.ToString("0");
+}
+
+<div class="row g-2 mb-2 text-center">
+    <div class="col-4"><div class="fw-step mb-0 py-2"><div class="fs-5 fw-bold">@r.RouteKm.ToString("0.0")</div><div class="small text-muted">GPS route km</div></div></div>
+    <div class="col-4"><div class="fw-step mb-0 py-2"><div class="fs-5 fw-bold">@(r.OdometerKm?.ToString("0.0") ?? "—")</div><div class="small text-muted">Odometer km</div></div></div>
+    <div class="col-4"><div class="fw-step mb-0 py-2"><div class="fs-5 fw-bold">@(r.DifferenceKm.HasValue ? (r.DifferenceKm.Value >= 0 ? "+" : "") + r.DifferenceKm.Value.ToString("0.0") : "—")</div><div class="small text-muted">Difference</div></div></div>
+</div>
+<div class="small text-muted mb-2">@r.VisitCount visit(s) · @r.Points.Count point(s) on the map · straight lines between points (roads are longer)</div>
+
+@if (r.OdometerInfo != null)
+{
+    <div class="alert @(r.OdometerInfoNotable ? "alert-info" : "alert-light border") py-2 small">@(r.OdometerInfoNotable ? "ℹ " : "")@r.OdometerInfo</div>
+}
+@foreach (var f in r.Flags)
+{
+    <div class="fw-flag mb-1">@f</div>
+}
+@foreach (var w in r.Warnings)
+{
+    <div class="alert alert-warning py-1 px-2 small mb-1">⚠ @w</div>
+}
+@if (r.Skipped.Any())
+{
+    <details class="mb-2 small">
+        <summary>Skipped points (no GPS): @r.Skipped.Count</summary>
+        <ul class="mb-0">
+            @foreach (var s in r.Skipped)
+            {
+                <li>@(s.Kind == FieldRouteRules.PointKind.Visit ? s.CustomerName ?? "Visit" : s.Kind.ToString()) · @Time(s.AtUtc)@(s.Reason != null ? " -- " + s.Reason : "")</li>
+            }
+        </ul>
+    </details>
+}
+
+@if (r.Points.Any())
+{
+    <div id="@Model.ElementId" class="fw-route-map mb-2" role="region" aria-label="Route map"
+         data-tile-url="@Model.Options.MapTileUrl" data-attribution="@Model.Options.MapAttribution" data-max-zoom="@Model.Options.MapMaxZoom"
+         data-json-id="@(Model.ElementId)Data"></div>
+    <script type="application/json" id="@(Model.ElementId)Data">@Html.Raw(json)</script>
+}
+else
+{
+    <div class="alert alert-light border small">No GPS points recorded for this day.</div>
+}
+
+@if (r.Legs.Any())
+{
+    @* desktop: table *@
+    <div class="d-none d-md-block table-responsive">
+        <table class="table table-sm align-middle small">
+            <thead><tr><th>Leg</th><th>From</th><th>To</th><th class="text-end">km</th><th class="text-end">min</th><th class="text-end">km/h</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var l in r.Legs)
+                {
+                    <tr class="@(l.Suspicious ? "table-warning" : "")">
+                        <td>@l.From → @l.To</td>
+                        <td>@Label(l.From)</td>
+                        <td>@Label(l.To)</td>
+                        <td class="text-end">@l.Km.ToString("0.00")</td>
+                        <td class="text-end">@MinText(l.Minutes)</td>
+                        <td class="text-end">@(l.SpeedKmh?.ToString("0") ?? "—")</td>
+                        <td>@(l.Suspicious ? "⚠ suspicious" : "")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @* phones: cards *@
+    <div class="d-md-none">
+        @foreach (var l in r.Legs)
+        {
+            <div class="fw-day-card py-2 @(l.Suspicious ? "border-warning border-2" : "")">
+                <div class="d-flex justify-content-between">
+                    <strong>@l.From → @l.To</strong>
+                    <span>@l.Km.ToString("0.00") km</span>
+                </div>
+                <div class="small text-muted">@Label(l.From) → @Label(l.To)</div>
+                <div class="small">@MinText(l.Minutes) min · @(l.SpeedKmh?.ToString("0") ?? "—") km/h @(l.Suspicious ? "· ⚠ suspicious" : "")</div>
+            </div>
+        }
+    </div>
+}

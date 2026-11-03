@@ -297,6 +297,9 @@ namespace PlantStockManager.Authorization
                 ["/FieldWork/Visits/Create"] = R("FieldWork.Day"),
                 ["/FieldWork/Visits/Edit"] = R("FieldWork.Manage"),
                 ["/FieldWork/FollowUps/Index"] = R("FieldWork.Day|FieldWork.Manage"),
+                // Phase 3 (2026-11-03): routes. An employee sees only their own days (FieldRouteService -> 404 otherwise).
+                ["/FieldWork/Route"] = R("FieldWork.Day|FieldWork.Manage"),
+                ["/FieldWork/Manage/Team"] = R("FieldWork.Manage"),
                 // ---- Inventory Store (2026-10-06) -------------------------------
                 // Area scope and each workflow step are decided by StoreAuthorization
                 // (Store.Manage = the central store: every Area, inside the Store module only).

@@ -39,6 +39,23 @@ namespace PlantStockManager.Services.FieldWork
 
         public int EffectiveMaxPhotosPerVisit => Math.Clamp(MaxPhotosPerVisit, 0, MaxPhotosPerVisitLimit);
 
+        // ---- Phase 3 (routes / map) ----------------------------------------------------------------------------------
+        // A leg between two GPS points is shown as suspicious when, after subtracting both points' GPS accuracy, it is at
+        // least SuspiciousLegMinKm long AND its implied speed is above SuspiciousLegSpeedKmh (a warning, never stored).
+        public decimal SuspiciousLegSpeedKmh { get; set; } = 80m;
+        public decimal SuspiciousLegMinKm { get; set; } = 2m;
+
+        // Odometer much longer than the straight-line route is shown as INFO only (roads wind). Both must hold:
+        // odometer >= route x OdometerRouteInfoRatio AND odometer - route >= OdometerRouteInfoExtraKm.
+        // (Kept in config so it can become a flag later.)
+        public decimal OdometerRouteInfoRatio { get; set; } = 3m;
+        public decimal OdometerRouteInfoExtraKm { get; set; } = 20m;
+
+        // Map tiles (Leaflet). The public OpenStreetMap tiles need the attribution; switch provider here if needed.
+        public string MapTileUrl { get; set; } = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+        public string MapAttribution { get; set; } = "&copy; <a href=\"https://www.openstreetmap.org/copyright\">OpenStreetMap</a> contributors";
+        public int MapMaxZoom { get; set; } = 19;
+
         public string ResolvePhotoRoot()
             => Path.GetFullPath(!string.IsNullOrWhiteSpace(PhotoRoot)
                 ? PhotoRoot

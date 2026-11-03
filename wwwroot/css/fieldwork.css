@@ -19,3 +19,15 @@
     .fw-kv { grid-template-columns: 1fr; }
     .fw-kv dt { margin-top: 4px; }
 }
+/* Phase 3: route maps */
+.fw-route-map { height: 60vh; min-height: 320px; max-height: 560px; border-radius: 10px; border: 1px solid #dee2e6; }
+.fw-pin-wrap { background: transparent; border: 0; }
+.fw-pin { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+          font-weight: 700; font-size: 13px; color: #fff; border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.fw-pin-visit { background: #0d6efd; }
+.fw-pin-start { background: #198754; border-radius: 6px; }
+.fw-pin-end { background: #dc3545; border-radius: 6px; }
+.fw-pin-low { opacity: .7; border-style: dashed; }
+.fw-popup-title { font-weight: 600; }
+.fw-popup-time { color: #6c757d; font-size: .85rem; }
+.fw-popup-text { margin-top: 4px; max-width: 240px; overflow-wrap: anywhere; }

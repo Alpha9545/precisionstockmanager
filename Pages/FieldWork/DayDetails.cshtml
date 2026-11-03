@@ -8,6 +8,7 @@
     var d = Model.Day;
     string Map(decimal? lat, decimal? lng) => $"https://www.openstreetmap.org/?mlat={lat?.ToString(CultureInfo.InvariantCulture)}&mlon={lng?.ToString(CultureInfo.InvariantCulture)}#map=17/{lat?.ToString(CultureInfo.InvariantCulture)}/{lng?.ToString(CultureInfo.InvariantCulture)}";
 }
+<link rel="stylesheet" href="~/lib/leaflet/dist/leaflet.css" />
 <link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
 
 <div class="fw-page-wide">
@@ -138,6 +139,17 @@
             <div class="form-text">The straight line is only a plausibility check; a round trip is close to 0 km.</div>
         </div>
 
+        @if (Model.Route != null)
+        {
+            <div class="fw-step">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="fw-step-title mb-0">Route</div>
+                    <a asp-page="/FieldWork/Route" asp-route-dayId="@d.Id" class="btn btn-sm btn-outline-primary">Full-screen route</a>
+                </div>
+                <partial name="_RouteMap" model='@(new RouteMapModel(Model.Route, Model.RouteOptions, "fwDayRouteMap"))' />
+            </div>
+        }
+
         @if (d.ReviewedAtUtc.HasValue)
         {
             <div class="fw-step">
@@ -191,3 +203,8 @@
         </div>
     }
 </div>
+
+@section Scripts {
+    <script src="~/lib/leaflet/dist/leaflet.js"></script>
+    <script src="~/js/fieldwork-route.js" asp-append-version="true"></script>
+}

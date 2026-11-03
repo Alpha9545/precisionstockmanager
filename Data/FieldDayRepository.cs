@@ -295,7 +295,9 @@ SELECT Id FROM @New;";
 
         public enum EndOutcome { Ended, AlreadyEnded }
 
-        public async Task<EndOutcome> EndDayAsync(EndDayCommand c, Func<FieldDay, EndDecision> decide)
+        // decide(lockedDay, visitPoints): the day's visit check-ins (Phase 2) are read inside the same transaction, after
+        // the day row is locked -- a visit also locks the open day, so none can be added between this read and End Day.
+        public async Task<EndOutcome> EndDayAsync(EndDayCommand c, Func<FieldDay, IReadOnlyList<FieldRouteRules.PointInput>, EndDecision> decide)
         {
             using var conn = _db.GetConnection();
             await conn.OpenAsync();
@@ -315,7 +317,7 @@ SELECT Id FROM @New;";
                         ? "This day was closed automatically at midnight."
                         : "This day is already ended.");
 
-                var decision = decide(day);
+                var decision = decide(day, await ReadVisitPointsAsync(conn, tx, c.DayId));
                 if (decision.Error != null)
                     throw new InvalidOperationException(decision.Error);
 
@@ -485,6 +487,23 @@ SELECT COUNT(*) FROM @Closed;";
         }
 
         // ---- helpers -------------------------------------------------------------------------------------------------
+
+        // The day's visit check-ins (empty when the Phase 2 migration is not applied).
+        private static async Task<IReadOnlyList<FieldRouteRules.PointInput>> ReadVisitPointsAsync(SqlConnection conn, SqlTransaction tx, int dayId)
+        {
+            const string sql = @"
+IF OBJECT_ID('dbo.FieldVisits', 'U') IS NOT NULL
+    EXEC sp_executesql N'SELECT Id, CheckInAtUtc, Latitude, Longitude, AccuracyM, GpsExceptionReason FROM dbo.FieldVisits WHERE FieldDayId = @Id;',
+                       N'@Id INT', @Id = @DayId;";
+            var list = new List<FieldRouteRules.PointInput>();
+            using var cmd = new SqlCommand(sql, conn, tx);
+            cmd.Parameters.Add("@DayId", SqlDbType.Int).Value = dayId;
+            using var r = await cmd.ExecuteReaderAsync();
+            while (await r.ReadAsync())
+                list.Add(new FieldRouteRules.PointInput(FieldRouteRules.PointKind.Visit, r.GetDateTime(1), r.IsDBNull(2) ? null : r.GetDecimal(2),
+                    r.IsDBNull(3) ? null : r.GetDecimal(3), r.IsDBNull(4) ? null : r.GetDecimal(4), r.IsDBNull(5) ? null : r.GetString(5), r.GetInt32(0)));
+            return list;
+        }
 
         private static async Task<(FieldDay? Day, Guid? EndToken)> LockDayAsync(SqlConnection conn, SqlTransaction tx, int dayId)
         {

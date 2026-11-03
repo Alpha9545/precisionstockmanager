@@ -1,0 +1,111 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Manage.TeamModel
+@using PlantStockManager.Services
+@using PlantStockManager.Services.FieldWork
+@using PlantStockManager.Pages.FieldWork
+@{
+    ViewData["Title"] = "Team";
+    var isToday = Model.ShownDate == AppClock.Today;
+    string StatusText(FieldRouteService.TeamRow r) => r.NotStarted ? "Not started" : FieldDayRules.StatusLabel(r.Status);
+    string StatusClass(FieldRouteService.TeamRow r) => r.NotStarted ? "bg-danger" : r.Status == FieldDayRules.StatusOpen ? "bg-success"
+        : r.Status == FieldDayRules.StatusAutoClosed ? "bg-warning text-dark" : "bg-secondary";
+    string Km(decimal? v) => v?.ToString("0.0") ?? "—";
+    string Diff(decimal? v) => v.HasValue ? (v.Value >= 0 ? "+" : "") + v.Value.ToString("0.0") : "—";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page-wide">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2 flex-wrap gap-2">
+        <h4 class="mb-0">Team · @(isToday ? "today" : Model.ShownDate.ToString("ddd, dd MMM yyyy"))</h4>
+        <form method="get" class="d-flex gap-2">
+            <input type="date" name="Date" class="form-control form-control-sm" value="@Model.ShownDate.ToString("yyyy-MM-dd")" max="@AppClock.Today.ToString("yyyy-MM-dd")" aria-label="Date" />
+            <button type="submit" class="btn btn-sm btn-primary">Show</button>
+        </form>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldWorkSchema.MigrationMessage</div>
+    }
+    else
+    {
+        var notStarted = Model.Rows.Count(r => r.NotStarted);
+        <div class="small text-muted mb-2">
+            @Model.Rows.Count employee(s) · @(Model.Rows.Count - notStarted) started · <strong class="@(notStarted > 0 ? "text-danger" : "")">@notStarted not started</strong>
+            · @Model.Rows.Sum(r => r.Visits) visit(s)
+        </div>
+        @if (!Model.Rows.Any())
+        {
+            <p class="text-muted">No field employees found. Assign the "Field Employee" role in Admin › User Roles.</p>
+        }
+
+        @* phones: cards *@
+        <div class="d-md-none">
+            @foreach (var r in Model.Rows)
+            {
+                <div class="fw-day-card">
+                    <div class="d-flex justify-content-between gap-2">
+                        <div>
+                            <div class="fw-step-title mb-0">@r.Name @(r.IsActive ? "" : "(deactivated)")</div>
+                            <div class="small text-muted">
+                                @if (r.StartedAtUtc.HasValue) { <span>Started @FieldWorkReadingPageModel.Ist(r.StartedAtUtc, "hh:mm tt")</span> }
+                                @if (r.EndedAtUtc.HasValue) { <span> · ended @FieldWorkReadingPageModel.Ist(r.EndedAtUtc, "hh:mm tt")</span> }
+                            </div>
+                        </div>
+                        <span class="badge @StatusClass(r) align-self-start">@StatusText(r)</span>
+                    </div>
+                    @if (!r.NotStarted)
+                    {
+                        <div class="small mt-1">@r.Visits visit(s) · route @Km(r.RouteKm) km · odometer @Km(r.OdometerKm) km (@Diff(r.DifferenceKm))</div>
+                        @if (r.Flags.Any() || r.SuspiciousLegs > 0)
+                        {
+                            <div class="small text-danger mt-1">@(r.Flags.Count) flag(s)@(r.SuspiciousLegs > 0 ? $" · {r.SuspiciousLegs} suspicious leg(s)" : "")</div>
+                        }
+                        <div class="d-flex gap-2 mt-2">
+                            <a asp-page="/FieldWork/Route" asp-route-dayId="@r.DayId" class="btn btn-sm btn-outline-primary">Route</a>
+                            <a asp-page="/FieldWork/DayDetails" asp-route-id="@r.DayId" class="btn btn-sm btn-outline-secondary">Day details</a>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @* desktop: table *@
+        <div class="d-none d-md-block table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead>
+                    <tr><th>Employee</th><th>Status</th><th>Start</th><th>End</th><th class="text-end">Visits</th><th class="text-end">Route km</th>
+                        <th class="text-end">Odometer km</th><th class="text-end">Diff</th><th>Flags</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in Model.Rows)
+                    {
+                        <tr class="@(r.NotStarted ? "table-danger" : "")">
+                            <td>@r.Name @(r.IsActive ? "" : "(deactivated)")</td>
+                            <td><span class="badge @StatusClass(r)">@StatusText(r)</span></td>
+                            <td>@FieldWorkReadingPageModel.Ist(r.StartedAtUtc, "hh:mm tt")</td>
+                            <td>@FieldWorkReadingPageModel.Ist(r.EndedAtUtc, "hh:mm tt")</td>
+                            <td class="text-end">@(r.NotStarted ? "" : r.Visits.ToString())</td>
+                            <td class="text-end">@(r.NotStarted ? "" : Km(r.RouteKm))</td>
+                            <td class="text-end">@(r.NotStarted ? "" : Km(r.OdometerKm))</td>
+                            <td class="text-end">@(r.NotStarted ? "" : Diff(r.DifferenceKm))</td>
+                            <td class="small">
+                                @if (r.Flags.Any()) { <span class="text-danger" title="@string.Join(" | ", r.Flags)">@r.Flags.Count flag(s)</span> }
+                                @if (r.SuspiciousLegs > 0) { <span class="text-warning"> · ⚠ @r.SuspiciousLegs leg(s)</span> }
+                                @if (r.OdometerInfoNotable) { <span class="text-info"> · ℹ odometer</span> }
+                            </td>
+                            <td class="text-nowrap">
+                                @if (!r.NotStarted)
+                                {
+                                    <a asp-page="/FieldWork/Route" asp-route-dayId="@r.DayId">Route</a>
+                                    <span> · </span>
+                                    <a asp-page="/FieldWork/DayDetails" asp-route-id="@r.DayId">Details</a>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

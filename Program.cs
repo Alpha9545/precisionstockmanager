@@ -110,6 +110,9 @@ builder.Services.AddScoped<FieldCustomerRepository>();
 builder.Services.AddScoped<FieldVisitRepository>();
 builder.Services.AddScoped<PlantStockManager.Services.FieldWork.FieldCustomerService>();
 builder.Services.AddScoped<PlantStockManager.Services.FieldWork.FieldVisitService>();
+// Field Work Phase 3 (2026-11-03): day routes / map and the team view (read-only, no table of its own).
+builder.Services.AddScoped<FieldRouteRepository>();
+builder.Services.AddScoped<PlantStockManager.Services.FieldWork.FieldRouteService>();
 // Field employees (FieldWork.Day) can open only Start Day / Consent / Logout until today's day is started.
 builder.Services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(o => o.Filters.Add(new FieldDayGateFilter()));
 

@@ -14,8 +14,17 @@ namespace PlantStockManager.Pages.FieldWork
     public class DayDetailsModel : PageModel
     {
         private readonly FieldDayService _service;
+        private readonly FieldRouteService _routes;
 
-        public DayDetailsModel(FieldDayService service) => _service = service;
+        public DayDetailsModel(FieldDayService service, FieldRouteService routes)
+        {
+            _service = service;
+            _routes = routes;
+        }
+
+        // Phase 3: the day's route (start -> visit check-ins -> end), map + legs
+        public FieldRouteService.RouteView? Route { get; private set; }
+        public FieldWorkOptions RouteOptions => _routes.Options;
 
         [BindProperty] public string? Comment { get; set; }
 
@@ -40,6 +49,7 @@ namespace PlantStockManager.Pages.FieldWork
                 return NotFound();
             Day = day;
             Events = await _service.GetEventsAsync(id);
+            Route = await _routes.GetRouteAsync(User, id);
             CanManage = FieldDayService.MayManage(User);
             IsOwnDay = day.UserId == User.GetUserId();
             return null;
