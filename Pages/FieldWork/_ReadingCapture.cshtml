@@ -1,0 +1,49 @@
+@model PlantStockManager.Pages.FieldWork.FieldWorkReadingPageModel
+@* Live meter photo (camera only -- no gallery / file picker) + GPS + km + reason. Driven by wwwroot/js/fieldwork-capture.js. *@
+
+<input type="hidden" asp-for="SubmitToken" />
+<input type="hidden" asp-for="Latitude" id="fwLat" />
+<input type="hidden" asp-for="Longitude" id="fwLng" />
+<input type="hidden" asp-for="AccuracyM" id="fwAcc" />
+@* filled by script from the camera capture; never shown, so the phone's gallery cannot be opened *@
+<input type="file" name="Photo" id="fwPhotoInput" class="d-none" tabindex="-1" aria-hidden="true" />
+
+<div class="fw-step">
+    <div class="fw-step-title">1. Meter photo</div>
+    <div class="fw-camera" id="fwCamera">
+        <video id="fwVideo" playsinline muted autoplay></video>
+        <img id="fwPreview" alt="Meter photo preview" class="d-none" />
+        <canvas id="fwCanvas" class="d-none"></canvas>
+    </div>
+    <div class="d-flex gap-2 mt-2 flex-wrap">
+        <button type="button" class="btn btn-outline-primary fw-btn" id="fwStartCamera">Open camera</button>
+        <button type="button" class="btn btn-primary fw-btn d-none" id="fwTakePhoto">Take photo</button>
+        <button type="button" class="btn btn-outline-secondary fw-btn d-none" id="fwRetake">Retake</button>
+    </div>
+    <div class="small mt-1" id="fwCameraStatus" role="status"></div>
+</div>
+
+<div class="fw-step">
+    <div class="fw-step-title">2. Location</div>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span class="badge bg-secondary" id="fwGpsBadge">Waiting for GPS…</span>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="fwRetryGps">Retry GPS</button>
+    </div>
+    <div class="small text-muted mt-1" id="fwGpsStatus" role="status">At most @Model.MaxAccuracyMeters.ToString("0") m accuracy is accepted.</div>
+</div>
+
+<div class="fw-step">
+    <label class="fw-step-title form-label" for="fwKm">3. Meter reading (km)</label>
+    <input type="text" inputmode="decimal" asp-for="Km" id="fwKm" class="form-control form-control-lg" autocomplete="off"
+           placeholder="e.g. 12345.6" required />
+</div>
+
+<div class="fw-step d-none" id="fwReasonBox">
+    <label class="fw-step-title form-label" for="fwReason">Camera / GPS not working? Reason</label>
+    <textarea asp-for="ExceptionReason" id="fwReason" class="form-control" rows="2" maxlength="300"
+              placeholder="e.g. camera permission blocked, no GPS signal inside building"></textarea>
+    <div class="form-text">The day is saved but marked for your manager's review.</div>
+</div>
+<div class="mt-1">
+    <button type="button" class="btn btn-link btn-sm px-0" id="fwShowReason">Camera or GPS not working?</button>
+</div>

@@ -1,0 +1,21 @@
+/* Field Work (2026-11-03): phone-first layout for Start Day / End Day / My Day and the manager screens. */
+.fw-page { max-width: 640px; margin: 0 auto; padding: 12px 12px 48px; }
+.fw-page-wide { max-width: 1200px; margin: 0 auto; padding: 12px 12px 48px; }
+.fw-step { background: #fff; border: 1px solid #dee2e6; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+.fw-step-title { font-weight: 600; margin-bottom: 8px; display: block; }
+.fw-camera { position: relative; background: #111; border-radius: 8px; overflow: hidden; min-height: 180px; }
+.fw-camera video, .fw-camera img { display: block; width: 100%; max-height: 60vh; object-fit: contain; }
+.fw-btn { min-height: 44px; flex: 1 1 auto; }
+.fw-submit { min-height: 52px; font-size: 1.1rem; }
+.fw-vehicle .btn { min-height: 44px; }
+.fw-thumb { width: 96px; height: 72px; object-fit: cover; border-radius: 6px; border: 1px solid #ced4da; background: #f1f3f5; }
+.fw-photo-full { width: 100%; max-height: 70vh; object-fit: contain; background: #111; border-radius: 8px; }
+.fw-kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; font-size: .95rem; }
+.fw-kv dt { font-weight: 500; color: #6c757d; }
+.fw-kv dd { margin: 0; overflow-wrap: anywhere; }
+.fw-flag { color: #842029; background: #f8d7da; border-radius: 6px; padding: 6px 10px; font-size: .9rem; }
+.fw-day-card { border: 1px solid #dee2e6; border-radius: 10px; padding: 10px; margin-bottom: 10px; background: #fff; }
+@media (max-width: 575.98px) {
+    .fw-kv { grid-template-columns: 1fr; }
+    .fw-kv dt { margin-top: 4px; }
+}

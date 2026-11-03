@@ -274,6 +274,17 @@ namespace PlantStockManager.Authorization
                 ["/Maintenance/Assigned"] = R("Maintenance.Work"),
                 ["/Maintenance/Details"] = R("Maintenance.View|Maintenance.Raise|Maintenance.Work|Maintenance.Manage"),
                 ["/Maintenance/Reports"] = R("Maintenance.View|Maintenance.Manage"),
+                // ---- Field Work (2026-11-03, Phase 1: Start Day / End Day) ------
+                // FieldWork.Day = field employee (own days only; FieldDayGateFilter forces Start Day first);
+                // FieldWork.Manage = field manager (every employee's days, approve / flag / reopen).
+                // DayDetails: an employee sees only their own day (FieldDayService.GetVisibleDayAsync -> 404);
+                // every POST on it (review actions) needs FieldWork.Manage.
+                ["/FieldWork/Consent"] = R("FieldWork.Day"),
+                ["/FieldWork/StartDay"] = R("FieldWork.Day"),
+                ["/FieldWork/EndDay"] = R("FieldWork.Day"),
+                ["/FieldWork/Index"] = R("FieldWork.Day"),
+                ["/FieldWork/DayDetails"] = R("FieldWork.Day|FieldWork.Manage", "FieldWork.Manage"),
+                ["/FieldWork/Manage/Days"] = R("FieldWork.Manage"),
                 // ---- Inventory Store (2026-10-06) -------------------------------
                 // Area scope and each workflow step are decided by StoreAuthorization
                 // (Store.Manage = the central store: every Area, inside the Store module only).

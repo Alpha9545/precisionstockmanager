@@ -1,0 +1,55 @@
+@page
+@model PlantStockManager.Pages.FieldWork.EndDayModel
+@using PlantStockManager.Services
+@using PlantStockManager.Services.FieldWork
+@{
+    ViewData["Title"] = "End Day";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2">
+        <h4 class="mb-0">End Day</h4>
+        <a asp-page="/FieldWork/Index" class="btn btn-sm btn-outline-secondary">Back</a>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldWorkSchema.MigrationMessage</div>
+    }
+    else if (Model.Today != null)
+    {
+        <div class="fw-step">
+            <dl class="fw-kv mb-0">
+                <dt>Started</dt><dd>@PlantStockManager.Pages.FieldWork.FieldWorkReadingPageModel.Ist(Model.Today.StartedAtUtc, "hh:mm tt")</dd>
+                <dt>Start reading</dt><dd><strong>@Model.Today.StartKm.ToString("0.0") km</strong></dd>
+                <dt>Vehicle</dt><dd>@FieldDayRules.VehicleLabel(Model.Today.VehicleType)</dd>
+            </dl>
+        </div>
+
+        <div class="alert alert-danger @(Model.Errors.Any() ? "" : "d-none")" id="fwErrorBox">
+            <ul class="mb-0" id="fwClientErrors">
+                @foreach (var e in Model.Errors)
+                {
+                    <li>@e</li>
+                }
+            </ul>
+        </div>
+        @if (Model.Errors.Any())
+        {
+            <div class="alert alert-warning small">For safety the photo is not kept after an error. Take it again.</div>
+        }
+
+        <form method="post" enctype="multipart/form-data" id="fwReadingForm" novalidate
+              data-max-accuracy="@Model.MaxAccuracyMeters.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+              data-max-bytes="@Model.MaxPhotoBytes">
+            <partial name="_ReadingCapture" model="Model" />
+            <div class="form-text mb-2">The end reading must be at least @Model.Today.StartKm.ToString("0.0") km. You are logged out after saving.</div>
+            <button type="submit" class="btn btn-danger w-100 fw-submit" id="fwSubmit">End Day and logout</button>
+        </form>
+    }
+</div>
+
+@section Scripts {
+    <script src="~/js/fieldwork-capture.js" asp-append-version="true"></script>
+}

@@ -1,0 +1,83 @@
+@page
+@model PlantStockManager.Pages.FieldWork.IndexModel
+@using PlantStockManager.Services
+@using PlantStockManager.Services.FieldWork
+@using PlantStockManager.Pages.FieldWork
+@{
+    ViewData["Title"] = "My Day";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2">
+        <h4 class="mb-0">My Day</h4>
+        <span class="text-muted small">@AppClock.Today.ToString("ddd, dd MMM yyyy")</span>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldWorkSchema.MigrationMessage</div>
+    }
+    else
+    {
+        @if (Model.Message != null)
+        {
+            <div class="alert alert-success">@Model.Message</div>
+        }
+
+        @if (Model.Today == null)
+        {
+            <div class="fw-step">
+                <p class="mb-2">You have not started your day yet.</p>
+                <a asp-page="/FieldWork/StartDay" class="btn btn-success w-100 fw-submit">Start Day</a>
+            </div>
+        }
+        else
+        {
+            var t = Model.Today;
+            <div class="fw-step">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-step-title mb-0">Today</span>
+                    <span class="badge @(t.Status == FieldDayRules.StatusOpen ? "bg-success" : "bg-secondary")">@FieldDayRules.StatusLabel(t.Status)</span>
+                </div>
+                <dl class="fw-kv">
+                    <dt>Started</dt><dd>@FieldWorkReadingPageModel.Ist(t.StartedAtUtc, "hh:mm tt") at @t.StartKm.ToString("0.0") km</dd>
+                    <dt>Vehicle</dt><dd>@FieldDayRules.VehicleLabel(t.VehicleType)</dd>
+                    @if (t.EndedAtUtc.HasValue)
+                    {
+                        <dt>Ended</dt><dd>@FieldWorkReadingPageModel.Ist(t.EndedAtUtc, "hh:mm tt") at @t.EndKm?.ToString("0.0") km</dd>
+                    }
+                </dl>
+                @if (t.Status == FieldDayRules.StatusOpen)
+                {
+                    <a asp-page="/FieldWork/EndDay" class="btn btn-danger w-100 fw-submit mt-2">End Day</a>
+                }
+                <a asp-page="/FieldWork/DayDetails" asp-route-id="@t.Id" class="btn btn-link btn-sm px-0 mt-1">Details and photos</a>
+            </div>
+        }
+
+        <h6 class="mt-4">My recent days</h6>
+        @if (!Model.Recent.Any())
+        {
+            <p class="text-muted small">No days recorded yet.</p>
+        }
+        @foreach (var d in Model.Recent)
+        {
+            <a asp-page="/FieldWork/DayDetails" asp-route-id="@d.Id" class="text-decoration-none text-reset">
+                <div class="fw-day-card d-flex justify-content-between align-items-center">
+                    <div>
+                        <div class="fw-step-title mb-0">@d.WorkDate.ToString("ddd, dd MMM yyyy")</div>
+                        <div class="small text-muted">
+                            @d.StartKm.ToString("0.0") → @(d.EndKm?.ToString("0.0") ?? "—") km
+                            @if (d.OdometerKm.HasValue) { <span>(@d.OdometerKm.Value.ToString("0.0") km)</span> }
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge bg-light text-dark border">@FieldDayRules.StatusLabel(d.Status)</span>
+                        <div><span class="badge @(d.ReviewStatus == FieldDayRules.ReviewApproved ? "bg-success" : d.ReviewStatus == FieldDayRules.ReviewFlagged ? "bg-danger" : "bg-secondary")">@d.ReviewStatus</span></div>
+                    </div>
+                </div>
+            </a>
+        }
+    }
+</div>

@@ -97,6 +97,16 @@ builder.Services.AddScoped<PlantStockManager.Authorization.SuggestionAuthorizati
 builder.Services.AddSingleton(builder.Configuration.GetSection("SuggestionStorage").Get<SuggestionStorageOptions>() ?? new SuggestionStorageOptions());
 builder.Services.AddSingleton<SuggestionPhotoStore>();
 
+// Field Work Phase 1 (2026-11-03): Start Day / End Day with meter photos (Services/FieldWork, Data/FieldDayRepository.cs).
+builder.Services.AddSingleton(builder.Configuration.GetSection(PlantStockManager.Services.FieldWork.FieldWorkOptions.SectionName)
+    .Get<PlantStockManager.Services.FieldWork.FieldWorkOptions>() ?? new PlantStockManager.Services.FieldWork.FieldWorkOptions());
+builder.Services.AddSingleton<PlantStockManager.Services.FieldWork.FieldPhotoStore>();
+builder.Services.AddScoped<FieldDayRepository>();
+builder.Services.AddScoped<PlantStockManager.Services.FieldWork.FieldDayService>();
+builder.Services.AddHostedService<PlantStockManager.Services.FieldWork.FieldDayAutoCloseService>(); // midnight auto-close (idempotent)
+// Field employees (FieldWork.Day) can open only Start Day / Consent / Logout until today's day is started.
+builder.Services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(o => o.Filters.Add(new FieldDayGateFilter()));
+
 // Growing Partner foundation (Phase 17) -- deliberately separate from
 // VendorRepository/dbo.Vendors (Phase 11), see GrowingPartner.cs.
 
@@ -230,6 +240,7 @@ var app = builder.Build();
 PlantStockManager.Data.DbErrorMessage.UseLoggerFactory(app.Services.GetRequiredService<ILoggerFactory>());
 app.Logger.LogInformation("Maintenance photos are stored in {PhotoRoot}", app.Services.GetRequiredService<MaintenancePhotoStore>().Root);
 app.Logger.LogInformation("Suggestion photos are stored in {PhotoRoot}", app.Services.GetRequiredService<SuggestionPhotoStore>().Root);
+app.Logger.LogInformation("Field Work photos are stored in {PhotoRoot}", app.Services.GetRequiredService<PlantStockManager.Services.FieldWork.FieldPhotoStore>().Root);
 
 
 //app.Use(async (context, next) =>

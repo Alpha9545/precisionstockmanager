@@ -1,0 +1,96 @@
+@page
+@model PlantStockManager.Pages.FieldWork.StartDayModel
+@using PlantStockManager.Services
+@using PlantStockManager.Services.FieldWork
+@{
+    ViewData["Title"] = "Start Day";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2">
+        <h4 class="mb-0">Start Day</h4>
+        <span class="text-muted small">@AppClock.Today.ToString("ddd, dd MMM yyyy")</span>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldWorkSchema.MigrationMessage</div>
+    }
+    else if (Model.ClosedToday != null)
+    {
+        <div class="alert alert-info"><strong>Your day for today is closed.</strong></div>
+        <div class="fw-step">
+            <dl class="fw-kv mb-0">
+                <dt>Status</dt><dd>@FieldDayRules.StatusLabel(Model.ClosedToday.Status)</dd>
+                <dt>Started</dt><dd>@PlantStockManager.Pages.FieldWork.FieldWorkReadingPageModel.Ist(Model.ClosedToday.StartedAtUtc, "hh:mm tt") at @Model.ClosedToday.StartKm.ToString("0.0") km</dd>
+                @if (Model.ClosedToday.EndedAtUtc.HasValue)
+                {
+                    <dt>Ended</dt><dd>@PlantStockManager.Pages.FieldWork.FieldWorkReadingPageModel.Ist(Model.ClosedToday.EndedAtUtc, "hh:mm tt") at @Model.ClosedToday.EndKm?.ToString("0.0") km</dd>
+                }
+            </dl>
+            <p class="small text-muted mt-2 mb-0">Only one day can be recorded per date. If you ended it by mistake, ask your manager to reopen it.</p>
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-danger @(Model.Errors.Any() ? "" : "d-none")" id="fwErrorBox">
+            <ul class="mb-0" id="fwClientErrors">
+                @foreach (var e in Model.Errors)
+                {
+                    <li>@e</li>
+                }
+            </ul>
+        </div>
+        @if (Model.Errors.Any())
+        {
+            <div class="alert alert-warning small">For safety the photo is not kept after an error. Take it again.</div>
+        }
+
+        <form method="post" enctype="multipart/form-data" id="fwReadingForm" novalidate
+              data-max-accuracy="@Model.MaxAccuracyMeters.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+              data-max-bytes="@Model.MaxPhotoBytes">
+            <div class="fw-step fw-vehicle">
+                <div class="fw-step-title">Vehicle</div>
+                <div class="btn-group w-100" role="group" aria-label="Vehicle type">
+                    @foreach (var v in FieldDayRules.VehicleTypes)
+                    {
+                        var id = "fwVehicle" + v.Key;
+                        <input type="radio" class="btn-check" name="VehicleType" id="@id" value="@v.Key" autocomplete="off"
+                               checked="@(Model.VehicleType == v.Key)" required />
+                        <label class="btn btn-outline-success" for="@id">@v.Value</label>
+                    }
+                </div>
+            </div>
+
+            <partial name="_ReadingCapture" model="Model" />
+
+            <button type="submit" class="btn btn-success w-100 fw-submit mt-3" id="fwSubmit">Start Day</button>
+        </form>
+    }
+
+    <form asp-page="/Account/Logout" method="post" class="mt-3">
+        <button type="submit" class="btn btn-outline-secondary w-100">Logout</button>
+    </form>
+</div>
+
+@section Scripts {
+    <script src="~/js/fieldwork-capture.js" asp-append-version="true"></script>
+    <script>
+        // a vehicle type is required (the server re-checks it)
+        (function () {
+            var form = document.getElementById('fwReadingForm');
+            if (!form) return;
+            form.addEventListener('submit', function (e) {
+                if (!form.querySelector('input[name="VehicleType"]:checked')) {
+                    e.preventDefault();
+                    e.stopImmediatePropagation();
+                    var box = document.getElementById('fwClientErrors');
+                    box.innerHTML = '<li>Select the vehicle type.</li>';
+                    box.parentElement.classList.remove('d-none');
+                    box.parentElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, true);
+        })();
+    </script>
+}

@@ -1,0 +1,193 @@
+@page
+@model PlantStockManager.Pages.FieldWork.DayDetailsModel
+@using PlantStockManager.Services.FieldWork
+@using PlantStockManager.Pages.FieldWork
+@using System.Globalization
+@{
+    ViewData["Title"] = "Field Day";
+    var d = Model.Day;
+    string Map(decimal? lat, decimal? lng) => $"https://www.openstreetmap.org/?mlat={lat?.ToString(CultureInfo.InvariantCulture)}&mlon={lng?.ToString(CultureInfo.InvariantCulture)}#map=17/{lat?.ToString(CultureInfo.InvariantCulture)}/{lng?.ToString(CultureInfo.InvariantCulture)}";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page-wide">
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldWorkSchema.MigrationMessage</div>
+    }
+    else
+    {
+        <div class="d-flex justify-content-between align-items-start mt-2 mb-2 flex-wrap gap-2">
+            <div>
+                <h4 class="mb-0">@d.EmployeeName</h4>
+                <div class="text-muted">@d.WorkDate.ToString("dddd, dd MMM yyyy") · @FieldDayRules.VehicleLabel(d.VehicleType)</div>
+            </div>
+            <div class="text-end">
+                <span class="badge bg-light text-dark border">@FieldDayRules.StatusLabel(d.Status)</span>
+                <span class="badge @(d.ReviewStatus == FieldDayRules.ReviewApproved ? "bg-success" : d.ReviewStatus == FieldDayRules.ReviewFlagged ? "bg-danger" : "bg-secondary")">@d.ReviewStatus</span>
+                <div class="mt-1">
+                    @if (Model.CanManage)
+                    {
+                        <a asp-page="/FieldWork/Manage/Days" class="btn btn-sm btn-outline-secondary">All days</a>
+                    }
+                    else
+                    {
+                        <a asp-page="/FieldWork/Index" class="btn btn-sm btn-outline-secondary">My Day</a>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @if (Model.Message != null)
+        {
+            <div class="alert alert-success">@Model.Message</div>
+        }
+        @if (Model.Errors.Any())
+        {
+            <div class="alert alert-danger"><ul class="mb-0">@foreach (var e in Model.Errors) { <li>@e</li> }</ul></div>
+        }
+        @if (d.FlagReasons != null)
+        {
+            <div class="fw-flag mb-3"><strong>Flags:</strong> @d.FlagReasons</div>
+        }
+
+        <div class="row g-3">
+            @* ---- start ---- *@
+            <div class="col-12 col-md-6">
+                <div class="fw-step h-100">
+                    <div class="fw-step-title">Start</div>
+                    @if (d.StartPhotoId.HasValue)
+                    {
+                        var src = Url.Page("/FieldWork/DayDetails", "Photo", new { id = d.Id, photoId = d.StartPhotoId });
+                        <a href="@src" target="_blank" rel="noopener"><img src="@src" class="fw-photo-full mb-2" alt="Start meter photo" /></a>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning py-2 small">No start photo.</div>
+                    }
+                    <dl class="fw-kv">
+                        <dt>Entered km</dt><dd class="fs-5"><strong>@d.StartKm.ToString("0.0")</strong></dd>
+                        <dt>Time (IST)</dt><dd>@FieldWorkReadingPageModel.Ist(d.StartedAtUtc)</dd>
+                        <dt>GPS</dt>
+                        <dd>
+                            @if (d.StartLatitude.HasValue)
+                            {
+                                <a href="@Map(d.StartLatitude, d.StartLongitude)" target="_blank" rel="noopener">@d.StartLatitude?.ToString("0.000000"), @d.StartLongitude?.ToString("0.000000")</a>
+                                <span class="text-muted">± @d.StartAccuracyM?.ToString("0") m</span>
+                            }
+                            else { <span class="text-danger">none</span> }
+                        </dd>
+                        @if (d.StartExceptionReason != null)
+                        {
+                            <dt>Reason</dt><dd>@d.StartExceptionReason</dd>
+                        }
+                    </dl>
+                </div>
+            </div>
+            @* ---- end ---- *@
+            <div class="col-12 col-md-6">
+                <div class="fw-step h-100">
+                    <div class="fw-step-title">End</div>
+                    @if (d.Status == FieldDayRules.StatusOpen)
+                    {
+                        <p class="text-muted">The day is still open.</p>
+                    }
+                    else if (d.Status == FieldDayRules.StatusAutoClosed)
+                    {
+                        <div class="alert alert-warning py-2 small">Closed automatically at @FieldWorkReadingPageModel.Ist(d.AutoClosedAtUtc) -- End Day was not done.</div>
+                    }
+                    else
+                    {
+                        @if (d.EndPhotoId.HasValue)
+                        {
+                            var src = Url.Page("/FieldWork/DayDetails", "Photo", new { id = d.Id, photoId = d.EndPhotoId });
+                            <a href="@src" target="_blank" rel="noopener"><img src="@src" class="fw-photo-full mb-2" alt="End meter photo" /></a>
+                        }
+                        else
+                        {
+                            <div class="alert alert-warning py-2 small">No end photo.</div>
+                        }
+                        <dl class="fw-kv">
+                            <dt>Entered km</dt><dd class="fs-5"><strong>@d.EndKm?.ToString("0.0")</strong></dd>
+                            <dt>Time (IST)</dt><dd>@FieldWorkReadingPageModel.Ist(d.EndedAtUtc)</dd>
+                            <dt>GPS</dt>
+                            <dd>
+                                @if (d.EndLatitude.HasValue)
+                                {
+                                    <a href="@Map(d.EndLatitude, d.EndLongitude)" target="_blank" rel="noopener">@d.EndLatitude?.ToString("0.000000"), @d.EndLongitude?.ToString("0.000000")</a>
+                                    <span class="text-muted">± @d.EndAccuracyM?.ToString("0") m</span>
+                                }
+                                else { <span class="text-danger">none</span> }
+                            </dd>
+                            @if (d.EndExceptionReason != null)
+                            {
+                                <dt>Reason</dt><dd>@d.EndExceptionReason</dd>
+                            }
+                        </dl>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="fw-step mt-3">
+            <div class="fw-step-title">Distance</div>
+            <dl class="fw-kv mb-0">
+                <dt>Odometer</dt><dd><strong>@(d.OdometerKm?.ToString("0.0") ?? "—") km</strong></dd>
+                <dt>GPS straight line (start → end)</dt><dd>@(d.GpsDistanceKm?.ToString("0.0") ?? "—") km</dd>
+            </dl>
+            <div class="form-text">The straight line is only a plausibility check; a round trip is close to 0 km.</div>
+        </div>
+
+        @if (d.ReviewedAtUtc.HasValue)
+        {
+            <div class="fw-step">
+                <div class="fw-step-title">Review</div>
+                <div>@d.ReviewStatus by @d.ReviewedByName on @FieldWorkReadingPageModel.Ist(d.ReviewedAtUtc)</div>
+                @if (d.ReviewComment != null) { <div class="text-muted">“@d.ReviewComment”</div> }
+            </div>
+        }
+
+        @if (Model.CanReview)
+        {
+            <div class="fw-step">
+                <div class="fw-step-title">Manager action</div>
+                <form method="post" asp-route-id="@d.Id">
+                    <textarea name="Comment" class="form-control mb-2" rows="2" maxlength="300" placeholder="Comment (required to flag or reopen)">@Model.Comment</textarea>
+                    <div class="d-flex gap-2 flex-wrap">
+                        @if (d.Status != FieldDayRules.StatusOpen)
+                        {
+                            <button type="submit" asp-page-handler="Approve" class="btn btn-success fw-btn">Approve</button>
+                        }
+                        <button type="submit" asp-page-handler="Flag" class="btn btn-outline-danger fw-btn">Flag</button>
+                        @if (Model.CanReopen)
+                        {
+                            <button type="submit" asp-page-handler="Reopen" class="btn btn-outline-primary fw-btn"
+                                    onclick="return confirm('Reopen this day? The end reading is cleared (kept in the history) and the employee must End Day again.');">Reopen day</button>
+                        }
+                    </div>
+                    @if (!Model.CanReopen && d.Status != FieldDayRules.StatusOpen)
+                    {
+                        <div class="form-text">Only today's day can be reopened.</div>
+                    }
+                </form>
+            </div>
+        }
+        else if (Model.CanManage && Model.IsOwnDay)
+        {
+            <div class="form-text mb-3">You cannot review your own day.</div>
+        }
+
+        <div class="fw-step">
+            <div class="fw-step-title">History</div>
+            <ul class="list-unstyled mb-0 small">
+                @foreach (var e in Model.Events)
+                {
+                    <li class="mb-1">
+                        <strong>@e.EventType</strong> · @FieldWorkReadingPageModel.Ist(e.AtUtc) · @(e.ByName ?? "system")
+                        @if (!string.IsNullOrEmpty(e.Details)) { <div class="text-muted">@e.Details</div> }
+                    </li>
+                }
+            </ul>
+        </div>
+    }
+</div>

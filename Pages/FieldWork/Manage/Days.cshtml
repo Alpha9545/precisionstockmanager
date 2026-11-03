@@ -1,0 +1,145 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Manage.DaysModel
+@using PlantStockManager.Services.FieldWork
+@using PlantStockManager.Pages.FieldWork
+@using PlantStockManager.Authorization
+@{
+    ViewData["Title"] = "Field Days";
+    var me = User.GetUserId();
+    var full = User.IsFullAccess();
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page-wide">
+    <h4 class="mt-2">Field Days</h4>
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldWorkSchema.MigrationMessage</div>
+    }
+    else
+    {
+        @if (Model.Message != null) { <div class="alert alert-success">@Model.Message</div> }
+        @if (Model.Error != null) { <div class="alert alert-danger">@Model.Error</div> }
+
+        <form method="get" class="fw-step">
+            <div class="row g-2 align-items-end">
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="from">From</label>
+                    <input type="date" id="from" name="From" class="form-control form-control-sm" value="@Model.Filter.From.ToString("yyyy-MM-dd")" />
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="to">To</label>
+                    <input type="date" id="to" name="To" class="form-control form-control-sm" value="@Model.Filter.To.ToString("yyyy-MM-dd")" />
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label small mb-0" for="emp">Employee</label>
+                    <select id="emp" name="EmployeeId" class="form-select form-select-sm">
+                        <option value="">All employees</option>
+                        @foreach (var e in Model.Employees)
+                        {
+                            <option value="@e.UserId" selected="@(Model.Filter.UserId == e.UserId)">@e.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="status">Status</label>
+                    <select id="status" name="Status" class="form-select form-select-sm">
+                        <option value="">All</option>
+                        @foreach (var s in FieldDayRules.Statuses)
+                        {
+                            <option value="@s" selected="@(Model.Filter.Status == s)">@FieldDayRules.StatusLabel(s)</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="review">Review</label>
+                    <select id="review" name="Review" class="form-select form-select-sm">
+                        <option value="">All</option>
+                        @foreach (var s in FieldDayRules.ReviewStatuses)
+                        {
+                            <option value="@s" selected="@(Model.Filter.ReviewStatus == s)">@s</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12 col-md-1 d-grid">
+                    <button type="submit" class="btn btn-sm btn-primary">Show</button>
+                </div>
+            </div>
+        </form>
+
+        <div class="small text-muted mb-2">@Model.Days.Count day(s)@(Model.Days.Count >= FieldDayService.MaxListRows ? " (first " + FieldDayService.MaxListRows + " shown; narrow the filter)" : "")</div>
+
+        @if (!Model.Days.Any())
+        {
+            <p class="text-muted">No field days match the filter.</p>
+        }
+        @foreach (var d in Model.Days)
+        {
+            var mayReview = d.UserId != me || full;
+            <div class="fw-day-card">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                    <div>
+                        <a asp-page="/FieldWork/DayDetails" asp-route-id="@d.Id" class="fw-step-title mb-0 d-inline-block">@d.EmployeeName</a>
+                        <div class="small text-muted">@d.WorkDate.ToString("ddd, dd MMM yyyy") · @FieldDayRules.VehicleLabel(d.VehicleType)</div>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge bg-light text-dark border">@FieldDayRules.StatusLabel(d.Status)</span>
+                        <span class="badge @(d.ReviewStatus == FieldDayRules.ReviewApproved ? "bg-success" : d.ReviewStatus == FieldDayRules.ReviewFlagged ? "bg-danger" : "bg-secondary")">@d.ReviewStatus</span>
+                    </div>
+                </div>
+
+                <div class="row g-2 mt-1">
+                    <div class="col-6 col-md-4 d-flex gap-2 align-items-center">
+                        @if (d.StartPhotoId.HasValue)
+                        {
+                            <a asp-page="/FieldWork/DayDetails" asp-route-id="@d.Id">
+                                <img loading="lazy" class="fw-thumb" alt="Start meter"
+                                     src="@Url.Page("/FieldWork/DayDetails", "Photo", new { id = d.Id, photoId = d.StartPhotoId })" />
+                            </a>
+                        }
+                        else { <div class="fw-thumb d-flex align-items-center justify-content-center small text-danger">no photo</div> }
+                        <div>
+                            <div class="small text-muted">Start · @FieldWorkReadingPageModel.Ist(d.StartedAtUtc, "hh:mm tt")</div>
+                            <div class="fw-step-title mb-0">@d.StartKm.ToString("0.0") km</div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-4 d-flex gap-2 align-items-center">
+                        @if (d.EndPhotoId.HasValue)
+                        {
+                            <a asp-page="/FieldWork/DayDetails" asp-route-id="@d.Id">
+                                <img loading="lazy" class="fw-thumb" alt="End meter"
+                                     src="@Url.Page("/FieldWork/DayDetails", "Photo", new { id = d.Id, photoId = d.EndPhotoId })" />
+                            </a>
+                        }
+                        else { <div class="fw-thumb d-flex align-items-center justify-content-center small text-muted">@(d.Status == FieldDayRules.StatusClosed ? "no photo" : "—")</div> }
+                        <div>
+                            <div class="small text-muted">End @(d.EndedAtUtc.HasValue ? "· " + FieldWorkReadingPageModel.Ist(d.EndedAtUtc, "hh:mm tt") : "")</div>
+                            <div class="fw-step-title mb-0">@(d.EndKm?.ToString("0.0") ?? "—") km</div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-4 small">
+                        <div>Odometer: <strong>@(d.OdometerKm?.ToString("0.0") ?? "—") km</strong></div>
+                        <div>GPS straight line: @(d.GpsDistanceKm?.ToString("0.0") ?? "—") km</div>
+                    </div>
+                </div>
+
+                @if (d.FlagReasons != null)
+                {
+                    <div class="fw-flag mt-2">@d.FlagReasons</div>
+                }
+
+                <div class="d-flex gap-2 mt-2 flex-wrap">
+                    @if (mayReview && d.Status != FieldDayRules.StatusOpen && d.ReviewStatus != FieldDayRules.ReviewApproved)
+                    {
+                        <form method="post" asp-page="/FieldWork/DayDetails" asp-page-handler="Approve" asp-route-id="@d.Id" asp-route-back="true">
+                            <button type="submit" class="btn btn-sm btn-success">Approve</button>
+                        </form>
+                    }
+                    <a asp-page="/FieldWork/DayDetails" asp-route-id="@d.Id" class="btn btn-sm btn-outline-secondary">
+                        @(mayReview ? "Details / Flag / Reopen" : "Details")
+                    </a>
+                </div>
+            </div>
+        }
+    }
+</div>

@@ -1,0 +1,36 @@
+@page
+@model PlantStockManager.Pages.FieldWork.ConsentModel
+@{
+    ViewData["Title"] = "Field Work Notice";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <h4 class="mt-2">Before you start</h4>
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldWorkSchema.MigrationMessage</div>
+    }
+    else
+    {
+        <div class="fw-step">
+            <p class="mb-2">While you use Field Work, the company records the following <strong>for work purposes only</strong>:</p>
+            <ul class="mb-2">
+                <li><strong>Location</strong>: your GPS position when you start and end your day.</li>
+                <li><strong>Time</strong>: the server's time when you start and end your day.</li>
+                <li><strong>Photos</strong>: the photos of your vehicle meter that you take.</li>
+                <li><strong>Meter readings</strong>: the km you enter and the vehicle you use.</li>
+            </ul>
+            <p class="mb-0 small text-muted">
+                Your location is recorded only at these moments, never in the background. Your manager and the
+                administrator can see your records. Allow camera and location access when the browser asks.
+            </p>
+        </div>
+        <form method="post">
+            <button type="submit" class="btn btn-success w-100 fw-submit">I understand, continue</button>
+        </form>
+    }
+    <form asp-page="/Account/Logout" method="post" class="mt-3">
+        <button type="submit" class="btn btn-outline-secondary w-100">Logout</button>
+    </form>
+</div>
