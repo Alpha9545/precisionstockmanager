@@ -1,0 +1,24 @@
+@model (IReadOnlyList<string?> Texts, IReadOnlyList<string?> Quantities)
+@using PlantStockManager.Services.FieldWork
+@* "Items given" rows (Log visit and Edit visit). Empty rows are ignored by the server. *@
+@{
+    var n = Math.Max(1, Math.Max(Model.Texts.Count, Model.Quantities.Count));
+}
+<div id="fpItems" data-max-items="@FieldCustomerRules.MaxItems">
+    @for (var i = 0; i < n; i++)
+    {
+        <div class="d-flex gap-2 mb-2">
+            <input name="ItemText" value="@(i < Model.Texts.Count ? Model.Texts[i] : null)" class="form-control" maxlength="200" placeholder="e.g. Rose sample" aria-label="Item" />
+            <input name="ItemQty" value="@(i < Model.Quantities.Count ? Model.Quantities[i] : null)" class="form-control" style="max-width:6rem" inputmode="decimal" placeholder="Qty" aria-label="Quantity" />
+            <button type="button" class="btn btn-outline-secondary" data-remove-item aria-label="Remove item">×</button>
+        </div>
+    }
+</div>
+<template id="fpItemTemplate">
+    <div class="d-flex gap-2 mb-2">
+        <input name="ItemText" class="form-control" maxlength="200" placeholder="e.g. Rose sample" aria-label="Item" />
+        <input name="ItemQty" class="form-control" style="max-width:6rem" inputmode="decimal" placeholder="Qty" aria-label="Quantity" />
+        <button type="button" class="btn btn-outline-secondary" data-remove-item aria-label="Remove item">×</button>
+    </div>
+</template>
+<button type="button" class="btn btn-sm btn-outline-primary" id="fpAddItem">+ Add item</button>

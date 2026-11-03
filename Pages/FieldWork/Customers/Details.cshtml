@@ -1,0 +1,291 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Customers.DetailsModel
+@using PlantStockManager.Services
+@using PlantStockManager.Services.FieldWork
+@using PlantStockManager.Pages.FieldWork
+@using System.Globalization
+@{
+    ViewData["Title"] = "Customer";
+    var c = Model.Customer;
+    string Ist(DateTime utc) => FieldWorkReadingPageModel.Ist(utc);
+    string Map(decimal? lat, decimal? lng) => $"https://www.openstreetmap.org/?mlat={lat?.ToString(CultureInfo.InvariantCulture)}&mlon={lng?.ToString(CultureInfo.InvariantCulture)}#map=17/{lat?.ToString(CultureInfo.InvariantCulture)}/{lng?.ToString(CultureInfo.InvariantCulture)}";
+    var today = AppClock.Today;
+    // timeline: visits and calls / notes, newest first (corrections are shown under their visit)
+    var entries = Model.Timeline.Visits.Select(v => (At: v.CheckInAtUtc, Visit: v, Note: (PlantStockManager.Models.FieldCustomerNote?)null))
+        .Concat(Model.Timeline.Notes.Where(n => n.VisitId == null).Select(n => (At: n.CreatedAtUtc, Visit: (PlantStockManager.Models.FieldVisit?)null, Note: (PlantStockManager.Models.FieldCustomerNote?)n)))
+        .OrderByDescending(e => e.At).ToList();
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page-wide">
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldCustomerSchema.MigrationMessage</div>
+    }
+    else
+    {
+        <div class="d-flex justify-content-between align-items-start mt-2 mb-2 flex-wrap gap-2">
+            <div>
+                <h4 class="mb-0">@c.Name</h4>
+                <div class="text-muted">@FieldCustomerRules.CustomerTypes[c.CustomerType] · @c.VillageCity@(c.District != null ? ", " + c.District : "")</div>
+            </div>
+            <div class="text-end">
+                <span class="badge bg-info text-dark fs-6">@FieldCustomerRules.LeadLabel(c.LeadStatus)</span>
+                @if (!c.IsActive) { <span class="badge bg-secondary">Archived</span> }
+                @if (c.IsActive && !c.AssignedUserActive) { <span class="badge bg-warning text-dark">Needs reassigning</span> }
+                <div class="mt-1"><a asp-page="/FieldWork/Customers/Index" class="btn btn-sm btn-outline-secondary">Customers</a></div>
+            </div>
+        </div>
+
+        @if (Model.Message != null) { <div class="alert alert-success">@Model.Message</div> }
+        @if (Model.Errors.Any()) { <div class="alert alert-danger"><ul class="mb-0">@foreach (var e in Model.Errors) { <li>@e</li> }</ul></div> }
+        @if (!c.IsActive)
+        {
+            <div class="alert alert-secondary">Archived on @Ist(c.ArchivedAtUtc!.Value) by @c.ArchivedByName: @c.ArchiveReason</div>
+        }
+
+        @if (Model.CanWork)
+        {
+            <div class="d-flex gap-2 flex-wrap mb-3">
+                <a asp-page="/FieldWork/Visits/Create" asp-route-customerId="@c.Id" class="btn btn-success fw-btn">Log visit</a>
+                <a asp-page="/FieldWork/Customers/Note" asp-route-customerId="@c.Id" class="btn btn-outline-primary fw-btn">Call / Note</a>
+                @if (Model.CanEdit) { <a asp-page="/FieldWork/Customers/Edit" asp-route-id="@c.Id" class="btn btn-outline-secondary fw-btn">Edit</a> }
+            </div>
+        }
+
+        @* ---- next follow-up (prompt after a completed follow-up; never forced) ---- *@
+        @if (Model.AskNextDate)
+        {
+            <div class="alert alert-info">
+                <strong>Follow-up completed.</strong> When should you contact @c.Name next? (optional)
+            </div>
+        }
+        <div class="fw-step @(Model.AskNextDate ? "border-primary border-2" : "")">
+            <div class="fw-step-title">Follow-up</div>
+            @if (Model.Pending != null)
+            {
+                var p = Model.Pending;
+                var state = FieldCustomerRules.StateOf(p.DueDate, today);
+                <div>
+                    <strong>@p.DueDate.ToString("ddd, dd MMM yyyy")</strong>
+                    <span class="badge @(state == FieldCustomerRules.FollowUpState.Overdue ? "bg-danger" : state == FieldCustomerRules.FollowUpState.Today ? "bg-warning text-dark" : "bg-secondary")">
+                        @(state == FieldCustomerRules.FollowUpState.Overdue ? "Overdue" : state == FieldCustomerRules.FollowUpState.Today ? "Today" : "Upcoming")
+                    </span>
+                    @if (p.Note != null) { <div class="text-muted">@p.Note</div> }
+                    <div class="small text-muted">Completed automatically by the next visit, or by a call / note ticked "This completes the follow-up".</div>
+                </div>
+                @if (Model.CanWork)
+                {
+                    <details class="mt-2">
+                        <summary class="small">Cancel this follow-up</summary>
+                        <form method="post" asp-page-handler="CancelFollowUp" asp-route-id="@c.Id" class="mt-2">
+                            <input type="hidden" name="FollowUpId" value="@p.Id" />
+                            <input name="Reason" class="form-control form-control-sm mb-2" maxlength="300" placeholder="Why is it cancelled?" required />
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Cancel follow-up</button>
+                        </form>
+                    </details>
+                }
+            }
+            else
+            {
+                <p class="text-muted mb-2">No follow-up set.</p>
+                @if (Model.CanWork)
+                {
+                    <form method="post" asp-page-handler="SetFollowUp" asp-route-id="@c.Id" class="row g-2">
+                        <div class="col-6 col-md-3"><input type="date" name="FollowUpDate" class="form-control form-control-sm" min="@today.ToString("yyyy-MM-dd")" max="@today.AddDays(FieldCustomerRules.MaxFollowUpDaysAhead).ToString("yyyy-MM-dd")" required /></div>
+                        <div class="col-12 col-md-6"><input name="FollowUpNote" class="form-control form-control-sm" maxlength="500" placeholder="Follow-up note (optional)" /></div>
+                        <div class="col-6 col-md-3 d-grid"><button type="submit" class="btn btn-sm btn-primary">Set follow-up</button></div>
+                    </form>
+                }
+            }
+        </div>
+
+        <div class="row g-3">
+            @* ---- profile ---- *@
+            <div class="col-12 col-lg-4">
+                <div class="fw-step h-100">
+                    <div class="fw-step-title">Profile</div>
+                    @if (c.PhotoId.HasValue)
+                    {
+                        var src = Url.Page("/FieldWork/Customers/Details", "Photo", new { id = c.Id, photoId = c.PhotoId });
+                        <a href="@src" target="_blank" rel="noopener"><img src="@src" class="fw-photo-full mb-2" alt="Customer photo" /></a>
+                    }
+                    <dl class="fw-kv mb-0">
+                        @if (c.ContactPerson != null) { <dt>Contact</dt><dd>@c.ContactPerson</dd> }
+                        <dt>Phone</dt>
+                        <dd>
+                            @if (Model.ShowPhone)
+                            {
+                                <a href="tel:@c.Phone">@c.Phone</a>
+                                @if (c.AlternatePhone != null) { <span> · <a href="tel:@c.AlternatePhone">@c.AlternatePhone</a></span> }
+                            }
+                            else
+                            {
+                                @FieldCustomerRules.MaskPhone(c.Phone) <span class="small text-muted">(only the assigned employee sees it)</span>
+                            }
+                        </dd>
+                        @if (c.Address != null) { <dt>Address</dt><dd>@c.Address</dd> }
+                        <dt>Assigned to</dt><dd>@c.AssignedName @(c.AssignedUserActive ? "" : "(deactivated)")</dd>
+                        <dt>Created</dt><dd>@Ist(c.CreatedAtUtc) by @c.CreatedByName</dd>
+                        <dt>GPS</dt>
+                        <dd>
+                            @if (c.Latitude.HasValue) { <a href="@Map(c.Latitude, c.Longitude)" target="_blank" rel="noopener">map</a> <span class="text-muted">± @c.AccuracyM?.ToString("0") m</span> }
+                            else { <span class="text-muted">none@(c.GpsExceptionReason != null ? " (" + c.GpsExceptionReason + ")" : "")</span> }
+                        </dd>
+                    </dl>
+                    @if (c.FlagReasons != null) { <div class="fw-flag mt-2">@c.FlagReasons</div> }
+                </div>
+            </div>
+
+            @* ---- timeline ---- *@
+            <div class="col-12 col-lg-8">
+                <div class="fw-step">
+                    <div class="fw-step-title">History (newest first)</div>
+                    @if (!entries.Any()) { <p class="text-muted mb-0">No visits or calls yet.</p> }
+                    @foreach (var e in entries)
+                    {
+                        if (e.Visit != null)
+                        {
+                            var v = e.Visit;
+                            var corrections = Model.Timeline.Notes.Where(n => n.VisitId == v.Id).OrderBy(n => n.CreatedAtUtc).ToList();
+                            <div class="fw-day-card" id="visit-@v.Id">
+                                <div class="d-flex justify-content-between flex-wrap gap-1">
+                                    <div><span class="badge bg-success">Visit</span> <strong>@Ist(v.CheckInAtUtc)</strong> · @v.EmployeeName</div>
+                                    <div class="small">
+                                        @if (v.Latitude.HasValue) { <a href="@Map(v.Latitude, v.Longitude)" target="_blank" rel="noopener">check-in map</a> <span class="text-muted">± @v.AccuracyM?.ToString("0") m</span> }
+                                        else { <span class="text-danger">no GPS</span> }
+                                    </div>
+                                </div>
+                                @if (v.FlagReasons != null) { <div class="fw-flag mt-1">@v.FlagReasons</div> }
+                                <div class="mt-1"><span class="text-muted small">Discussed:</span> @v.Discussed</div>
+                                @if (v.Notes != null) { <div><span class="text-muted small">Notes:</span> @v.Notes</div> }
+                                @if (v.Items.Any())
+                                {
+                                    <div><span class="text-muted small">Given:</span> @string.Join(", ", v.Items.Select(i => FieldCustomerRules.ItemLabel(i.ItemText, i.Quantity)))</div>
+                                }
+                                @if (v.LeadStatusBefore != v.LeadStatusAfter)
+                                {
+                                    <div class="small">Status: @FieldCustomerRules.LeadLabel(v.LeadStatusBefore) → <strong>@FieldCustomerRules.LeadLabel(v.LeadStatusAfter)</strong></div>
+                                }
+                                @if (v.PhotoIds.Any())
+                                {
+                                    <div class="d-flex flex-wrap gap-2 mt-1">
+                                        @foreach (var pid in v.PhotoIds)
+                                        {
+                                            var src = Url.Page("/FieldWork/Customers/Details", "Photo", new { id = c.Id, photoId = pid });
+                                            <a href="@src" target="_blank" rel="noopener"><img loading="lazy" src="@src" class="fw-thumb" alt="Visit photo" /></a>
+                                        }
+                                    </div>
+                                }
+                                @if (v.ModifiedAtUtc.HasValue) { <div class="small text-muted">Edited by @v.ModifiedByName on @Ist(v.ModifiedAtUtc.Value) (old text in the change history)</div> }
+                                @foreach (var n in corrections)
+                                {
+                                    <div class="small border-start border-3 border-warning ps-2 mt-1"><strong>Correction</strong> · @Ist(n.CreatedAtUtc) · @n.UserName: @n.Text</div>
+                                }
+                                <div class="d-flex gap-2 mt-1">
+                                    @if (Model.MayCorrect(v)) { <a asp-page="/FieldWork/Customers/Note" asp-route-customerId="@c.Id" asp-route-visitId="@v.Id" class="btn btn-link btn-sm px-0">Add correction</a> }
+                                    @if (Model.CanManage) { <a asp-page="/FieldWork/Visits/Edit" asp-route-id="@v.Id" class="btn btn-link btn-sm px-0">Edit (manager)</a> }
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            var n = e.Note!;
+                            <div class="fw-day-card">
+                                <div><span class="badge @(n.NoteType == "Call" ? "bg-primary" : "bg-secondary")">@(n.NoteType == "Call" ? "Call" : "Note")</span> <strong>@Ist(n.CreatedAtUtc)</strong> · @n.UserName</div>
+                                <div class="mt-1">@n.Text</div>
+                                @if (n.LeadStatusAfter != null)
+                                {
+                                    <div class="small">Status: @FieldCustomerRules.LeadLabel(n.LeadStatusBefore) → <strong>@FieldCustomerRules.LeadLabel(n.LeadStatusAfter)</strong></div>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+
+                @if (Model.Timeline.FollowUps.Any(f => f.Status != FieldCustomerRules.FollowUpPending))
+                {
+                    <details class="fw-step">
+                        <summary class="fw-step-title mb-0">Past follow-ups</summary>
+                        <ul class="list-unstyled small mb-0 mt-2">
+                            @foreach (var f in Model.Timeline.FollowUps.Where(f => f.Status != FieldCustomerRules.FollowUpPending))
+                            {
+                                <li class="mb-1">
+                                    @f.DueDate.ToString("dd-MMM-yyyy") · <strong>@f.Status</strong>
+                                    @if (f.ClosedAtUtc.HasValue) { <span> on @Ist(f.ClosedAtUtc.Value) by @f.ClosedByName</span> }
+                                    @if (f.ClosedByVisitId.HasValue) { <span> (visit)</span> } else if (f.ClosedByNoteId.HasValue) { <span> (call / note)</span> }
+                                    @if (f.CancelReason != null) { <span class="text-muted"> -- @f.CancelReason</span> }
+                                    @if (f.Note != null) { <div class="text-muted">@f.Note</div> }
+                                </li>
+                            }
+                        </ul>
+                    </details>
+                }
+
+                <details class="fw-step">
+                    <summary class="fw-step-title mb-0">Change history</summary>
+                    <ul class="list-unstyled small mb-0 mt-2">
+                        @foreach (var ev in Model.Timeline.Events)
+                        {
+                            <li class="mb-1">
+                                <strong>@ev.EventType</strong> · @Ist(ev.AtUtc) · @ev.ByName
+                                @if (ev.FromStatus != null || ev.ToStatus != null) { <span> · @FieldCustomerRules.LeadLabel(ev.FromStatus) → @FieldCustomerRules.LeadLabel(ev.ToStatus)</span> }
+                                @if (ev.ToUserName != null && ev.EventType == "Reassigned") { <span> · @ev.FromUserName → @ev.ToUserName</span> }
+                                @if (!string.IsNullOrEmpty(ev.Details)) { <div class="text-muted">@ev.Details</div> }
+                            </li>
+                        }
+                    </ul>
+                </details>
+            </div>
+        </div>
+
+        @* ---- manager actions ---- *@
+        @if (Model.CanManage)
+        {
+            <div class="fw-step mt-3">
+                <div class="fw-step-title">Manager actions</div>
+                <div class="row g-3">
+                    @if (c.IsActive)
+                    {
+                        <form method="post" asp-page-handler="SetStatus" asp-route-id="@c.Id" class="col-12 col-md-4">
+                            <label class="form-label small mb-0">Lead status</label>
+                            <select name="Status" class="form-select form-select-sm mb-1">
+                                @foreach (var s in FieldCustomerRules.LeadStatuses)
+                                {
+                                    <option value="@s.Key" selected="@(c.LeadStatus == s.Key)">@s.Value</option>
+                                }
+                            </select>
+                            <input name="Comment" class="form-control form-control-sm mb-1" maxlength="300" placeholder="Comment (optional)" />
+                            <button type="submit" class="btn btn-sm btn-primary">Change status</button>
+                        </form>
+                        <form method="post" asp-page-handler="Reassign" asp-route-id="@c.Id" class="col-12 col-md-4">
+                            <label class="form-label small mb-0">Reassign to</label>
+                            <select name="ToUserId" class="form-select form-select-sm mb-1" required>
+                                <option value="">-- Field employee --</option>
+                                @foreach (var e in Model.Employees.Where(e => e.UserId != c.AssignedUserId))
+                                {
+                                    <option value="@e.UserId">@e.Name</option>
+                                }
+                            </select>
+                            <input name="Comment" class="form-control form-control-sm mb-1" maxlength="300" placeholder="Reason (optional)" />
+                            <button type="submit" class="btn btn-sm btn-primary">Reassign</button>
+                            <div class="form-text">The pending follow-up moves with the customer.</div>
+                        </form>
+                        <form method="post" asp-page-handler="Archive" asp-route-id="@c.Id" class="col-12 col-md-4">
+                            <label class="form-label small mb-0">Archive</label>
+                            <input name="Reason" class="form-control form-control-sm mb-1" maxlength="300" placeholder="Why? (required)" required />
+                            <button type="submit" class="btn btn-sm btn-outline-danger">Archive customer</button>
+                            <div class="form-text">Hidden from employees and follow-up counts. Can be restored.</div>
+                        </form>
+                    }
+                    else
+                    {
+                        <form method="post" asp-page-handler="Restore" asp-route-id="@c.Id" class="col-12">
+                            <button type="submit" class="btn btn-sm btn-success">Restore customer</button>
+                        </form>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>

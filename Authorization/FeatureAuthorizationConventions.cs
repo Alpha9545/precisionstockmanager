@@ -285,6 +285,18 @@ namespace PlantStockManager.Authorization
                 ["/FieldWork/Index"] = R("FieldWork.Day"),
                 ["/FieldWork/DayDetails"] = R("FieldWork.Day|FieldWork.Manage", "FieldWork.Manage"),
                 ["/FieldWork/Manage/Days"] = R("FieldWork.Manage"),
+                // Phase 2 (2026-11-03): customers / visits / follow-ups. Which customer a user may see (assigned or created by
+                // them; managers all), whose phone they see, and every action are decided per record by FieldCustomerService
+                // (404 otherwise). Manager-only actions on Details (status / reassign / archive) are re-checked there.
+                ["/FieldWork/Customers/Index"] = R("FieldWork.Day|FieldWork.Manage"),
+                ["/FieldWork/Customers/Create"] = R("FieldWork.Day|FieldWork.Manage"),
+                ["/FieldWork/Customers/Details"] = R("FieldWork.Day|FieldWork.Manage"),
+                ["/FieldWork/Customers/Edit"] = R("FieldWork.Day|FieldWork.Manage"),
+                ["/FieldWork/Customers/Note"] = R("FieldWork.Day|FieldWork.Manage"),
+                ["/FieldWork/Customers/Reassign"] = R("FieldWork.Manage"),
+                ["/FieldWork/Visits/Create"] = R("FieldWork.Day"),
+                ["/FieldWork/Visits/Edit"] = R("FieldWork.Manage"),
+                ["/FieldWork/FollowUps/Index"] = R("FieldWork.Day|FieldWork.Manage"),
                 // ---- Inventory Store (2026-10-06) -------------------------------
                 // Area scope and each workflow step are decided by StoreAuthorization
                 // (Store.Manage = the central store: every Area, inside the Store module only).

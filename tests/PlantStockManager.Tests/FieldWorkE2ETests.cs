@@ -41,7 +41,7 @@ namespace PlantStockManager.Tests
                     while (await r.ReadAsync())
                         users.Add(r.GetInt32(0));
                 Skip.If(users.Count < 3, "The scratch copy needs 3 active users.");
-                const string cleanup = @"
+                const string cleanup = FieldCustomerE2ETests.Phase2CleanupSql + @"
 DELETE e FROM dbo.FieldDayEvents e JOIN dbo.FieldDays d ON d.Id = e.FieldDayId WHERE d.UserId IN (@A, @B, @C);
 DELETE FROM dbo.FieldDays WHERE UserId IN (@A, @B, @C);
 DELETE FROM dbo.FieldPhotos WHERE OwnerUserId IN (@A, @B, @C);

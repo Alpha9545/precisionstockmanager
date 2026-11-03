@@ -10,8 +10,16 @@ namespace PlantStockManager.Pages.FieldWork
     public class IndexModel : PageModel
     {
         private readonly FieldDayService _service;
+        private readonly FieldCustomerService _customers;
 
-        public IndexModel(FieldDayService service) => _service = service;
+        public IndexModel(FieldDayService service, FieldCustomerService customers)
+        {
+            _service = service;
+            _customers = customers;
+        }
+
+        // Phase 2: "Today's follow-ups" / "Overdue" card (null when the Phase 2 migration is missing)
+        public FieldFollowUpCounts? FollowUps { get; private set; }
 
         public bool SchemaReady { get; private set; } = true;
         public FieldDay? Today { get; private set; }
@@ -29,6 +37,8 @@ namespace PlantStockManager.Pages.FieldWork
             Message = TempData["FieldWorkMessage"] as string;
             Today = await _service.GetTodayAsync(userId.Value);
             Recent = await _service.ListMyDaysAsync(userId.Value);
+            if (await _customers.SchemaReadyAsync())
+                FollowUps = await _customers.CountDueAsync(User);
             return Page();
         }
     }

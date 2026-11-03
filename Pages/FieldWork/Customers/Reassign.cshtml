@@ -1,0 +1,99 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Customers.ReassignModel
+@using PlantStockManager.Services.FieldWork
+@{
+    ViewData["Title"] = "Reassign Customers";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page-wide">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2">
+        <h4 class="mb-0">Reassign customers</h4>
+        <a asp-page="/FieldWork/Customers/Index" class="btn btn-sm btn-outline-secondary">Customers</a>
+    </div>
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldCustomerSchema.MigrationMessage</div>
+    }
+    else
+    {
+        @if (Model.Message != null) { <div class="alert alert-success">@Model.Message</div> }
+        @if (Model.Errors.Any()) { <div class="alert alert-danger"><ul class="mb-0">@foreach (var e in Model.Errors) { <li>@e</li> }</ul></div> }
+
+        <form method="get" class="fw-step">
+            <label class="form-label fw-bold small mb-0" for="from">Move customers of</label>
+            <div class="d-flex gap-2 flex-wrap">
+                <select id="from" name="FromUserId" class="form-select" style="max-width:420px" onchange="this.form.submit()">
+                    <option value="">-- Choose employee --</option>
+                    @foreach (var s in Model.Sources)
+                    {
+                        <option value="@s.UserId" selected="@(Model.FromUserId == s.UserId)">
+                            @s.Name@(s.IsActive ? "" : " — DEACTIVATED, needs reassigning") (@s.ActiveCustomers)
+                        </option>
+                    }
+                </select>
+                <noscript><button type="submit" class="btn btn-primary">Show</button></noscript>
+            </div>
+        </form>
+
+        @if (Model.From != null)
+        {
+            <form method="post" asp-route-FromUserId="@Model.From.UserId" class="fw-step">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+                    <div class="fw-step-title mb-0">@Model.Customers.Count active customer(s) of @Model.From.Name</div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="selAll" />
+                        <label class="form-check-label" for="selAll">Select all</label>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height:50vh">
+                    <table class="table table-sm align-middle">
+                        <tbody>
+                            @foreach (var c in Model.Customers)
+                            {
+                                <tr>
+                                    <td style="width:2rem"><input class="form-check-input fc-sel" type="checkbox" name="CustomerIds" value="@c.Id" id="c@(c.Id)" checked="@Model.CustomerIds.Contains(c.Id)" /></td>
+                                    <td><label for="c@(c.Id)">@c.Name</label> <span class="small text-muted">@c.VillageCity</span></td>
+                                    <td><span class="badge bg-info text-dark">@FieldCustomerRules.LeadLabel(c.LeadStatus)</span></td>
+                                    <td class="small">@(c.PendingFollowUpDate.HasValue ? "Follow-up " + c.PendingFollowUpDate.Value.ToString("dd-MMM") : "")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="row g-2 mt-1">
+                    <div class="col-12 col-md-4">
+                        <label class="form-label fw-bold small mb-0" for="to">Move to</label>
+                        <select id="to" name="ToUserId" class="form-select" required>
+                            <option value="">-- Active field employee --</option>
+                            @foreach (var t in Model.Targets.Where(t => t.UserId != Model.From.UserId))
+                            {
+                                <option value="@t.UserId" selected="@(Model.ToUserId == t.UserId)">@t.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-5">
+                        <label class="form-label small mb-0" for="why">Reason (optional)</label>
+                        <input id="why" name="Reason" value="@Model.Reason" class="form-control" maxlength="300" />
+                    </div>
+                    <div class="col-12 col-md-3 d-grid align-items-end">
+                        <button type="submit" class="btn btn-primary mt-md-4">Move selected</button>
+                    </div>
+                </div>
+                <div class="form-text">Pending follow-ups move with their customers. Nothing moves if any selected customer was changed meanwhile.</div>
+            </form>
+        }
+    }
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var all = document.getElementById('selAll');
+            if (!all) return;
+            all.addEventListener('change', function () {
+                document.querySelectorAll('.fc-sel').forEach(function (c) { c.checked = all.checked; });
+            });
+        })();
+    </script>
+}

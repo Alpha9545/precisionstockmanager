@@ -25,6 +25,20 @@ namespace PlantStockManager.Services.FieldWork
         // Raise when the consent text changes: every field employee is asked again.
         public int ConsentVersion { get; set; } = 1;
 
+        // ---- Phase 2 (customers / visits) ----------------------------------------------------------------------------
+        // Live photos per visit (each at most MaxPhotoBytes). Capped at MaxPhotosPerVisitLimit: the visit form's request
+        // size limit is sized for it.
+        public const int MaxPhotosPerVisitLimit = 10;
+        public int MaxPhotosPerVisit { get; set; } = 5;
+
+        // Version of the "Take the customer's permission before a photo" reminder shown on the customer / visit capture
+        // screens; stored on each customer / visit photo (dbo.FieldPhotos.ConsentReminderVersion). Raise when the text changes.
+        public int CustomerPhotoConsentVersion { get; set; } = 1;
+
+        public int CustomerPageSize { get; set; } = 25;
+
+        public int EffectiveMaxPhotosPerVisit => Math.Clamp(MaxPhotosPerVisit, 0, MaxPhotosPerVisitLimit);
+
         public string ResolvePhotoRoot()
             => Path.GetFullPath(!string.IsNullOrWhiteSpace(PhotoRoot)
                 ? PhotoRoot

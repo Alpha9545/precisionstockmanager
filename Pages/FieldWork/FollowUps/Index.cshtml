@@ -1,0 +1,72 @@
+@page
+@model PlantStockManager.Pages.FieldWork.FollowUps.IndexModel
+@using PlantStockManager.Services
+@using PlantStockManager.Services.FieldWork
+@{
+    ViewData["Title"] = "Follow-ups";
+    var today = AppClock.Today;
+    var groups = Model.Items.GroupBy(f => FieldCustomerRules.StateOf(f.DueDate, today)).ToDictionary(g => g.Key, g => g.ToList());
+    var order = new[] { FieldCustomerRules.FollowUpState.Overdue, FieldCustomerRules.FollowUpState.Today, FieldCustomerRules.FollowUpState.Upcoming };
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page-wide">
+    <h4 class="mt-2">@(Model.CanManage ? "Team follow-ups" : "My follow-ups")</h4>
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldCustomerSchema.MigrationMessage</div>
+    }
+    else
+    {
+        @if (Model.CanManage)
+        {
+            <form method="get" class="fw-step row g-2 align-items-end">
+                <div class="col-12 col-md-4">
+                    <label class="form-label small mb-0" for="emp">Employee</label>
+                    <select id="emp" name="EmployeeId" class="form-select form-select-sm">
+                        <option value="">All employees</option>
+                        @foreach (var e in Model.Employees)
+                        {
+                            <option value="@e.UserId" selected="@(Model.EmployeeId == e.UserId)">@e.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="all" name="AllPending" value="true" checked="@Model.AllPending" />
+                        <label class="form-check-label small" for="all">Show all pending (not only overdue)</label>
+                    </div>
+                </div>
+                <div class="col-12 col-md-2 d-grid"><button class="btn btn-sm btn-primary" type="submit">Show</button></div>
+            </form>
+        }
+
+        @if (!Model.Items.Any())
+        {
+            <p class="text-muted">@(Model.CanManage && !Model.AllPending ? "No overdue follow-ups." : "No pending follow-ups.")</p>
+        }
+        @foreach (var state in order.Where(groups.ContainsKey))
+        {
+            <h6 class="mt-3">
+                @(state == FieldCustomerRules.FollowUpState.Overdue ? "Overdue" : state == FieldCustomerRules.FollowUpState.Today ? "Today" : "Upcoming")
+                <span class="badge @(state == FieldCustomerRules.FollowUpState.Overdue ? "bg-danger" : state == FieldCustomerRules.FollowUpState.Today ? "bg-warning text-dark" : "bg-secondary")">@groups[state].Count</span>
+            </h6>
+            @foreach (var f in groups[state])
+            {
+                <a asp-page="/FieldWork/Customers/Details" asp-route-id="@f.CustomerId" class="text-decoration-none text-reset">
+                    <div class="fw-day-card d-flex justify-content-between gap-2">
+                        <div>
+                            <div class="fw-step-title mb-0">@f.CustomerName</div>
+                            <div class="small text-muted">@f.VillageCity · @FieldCustomerRules.LeadLabel(f.LeadStatus)@(Model.CanManage ? " · " + f.AssignedName : "")</div>
+                            @if (f.Note != null) { <div class="small">@f.Note</div> }
+                        </div>
+                        <div class="text-end small">
+                            <strong>@f.DueDate.ToString("dd-MMM")</strong>
+                            @if (state == FieldCustomerRules.FollowUpState.Overdue) { <div class="text-danger">@((today - f.DueDate.Date).Days) day(s) late</div> }
+                        </div>
+                    </div>
+                </a>
+            }
+        }
+    }
+</div>

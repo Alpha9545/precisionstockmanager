@@ -1,0 +1,212 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Customers.IndexModel
+@using PlantStockManager.Services
+@using PlantStockManager.Services.FieldWork
+@{
+    ViewData["Title"] = "Customers";
+    string LastVisit(DateTime? utc) => utc.HasValue ? AppClock.ToIndiaTime(utc.Value).ToString("dd-MMM-yyyy") : "never";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page-wide">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2 flex-wrap gap-2">
+        <h4 class="mb-0">Customers</h4>
+        <div class="d-flex gap-2 flex-wrap">
+            @if (Model.SchemaReady && Model.CanManage)
+            {
+                <a asp-page="/FieldWork/Customers/Reassign" class="btn btn-sm btn-outline-secondary">Reassign customers</a>
+            }
+            <a asp-page="/FieldWork/Customers/Create" class="btn btn-sm btn-success">+ Add customer</a>
+        </div>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldCustomerSchema.MigrationMessage</div>
+    }
+    else
+    {
+        @if (Model.CanManage && Model.NeedingReassign > 0)
+        {
+            <div class="alert alert-warning py-2">
+                <strong>@Model.NeedingReassign customer(s) need reassigning</strong> -- their employee is deactivated.
+                <a asp-page="/FieldWork/Customers/Index" asp-route-NeedsReassign="true">Show them</a> ·
+                <a asp-page="/FieldWork/Customers/Reassign">Reassign</a>
+            </div>
+        }
+
+        <form method="get" class="fw-step">
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-3">
+                    <label class="form-label small mb-0" for="q">Search</label>
+                    <input id="q" name="Q" value="@Model.Filter.Search" class="form-control form-control-sm" maxlength="100" placeholder="Name, phone or village" />
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="st">Status</label>
+                    <select id="st" name="Status" class="form-select form-select-sm">
+                        <option value="">All</option>
+                        @foreach (var s in FieldCustomerRules.LeadStatuses)
+                        {
+                            <option value="@s.Key" selected="@(Model.Filter.Status == s.Key)">@s.Value</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="ty">Type</label>
+                    <select id="ty" name="Type" class="form-select form-select-sm">
+                        <option value="">All</option>
+                        @foreach (var s in FieldCustomerRules.CustomerTypes)
+                        {
+                            <option value="@s.Key" selected="@(Model.Filter.Type == s.Key)">@s.Value</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="di">District</label>
+                    <select id="di" name="District" class="form-select form-select-sm">
+                        <option value="">All</option>
+                        @foreach (var d in Model.Districts)
+                        {
+                            <option value="@d" selected="@(Model.Filter.District == d)">@d</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small mb-0" for="nv">No visit in</label>
+                    <select id="nv" name="NoVisitDays" class="form-select form-select-sm">
+                        <option value="">Any</option>
+                        @foreach (var n in FieldCustomerRules.NoVisitDayOptions)
+                        {
+                            <option value="@n" selected="@(Model.Filter.NoVisitDays == n)">@n days</option>
+                        }
+                    </select>
+                </div>
+                @if (Model.CanManage)
+                {
+                    <div class="col-6 col-md-3">
+                        <label class="form-label small mb-0" for="em">Assigned employee</label>
+                        <select id="em" name="EmployeeId" class="form-select form-select-sm">
+                            <option value="">All employees</option>
+                            @foreach (var e in Model.Employees)
+                            {
+                                <option value="@e.UserId" selected="@(Model.Filter.EmployeeId == e.UserId)">@e.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label small mb-0" for="ar">Show</label>
+                        <select id="ar" name="Archived" class="form-select form-select-sm">
+                            @foreach (var a in FieldCustomerService.ArchivedOptions)
+                            {
+                                <option value="@a" selected="@(Model.Filter.Archived == a)">@a</option>
+                            }
+                        </select>
+                    </div>
+                }
+                <div class="col-12 col-md-auto">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="nf" name="NoFollowUp" value="true" checked="@Model.Filter.NoFollowUp" />
+                        <label class="form-check-label small" for="nf">No follow-up set (Interested / Sample Given / Negotiation)</label>
+                    </div>
+                    @if (Model.CanManage)
+                    {
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="nr" name="NeedsReassign" value="true" checked="@Model.Filter.NeedsReassign" />
+                            <label class="form-check-label small" for="nr">Needs reassigning</label>
+                        </div>
+                    }
+                </div>
+                <div class="col-12 col-md-1 d-grid">
+                    <button type="submit" class="btn btn-sm btn-primary">Show</button>
+                </div>
+            </div>
+        </form>
+
+        <div class="small text-muted mb-2">@Model.Total customer(s)</div>
+        @if (!Model.Rows.Any())
+        {
+            <p class="text-muted">No customers match the filter.</p>
+        }
+
+        @* phones: cards *@
+        <div class="d-md-none">
+            @foreach (var c in Model.Rows)
+            {
+                <a asp-page="/FieldWork/Customers/Details" asp-route-id="@c.Id" class="text-decoration-none text-reset">
+                    <div class="fw-day-card">
+                        <div class="d-flex justify-content-between gap-2">
+                            <div>
+                                <div class="fw-step-title mb-0">@c.Name</div>
+                                <div class="small text-muted">@c.VillageCity@(c.District != null ? ", " + c.District : "") · @FieldCustomerRules.CustomerTypes[c.CustomerType]</div>
+                                <div class="small">@c.PhoneShown</div>
+                            </div>
+                            <div class="text-end">
+                                <span class="badge bg-info text-dark">@FieldCustomerRules.LeadLabel(c.LeadStatus)</span>
+                                @if (!c.IsActive) { <div><span class="badge bg-secondary">Archived</span></div> }
+                                @if (!c.AssignedUserActive && c.IsActive) { <div><span class="badge bg-warning text-dark">Needs reassigning</span></div> }
+                            </div>
+                        </div>
+                        <div class="small text-muted mt-1">
+                            Last visit: @LastVisit(c.LastVisitAtUtc)
+                            @if (c.PendingFollowUpDate.HasValue) { <span> · Follow-up @c.PendingFollowUpDate.Value.ToString("dd-MMM")</span> }
+                            @if (Model.CanManage) { <span> · @c.AssignedName</span> }
+                        </div>
+                    </div>
+                </a>
+            }
+        </div>
+
+        @* desktop: table *@
+        <div class="d-none d-md-block table-responsive">
+            <table class="table table-sm table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th>Name</th><th>Phone</th><th>Village / City</th><th>District</th><th>Type</th><th>Status</th>
+                        <th>Last visit</th><th>Follow-up</th>@if (Model.CanManage) { <th>Assigned to</th> }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var c in Model.Rows)
+                    {
+                        <tr class="@(c.IsActive ? "" : "text-muted")">
+                            <td>
+                                <a asp-page="/FieldWork/Customers/Details" asp-route-id="@c.Id">@c.Name</a>
+                                @if (!c.IsActive) { <span class="badge bg-secondary">Archived</span> }
+                                @if (c.ContactPerson != null) { <div class="small text-muted">@c.ContactPerson</div> }
+                            </td>
+                            <td>@c.PhoneShown</td>
+                            <td>@c.VillageCity</td>
+                            <td>@c.District</td>
+                            <td>@FieldCustomerRules.CustomerTypes[c.CustomerType]</td>
+                            <td><span class="badge bg-info text-dark">@FieldCustomerRules.LeadLabel(c.LeadStatus)</span></td>
+                            <td>@LastVisit(c.LastVisitAtUtc)</td>
+                            <td>@(c.PendingFollowUpDate?.ToString("dd-MMM-yyyy") ?? "—")</td>
+                            @if (Model.CanManage)
+                            {
+                                <td>
+                                    @c.AssignedName
+                                    @if (!c.AssignedUserActive && c.IsActive) { <span class="badge bg-warning text-dark">Needs reassigning</span> }
+                                </td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (Model.PageCount > 1)
+        {
+            <nav aria-label="Pages">
+                <ul class="pagination pagination-sm flex-wrap">
+                    <li class="page-item @(Model.Filter.Page <= 1 ? "disabled" : "")">
+                        <a class="page-link" asp-page="/FieldWork/Customers/Index" asp-all-route-data="Model.RouteFor(Model.Filter.Page - 1)">Previous</a>
+                    </li>
+                    <li class="page-item disabled"><span class="page-link">Page @Model.Filter.Page of @Model.PageCount</span></li>
+                    <li class="page-item @(Model.Filter.Page >= Model.PageCount ? "disabled" : "")">
+                        <a class="page-link" asp-page="/FieldWork/Customers/Index" asp-all-route-data="Model.RouteFor(Model.Filter.Page + 1)">Next</a>
+                    </li>
+                </ul>
+            </nav>
+        }
+    }
+</div>

@@ -1,0 +1,49 @@
+@model PlantStockManager.Pages.FieldWork.PhotosCaptureModel
+@* GPS + up to N live camera photos (no gallery / file picker). Driven by wwwroot/js/fieldwork-photos.js; the form is #fpForm. *@
+
+<input type="hidden" name="Latitude" id="fpLat" value="@Model.Latitude" />
+<input type="hidden" name="Longitude" id="fpLng" value="@Model.Longitude" />
+<input type="hidden" name="AccuracyM" id="fpAcc" value="@Model.AccuracyM" />
+<input type="hidden" name="ConsentReminderVersion" value="@Model.ConsentReminderVersion" />
+<input type="file" name="Photos" id="fpPhotoInput" class="d-none" tabindex="-1" aria-hidden="true" multiple />
+
+<div class="fw-step">
+    <div class="fw-step-title">Location @(Model.GpsRequired ? "" : "(optional)")</div>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span class="badge bg-secondary" id="fpGpsBadge">Waiting for GPS…</span>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="fpRetryGps">Retry GPS</button>
+    </div>
+    <div class="small text-muted mt-1" id="fpGpsStatus" role="status"></div>
+    <div class="mt-2 d-none" id="fpReasonBox">
+        <label class="form-label small mb-1" for="fpReason">GPS not working? Reason</label>
+        <textarea name="GpsExceptionReason" id="fpReason" class="form-control form-control-sm" rows="2" maxlength="300"
+                  placeholder="e.g. no signal inside the building">@Model.GpsExceptionReason</textarea>
+        <div class="form-text">Saved, but marked for your manager's review.</div>
+    </div>
+    @if (Model.GpsRequired)
+    {
+        <button type="button" class="btn btn-link btn-sm px-0" id="fpShowReason">GPS not working?</button>
+    }
+</div>
+
+@if (Model.MaxPhotos > 0)
+{
+    <div class="fw-step">
+        <div class="fw-step-title">@Model.PhotoLabel (optional)</div>
+        <div class="alert alert-warning py-2 small mb-2" role="note">
+            <strong>Take the customer's permission before taking a photo.</strong>
+            Photos are for work records only.
+        </div>
+        <div class="fw-camera d-none mb-2" id="fpCamera">
+            <video id="fpVideo" playsinline muted autoplay></video>
+            <canvas id="fpCanvas" class="d-none"></canvas>
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            <button type="button" class="btn btn-outline-primary fw-btn" id="fpStartCamera">Open camera</button>
+            <button type="button" class="btn btn-primary fw-btn d-none" id="fpTakePhoto">Take photo</button>
+            <button type="button" class="btn btn-outline-secondary fw-btn d-none" id="fpDoneCamera">Close camera</button>
+        </div>
+        <div class="small mt-1" id="fpCameraStatus" role="status"></div>
+        <div class="d-flex flex-wrap gap-2 mt-2" id="fpThumbs"></div>
+    </div>
+}

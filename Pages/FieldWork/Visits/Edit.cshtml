@@ -1,0 +1,35 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Visits.EditModel
+@using PlantStockManager.Pages.FieldWork
+@{
+    ViewData["Title"] = "Edit Visit";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2">
+        <h4 class="mb-0">Edit visit (manager)</h4>
+        <a asp-page="/FieldWork/Customers/Details" asp-route-id="@Model.Customer.Id" class="btn btn-sm btn-outline-secondary">Back</a>
+    </div>
+    <div class="text-muted mb-2">@Model.Customer.Name · visit of @FieldWorkReadingPageModel.Ist(Model.Visit.CheckInAtUtc) by @Model.Visit.EmployeeName</div>
+    <div class="alert alert-info small">Only the text and items can be corrected. Time, GPS, photos and the customer stay as recorded. The old text is kept in the change history.</div>
+    @if (Model.Errors.Any()) { <div class="alert alert-danger"><ul class="mb-0">@foreach (var e in Model.Errors) { <li>@e</li> }</ul></div> }
+
+    <form method="post" asp-route-id="@Model.Id">
+        <div class="fw-step">
+            <label class="fw-step-title form-label" for="vDiscussed">What was discussed</label>
+            <textarea id="vDiscussed" name="Discussed" class="form-control" rows="3" maxlength="1000" required>@Model.Discussed</textarea>
+            <label class="form-label small mt-2 mb-0" for="vNotes">Visit notes</label>
+            <textarea id="vNotes" name="Notes" class="form-control" rows="2" maxlength="2000">@Model.Notes</textarea>
+        </div>
+        <div class="fw-step">
+            <div class="fw-step-title">Items given</div>
+            <partial name="/Pages/FieldWork/Visits/_ItemRows.cshtml" model="((IReadOnlyList<string?>)Model.ItemText, (IReadOnlyList<string?>)Model.ItemQty)" />
+        </div>
+        <button type="submit" class="btn btn-primary w-100 fw-submit">Save correction</button>
+    </form>
+</div>
+
+@section Scripts {
+    <script src="~/js/fieldwork-photos.js" asp-append-version="true"></script>
+}

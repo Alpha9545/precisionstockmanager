@@ -98,12 +98,18 @@ builder.Services.AddSingleton(builder.Configuration.GetSection("SuggestionStorag
 builder.Services.AddSingleton<SuggestionPhotoStore>();
 
 // Field Work Phase 1 (2026-11-03): Start Day / End Day with meter photos (Services/FieldWork, Data/FieldDayRepository.cs).
-builder.Services.AddSingleton(builder.Configuration.GetSection(PlantStockManager.Services.FieldWork.FieldWorkOptions.SectionName)
+// resolved from the final configuration (not read while the builder is still being set up)
+builder.Services.AddSingleton(sp => sp.GetRequiredService<IConfiguration>().GetSection(PlantStockManager.Services.FieldWork.FieldWorkOptions.SectionName)
     .Get<PlantStockManager.Services.FieldWork.FieldWorkOptions>() ?? new PlantStockManager.Services.FieldWork.FieldWorkOptions());
 builder.Services.AddSingleton<PlantStockManager.Services.FieldWork.FieldPhotoStore>();
 builder.Services.AddScoped<FieldDayRepository>();
 builder.Services.AddScoped<PlantStockManager.Services.FieldWork.FieldDayService>();
 builder.Services.AddHostedService<PlantStockManager.Services.FieldWork.FieldDayAutoCloseService>(); // midnight auto-close (idempotent)
+// Field Work Phase 2 (2026-11-03): customers / visits / calls & notes / follow-ups.
+builder.Services.AddScoped<FieldCustomerRepository>();
+builder.Services.AddScoped<FieldVisitRepository>();
+builder.Services.AddScoped<PlantStockManager.Services.FieldWork.FieldCustomerService>();
+builder.Services.AddScoped<PlantStockManager.Services.FieldWork.FieldVisitService>();
 // Field employees (FieldWork.Day) can open only Start Day / Consent / Logout until today's day is started.
 builder.Services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(o => o.Filters.Add(new FieldDayGateFilter()));
 

@@ -1,0 +1,53 @@
+@model PlantStockManager.Pages.FieldWork.Customers.CustomerFieldsModel
+@using PlantStockManager.Services.FieldWork
+@* The profile fields shared by Add and Edit customer. *@
+
+<div class="row g-2">
+    <div class="col-12 col-md-6">
+        <label class="form-label fw-bold small mb-0" for="fcName">Customer name</label>
+        <input id="fcName" name="Name" value="@Model.Name" class="form-control" maxlength="150" required autocomplete="off" />
+    </div>
+    <div class="col-12 col-md-6">
+        <label class="form-label small mb-0" for="fcContact">Contact person (optional)</label>
+        <input id="fcContact" name="ContactPerson" value="@Model.ContactPerson" class="form-control" maxlength="150" autocomplete="off" />
+    </div>
+    <div class="col-6">
+        <label class="form-label fw-bold small mb-0" for="fcPhone">Phone</label>
+        <input id="fcPhone" name="Phone" value="@Model.Phone" class="form-control" inputmode="tel" maxlength="20" required autocomplete="off" />
+    </div>
+    <div class="col-6">
+        <label class="form-label small mb-0" for="fcAltPhone">Alternate phone</label>
+        <input id="fcAltPhone" name="AlternatePhone" value="@Model.AlternatePhone" class="form-control" inputmode="tel" maxlength="20" autocomplete="off" />
+    </div>
+    <div class="col-12 d-none" id="fcDupWarning" data-check-url="@Model.CheckPhoneUrl">
+        <div class="alert alert-warning py-2 mb-0 small" data-dup-text></div>
+    </div>
+    <div class="col-12 col-md-4">
+        <label class="form-label fw-bold small mb-0" for="fcType">Customer type</label>
+        <select id="fcType" name="CustomerType" class="form-select" required>
+            <option value="">-- Select --</option>
+            @foreach (var t in FieldCustomerRules.CustomerTypes)
+            {
+                <option value="@t.Key" selected="@(Model.CustomerType == t.Key)">@t.Value</option>
+            }
+        </select>
+    </div>
+    <div class="col-6 col-md-4">
+        <label class="form-label fw-bold small mb-0" for="fcVillage">Village / city</label>
+        <input id="fcVillage" name="VillageCity" value="@Model.VillageCity" class="form-control" maxlength="100" required />
+    </div>
+    <div class="col-6 col-md-4">
+        <label class="form-label small mb-0" for="fcDistrict">District</label>
+        <input id="fcDistrict" name="District" value="@Model.District" class="form-control" maxlength="100" list="fcDistricts" autocomplete="off" />
+        <datalist id="fcDistricts">
+            @foreach (var d in Model.DistrictSuggestions)
+            {
+                <option value="@d"></option>
+            }
+        </datalist>
+    </div>
+    <div class="col-12">
+        <label class="form-label small mb-0" for="fcAddress">Address (optional)</label>
+        <textarea id="fcAddress" name="Address" class="form-control" rows="2" maxlength="400">@Model.Address</textarea>
+    </div>
+</div>

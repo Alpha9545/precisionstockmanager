@@ -1,0 +1,73 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Customers.CreateModel
+@using PlantStockManager.Pages.FieldWork.Customers
+@{
+    ViewData["Title"] = "Add Customer";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2">
+        <h4 class="mb-0">Add customer</h4>
+        <a asp-page="/FieldWork/Customers/Index" class="btn btn-sm btn-outline-secondary">Customers</a>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldCustomerSchema.MigrationMessage</div>
+    }
+    else
+    {
+        <div class="alert alert-danger @(Model.Errors.Any() && !Model.Duplicates.Any() ? "" : "d-none")">
+            <ul class="mb-0" id="fpClientErrors">
+                @if (!Model.Duplicates.Any()) { foreach (var e in Model.Errors) { <li>@e</li> } }
+            </ul>
+        </div>
+
+        <form method="post" enctype="multipart/form-data" id="fpForm" novalidate
+              data-max-accuracy="@Model.MaxAccuracyMeters.ToString(System.Globalization.CultureInfo.InvariantCulture)" data-max-photos="1"
+              data-max-bytes="@Model.MaxPhotoBytes"
+              data-gps-required="@(Model.GpsRequired ? "true" : "false")">
+            <input type="hidden" name="SubmitToken" value="@Model.SubmitToken" />
+
+            @if (Model.Duplicates.Any())
+            {
+                <div class="alert alert-warning">
+                    <strong>Possible duplicate.</strong> @Model.Errors.FirstOrDefault()
+                    <div class="small mt-1">The photo is not kept after this check -- take it again if you need one.</div>
+                    <div class="d-flex gap-2 mt-2 flex-wrap">
+                        <button type="submit" name="ConfirmDuplicate" value="true" class="btn btn-warning btn-sm">Save anyway (different customer)</button>
+                        <a asp-page="/FieldWork/Customers/Index" asp-route-Q="@Model.Phone" class="btn btn-outline-secondary btn-sm">Find the existing customer</a>
+                    </div>
+                </div>
+            }
+
+            <div class="fw-step">
+                <partial name="_CustomerFields" model="@(new CustomerFieldsModel(Model.Name, Model.ContactPerson, Model.Phone, Model.AlternatePhone,
+                    Model.CustomerType, Model.VillageCity, Model.District, Model.Address, Model.DistrictSuggestions,
+                    Url.Page("/FieldWork/Customers/Create", "CheckPhone")))" />
+                @if (Model.CanManage)
+                {
+                    <div class="mt-2">
+                        <label class="form-label fw-bold small mb-0" for="fcAssigned">Assign to</label>
+                        <select id="fcAssigned" name="AssignedUserId" class="form-select" required>
+                            <option value="">-- Field employee --</option>
+                            @foreach (var e in Model.Employees)
+                            {
+                                <option value="@e.UserId" selected="@(Model.AssignedUserId == e.UserId)">@e.Name</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+
+            <partial name="_PhotosCapture" model="Model.Capture" />
+
+            <button type="submit" class="btn btn-success w-100 fw-submit mt-2" id="fpSubmit">Save customer</button>
+        </form>
+    }
+</div>
+
+@section Scripts {
+    <script src="~/js/fieldwork-photos.js" asp-append-version="true"></script>
+}

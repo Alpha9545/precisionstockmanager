@@ -1,0 +1,43 @@
+@page
+@model PlantStockManager.Pages.FieldWork.Customers.EditModel
+@using PlantStockManager.Pages.FieldWork.Customers
+@{
+    ViewData["Title"] = "Edit Customer";
+}
+<link rel="stylesheet" href="~/css/fieldwork.css" asp-append-version="true" />
+
+<div class="fw-page">
+    <div class="d-flex justify-content-between align-items-center mt-2 mb-2">
+        <h4 class="mb-0">Edit @Model.CustomerName</h4>
+        <a asp-page="/FieldWork/Customers/Details" asp-route-id="@Model.Id" class="btn btn-sm btn-outline-secondary">Back</a>
+    </div>
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">@PlantStockManager.Data.FieldCustomerSchema.MigrationMessage</div>
+    }
+    else
+    {
+        @if (Model.Errors.Any())
+        {
+            <div class="alert @(Model.HasDuplicates ? "alert-warning" : "alert-danger")">
+                <ul class="mb-0">@foreach (var e in Model.Errors) { <li>@e</li> }</ul>
+            </div>
+        }
+        <form method="post" asp-route-id="@Model.Id">
+            <div class="fw-step">
+                <partial name="_CustomerFields" model="@(new CustomerFieldsModel(Model.Name, Model.ContactPerson, Model.Phone, Model.AlternatePhone,
+                    Model.CustomerType, Model.VillageCity, Model.District, Model.Address, Model.DistrictSuggestions,
+                    Url.Page("/FieldWork/Customers/Edit", "CheckPhone", new { id = Model.Id })))" />
+            </div>
+            @if (Model.HasDuplicates)
+            {
+                <button type="submit" name="ConfirmDuplicate" value="true" class="btn btn-warning w-100 mb-2">Save anyway (different customer)</button>
+            }
+            <button type="submit" class="btn btn-success w-100 fw-submit">Save changes</button>
+        </form>
+    }
+</div>
+
+@section Scripts {
+    <script src="~/js/fieldwork-photos.js" asp-append-version="true"></script>
+}

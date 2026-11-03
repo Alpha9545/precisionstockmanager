@@ -358,6 +358,9 @@
                     <li><a class="link_name" href="#">Field Work</a></li>
                     <li nav-page="/FieldWork/Index"><a asp-page="/FieldWork/Index">My Day</a></li>
                     <li nav-page="/FieldWork/Manage/Days"><a asp-page="/FieldWork/Manage/Days">Field Days</a></li>
+                    <li nav-page="/FieldWork/Customers/Index"><a asp-page="/FieldWork/Customers/Index">Customers</a></li>
+                    <li nav-page="/FieldWork/FollowUps/Index"><a asp-page="/FieldWork/FollowUps/Index">Follow-ups</a></li>
+                    <li nav-page="/FieldWork/Customers/Reassign"><a asp-page="/FieldWork/Customers/Reassign">Reassign Customers</a></li>
                 </ul>
             </li>
 
@@ -577,6 +580,9 @@
             @if (isAuthenticated)
             {
                 <div class="user-area d-flex align-items-center gap-3">
+
+                    @* Field Work: due + overdue follow-ups of a field employee (renders nothing for everyone else) *@
+                    @await Component.InvokeAsync("FieldFollowUpBadge")
 
 
                     <!-- Desktop -->

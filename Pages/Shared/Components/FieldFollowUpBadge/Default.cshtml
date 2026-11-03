@@ -1,0 +1,8 @@
+@model PlantStockManager.Models.FieldFollowUpCounts
+@if (Model.Total > 0)
+{
+    <a asp-page="/FieldWork/FollowUps/Index" class="btn btn-sm @(Model.Overdue > 0 ? "btn-danger" : "btn-warning") position-relative"
+       title="Follow-ups: @Model.DueToday due today, @Model.Overdue overdue" aria-label="Follow-ups: @Model.DueToday due today, @Model.Overdue overdue">
+        Follow-ups <span class="badge bg-light text-dark ms-1">@Model.Total</span>
+    </a>
+}

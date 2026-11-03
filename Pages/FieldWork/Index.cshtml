@@ -56,6 +56,32 @@
             </div>
         }
 
+        @if (Model.FollowUps != null)
+        {
+            <div class="row g-2 mb-2">
+                <div class="col-6">
+                    <a asp-page="/FieldWork/FollowUps/Index" class="text-decoration-none">
+                        <div class="fw-step text-center mb-0 @(Model.FollowUps.DueToday > 0 ? "border-warning border-2" : "")">
+                            <div class="fs-3 fw-bold text-dark">@Model.FollowUps.DueToday</div>
+                            <div class="small text-muted">Today's follow-ups</div>
+                        </div>
+                    </a>
+                </div>
+                <div class="col-6">
+                    <a asp-page="/FieldWork/FollowUps/Index" class="text-decoration-none">
+                        <div class="fw-step text-center mb-0 @(Model.FollowUps.Overdue > 0 ? "border-danger border-2" : "")">
+                            <div class="fs-3 fw-bold @(Model.FollowUps.Overdue > 0 ? "text-danger" : "text-dark")">@Model.FollowUps.Overdue</div>
+                            <div class="small text-muted">Overdue</div>
+                        </div>
+                    </a>
+                </div>
+            </div>
+            <div class="d-flex gap-2 mb-2">
+                <a asp-page="/FieldWork/Customers/Index" class="btn btn-outline-primary fw-btn">My customers</a>
+                <a asp-page="/FieldWork/Customers/Create" class="btn btn-outline-success fw-btn">+ Add customer</a>
+            </div>
+        }
+
         <h6 class="mt-4">My recent days</h6>
         @if (!Model.Recent.Any())
         {
