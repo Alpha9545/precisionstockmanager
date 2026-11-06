@@ -163,17 +163,19 @@
         {
             <div class="fw-step">
                 <div class="fw-step-title">Manager action</div>
+                @* Each button's formaction replaces the form's action, so each one carries the day id itself
+                   (without asp-route-id the POST arrived with id = 0 and answered 404). *@
                 <form method="post" asp-route-id="@d.Id">
                     <textarea name="Comment" class="form-control mb-2" rows="2" maxlength="300" placeholder="Comment (required to flag or reopen)">@Model.Comment</textarea>
                     <div class="d-flex gap-2 flex-wrap">
-                        @if (d.Status != FieldDayRules.StatusOpen)
+                        @if (d.Status != FieldDayRules.StatusOpen && d.ReviewStatus != FieldDayRules.ReviewApproved)
                         {
-                            <button type="submit" asp-page-handler="Approve" class="btn btn-success fw-btn">Approve</button>
+                            <button type="submit" asp-page-handler="Approve" asp-route-id="@d.Id" class="btn btn-success fw-btn">Approve</button>
                         }
-                        <button type="submit" asp-page-handler="Flag" class="btn btn-outline-danger fw-btn">Flag</button>
+                        <button type="submit" asp-page-handler="Flag" asp-route-id="@d.Id" class="btn btn-outline-danger fw-btn">Flag</button>
                         @if (Model.CanReopen)
                         {
-                            <button type="submit" asp-page-handler="Reopen" class="btn btn-outline-primary fw-btn"
+                            <button type="submit" asp-page-handler="Reopen" asp-route-id="@d.Id" class="btn btn-outline-primary fw-btn"
                                     onclick="return confirm('Reopen this day? The end reading is cleared (kept in the history) and the employee must End Day again.');">Reopen day</button>
                         }
                     </div>

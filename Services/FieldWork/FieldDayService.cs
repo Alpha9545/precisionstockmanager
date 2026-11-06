@@ -242,15 +242,14 @@ namespace PlantStockManager.Services.FieldWork
             var precheck = await _repo.GetDayAsync(dayId);
             if (precheck == null)
                 return Result.Fail("Field day not found.");
-            var refusal = FieldDayRules.CheckReview(new FieldDayRules.DayFacts(precheck.UserId, precheck.WorkDate, precheck.Status),
-                action, reviewerId.Value, isFull, comment, today);
+            var refusal = FieldDayRules.CheckReview(Facts(precheck), action, reviewerId.Value, isFull, comment, today);
             if (refusal != null)
                 return Result.Fail(refusal);
             try
             {
+                // checked again on the locked row: a duplicate or concurrent submit sees the first one's result
                 await _repo.ReviewAsync(dayId, reviewerId.Value, action, comment, today,
-                    locked => FieldDayRules.CheckReview(new FieldDayRules.DayFacts(locked.UserId, locked.WorkDate, locked.Status),
-                        action, reviewerId.Value, isFull, comment, today));
+                    locked => FieldDayRules.CheckReview(Facts(locked), action, reviewerId.Value, isFull, comment, today));
                 return Result.Success(dayId);
             }
             catch (Exception ex)
@@ -258,6 +257,9 @@ namespace PlantStockManager.Services.FieldWork
                 return Result.Fail(DbErrorMessage.For(ex));
             }
         }
+
+        private static FieldDayRules.DayFacts Facts(FieldDay d)
+            => new(d.UserId, d.WorkDate, d.Status, d.ReviewStatus, d.ReviewedByUserId, d.ReviewComment);
 
         public Task<int> AutoCloseStaleAsync() => _repo.AutoCloseStaleAsync(AppClock.Today);
     }

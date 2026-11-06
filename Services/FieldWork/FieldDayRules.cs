@@ -150,7 +150,10 @@ namespace PlantStockManager.Services.FieldWork
 
         public enum ReviewAction { Approve, Flag, Reopen }
 
-        public sealed record DayFacts(int OwnerUserId, DateTime WorkDate, string Status);
+        // ReviewStatus / ReviewedByUserId / ReviewComment: the review already on the day (read under the row lock), so a repeated
+        // or concurrent submit of the same action is refused instead of writing a second update and audit event.
+        public sealed record DayFacts(int OwnerUserId, DateTime WorkDate, string Status, string ReviewStatus = ReviewPending,
+            int? ReviewedByUserId = null, string? ReviewComment = null);
 
         // null = allowed, otherwise the reason it is refused. A manager never reviews their own day (an administrator may).
         public static string? CheckReview(DayFacts day, ReviewAction action, int reviewerUserId, bool reviewerIsFullAccess,
@@ -164,9 +167,17 @@ namespace PlantStockManager.Services.FieldWork
             switch (action)
             {
                 case ReviewAction.Approve:
-                    return day.Status == StatusOpen ? "The day is still open; approve it after End Day." : null;
+                    if (day.Status == StatusOpen)
+                        return "The day is still open; approve it after End Day.";
+                    return day.ReviewStatus == ReviewApproved ? "The day is already approved." : null;
                 case ReviewAction.Flag:
-                    return text.Length == 0 ? "Write why the day is flagged." : null;
+                    if (text.Length == 0)
+                        return "Write why the day is flagged.";
+                    // a manager's flag with this same reason is already on the day (double submit); an automatic flag
+                    // (no reviewer) or a different reason may still be flagged
+                    return day.ReviewStatus == ReviewFlagged && day.ReviewedByUserId.HasValue
+                           && string.Equals((day.ReviewComment ?? "").Trim(), text, StringComparison.Ordinal)
+                        ? "The day is already flagged with this reason." : null;
                 case ReviewAction.Reopen:
                     if (day.Status == StatusOpen)
                         return "The day is already open.";

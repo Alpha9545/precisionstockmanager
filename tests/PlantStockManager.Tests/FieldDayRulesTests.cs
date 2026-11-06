@@ -151,6 +151,21 @@ namespace PlantStockManager.Tests
         }
 
         [Fact]
+        public void RepeatedReview_IsRefused_ButAFlaggedDayMayBeApproved_AndAnAutoFlagFlaggedAgain()
+        {
+            // a second Approve (double submit / concurrent manager) is refused
+            Assert.NotNull(CheckReview(new DayFacts(7, Today, StatusClosed, ReviewApproved, 9), ReviewAction.Approve, 8, false, null, Today));
+            Assert.Null(CheckReview(new DayFacts(7, Today, StatusClosed, ReviewFlagged, 9, "Blurred"), ReviewAction.Approve, 8, false, null, Today));
+            // the same manager flag with the same reason is a duplicate; a new reason or an automatic flag is not
+            Assert.NotNull(CheckReview(new DayFacts(7, Today, StatusClosed, ReviewFlagged, 9, "Blurred"), ReviewAction.Flag, 8, false, " Blurred ", Today));
+            Assert.Null(CheckReview(new DayFacts(7, Today, StatusClosed, ReviewFlagged, 9, "Blurred"), ReviewAction.Flag, 8, false, "Wrong km", Today));
+            Assert.Null(CheckReview(new DayFacts(7, Today, StatusClosed, ReviewFlagged, null, null), ReviewAction.Flag, 8, false, "Wrong km", Today));
+            Assert.Null(CheckReview(new DayFacts(7, Today, StatusClosed, ReviewApproved, 9, "Blurred"), ReviewAction.Flag, 8, false, "Blurred", Today));
+            // an approved day of today may still be reopened
+            Assert.Null(CheckReview(new DayFacts(7, Today, StatusClosed, ReviewApproved, 9), ReviewAction.Reopen, 8, false, "x", Today));
+        }
+
+        [Fact]
         public void Reopen_OnlyTodaysClosedDay_WithReason()
         {
             Assert.Null(CheckReview(new DayFacts(7, Today, StatusClosed), ReviewAction.Reopen, 8, false, "Ended by mistake", Today));
