@@ -7,8 +7,34 @@ Loads the owner's per-group "Bed Sowing Ready Date" values into `dbo.PlantSpecie
 |---|---|
 | `01_BedTransplantDays.sql` | **Generated** PREVIEW / COMMIT script. It is name-based, so the same file runs on local and on live. Do not edit it by hand. |
 | `workbook_check.csv` | Generated check report: every variety row with its group, days and status, then every issue found. |
+| `01_BedTransplantDays_Live.sql` | Standalone copy of `01_BedTransplantDays.sql` for live (same rows, match and plan), with the full `TARGET_*` guards. |
 
-Requires `Database/Migrations/2026-11-07_BedTransplantDays.sql`. The script refuses to run without it.
+Requires `Database/Migrations/2026-11-07_BedTransplantDays.sql`. Both scripts refuse to run without it.
+
+## Live (`01_BedTransplantDays_Live.sql`)
+
+- **Guards:** `MODE` = `PREVIEW` / `COMMIT`. `TARGET_SERVER`, `TARGET_MACHINE`, `TARGET_DB` and `TARGET_DB_CREATED` must match the server.
+  It refuses if `dbo.PlantSpecies.BedTransplantDays` or its CHECK is missing.
+- **Both modes** run the locked update and its verification. PREVIEW then rolls back. Each run prints:
+  - the counts for SET / CHANGE / SAME / NOT IN DATABASE / INACTIVE ONLY / ERROR, zeros included;
+  - the skipped names.
+- **Errors:** any ERROR row stops the run and nothing is written.
+- **Run on live** (Linux, bash). First the identity query (CLAUDE.md C) and a COPY_ONLY backup:
+  ```bash
+  sqlcmd -S <server> -d PlantsIMS2_Test -U <login> -C -I -b -W -s"|" \
+    -v MODE=PREVIEW TARGET_SERVER=srv1202245 TARGET_MACHINE=srv1202245 \
+       TARGET_DB=PlantsIMS2_Test TARGET_DB_CREATED=2026-10-14T23:41:07 \
+    -i 01_BedTransplantDays_Live.sql > preview.txt
+  ```
+  Then run the same command with `MODE=COMMIT`, only with the owner's approval.
+- **If the workbook changes:** regenerate `01_BedTransplantDays.sql`, then rebuild this file from it.
+  Its header records the SHA-256 of the `01_BedTransplantDays.sql` it was made from.
+- **Tested 2026-11-09 on local PlantsIMS2_Test:**
+  - PREVIEW: 297 SAME, 58 NOT IN DATABASE, 0 ERROR, rolled back.
+  - The live `TARGET_*` values were refused there (54603 / 54607 / 54609), and so was a lower-case MODE (54602).
+- **Live status (per the owner, 2026-11-09):** the migration is applied (778 varieties, 0 with days) and the code is deployed.
+  This data script has **not been run on live** yet.
+  - The skip count on live may differ from 58: live's variety list is not the same as local's.
 
 ## Source workbook
 
