@@ -64,6 +64,15 @@ namespace PlantStockManager.Pages.Admin
         [BindProperty]
         public int? EditSpeciesReadyStockDays { get; set; }
 
+        // 2026-11-07 Bed Sowing Alerts: days from bed sowing until the bed is due for transplanting
+        // (dbo.PlantSpecies.BedTransplantDays, 2026-11-07_BedTransplantDays.sql). The field is on the form only when the
+        // migration is applied; EditSpeciesBedTransplantDaysShown says it was, so a form without it never clears the value.
+        [BindProperty]
+        public int? EditSpeciesBedTransplantDays { get; set; }
+        [BindProperty]
+        public bool EditSpeciesBedTransplantDaysShown { get; set; }
+        public bool BedTransplantScheduleReady { get; set; }
+
         public async Task OnGetAsync()
         {
             await LoadDataAsync();
@@ -71,6 +80,7 @@ namespace PlantStockManager.Pages.Admin
 
         private async Task LoadDataAsync()
         {
+            BedTransplantScheduleReady = await _plantSpeciesRepo.BedTransplantScheduleReadyAsync();
             var plantTypes = await _plantTypeRepo.GetAllPlantTypes();
             PlantTypeSpeciesList.Clear();
             InactiveCount = 0;
@@ -150,6 +160,11 @@ namespace PlantStockManager.Pages.Admin
                     TempData["Error"] = "Ready Stock Days must be greater than zero when provided.";
                     return RedirectToPage();
                 }
+                if (EditSpeciesBedTransplantDaysShown && PlantStockManager.Services.BedTransplantAlertRules.ValidateDays(EditSpeciesBedTransplantDays) is { Ok: false } bedDays)
+                {
+                    TempData["Error"] = bedDays.Error;
+                    return RedirectToPage();
+                }
                 // Note (Phase J's own "historical date" requirement):
                 // changing this value here only ever affects FUTURE
                 // Sowings. SeedSowingRepository.InsertAsync copies the
@@ -169,7 +184,8 @@ namespace PlantStockManager.Pages.Admin
                     TempData["Error"] = $"Variety not saved: names starting with \"{PlantStockManager.Services.PlantSpeciesNameRules.MergedPrefix}\" are reserved for merged duplicates.";
                     return RedirectToPage();
                 }
-                var clash = await _plantSpeciesRepo.UpdatePlantSpecies(EditSpeciesId, EditSpeciesName, EditSpeciesScientificName, EditSpeciesReadyStockDays, EditSpeciesColor);
+                var clash = await _plantSpeciesRepo.UpdatePlantSpecies(EditSpeciesId, EditSpeciesName, EditSpeciesScientificName, EditSpeciesReadyStockDays, EditSpeciesColor,
+                    setBedTransplantDays: EditSpeciesBedTransplantDaysShown, bedTransplantDays: EditSpeciesBedTransplantDays);
                 if (clash is { } c)
                 {
                     TempData["Error"] = $"Variety not saved: another variety is already named '{c.Name}' (Id {c.Id}{(c.PlantTypeName == null ? "" : ", " + c.PlantTypeName.Trim())}). "

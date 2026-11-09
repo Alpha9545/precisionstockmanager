@@ -242,6 +242,11 @@ namespace PlantStockManager.Models
 
         public ProductionSummary Production { get; set; } = new();
         public ReadyStockSummary ReadyStock { get; set; } = new();
+        // 2026-11-07: Bed Sowing Alerts (open beds due for transplanting) -- the SAME groups the Bed Sowing Alerts page
+        // lists (BedTransplantAlertRules.Group), narrowed by this section's Area / Variety filters. Separate from ReadyStock's
+        // Overdue / Ready Today / Ready Soon (tray batches), which are unchanged. Ready = migration applied.
+        public bool BedTransplantAlertsReady { get; set; }
+        public BedTransplantAlertGroups BedTransplantAlerts { get; set; } = new();
         public List<GrowingPartnerSummaryRow> GrowingPartners { get; set; } = new();
         public OutletSalesSummary OutletSales { get; set; } = new();
         public SeedSummary Seed { get; set; } = new();

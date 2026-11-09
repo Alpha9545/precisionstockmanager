@@ -99,6 +99,8 @@ namespace PlantStockManager.Authorization
                 // 2026-10-22: edit an untouched bed (same permission as Create / Cancel; Area checked in the page and repository)
                 ["/Production/BedSowing/Edit"] = R("Sowing.Enter"),
                 ["/Production/BedSowing/Transplant"] = R(Services.BedSowingRules.TransplantPermission),
+                // 2026-11-07: Bed Sowing Alerts (read-only; beds of the user's Areas only) -- the same viewers as Bed Sowing.
+                ["/Production/BedSowing/Alerts"] = R("Sowing.View|" + Services.BedSowingRules.TransplantPermission),
                 ["/Production/ReadyAlerts/Index"] = R("ReadyStock.View|Sowing.View"),
                 ["/Production/ReadyConfirmation/Index"] = R("ReadyStock.View"),
                 ["/Production/ReadyConfirmation/History"] = R("ReadyStock.View", "ReadyStock.Confirm"),

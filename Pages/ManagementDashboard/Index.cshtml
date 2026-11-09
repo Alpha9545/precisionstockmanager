@@ -570,6 +570,7 @@
                 </ul>
                 <a asp-page="/Production/SeedSowing/Index" class="btn btn-sm btn-outline-primary">Sowing &rarr;</a>
                 <a asp-page="/Production/ReadyAlerts/Index" class="btn btn-sm btn-outline-primary">Ready alerts &rarr;</a>
+                <a asp-page="/Production/BedSowing/Alerts" class="btn btn-sm btn-outline-primary">Bed sowing alerts &rarr;</a>
                 <a asp-page="/Production/PotBatch/Index" class="btn btn-sm btn-outline-secondary">Pot batches &rarr;</a>
                 <a href="#production-detail" class="btn btn-sm btn-outline-secondary">Production detail &darr;</a>
             </div></div>
@@ -855,6 +856,43 @@
         <a asp-page="/Production/ReadyAlerts/Index" class="btn btn-sm btn-outline-danger">Open Ready Alerts &rarr;</a>
         <a asp-page="/Production/ReadyConfirmation/Index" class="btn btn-sm btn-outline-success">Open Ready Confirmation &rarr;</a>
     </div>
+
+    <!-- 2026-11-07: Bed Sowing Alerts -- open beds due for transplanting (bed Sowing Date + Bed Transplant Days). Counted from
+         the same groups the Bed Sowing Alerts page lists; separate from the tray-batch alerts above. -->
+    <h5 id="bed-sowing-alerts">Bed Sowing Alerts <span class="text-muted small">(beds due for transplanting)</span></h5>
+    @if (!Model.Dashboard.BedTransplantAlertsReady)
+    {
+        <div class="text-muted small mb-4">Not set up in this database yet (migration 2026-11-07_BedTransplantDays.sql).</div>
+    }
+    else
+    {
+        var bed = Model.Dashboard.BedTransplantAlerts;
+        <div class="row g-3 mb-3">
+            <div class="col-6 col-md-2"><div class="card h-100 border-danger"><div class="card-body">
+                <div class="text-danger small">Overdue</div>
+                <div class="fs-5" data-bed-alert="overdue">@bed.Overdue.Count <span class="text-muted small">beds</span></div>
+                <div class="text-muted small">@Qty(bed.OverdueQuantity) in beds</div>
+            </div></div></div>
+            <div class="col-6 col-md-2"><div class="card h-100 border-warning"><div class="card-body">
+                <div class="text-warning-emphasis small">Due Today</div>
+                <div class="fs-5" data-bed-alert="today">@bed.DueToday.Count <span class="text-muted small">beds</span></div>
+                <div class="text-muted small">@Qty(bed.DueTodayQuantity) in beds</div>
+            </div></div></div>
+            <div class="col-6 col-md-2"><div class="card h-100 border-success"><div class="card-body">
+                <div class="text-success small">Due Soon</div>
+                <div class="fs-5" data-bed-alert="soon">@bed.DueSoon.Count <span class="text-muted small">beds</span></div>
+                <div class="text-muted small">@Qty(bed.DueSoonQuantity) in beds</div>
+            </div></div></div>
+            <div class="col-6 col-md-2"><div class="card h-100"><div class="card-body">
+                <div class="text-muted small">No schedule</div>
+                <div class="fs-5" data-bed-alert="noschedule">@bed.NoSchedule.Count <span class="text-muted small">beds</span></div>
+                <div class="text-muted small">variety has no Bed Transplant Days</div>
+            </div></div></div>
+        </div>
+        <div class="mb-4">
+            <a asp-page="/Production/BedSowing/Alerts" class="btn btn-sm btn-outline-danger">Open Bed Sowing Alerts &rarr;</a>
+        </div>
+    }
 
     <!-- Section D: Outlet / Sales Summary -->
     <h5>Outlet / Sales Summary</h5>

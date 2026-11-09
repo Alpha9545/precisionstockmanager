@@ -1,0 +1,113 @@
+@page
+@model PlantStockManager.Pages.Production.BedSowing.AlertsModel
+@{
+    ViewData["Title"] = "Bed Sowing Alerts";
+    var sections = new[]
+    {
+        (Key: "overdue",    Title: "Overdue",               Css: "danger",    Rows: Model.Alerts.Overdue,    Quantity: Model.Alerts.OverdueQuantity,    Empty: "No overdue beds."),
+        (Key: "today",      Title: "Due Today",             Css: "warning",   Rows: Model.Alerts.DueToday,   Quantity: Model.Alerts.DueTodayQuantity,   Empty: "No beds due today."),
+        (Key: "soon",       Title: $"Due Soon — within {Model.WindowDays} day(s)", Css: "info", Rows: Model.Alerts.DueSoon, Quantity: Model.Alerts.DueSoonQuantity, Empty: "No beds due soon."),
+        (Key: "noschedule", Title: "No transplant schedule", Css: "secondary", Rows: Model.Alerts.NoSchedule, Quantity: Model.Alerts.NoScheduleQuantity, Empty: "Every open bed has a schedule."),
+    };
+}
+
+<div class="container-fluid mt-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+        <h2 class="mb-0">Bed Sowing Alerts</h2>
+        <div class="d-flex flex-wrap gap-2">
+            <a asp-page="/Production/BedSowing/Index" class="btn btn-outline-secondary">Back to Bed Sowing</a>
+            <a asp-page="/Production/ReadyAlerts/Index" class="btn btn-outline-secondary">Ready Alerts (tray batches)</a>
+        </div>
+    </div>
+
+    @if (!Model.SchemaReady)
+    {
+        <div class="alert alert-warning">
+            Bed Sowing Alerts are not set up in this database yet (migrations 2026-10-12_BedSowing.sql and
+            2026-11-07_BedTransplantDays.sql). No transplant date is assumed without them.
+        </div>
+    }
+    else
+    {
+        <div class="alert alert-info">
+            Beds still waiting for transplanting, by their <strong>Transplant Due Date = bed Sowing Date + the variety's Bed
+            Transplant Days</strong> (Administration &gt; Plant Types/Varieties). Informational only: viewing this page never
+            changes a bed. Tray batches made by transplanting are on Ready Alerts.
+            <form method="get" class="d-inline">
+                &nbsp;"Due Soon" window:
+                <input type="number" name="WindowDays" value="@Model.WindowDays" min="1" max="90" class="form-control form-control-sm d-inline-block" style="width: 70px;" />
+                days &mdash; <button type="submit" class="btn btn-sm btn-outline-primary">Apply</button>
+            </form>
+        </div>
+
+        @foreach (var s in sections)
+        {
+            <h5 id="@s.Key" class="text-@s.Css">
+                @s.Title (@s.Rows.Count) <small class="text-muted">&middot; @Qty(s.Quantity) seedlings in the beds</small>
+            </h5>
+            @if (s.Key == "noschedule" && s.Rows.Any())
+            {
+                <div class="small text-muted mb-1">These varieties have no Bed Transplant Days, so no due date is calculated. Set them in Plant Types/Varieties.</div>
+            }
+            <div class="table-responsive mb-4">
+                <table class="table table-sm table-striped table-hover">
+                    <thead class="table-@s.Css">
+                        <tr>
+                            <th>Bed</th>
+                            <th>Variety</th>
+                            <th>Area</th>
+                            <th>Polyhouse</th>
+                            <th>Status</th>
+                            <th class="text-end">In bed</th>
+                            <th>Sowing Date</th>
+                            <th>Transplant Days</th>
+                            <th>Transplant Due</th>
+                            <th>@(s.Key == "overdue" ? "Days Overdue" : s.Key == "soon" ? "Days Remaining" : "")</th>
+                            <th>Lot</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in s.Rows)
+                        {
+                            var days = Model.DaysFromToday(a);
+                            <tr>
+                                <td>@a.BedSowingCode</td>
+                                <td>@a.SpeciesName <span class="text-muted">(@a.PlantTypeName)</span></td>
+                                <td>@a.AreaName</td>
+                                <td>@a.PolyhouseName</td>
+                                <td>@a.StatusLabel</td>
+                                <td class="text-end">@Qty(a.RemainingQuantity)</td>
+                                <td>@a.SowingDate.ToString("dd/MM/yyyy")</td>
+                                <td>@(a.BedTransplantDays?.ToString() ?? "-")</td>
+                                <td>@(a.DueDate?.ToString("dd/MM/yyyy") ?? "-")</td>
+                                <td>
+                                    @if (s.Key == "overdue")
+                                    {
+                                        <span class="badge bg-danger">@(-days) day(s)</span>
+                                    }
+                                    else if (s.Key == "soon")
+                                    {
+                                        <span class="badge bg-info text-dark">@days day(s)</span>
+                                    }
+                                </td>
+                                <td>@(string.IsNullOrEmpty(a.SeedLotNo) ? "-" : a.SeedLotNo)</td>
+                                <td class="text-nowrap">
+                                    <a asp-page="/Production/BedSowing/Details" asp-route-id="@a.BedSowingId" class="btn btn-sm btn-outline-secondary">Details</a>
+                                    @if (Model.CanTransplant(a))
+                                    {
+                                        <a asp-page="/Production/BedSowing/Transplant" asp-route-bedId="@a.BedSowingId" class="btn btn-sm btn-outline-primary">Transplant</a>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        @if (!s.Rows.Any())
+                        {
+                            <tr><td colspan="12" class="text-center text-muted">@s.Empty</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    }
+</div>

@@ -41,6 +41,7 @@ namespace PlantStockManager.Pages.ManagementDashboard
         private readonly SuggestionRepository _suggestionRepo;
         private readonly PotBatchRepository _potBatchRepo;
         private readonly TransplantRepository _transplantRepo;
+        private readonly BedTransplantScheduleRepository _bedScheduleRepo;
 
         public IndexModel(
             ManagementDashboardRepository dashboardRepo,
@@ -54,7 +55,8 @@ namespace PlantStockManager.Pages.ManagementDashboard
             LabourOvertimeRepository overtimeRepo,
             SuggestionRepository suggestionRepo,
             PotBatchRepository potBatchRepo,
-            TransplantRepository transplantRepo)
+            TransplantRepository transplantRepo,
+            BedTransplantScheduleRepository bedScheduleRepo)
         {
             _dashboardRepo = dashboardRepo;
             _areaRepo = areaRepo;
@@ -68,6 +70,7 @@ namespace PlantStockManager.Pages.ManagementDashboard
             _suggestionRepo = suggestionRepo;
             _potBatchRepo = potBatchRepo;
             _transplantRepo = transplantRepo;
+            _bedScheduleRepo = bedScheduleRepo;
         }
 
         public const int TopVarieties = 3;
@@ -140,6 +143,16 @@ namespace PlantStockManager.Pages.ManagementDashboard
             var sowingVsReadyTrend = await _dashboardRepo.GetSowingVsReadyTrendAsync(filters);
             var outletDispatchTrend = await _dashboardRepo.GetOutletDispatchTrendAsync(filters);
 
+            // 2026-11-07 Bed Sowing Alerts: the Bed Sowing Alerts page's own query and grouping, same default window as
+            // Ready Alerts, narrowed by this section's Area / Variety filters (this page is administrator-only: no Area scope).
+            var bedAlertsReady = await _bedScheduleRepo.SchemaReadyAsync();
+            var bedAlerts = bedAlertsReady
+                ? BedTransplantAlertRules.Group(
+                    await _bedScheduleRepo.GetAlertCandidatesAsync(AreaId.HasValue ? new[] { AreaId.Value } : null,
+                        today.AddDays(SeedSowingRepository.DefaultReadySoonWindowDays), SpeciesId),
+                    today, SeedSowingRepository.DefaultReadySoonWindowDays)
+                : new BedTransplantAlertGroups();
+
             var areas = await _areaRepo.GetAllAreas();
             var speciesOptions = await _plantSpeciesRepo.GetAllAsync();
             var emptyPots = await _emptyPotInventoryRepo.GetAllAsync(activeOnly: true);
@@ -149,6 +162,8 @@ namespace PlantStockManager.Pages.ManagementDashboard
                 Filters = filters,
                 Production = production,
                 ReadyStock = readyStock,
+                BedTransplantAlertsReady = bedAlertsReady,
+                BedTransplantAlerts = bedAlerts,
                 OutletSales = outletSales,
                 Seed = seed,
                 Cutting = cutting,

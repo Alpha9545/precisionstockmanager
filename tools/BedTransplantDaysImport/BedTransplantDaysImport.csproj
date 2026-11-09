@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 2026-11-07 Bed Sowing Alerts: reads the owner's BedSowing_ReadyDate.xlsx and GENERATES the reviewed data-entry script
+       Database/DataEntry/2026-11-07_BedTransplantDays/01_BedTransplantDays.sql plus a check report (CSV). It never connects
+       to a database. Not part of the web application (tools/** is excluded in PlantStockManager.csproj). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <ProjectReference Include="..\..\PlantStockManager.csproj" />
+  </ItemGroup>
+</Project>

@@ -117,6 +117,7 @@
                     <li nav-page="/Production/CuttingStock/PendingConfirmations"><a asp-page="/Production/CuttingStock/PendingConfirmations">Confirm Cutting Receipt</a></li>
                     <li nav-page="/Production/ReadyConfirmation/Index"><a asp-page="/Production/ReadyConfirmation/Index">Sowing Approvals</a></li>
                     <li nav-page="/Production/ReadyAlerts/Index"><a asp-page="/Production/ReadyAlerts/Index">Ready Alerts</a></li>
+                    <li nav-page="/Production/BedSowing/Alerts"><a asp-page="/Production/BedSowing/Alerts">Bed Sowing Alerts</a></li>
                     <li nav-page="/Production/ReadyStock/Index"><a asp-page="/Production/ReadyStock/Index">Ready Seedling Stock</a></li>
                     @if (PlantStockManager.Authorization.ClaimsPrincipalSecurityExtensions.HasPermission(User, "ReadyStock.TransferToMotherPlant"))
                     {

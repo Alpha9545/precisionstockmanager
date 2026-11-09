@@ -27,6 +27,11 @@
         // Inactive varieties are never offered for new entries; history keeps showing their name.
         public bool IsActive { get; set; } = true;
 
+        // 2026-11-07 (2026-11-07_BedTransplantDays.sql): days from BED sowing until the bed is due for transplanting
+        // (Bed Sowing Alerts: Due Date = bed Sowing Date + these days). Null = no schedule, or the migration is not applied.
+        // Read live by the alerts (never snapshotted on a bed), so a change applies to open beds at once.
+        public int? BedTransplantDays { get; set; }
+
         // Navigation Property (Not stored in DB, used for reference)
         public PlantType? PlantType { get; set; }
     }

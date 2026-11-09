@@ -152,6 +152,7 @@ builder.Services.AddScoped<SeedStockRepository>();
 // Database/Phase23_SeedSowing.sql for the full reasoning.
 builder.Services.AddScoped<SeedSowingRepository>();
 builder.Services.AddScoped<BedSowingRepository>();
+builder.Services.AddScoped<BedTransplantScheduleRepository>();   // 2026-11-07: Bed Sowing Alerts (read-only)
 builder.Services.AddScoped<PlantStockManager.Authorization.BedSowingRoleGuard>();   // Bed Sowing Transplanter stays one person             // 2026-10-12: Bed Sowing -> bed transplanting
 builder.Services.AddScoped<ReadyStockRepository>(); // Phase 25 (Phase K)
 builder.Services.AddScoped<MotherPlantTransferRepository>(); // 2026-10-09: Main Area Ready Stock -> Mother Plant Area

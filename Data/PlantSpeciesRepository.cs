@@ -14,6 +14,14 @@ namespace PlantStockManager.Data
             _dbHelper = dbHelper;
         }
 
+        // 2026-11-07: is 2026-11-07_BedTransplantDays.sql applied (Plant Master shows Bed Transplant Days only then)?
+        public async Task<bool> BedTransplantScheduleReadyAsync()
+        {
+            using var conn = _dbHelper.GetConnection();
+            await conn.OpenAsync();
+            return await BedTransplantScheduleSchema.ReadyAsync(conn);
+        }
+
         // Needed by Production/MotherPlant/Edit to pre-select the Plant Type
         // dropdown for an existing batch, since MotherPlants only stores
         // SpeciesId (the cascading Plant Type -> Species pattern used
@@ -89,6 +97,9 @@ namespace PlantStockManager.Data
                     var readyStockDaysOrdinal = reader.GetOrdinal("ReadyStockDays");
                     var colorOrdinal = reader.GetOrdinal("Color");
                     var isActiveOrdinal = reader.GetOrdinal("IsActive");
+                    // 2026-11-07: BedTransplantDays exists only after 2026-11-07_BedTransplantDays.sql (-1 = not there).
+                    var bedTransplantDaysOrdinal = Enumerable.Range(0, reader.FieldCount)
+                        .FirstOrDefault(i => reader.GetName(i) == "BedTransplantDays", -1);
                     while (await reader.ReadAsync())
                     {
                         speciesList.Add(new PlantSpecies
@@ -99,7 +110,8 @@ namespace PlantStockManager.Data
                             ScientificName = reader.IsDBNull(3) ? null : reader.GetString(3),
                             ReadyStockDays = reader.IsDBNull(readyStockDaysOrdinal) ? (int?)null : reader.GetInt32(readyStockDaysOrdinal),
                             Color = reader.IsDBNull(colorOrdinal) ? null : reader.GetString(colorOrdinal),
-                            IsActive = reader.GetBoolean(isActiveOrdinal)
+                            IsActive = reader.GetBoolean(isActiveOrdinal),
+                            BedTransplantDays = bedTransplantDaysOrdinal < 0 || reader.IsDBNull(bedTransplantDaysOrdinal) ? null : reader.GetInt32(bedTransplantDaysOrdinal)
                         });
                     }
                 }
@@ -188,7 +200,10 @@ namespace PlantStockManager.Data
         // allowed, so a variety that already shares its name with an older duplicate (e.g. the chrysanthemum copies
         // with a trailing line break) can still have its other fields edited. Returns null when saved, else the clash.
         // 2026-10-15: only ACTIVE other varieties clash, and the name is saved trimmed.
-        public async Task<(int Id, string Name, string? PlantTypeName)?> UpdatePlantSpecies(int id, string name, string scientificName, int? readyStockDays = null, string? color = null)
+        // 2026-11-07: setBedTransplantDays = also save Bed Transplant Days (Bed Sowing Alerts) in the SAME transaction -- only
+        // when 2026-11-07_BedTransplantDays.sql is applied (otherwise the value is ignored and the field is not shown).
+        public async Task<(int Id, string Name, string? PlantTypeName)?> UpdatePlantSpecies(int id, string name, string scientificName, int? readyStockDays = null, string? color = null,
+            bool setBedTransplantDays = false, int? bedTransplantDays = null)
         {
             using (var conn = _dbHelper.GetConnection())
             {
@@ -212,7 +227,11 @@ namespace PlantStockManager.Data
                 // Not renamed while an older active twin still shares the name (a legacy pair the cleanup has not merged):
                 // keep the stored name byte-for-byte -- trimming it would collide with the twin (UX_PlantSpecies_Name_Active).
                 var keepStored = !renamed && all.Any(s => s.Id != id && PlantStockManager.Services.PlantSpeciesNameRules.Key(s.Name) == key);
-                var cmd = new SqlCommand("UPDATE PlantSpecies SET Name = @Name, ScientificName = @ScientificName, ReadyStockDays = @ReadyStockDays, Color = @Color WHERE Id = @Id", conn, tx);
+                var withBedDays = setBedTransplantDays && await BedTransplantScheduleSchema.ReadyAsync(conn, tx);
+                var cmd = new SqlCommand("UPDATE PlantSpecies SET Name = @Name, ScientificName = @ScientificName, ReadyStockDays = @ReadyStockDays, Color = @Color"
+                    + (withBedDays ? ", BedTransplantDays = @BedTransplantDays" : "") + " WHERE Id = @Id", conn, tx);
+                if (withBedDays)
+                    cmd.Parameters.Add("@BedTransplantDays", System.Data.SqlDbType.Int).Value = (object?)bedTransplantDays ?? DBNull.Value;
                 cmd.Parameters.AddWithValue("@Name", keepStored ? current.Name! : name.Trim());
                 cmd.Parameters.AddWithValue("@ScientificName", string.IsNullOrWhiteSpace(scientificName) ? (object)DBNull.Value : scientificName);
                 cmd.Parameters.AddWithValue("@ReadyStockDays", readyStockDays.HasValue ? (object)readyStockDays.Value : DBNull.Value);

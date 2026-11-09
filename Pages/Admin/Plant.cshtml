@@ -128,6 +128,10 @@
                                         <th>Colour</th>
                                         <th>Scientific Name</th>
                                         <th>Growing Days</th>
+                                        @if (Model.BedTransplantScheduleReady)
+                                        {
+                                            <th title="Days from bed sowing until the bed is due for transplanting (Bed Sowing Alerts)">Bed Transplant Days</th>
+                                        }
                                         <th>Action</th>
                                     </tr>
                                 </thead>
@@ -140,6 +144,10 @@
                                             <td>@(species.Color ?? "-")</td>
                                             <td>@species.ScientificName</td>
                                             <td>@(species.ReadyStockDays?.ToString() ?? "-")</td>
+                                            @if (Model.BedTransplantScheduleReady)
+                                            {
+                                                <td>@(species.BedTransplantDays?.ToString() ?? "-")</td>
+                                            }
                                             @* <td>
                                                 <button class="btn btn-warning btn-sm" onclick="openEditSpeciesModal('@species.Id', '@species.Name', '@species.ScientificName')">
                                                     Edit
@@ -160,6 +168,7 @@
                                                 <button type="button" class="btn btn-warning btn-sm"
                                                         data-id="@species.Id" data-name="@species.Name.Trim()" data-scientific="@species.ScientificName"
                                                         data-days="@(species.ReadyStockDays?.ToString() ?? "")" data-color="@species.Color"
+                                                        data-bed-days="@(species.BedTransplantDays?.ToString() ?? "")"
                                                         onclick="openEditSpeciesModal(this)">
                                                     Edit
                                                 </button>
@@ -258,6 +267,15 @@
                         <input type="number" min="1" asp-for="EditSpeciesReadyStockDays" class="form-control" id="editSpeciesReadyStockDays" placeholder="e.g. 25 (optional)" />
                         <div class="form-text">Days from Sowing to expected readiness. Used to auto-compute Expected Ready Date on new Sowings only -- changing this never rewrites an existing Sowing's dates.</div>
                     </div>
+                    @if (Model.BedTransplantScheduleReady)
+                    {
+                        <div class="mb-3">
+                            <input type="hidden" name="EditSpeciesBedTransplantDaysShown" value="true" />
+                            <label class="form-label">Bed Transplant Days</label>
+                            <input type="number" min="1" max="365" asp-for="EditSpeciesBedTransplantDays" class="form-control" id="editSpeciesBedTransplantDays" placeholder="e.g. 25 (optional)" />
+                            <div class="form-text">Days from BED sowing until the bed is due for transplanting (Bed Sowing Alerts). Applies at once to beds still waiting; empty = no transplant schedule.</div>
+                        </div>
+                    }
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -286,6 +304,8 @@
         document.getElementById("editSpeciesScientificName").value = btn.dataset.scientific || "";
         document.getElementById("editSpeciesReadyStockDays").value = btn.dataset.days || "";
         document.getElementById("editSpeciesColor").value = btn.dataset.color || "";
+        var bedDays = document.getElementById("editSpeciesBedTransplantDays");
+        if (bedDays) bedDays.value = btn.dataset.bedDays || "";
         var modal = new bootstrap.Modal(document.getElementById('editSpeciesModal'));
         modal.show();
     }
