@@ -7,6 +7,7 @@ Loads the owner's per-group "Bed Sowing Ready Date" values into `dbo.PlantSpecie
 |---|---|
 | `01_BedTransplantDays.sql` | **Generated** PREVIEW / COMMIT script. It is name-based, so the same file runs on local and on live. Do not edit it by hand. |
 | `workbook_check.csv` | Generated check report: every variety row with its group, days and status, then every issue found. |
+| `02_BedTransplantDaysByGroup.sql` | **By group (owner rule 2026-11-09):** a variety gets its group's days when the FIRST WORD of its name is the group ("Begonia Big Deluxe Rose Bronze Leaf" → Begonia → 45). Only empty values are filled; existing values are never overwritten. Full `TARGET_*` guards; PREVIEW rolls back. Runs on local and live. |
 | `01_BedTransplantDays_Live.sql` | Standalone copy of `01_BedTransplantDays.sql` for live (same rows, match and plan), with the full `TARGET_*` guards. |
 
 Requires `Database/Migrations/2026-11-07_BedTransplantDays.sql`. Both scripts refuse to run without it.
@@ -35,6 +36,32 @@ Requires `Database/Migrations/2026-11-07_BedTransplantDays.sql`. Both scripts re
 - **Live status (per the owner, 2026-11-09):** the migration is applied (778 varieties, 0 with days) and the code is deployed.
   This data script has **not been run on live** yet.
   - The skip count on live may differ from 58: live's variety list is not the same as local's.
+
+## By group (`02_BedTransplantDaysByGroup.sql`, 2026-11-09)
+
+- **Why:** the exact-name list (01) skipped many varieties whose names differ from the workbook.
+- **List:** the owner sent the 32 group values again, the same as Sheet1. The rule: a variety's group is the first word of
+  its name.
+- **Per variety, one of:**
+  - SET: empty, so it gets the group's days;
+  - SAME: already has the group's days;
+  - DIFFERENT - kept: has other days, never overwritten;
+  - NO GROUP: the first word is not in the list (Zinnia, Marigold, Lantana, DUP-…), so it stays empty.
+- **Local PlantsIMS2_Test, 2026-11-09 12:50:27 IST** (owner-asked).
+  - Backups: `PlantsIMS2_Test_PreBedDaysByGroup_20261109_125009.bak` and `…_PostBedDaysByGroup_20261109_125028.bak`, both verified.
+  - Result: 69 SET, 297 SAME, 0 DIFFERENT, 282 NO GROUP. Now 366 of 648 varieties have days.
+  - 6 of the 43 open beds still have no schedule: Dahlia, Gomphrena, Marigold, Melampodium, Stock and Zinnia are not in the list.
+  - A re-run is all SAME. The live `TARGET_*` values are refused on local (54703).
+- **Live:** the same file. Run PREVIEW, then COMMIT with:
+  ```bash
+  sqlcmd -S <server> -d PlantsIMS2_Test -U <login> -C -I -b -W -s"|" \
+    -v MODE=PREVIEW TARGET_SERVER=srv1202245 TARGET_MACHINE=srv1202245 \
+       TARGET_DB=PlantsIMS2_Test TARGET_DB_CREATED=2026-10-14T23:41:07 \
+    -i 02_BedTransplantDaysByGroup.sql > preview_bygroup.txt
+  ```
+  - Order with 01 does not matter: both only fill empty values or agree. Running 02 alone covers every variety that 01
+    would set, because every workbook value is its group's value.
+  - **Not run on live.**
 
 ## Source workbook
 
