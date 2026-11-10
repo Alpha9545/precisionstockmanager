@@ -11,7 +11,10 @@ namespace PlantStockManager.Services
 
         public static DateTime Now => ToIndiaTime(DateTime.UtcNow);
 
-        public static DateTime Today => Now.Date;
+        public static DateTime Today => IndiaDateOf(DateTime.UtcNow);
+
+        // The India business date of a UTC instant: 18:29:59 UTC is still that day, 18:30:00 UTC is the next one.
+        public static DateTime IndiaDateOf(DateTime utc) => ToIndiaTime(utc).Date;
 
         // A UTC timestamp (database DATETIME2 written with SYSUTCDATETIME()) as India time.
         public static DateTime ToIndiaTime(DateTime utc)

@@ -55,6 +55,10 @@
                     </ul>
                 </div>
             }
+            @if (Model.DateNotice != null)
+            {
+                <div class="alert alert-warning" id="attendanceDateNotice">@Model.DateNotice</div>
+            }
             @if (!Model.Areas.Any())
             {
                 <div class="alert alert-warning">You are not assigned to any Area. Ask an administrator to assign your Area.</div>
@@ -64,7 +68,17 @@
             <form method="get" id="locationForm" class="row g-3 mb-3">
                 <div class="col-12 col-sm-4">
                     <label class="form-label fw-bold" for="labourDate">Date</label>
-                    <input type="date" name="labourDate" id="labourDate" value="@Model.LabourDate?.ToString("yyyy-MM-dd")" max="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" required />
+                    @if (Model.CanUseAnyDate)
+                    {
+                        @* System Administrator: any date -- past, today or future *@
+                        <input type="date" name="labourDate" id="labourDate" value="@Model.LabourDate?.ToString("yyyy-MM-dd")" class="form-control" required />
+                    }
+                    else
+                    {
+                        @* Today only (India date); the server enforces the same rule on every POST *@
+                        <input type="date" name="labourDate" id="labourDate" value="@Model.Today.ToString("yyyy-MM-dd")" min="@Model.Today.ToString("yyyy-MM-dd")" max="@Model.Today.ToString("yyyy-MM-dd")" class="form-control" readonly required />
+                        <div class="form-text" id="todayOnlyHint">Today only. Contact the System Administrator for entries on other dates.</div>
+                    }
                 </div>
                 <div class="col-12 col-sm-4">
                     <label class="form-label fw-bold" for="areaSelect">Area</label>

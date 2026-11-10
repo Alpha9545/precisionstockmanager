@@ -98,6 +98,20 @@ namespace PlantStockManager.Services
         public static decimal LabourDays(int maleFull, int maleHalf, int femaleFull, int femaleHalf)
             => maleFull + femaleFull + (maleHalf + femaleHalf) * 0.5m;
 
+        // 2026-11-09 (owner): Daily Labour Attendance -- a non-administrator may enter or correct attendance for TODAY only
+        // (India business date); a System Administrator (User.IsFullAccess()) may use any date, past, today or future.
+        public const string TodayOnlyMessage = "Attendance can only be entered for today's date. Contact the System Administrator for entries on other dates.";
+
+        public static string? ValidateAttendanceDate(DateTime? labourDate, DateTime today, bool isAdministrator)
+        {
+            if (!labourDate.HasValue || labourDate.Value == default)
+                return "Date is required.";
+            if (isAdministrator)
+                return null;
+            return labourDate.Value.Date == today.Date ? null : TodayOnlyMessage;
+        }
+
+        // Today and earlier (Labour Overtime; Attendance used it until 2026-11-09).
         public static string? ValidateDate(DateTime? labourDate, DateTime today)
         {
             if (!labourDate.HasValue || labourDate.Value == default)

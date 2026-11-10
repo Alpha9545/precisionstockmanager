@@ -13,9 +13,12 @@ namespace PlantStockManager.Pages.Production.Labour
     // Area-wise; Outlet Areas only once 2026-10-26_LabourAttendanceOutlet.sql is applied -- DailyLabourRules). Choosing a date + location
     // loads what is already recorded; saving inserts a time not yet recorded and
     // CORRECTS a recorded one (every correction is kept in the audit history).
-    // Today and earlier dates (India time, AppClock) can be entered or corrected;
-    // entry is not tied to the clock time. Area access is AreaAccessService's
-    // regular rule, checked on every GET and POST -- posted ids are never trusted.
+    // Dates (2026-11-09, owner): a non-administrator enters or corrects TODAY only (India
+    // business date, BusinessClock -- never the browser's date); a System Administrator
+    // (User.IsFullAccess(), from the login claims) may use any date, past or future.
+    // Checked on every POST before anything is saved. Entry is not tied to the clock time.
+    // Area access is AreaAccessService's regular rule, checked on every GET and POST --
+    // posted ids are never trusted.
     public class AttendanceModel : PageModel
     {
         private readonly DailyLabourAttendanceRepository _attendanceRepo;
@@ -23,11 +26,13 @@ namespace PlantStockManager.Pages.Production.Labour
         private readonly PolyhouseRepository _polyhouseRepo;
         private readonly AreaAccessService _areaAccess;
         private readonly DatabaseHelper _db;
+        private readonly BusinessClock _clock;
         private bool? _outletAllowed;
 
         public AttendanceModel(DailyLabourAttendanceRepository attendanceRepo, AreaRepository areaRepo, PolyhouseRepository polyhouseRepo, AreaAccessService areaAccess,
-            DatabaseHelper db)
+            DatabaseHelper db, BusinessClock clock)
         {
+            _clock = clock;
             _db = db;
             _attendanceRepo = attendanceRepo;
             _areaRepo = areaRepo;
@@ -54,7 +59,11 @@ namespace PlantStockManager.Pages.Production.Labour
         public bool ManualRecordExists { get; set; }
         public List<DailyLabourAttendanceEntry> Entries { get; set; } = new();
         public List<DailyLabourAttendanceChange> Changes { get; set; } = new();
-        public DateTime Today => AppClock.Today;
+        public DateTime Today => _clock.Today;
+        // Any date for a System Administrator; today only for everyone else (DailyLabourRules.ValidateAttendanceDate).
+        public bool CanUseAnyDate => User.IsFullAccess();
+        // Set on GET when a non-administrator asked for another date: the page shows today instead.
+        public string? DateNotice { get; set; }
         public bool SelectedAreaIsMainOffice => SelectedArea != null && DailyLabourRules.RequiresPolyhouse(SelectedArea.AreaType);
 
         public DailyLabourAttendanceEntry? Entry9 => Entries.FirstOrDefault(e => e.AttendanceTime == DailyLabourRules.Morning);
@@ -70,7 +79,15 @@ namespace PlantStockManager.Pages.Production.Labour
 
         public async Task OnGetAsync()
         {
-            LabourDate ??= Today;
+            if (CanUseAnyDate)
+                LabourDate ??= Today;
+            else
+            {
+                // A typed / bookmarked URL for another day never loads that day for a non-administrator.
+                if (LabourDate.HasValue && LabourDate.Value.Date != Today)
+                    DateNotice = DailyLabourRules.TodayOnlyMessage;
+                LabourDate = Today;
+            }
             await LoadAreasAsync();
             if (!AreaId.HasValue && Areas.Count == 1)
                 AreaId = Areas[0].Id;
@@ -93,13 +110,16 @@ namespace PlantStockManager.Pages.Production.Labour
             NormalizeCountBindingErrors();
             await LoadAreasAsync();
 
-            var dateError = DailyLabourRules.ValidateDate(LabourDate, Today);
+            // Server-side date rule (the date picker is only a convenience): checked before anything is read or saved.
+            var dateError = DailyLabourRules.ValidateAttendanceDate(LabourDate, Today, CanUseAnyDate);
             if (dateError != null)
                 ModelState.AddModelError(nameof(LabourDate), dateError);
             await ResolveLocationAsync(addErrors: true);
             if (!LocationReady || dateError != null)
             {
                 LocationReady = false;
+                if (dateError != null && !CanUseAnyDate)
+                    LabourDate = Today;   // the date picker shows today again
                 return Page();
             }
 
@@ -199,7 +219,7 @@ namespace PlantStockManager.Pages.Production.Labour
             }
             if (!DailyLabourRules.RequiresPolyhouse(SelectedArea!.AreaType))
                 SelectedPolyhouse = null;
-            LocationReady = LabourDate.HasValue && LabourDate.Value.Date <= Today;
+            LocationReady = LabourDate.HasValue && DailyLabourRules.ValidateAttendanceDate(LabourDate, Today, CanUseAnyDate) == null;
         }
 
         private async Task LoadDayAsync()

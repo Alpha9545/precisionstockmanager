@@ -52,6 +52,8 @@ namespace PlantStockManager.Tests
         {
             public string ConnectionString { get; init; } = "";
             public ServiceProvider Provider { get; init; } = null!;
+            // 2026-11-09: the page's business date (non-administrators enter today only); null FixedUtc = the real clock.
+            public TestBusinessClock Clock { get; init; } = null!;
             public T Get<T>() where T : notnull => Provider.GetRequiredService<T>();
             public DailyLabourAttendanceRepository Repo => Get<DailyLabourAttendanceRepository>();
 
@@ -135,7 +137,9 @@ namespace PlantStockManager.Tests
             services.AddScoped<UserClaimsFactory>();
             foreach (var t in typeof(DatabaseHelper).Assembly.GetTypes().Where(t => t.Namespace == "PlantStockManager.Data" && t.IsClass && t.Name.EndsWith("Repository")))
                 services.AddScoped(t);
-            var env = new Env { ConnectionString = cs!, Provider = services.BuildServiceProvider() };
+            var clock = new TestBusinessClock();
+            services.AddSingleton<BusinessClock>(clock);
+            var env = new Env { ConnectionString = cs!, Provider = services.BuildServiceProvider(), Clock = clock };
             Skip.If(await env.ScalarAsync<int>("SELECT CASE WHEN OBJECT_ID('dbo.DailyLabourAttendance') IS NULL THEN 0 ELSE 1 END") == 0,
                 "The scratch copy does not have 2026-10-06_DailyLabourAttendance.sql applied.");
             await env.CleanupAsync();
@@ -144,10 +148,23 @@ namespace PlantStockManager.Tests
             return env;
         }
 
+        // 2026-11-09: non-administrators enter TODAY only, so the fixture days (2001) are entered ON that day -- the
+        // business clock is set to noon India time of that date. keepClock = the test has fixed the clock itself.
+        private static void OnThatDay(Env env, DateTime? date, bool keepClock)
+        {
+            if (keepClock)
+                return;
+            if (date.HasValue && date.Value.Year == 2001)
+                env.Clock.AtIndia(date.Value.Date.AddHours(12));
+            else
+                env.Clock.Real();
+        }
+
         // Posts the Attendance form exactly as the page does (null = left blank).
         private static async Task<(IActionResult Result, AttendancePage Page)> PostAsync(Env env, int userId, DateTime? date, int? areaId, int? polyhouseId,
-            int? m9, int? f9, int? m2, int? f2, string? r9 = null, string? r2 = null, Action<AttendancePage>? before = null)
+            int? m9, int? f9, int? m2, int? f2, string? r9 = null, string? r2 = null, Action<AttendancePage>? before = null, bool keepClock = false)
         {
+            OnThatDay(env, date, keepClock);
             var page = env.Page<AttendancePage>(await env.LoginAsync(userId));
             page.LabourDate = date; page.AreaId = areaId; page.PolyhouseId = polyhouseId;
             page.Male9 = m9; page.Female9 = f9; page.Male2 = m2; page.Female2 = f2; page.Remarks9 = r9; page.Remarks2 = r2;
@@ -155,8 +172,9 @@ namespace PlantStockManager.Tests
             return (await page.OnPostAsync(), page);
         }
 
-        private static async Task<AttendancePage> GetAsync(Env env, int userId, DateTime? date, int? areaId, int? polyhouseId)
+        private static async Task<AttendancePage> GetAsync(Env env, int userId, DateTime? date, int? areaId, int? polyhouseId, bool keepClock = false)
         {
+            OnThatDay(env, date, keepClock);
             var page = env.Page<AttendancePage>(await env.LoginAsync(userId), "GET");
             page.LabourDate = date; page.AreaId = areaId; page.PolyhouseId = polyhouseId;
             await page.OnGetAsync();
@@ -448,33 +466,117 @@ namespace PlantStockManager.Tests
 
         // ---- dates and counts ------------------------------------------------------------------------
 
+        // 2026-11-09 (owner): a non-administrator enters or corrects TODAY only (India business date); a System
+        // Administrator may use any date. "Today" is D2 (2 Mar 2001) on the test business clock; every row is in 2001.
+        // The fingerprint of a day = its attendance rows and audit rows, to prove a refused POST changed nothing.
+        private static Task<string> DayFingerprintAsync(Env env, DateTime date, int areaId) => env.ScalarAsync<string>(
+            "SELECT CONCAT((SELECT STRING_AGG(CONCAT(AttendanceTime, ':', MaleCount, '/', FemaleCount, '/', ISNULL(Remarks, ''), '/', ISNULL(CONVERT(VARCHAR(30), ModifiedDate, 126), '')), ',') "
+            + "WITHIN GROUP (ORDER BY AttendanceTime) FROM dbo.DailyLabourAttendance WHERE LabourDate = @D AND AreaId = @A), '|', "
+            + "(SELECT COUNT(*) FROM dbo.DailyLabourAttendanceHistory WHERE LabourDate = @D AND AreaId = @A))",
+            ("@D", date), ("@A", areaId));
+
         [SkippableFact]
-        public async Task Dates_FutureRejected_TodayAndPastAccepted_InIndiaTime()
+        public async Task Dates_NonAdministratorTodayOnly_PastFutureAndTamperedPostsRefused_NothingChanged()
         {
             var env = await OpenAsync();
-            var today = AppClock.Today;
-            // Checked BEFORE the try: the cleanup below removes today's Green Bless rows.
-            Skip.If(await env.RowsAsync(today, GreenBless, null) > 0, "Green Bless already has attendance for today on this scratch copy.");
             try
             {
-                var (r, page) = await PostAsync(env, MpSup, today.AddDays(1), GreenBless, null, 1, 1, 1, 1);
-                Assert.Contains(DailyLabourRules.FutureDateMessage, Errors(page));
-                (r, page) = await PostAsync(env, MpSup, null, GreenBless, null, 1, 1, 1, 1);
+                // An existing record on "yesterday" (D1), made by an administrator.
+                env.Clock.AtIndia(D2.AddHours(10));
+                var (r, page) = await PostAsync(env, Admin, D1, GreenBless, null, 5, 5, 4, 4, r9: "Admin entry", keepClock: true);
+                AssertSaved(r, page);
+                var before = await DayFingerprintAsync(env, D1, GreenBless);
+                Assert.StartsWith("AM09:5/5/Admin entry", before);
+
+                // 1. today: saved
+                (r, page) = await PostAsync(env, MpSup, D2, GreenBless, null, 7, 6, null, null, keepClock: true);
+                AssertSaved(r, page);
+                Assert.Equal(1, await env.RowsAsync(D2, GreenBless, null, Morning));
+
+                // 2. yesterday: a new time and a correction are both refused; the existing record is untouched (9)
+                (r, page) = await PostAsync(env, MpSup, D1, GreenBless, null, 50, 50, 40, 40, keepClock: true);
+                Assert.IsType<PageResult>(r);
+                Assert.Contains(DailyLabourRules.TodayOnlyMessage, Errors(page));
+                Assert.False(page.LocationReady);
+                Assert.Equal(D2, page.LabourDate);   // the date picker shows today again
+                Assert.Equal(before, await DayFingerprintAsync(env, D1, GreenBless));
+
+                // 3. tomorrow: refused, nothing created
+                (r, page) = await PostAsync(env, MpSup, D3, GreenBless, null, 1, 1, 1, 1, keepClock: true);
+                Assert.Contains(DailyLabourRules.TodayOnlyMessage, Errors(page));
+                Assert.Equal(0, await env.RowsAsync(D3, GreenBless, null));
+
+                // 4. a tampered POST: the form was loaded for today, then its hidden LabourDate was edited by hand
+                var get = await GetAsync(env, MpSup, D2, GreenBless, null, keepClock: true);
+                Assert.True(get.LocationReady);
+                (r, page) = await PostAsync(env, MpSup, get.LabourDate, GreenBless, null, 9, 9, 9, 9, keepClock: true,
+                    before: p => p.LabourDate = D1);
+                Assert.Contains(DailyLabourRules.TodayOnlyMessage, Errors(page));
+                Assert.Equal(before, await DayFingerprintAsync(env, D1, GreenBless));
+                // ... and an older day and a far-future day
+                foreach (var tampered in new[] { new DateTime(2001, 1, 15), new DateTime(2001, 12, 31) })
+                {
+                    (r, page) = await PostAsync(env, MpSup, tampered, GreenBless, null, 1, 1, 1, 1, keepClock: true);
+                    Assert.Contains(DailyLabourRules.TodayOnlyMessage, Errors(page));
+                    Assert.Equal(0, await env.RowsAsync(tampered, GreenBless, null));
+                }
+                // No date at all: refused for everyone.
+                (r, page) = await PostAsync(env, MpSup, null, GreenBless, null, 1, 1, 1, 1, keepClock: true);
                 Assert.Contains("Date is required.", Errors(page));
-                Assert.Equal(0, await env.RowsAsync(today.AddDays(1), GreenBless, null));
+                (r, page) = await PostAsync(env, Admin, null, Samarth, null, 1, 1, 1, 1, keepClock: true);
+                Assert.Contains("Date is required.", Errors(page));
 
-                (r, page) = await PostAsync(env, MpSup, D2, GreenBless, null, 5, 5, null, null);      // past
-                AssertSaved(r, page);
-                (r, page) = await PostAsync(env, MpSup, today, GreenBless, null, 5, 5, null, null);   // today
-                AssertSaved(r, page);
-                Assert.Equal(1, await env.RowsAsync(today, GreenBless, null, Morning));
+                // A typed URL for another day shows today instead, with the message.
+                get = await GetAsync(env, MpSup, D1, GreenBless, null, keepClock: true);
+                Assert.Equal(D2, get.LabourDate);
+                Assert.Equal(DailyLabourRules.TodayOnlyMessage, get.DateNotice);
+                Assert.Equal(7, get.Male9);   // today's record, not D1's
+                Assert.False(get.CanUseAnyDate);
+                get = await GetAsync(env, MpSup, null, null, null, keepClock: true);
+                Assert.Equal(D2, get.LabourDate);
+                Assert.Null(get.DateNotice);
 
-                // The page defaults to India's today and never offers a later date.
-                var get = await GetAsync(env, MpSup, null, null, null);
-                Assert.Equal(today, get.LabourDate);
-                Assert.Equal(today, get.Today);
+                // 5-7. the administrator: past (a correction of D1), today and future
+                (r, page) = await PostAsync(env, Admin, D1, GreenBless, null, 6, 5, 4, 4, r9: "Admin entry", keepClock: true);
+                AssertSaved(r, page);
+                Assert.Equal(1, await env.HistoryRowsAsync(D1, GreenBless, "Corrected"));
+                (r, page) = await PostAsync(env, Admin, D2, Samarth, null, 3, 3, null, null, keepClock: true);
+                AssertSaved(r, page);
+                (r, page) = await PostAsync(env, Admin, D3, Samarth, null, 2, 2, 2, 2, keepClock: true);
+                AssertSaved(r, page);
+                Assert.Equal(2, await env.RowsAsync(D3, Samarth, null));
+                get = await GetAsync(env, Admin, D3, Samarth, null, keepClock: true);
+                Assert.True(get.CanUseAnyDate);
+                Assert.Equal(D3, get.LabourDate);
+                Assert.True(get.LocationReady);   // a future day can be opened and corrected
+                Assert.Null(get.DateNotice);
             }
-            finally { await env.CleanupAsync(today, GreenBless); }
+            finally { env.Clock.Real(); await env.CleanupAsync(); }
+        }
+
+        // Midnight India time decides "today", not the server's or the browser's clock.
+        [SkippableFact]
+        public async Task Dates_TodayFollowsTheIndiaDate_AroundMidnight()
+        {
+            var env = await OpenAsync();
+            try
+            {
+                env.Clock.AtIndia(D2.AddHours(23).AddMinutes(59).AddSeconds(59));   // 18:29:59 UTC
+                var (r, page) = await PostAsync(env, MpSup, D3, GreenBless, null, 1, 1, null, null, keepClock: true);
+                Assert.Contains(DailyLabourRules.TodayOnlyMessage, Errors(page));
+                (r, page) = await PostAsync(env, MpSup, D2, GreenBless, null, 1, 1, null, null, keepClock: true);
+                AssertSaved(r, page);
+
+                env.Clock.AtIndia(D3);                                                 // 18:30:00 UTC, still 2 Mar in UTC
+                Assert.Equal(D2, env.Clock.UtcNow.Date);
+                (r, page) = await PostAsync(env, MpSup, D2, GreenBless, null, null, null, 2, 2, keepClock: true);
+                Assert.Contains(DailyLabourRules.TodayOnlyMessage, Errors(page));
+                Assert.Equal(0, await env.RowsAsync(D2, GreenBless, null, Afternoon));
+                (r, page) = await PostAsync(env, MpSup, D3, GreenBless, null, 2, 2, null, null, keepClock: true);
+                AssertSaved(r, page);
+                Assert.Equal(1, await env.RowsAsync(D3, GreenBless, null, Morning));
+            }
+            finally { env.Clock.Real(); await env.CleanupAsync(); }
         }
 
         [SkippableFact]
